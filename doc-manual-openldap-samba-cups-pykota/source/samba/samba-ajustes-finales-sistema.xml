@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+
+<chapter id="samba-ajustes-finales-sistema">
+
+<chapterinfo>
+	<keywordset>
+		<keyword>Samba</keyword>
+		<keyword>OpenLDAP</keyword>
+	</keywordset>
+</chapterinfo>
+
+<title>Ajustes finales en el sistema</title>
+
+<sect1 id="samba-ajustes-finales-sistema-intro">
+	<title>Introducción</title>
+
+	<para>Antes de considerar Samba completamente instalado y configurado, se han
+	de realizar una serie de modificaciones en el sistema, y estas modificaciones
+	se abarcan en este capítulo.</para>
+</sect1>
+
+<sect1 id="samba-ajustes-finales-sistema-clave-admin-ldap">
+	<title>Estableciendo la clave del administrador de <acronym>LDAP</acronym></title>
+
+	<para>Samba necesita conocer la clave del administrador del directorio <acronym>LDAP</acronym>
+	para poder acceder al mismo. Por este motivo es necesario indicársela, para ello ejecute:</para>
+
+	<example id="samba-ajustes-finales-sistema-clave-admin-ldap-ejemplo1">
+		<title>Especificando la clave del administrador de <acronym>LDAP</acronym> en Samba</title>
+
+		<para>En la captura de pantalla que se muestra a continuación, sustituya la palabra
+		<quote>clave</quote> por la clave del administrador del servidor <acronym>LDAP</acronym>:</para>
+	
+<screen><prompt>#</prompt> <userinput>/usr/bin/smbpasswd -w clave</userinput>
+<computeroutput>Setting stored password for "cn=admin,dc=gsr,dc=pt" in secrets.tdb</computeroutput></screen>
+	</example>
+
+	<warning><para>Si varía el valor de la opción <quote>ldap admin dn</quote> del
+	archivo de configuración de Samba, la clave del administrador del directorio
+	<acronym>LDAP</acronym> ha de resetearse, ejecutando de nuevo la orden
+	  presente en el <xref linkend="samba-ajustes-finales-sistema-clave-admin-ldap-ejemplo1"/>.</para></warning>
+
+</sect1>
+
+<sect1 id="samba-ajustes-finales-sistema-slapdconf-acl">
+	<title>Nueva regla de control de acceso en <filename>/etc/ldap/slapd.conf</filename></title>
+
+	<para>Debido a que a partir de ahora se almacenarán las claves relacionadas con
+	Samba en el directorio <acronym>LDAP</acronym>, se añade en el archivo
+	<filename>/etc/ldap/slapd.conf</filename> una nueva regla de control de acceso que
+	impida, a todos aquellos usuarios distintos del administrador de <acronym>LDAP</acronym>,
+	el acceso a los <quote>hashes</quote> de las distintas claves allí almacenadas. Las
+	líneas que se han de añadir al archivo son:</para>
+
+<programlisting><![CDATA[# allow the "ldap admin dn" access, but deny everyone else
+# (Samba related)
+access to attribute=sambaLMPassword,sambaNTPassword
+     by dn="cn=admin,dc=gsr,dc=pt" write
+     by dn="cn=readadmin,dc=gsr,dc=pt" read
+     by * none]]></programlisting>
+	
+	<para>Para que la nueva configuración tenga efecto, ha de reiniciar el demonio
+	<application>slapd</application>, en el
+	<xref linkend="openldap-configuracion-especificacion-interfaz-ejemplo2"/> se muestra
+	como hacerlo.</para>
+</sect1>
+
+<sect1 id="samba-ajustes-finales-sistema-slapdconf-index">
+	<title>Especificación de nuevos índices en <filename>/etc/ldap/slapd.conf</filename></title>
+
+	<para>Con el objetivo de mejorar el rendimiento de las búsquedas dentro del
+	directorio <acronym>LDAP</acronym>, se van a añadir una serie de índices al
+	archivo de configuración del demonio <application>slapd</application>.</para>
+
+	<para>Los índices que se presentan a continuación, incrementan la velocidad en las
+	búsquedas realizadas sobre la clases objeto <emphasis>sambaSamAccount</emphasis>,
+	y posiblemente también sobre las clases objeto <emphasis>posixAccount</emphasis>
+	y <emphasis>posixGroup</emphasis>.</para>
+
+
+<programlisting># Requerido por OpenLDAP
+index objectclass             eq
+
+index default                 sub
+index cn                      pres,sub,eq
+index sn                      pres,sub,eq
+index mail                    eq,subinitial
+index givenname               eq,subinitial
+
+# Requerido para soportar pdb_getsampwnam
+index uid                     pres,sub,eq
+
+# Requerido para soportar pdb_getsambapwrid()
+index displayName             pres,sub,eq
+
+# Descomente las siguientes líneas si está almacenando entradas
+# posixAccount y posixGroup en el directorio
+index uidNumber               eq
+index gidNumber               eq
+index memberUid               eq
+
+# Samba 3.*
+index sambaSID              eq
+index sambaPrimaryGroupSID  eq
+index sambaDomainName       eq</programlisting>
+
+	<para>Una vez realizados los cambios en el archivo <filename>/etc/ldap/slapd.conf</filename>
+	se han de regenerar los índices, para ello ejecute:</para>
+
+	<example id="samba-ajustes-finales-sistema-slapdconf-index-ejemplo1">
+		<title>Regenerando los índices de <application>slapd</application></title>
+
+<screen><prompt>#</prompt> <userinput>/usr/sbin/slapindex -vf /etc/ldap/slapd.conf</userinput>
+<computeroutput>indexing id=00000001
+indexing id=00000002
+indexing id=0000000a
+indexing id=0000000b
+indexing id=0000000c</computeroutput></screen>
+	</example>
+
+	<para>Ahora sólo queda reiniciar el servidor <application>slapd</application>:</para>
+
+	<example id="samba-ajustes-finales-sistema-slapdconf-index-ejemplo2">
+		<title>Reiniciando el servidor <application>slapd</application></title>
+
+<screen><prompt>#</prompt> <userinput>/etc/init.d/slapd restart</userinput>
+<computeroutput>Stopping OpenLDAP: slapd.
+Starting OpenLDAP: slapd.</computeroutput></screen>
+	</example>
+
+</sect1>
+
+<sect1 id="samba-ajustes-finales-sistema-directorios-samba">
+	<title>Creando la estructura de directorios en el <emphasis>home</emphasis></title>
+
+	<para>En el <xref linkend="samba-configuracion-samba"/> se han definido una serie de directorios
+	dedicados a distintas tareas dentro de Samba, como pueden ser alojar los perfiles móviles
+	de los usuarios, los scripts para Netlogon o el directorio home de los usuarios.</para>
+
+	<para>En esta sección se van a crear los anteriores directorios para preparar el sistema
+	para alojar usuarios:</para>
+
+	<example id="samba-ajustes-finales-sistema-directorios-samba-ejemplo1">
+		<title>Creación de los directorios necesarios para Samba</title>
+
+<screen><prompt>#</prompt> <userinput>mkdir -vpm 755 /home/samba/</userinput>
+<computeroutput>mkdir: se ha creado el directorio `/home/samba'</computeroutput>
+<prompt>#</prompt> <userinput>mkdir -vpm 755 /home/samba/netlogon /home/samba/users</userinput>
+<computeroutput>mkdir: se ha creado el directorio `/home/samba/netlogon'
+mkdir: se ha creado el directorio `/home/samba/users'</computeroutput>
+<prompt>#</prompt> <userinput>/bin/chgrp -v domainadmins /home/samba/netlogon/</userinput> <co id="co-chgrp-domainadmins"/>
+<computeroutput>cambiado el grupo de `netlogon/' a domainadmins</computeroutput>
+<prompt>#</prompt> <userinput>mkdir -vpm 1757 /home/samba/profiles</userinput>
+<computeroutput>mkdir: se ha creado el directorio `/home/samba/profiles'</computeroutput></screen>
+
+		<calloutlist>
+			<callout arearefs="co-chgrp-domainadmins">
+				<para>El grupo <emphasis>domainadmins</emphasis> se crea en el proceso de
+				configuración de la herramienta <emphasis><acronym>LDAP</acronym> Account Manager</emphasis>
+				(vea el <xref linkend="ldap-account-manager-instalacion-conf"/>, concretamente
+				la imagen <xref linkend="ldap-account-manager-configuracion-creacion-grupos-samba"/>).</para>
+			</callout>
+		</calloutlist>
+	</example>
+
+</sect1>
+</chapter>

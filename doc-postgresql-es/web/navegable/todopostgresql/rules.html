@@ -1,0 +1,388 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<HTML
+><HEAD
+><TITLE
+>El Sistema de reglas de Postgres</TITLE
+><META
+NAME="GENERATOR"
+CONTENT="Modular DocBook HTML Stylesheet Version 1.59"><LINK
+REL="HOME"
+TITLE="PostgreSQL"
+HREF="postgres.html"><LINK
+REL="UP"
+TITLE="Guía del Programador"
+HREF="part-programmer.html"><LINK
+REL="PREVIOUS"
+TITLE="Extensiones de SQL: Agregados"
+HREF="xaggr.html"><LINK
+REL="NEXT"
+TITLE="Las vistas y el sistema de reglas."
+HREF="x17299.html"></HEAD
+><BODY
+CLASS="CHAPTER"
+BGCOLOR="#FFFFFF"
+TEXT="#000000"
+LINK="#0000FF"
+VLINK="#840084"
+ALINK="#0000FF"
+><DIV
+CLASS="NAVHEADER"
+><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TH
+COLSPAN="3"
+ALIGN="center"
+>PostgreSQL</TH
+></TR
+><TR
+><TD
+WIDTH="10%"
+ALIGN="left"
+VALIGN="bottom"
+><A
+HREF="xaggr.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="80%"
+ALIGN="center"
+VALIGN="bottom"
+></TD
+><TD
+WIDTH="10%"
+ALIGN="right"
+VALIGN="bottom"
+><A
+HREF="x17299.html"
+>Siguiente</A
+></TD
+></TR
+></TABLE
+><HR
+ALIGN="LEFT"
+WIDTH="100%"></DIV
+><DIV
+CLASS="CHAPTER"
+><H1
+><A
+NAME="RULES"
+>El Sistema de reglas de <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+></A
+></H1
+><P
+>     Los sistemas de reglas de producción son conceptualmente simples,
+     pero hay muchos puntos sutiles implicados en el uso actual de ellos.
+     Algunos de estos puntos y los fundamentos teóricos del sistema de 
+     reglas de <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> se pueden encontrar en
+     [<A
+HREF="part-appendix.html#STON90B"
+><I
+>Stonebraker et al, ACM, 1990</I
+></A
+>].</P
+><P
+>     Algunos otros sistemas de base de datos definen reglas de base 
+     de datos activas. Éstas son habitualmente procedimientos y disparadores 
+     (a partir de aquí utilizaré el término más habitual de "trigger")
+     almacenados y se implementan en
+     <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+>
+     como funciones y triggers.  </P
+><P
+>     El sistema de reglas de reescritura de queries (el "sistema de reglas" 
+     a partir de ahora) es totalmente diferente a los procedimientos 
+     almacenados y los triggers. Él modifica las queries para tomar 
+     en consideración las reglas y entonces pasa la query modificada al 
+     optimizador para su ejecución. Es muy poderoso, y puede utilizarse 
+     de muchas formas, tales como procedimientos, vistas y versiones del 
+     lenguaje de query. El poder de este sistema de reglas se discute en
+[<A
+HREF="part-appendix.html#ONG90"
+><I
+>Ong and Goh, 1990</I
+></A
+>]
+ y en
+[<A
+HREF="part-appendix.html#STON90B"
+><I
+>Stonebraker et al, ACM, 1990</I
+></A
+>].</P
+><DIV
+CLASS="SECT1"
+><H1
+CLASS="SECT1"
+><A
+NAME="AEN17248"
+>¿Qué es un árbol de query?</A
+></H1
+><P
+>    Para comprender como trabaja el sistema de reglas, es necesario conocer 
+    cuándo se invoca y cuáles son sus inputs y sus resultados.</P
+><P
+>    El sistema de reglas se situa entre el traductor de la query y el 
+    optimizador. Toma la salida del traductor, un árbol de la query, 
+    y las reglas de reescritura del catálogo <TT
+CLASS="FILENAME"
+>pg_rewrite</TT
+>, 
+    los cuales son también árboles de queries con alguna información extra, 
+    y crea cero o muchos árboles de query como resultado. De este modo, 
+    su input y su output son siempre tales como el traductor mismo podría 
+    haberlos producido y, de este modo, todo aparece básicamente repesentable 
+    como una instrucción <SPAN
+CLASS="ACRONYM"
+>SQL</SPAN
+>.</P
+><P
+>    Ahora, ¿qué es un árbol de query? Es una representación interna de una 
+    instrucción  <SPAN
+CLASS="ACRONYM"
+>SQL</SPAN
+> donde se almacenan de modo separado 
+    las partes menores que la componen. Estos árboles de query son visibles 
+    cuando arrancamos el motor de <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> con 
+    nivel de debug 4 y tecleamos queries en el interface de usuario 
+    interactivo. 
+    Las acciones de las reglas almacenadas en el catalgo de sistema 
+    <TT
+CLASS="FILENAME"
+>pg_rewrite</TT
+> están almacenadas también como árboles 
+    de queries. No están formateadas como la salida del debug, pero contienen 
+    exactamente la misma información. </P
+><P
+>    Leer un árbol de query requiere experiencia y era bastante duro cuando 
+    empecé a trabajar en el sistema de reglas. Puedo recordar que mientras 
+    estaba esperando en la máquina de café asimilaba el vaso a una lista de 
+    objetivos, el agua y el polvo del café a una tabla de rangos, y todos 
+    los botones a expresiones de cualificación. Puesto que las 
+    representaciones de <SPAN
+CLASS="ACRONYM"
+>SQL</SPAN
+> de árboles de queries son 
+    suficientes para entender el sistema de reglas, este documento no le 
+    enseñará como leerlo. Él debería ayudarle a aprenderlo, con las 
+    convenciones de nombres requeridas en las descripciones que siguen más 
+    adelante.</P
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN17260"
+>Las partes de un árbol de query</A
+></H2
+><P
+>    Cuando se leen las representaciones de <SPAN
+CLASS="ACRONYM"
+>SQL</SPAN
+> de los 
+    árboles de queries en este documento, es necesario ser capaz de 
+    identificar las partes de la instrucción que se ha roto en ella, y que 
+    está en la estructura del árbol de query. Las partes de un árbol de 
+    query son:</P
+><P
+><P
+></P
+><DIV
+CLASS="VARIABLELIST"
+><DL
+><DT
+>El tipo de commando (commandtype)</DT
+><DD
+><P
+>        Este es un valor sencillo que nos dice el comando que produjo el 
+	arbol de traducción (SELECT, INSERT, UPDATE, DELETE).
+    </P
+></DD
+><DT
+>La tabla de rango (rangetable)</DT
+><DD
+><P
+>        La tabla de rango es una lista de las relaciones que se utilizan 
+	en la query. En una instrucción SELECT, son las relaciones dadas 
+	tras la palabra clave FROM.
+    </P
+><P
+>        Toda entrada en la tabla del rango identifica una tabla o vista, 
+	y nos dice el nombre por el que se la identifica en las otras 
+	partes de la query. En un árbol de query, las entradas de la tabla 
+	de rango se indican por un índice en lugar de por su nombre como 
+	estarían en una instrucción <SPAN
+CLASS="ACRONYM"
+>SQL</SPAN
+>. Esto puede ocurrir 
+	cuando se han mezclado las tablas de rangos de reglas. Los ejemplos 
+	de este documento no muestran esa situación.
+    </P
+></DD
+><DT
+>La relación-resultado (resultrelation).</DT
+><DD
+><P
+>        Un índice a la tabla de rango que identifica la relación donde irán 
+	los resultados de la query.
+    </P
+><P
+>        Las queries SELECT normalmente no tienen una relación resultado. El 
+	caso especial de una SELECT INTO es principalmente identica a una 
+	secuencia CREATE TABLE, INSERT ... SELECT y no se discute aquí por 
+	separado. 
+    </P
+><P
+>        En las queries INSERT, UPDATE y DELETE, la relación resultado es la 
+	tabla (¡o vista!) donde tendrán efecto los cambios.
+    </P
+></DD
+><DT
+>La lista objetivo (targetlist).</DT
+><DD
+><P
+>        La lista objetivo es una lista de expresiones que definen el resultado 
+	de la query. En el caso de una SELECT, las expresiones son las que 
+	construyen la salida final de la query. Son las expresiones entre 
+	las palabras clave SELECT y FROM (* es sólo una abreviatura de 
+	todos los nombres de atributos de una relación).
+    </P
+><P
+>        Las queries DELETE no necesitan una lista objetivo porque no producen 
+	ningún resultado. De hecho, el optimizador añadirá una entrada 
+	especial para una lista objetivo vacía. Pero esto ocurre tras el 
+	sistema de reglas y lo comentaremos más tarde. Para el sistema de 
+	reglas, la lista objetivo está vacía.
+    </P
+><P
+>        En queries INSERT la lista objetivo describe las nuevas filas que irán 
+	a la relación resultado. Las columnas que no aparecen en la relación 
+	resultado serán añadidas por el optimizador con una expresión 
+	constante NULL. Son las expresiones de la clausula VALUES y las de la 
+	clausula SELECT en una INSERT .... SELECT.
+    </P
+><P
+>        En queries UPDATE, describe las nuevas filas que reemplazarán a otras 
+	viejas. Ahora el optimizador añadirá las columnas que no aparecen 
+	insertando expresiones que recuperan los valores de las filas viejas 
+	en las nuevas. Y añadirá una entrada especial como lo hace DELETE. Es 
+	la parte de la query que recoge las expresiones del atributo 
+	SET atributo = expresión.
+    </P
+><P
+>        Cada entrada de la lista objetivo contiene una expresion que puede ser 
+	un valor constante, una variable apuntando a un atributo de una de las 
+	relaciones en la tabla de rango, un parámetro o un arbol de 
+	expresiones hecho de llamadas a funciones, constantes, variables, 
+	operadores, etc.
+    </P
+></DD
+><DT
+>La cualificación.</DT
+><DD
+><P
+>        La cualificación de las queries es una expresión muy similar a otra de 
+	las contenidas en las entradas de la lista objetivo. El valor 
+	resultado de esta expresión e un booleano que dice si la operación 
+	(INSERT, UPDATE, DELETE o SELECT) para las filas del resultado final 
+	deberá ser ejecutada o no. Es la clausula WHERE de una instrucción 
+	<SPAN
+CLASS="ACRONYM"
+>SQL</SPAN
+>.
+    </P
+></DD
+><DT
+>the others</DT
+><DD
+><P
+>        Las otras partes de un arbol de query, como la clausula ORDER BY, no 
+	tienen interés aquí. El sistema de reglas sustituye las entradas aquí 
+	presentes mientras está aplicando las reglas, pero aquellas no tiene 
+	mucho que hacer con los fundamentos del sistema de reglas. GROUP BY es 
+	una forma especial en la que aparece una definición de una vista, y 
+	aún necesita ser documentado.
+    </P
+></DD
+></DL
+></DIV
+></P
+></DIV
+></DIV
+></DIV
+><DIV
+CLASS="NAVFOOTER"
+><HR
+ALIGN="LEFT"
+WIDTH="100%"><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+><A
+HREF="xaggr.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="postgres.html"
+>Inicio</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+><A
+HREF="x17299.html"
+>Siguiente</A
+></TD
+></TR
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+>Extensiones de <SPAN
+CLASS="ACRONYM"
+>SQL</SPAN
+>: Agregados</TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="part-programmer.html"
+>Subir</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+>Las vistas y el sistema de reglas.</TD
+></TR
+></TABLE
+></DIV
+></BODY
+></HTML
+>

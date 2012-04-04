@@ -1,0 +1,660 @@
+<!-- $Id: ch11.sgm,v 1.6 2002/08/22 03:46:40 pakojavi2000 Exp $ -->
+<!--
+Nota legal:
+
+   Linux Network Administration Guide, por Olaf Kirch et al.
+
+   La traducción al español se publica bajo la licencia GFDL,
+siendo texto de portada el siguiente:
+
+Linux Network Administrator's Guide
+by Olaf Kirch and Terry Dawson
+Copyright  (c) 1993 Olaf Kirch
+Copyright  (c) 2000 Terry Dawson
+Copyright on O'Reilly printed version (c) 2000 O'Reilly & Associates
+
+y siendo secciones invariantes, la sección de Agradecimientos,
+la sección titulada «La traducción al español», el apéndice C; así
+como esta nota.
+
+Capítulo traducido por:
+
+Carlos G. Arqués, carlosg.arques@adi.uam.es
+
+Revisión 1 por Francisco javier Fernández serrador@arrakis.es
+-->
+<chapter id="X-087-2-ipmasq"><title>Enmascaramiento IP y<?lb>Traducción de <?lb>Direcciones de Red</title>
+<indexterm id="chmq.ip.masq" class="startofrange"><primary>IP (Internet Protocol)</primary><secondary>enmascaramiento</secondary></indexterm>
+
+<para>
+
+No hace falta tener una memoria excelente para recordar los días en
+los que sólo las grandes compañías se podían permitir disponer de un cierto
+número de máquinas conectadas por una red local. Frente a aquello, hoy los
+precios de la tecnología de red han bajado y bajado hasta producir dos 
+consecuencias:
+La primera, que las redes locales sean algo común, presentes incluso en
+entornos domésticos. Es seguro que muchos de los lectores, usuarios de GNU/Linux,
+tendrán en su casa dos o más computadoras conectadas por algún tipo de
+ethernet. La segunda, que los recursos de red, y de forma especial las
+direcciones IP, hayan llegado a ser algo escasos y, aunque no están lejanos
+los tiempos en que eran gratuitos, sean ahora objeto de compraventa.
+</para>
+
+<para>
+La mayor parte de la gente que disponga de una LAN deseará también disfrutar
+de una conexión a Internet que todas las máquinas de su red puedan utilizar
+al mismo tiempo.
+Las reglas del encaminamiento IP son muy estrictas respecto a la forma
+de manejar esta situación. Las soluciones tradicionales a este problema
+hubieran pasado por solicitar un conjunto de direcciones IP, probablemente
+un rango de clase C, dar a cada máquina de la LAN una dirección del
+rango asignado, y utilizar un entutador para conectar la LAN a Internet.
+
+</para>
+
+<para>
+En el actual escenario de una Internet mercantilizada, esa solución saldría
+bastante cara. En primer lugar habría que pagar por el rango de direcciones
+asignado, en segundo lugar habría que pagar con toda probabilidad al
+Proveedor de Servicios de Internet (ISP) por el privilegio de disponer
+de una ruta hacia la red local en sus máquinas, de tal forma que el resto
+de Internet supiera cómo llegar a ellas. Esto puede sonar posible para
+algunas empresas, pero en una instalación doméstica los costes no estarían
+justificados.
+</para>
+
+<para>
+<indexterm><primary>NAT (Network Address Translation)</primary></indexterm>
+
+Afortunadamente GNU/Linux proporciona una solución al problema, solución que
+utiliza un componente de un grupo de funcionalidades avanzadas de
+red llamadas en conjunto Traducción de Direcciones de Red (NAT).
+NAT es un conjunto de procedimientos para modificar las direcciones IP
+contenidas en las cabeceras de los datagramas IP mientras éstos viajan (al
+vuelo). Puede sonar extraño, pero mostraremos que se trata de la solución
+ideal al problema &mdash;real para muchos&mdash; que acabamos de plantear. 'IP
+masquerade' es el nombre que recibe un tipo de traducción de direcciones de
+red que permite que todas las máquinas de una red privada utilicen 
+Internet contando con una única conexión (y una única dirección IP).
+</para>
+
+<para>
+<indexterm><primary>enmascaramiento</primary><secondary>funcionamiento</secondary></indexterm>
+<INDEXTERM><PRIMARY>datagramas</PRIMARY><SECONDARY>enmascaramiento</SECONDARY></INDEXTERM>
+
+El enmascaramiento IP (en inglés «IP masquerading») permite utilizar
+un rango de direcciones privadas (reservadas) en la red local y que el
+encaminador GNU/Linux se encargue de hacer al vuelo ciertas traducciones
+de direcciones IP y puertos. Cuando le llega un datagrama IP de alguna
+máquina de la red local, se fija en el protocolo de nivel superior
+encapsulado en el mismo («UDP», «TCP», «ICMP», etc...) y modifica el
+datagrama para que parezca que fue generado por el propio encaminador 
+(y recuerda qué ha sido modificado). A continuación saca el datagrama a 
+Internet donde aparece generado por la única dirección IP pública del encaminador.
+Cuando la máquina destino recibe el datagrama cree que se ha originado en la 
+máquina GNU/Linux, y responde a su dirección de Internet.
+Cuando el encaminador GNU/Linux recibe un datagrama en su interfaz de red conectada
+a Internet, busca en su tabla de conexiones enmascaradas en curso para
+ver si el datagrama pertenece a alguna máquina de la LAN y, si es así,
+deshace la traducción que hizo en el primer datagrama y reenvía este
+datagrama de respuesta a la máquina local.
+</para>
+
+<para>
+En <xref linkend="X-087-2-masquerade.net"> aparece un ejemplo sencillo.
+</para>
+
+<figure id="X-087-2-masquerade.net" float=0>
+<title>Un escenario de enmascaramiento IP típico</title>
+<mediaobject>
+  <imageobject><imagedata fileref="lag2_1101" format="eps"></imageobject>
+  <imageobject><imagedata fileref="lag2_1101.jpg" format="jpg"></imageobject>
+</mediaobject>
+</figure>
+
+<para>
+Tenemos una pequeña red ethernet en la que utilizamos uno de los rangos
+de direcciones reservadas. La red dispone de un encaminador con enmascaramiento,
+una máquina GNU/Linux, por supuesto, que proporciona acceso a Internet.
+Una de las máquinas de la red (192.168.1.3) desea establecer una conexión
+con el host remoto 209.1.106.178 en el puerto 8888. El equipo encamina
+su datagrama por el encaminador con enmascaramiento, que identifica la petición
+de conexión como requiriente de los servicios de enmascaramiento. El encaminador
+entonces acepta el datagrama y reserva un número de puerto (1035) para
+este menester, sustituye la dirección IP y número de puerto de la máquina
+origen del datagrama por los suyos propios, y transmite el datagrama
+al host destino. El host destino cree que ha recibido una petición de
+conexión de la máquina GNU/Linux enmascaradora, y genera un datagrama de
+respuesta. La máquina enmascaradora, al recibir ese datagrama, halla
+la asociación en su tabla de enmascaramiento y deshace la sustitución
+que llevó a cabo en el primer datagrama. Entonces transmite el datagrama
+de respuesta a la máquina origen.
+</para>
+
+<para>
+
+La máquina local cree que se está comunicando directamente con el host remoto.
+El host remoto no sabe nada de la existencia de la máquina local y cree que
+ha establecido una conexión con la máquina GNU/Linux enmascaradora. La máquina
+GNU/Linux enmascaradora sabe que las otras dos máquinas están hablando entre
+sí y en qué puertos, y realiza las traducciones de direcciones y puertos
+necesarias para que la comunicación tenga lugar.
+</para>
+
+<para>
+Todo lo anterior puede parecer un poco confuso, y puede que lo sea, pero
+funciona y es verdadermente simple de poner a punto. Así que no se preocupe
+si aún no comprende todos los detalles.
+</para>
+
+<sect1 id="X-087-2-masq.side.effects"><title>Efectos Laterales y Beneficios Accesorios</title>
+<para>
+<INDEXTERM><PRIMARY>enmascaramiento</PRIMARY><SECONDARY>efectos colaterales</SECONDARY></INDEXTERM>
+
+La funcionalidad de enmascaramiento IP viene acompañada de su propio
+conjunto de efectos laterales, algunos son útiles y algunos pueden acabar
+siendo un problema.
+</para>
+
+<para>
+<?troff .hw specially>
+
+Ninguna de las máquinas en la red detrás del encaminador enmascarador son
+jamás vistas directamente desde  Internet. Consecuentemente, sólamente
+se necesita una dirección IP válida y rutable para permitir que todas las
+máquinas establezcan conexiones hacia Internet. Esto tiene un lado
+no tan bueno: ninguna de esas máquinas es visible desde Internet,
+y por lo tanto no se puede conectar directamente a ellas desde  Internet.
+La única máquina visible en una red enmascarada es el propio encaminador
+enmascarador. Se trata de algo importante cuando se piensa en servicios
+como el correo o el FTP. Resulta de utilidad decidir qué servicios
+deberían ser provistos por la máquina enmascaradora y para cuáles
+debería actuar como proxy o tratar de algún otro modo especial.
+</para>
+
+<para>
+Segundo, dado que ninguna de las máquinas enmascaradas son visibles,
+se encuentran relativamente protegidas de ataques del exterior. Eso
+puede simplificar (o eliminar) la necesidad de puesta a punto de funcionalidades
+de cortafuegos en la máquina enmascaradora. No se debe confiar demasiado en
+ésto, puesto que la red local estará únicamente tan segura como lo esté
+la máquina enmascaradora. Así, si la seguridad es un punto importante,
+se debería utilizar un cortafuegos para protegerla.
+</para>
+
+<para>
+Tercero, el enmascaramiento IP tendrá cierto impacto negativo en el rendimiento
+de su red. En un escenario típico ese impacto negativo será probablemente
+insignificante. Si se tiene un gran número de sesiones enmascaradas activas
+puede ocurrir que se perciba cierta sobrecarga en la máquina enmascaradora
+que afecte negativamente al rendimiento de la red. El enmascaramiento
+IP implica un incremente considerable en el proceso que requiere cada
+datagrama comparado con el normalmente exigiría. Si piensa utilizar
+un 386SX16 como encaminador enmascarador para una conexión telefónica a Internet
+puede resultar, pero no espere demasiado si quiere usarlo como encaminador en
+su red corporativa a velocidades Ethernet.
+</para>
+
+<para>
+Por último, ciertos servicios de red simplemente no funcionarán a través
+de enmascaramiento, o, al menos, no sin un poco de ayuda. Típicamente
+se trata de servicios que dependen de conexiones entrantes para funcionar,
+como ciertos tipos de Canales de Comunicación Directa (DCC), ciertas
+funciones del IRC, o algunos tipos de servicios de audio y vídeo
+multicast. Algunos de esos servicios disponen de módulos del kernel
+especialmente desarrollados para proporcionar una solución, y de ellos
+hablaremos dentro de un momento. Para otros es posible que no se encuentre
+soporte, así que se debe tener en cuenta que el enmascaramiento no es
+la solución adecuada en todas las situaciones.
+</para>
+</sect1>
+
+<sect1 id="X-087-2-masq.kernel.config"><title>Configuración del Núcleo<?lb>para enmascaramiento IP</title>
+<para>
+<INDEXTERM><PRIMARY>configuración</PRIMARY><SECONDARY>del núcleo</SECONDARY><TERTIARY SORTAS="enmascaramiento IP">para enmascaramiento IP</TERTIARY></INDEXTERM>
+<indexterm><primary>enmascaramiento</primary><secondary>configuración del núcleo</secondary></indexterm>
+<?troff .hw kernel>
+<INDEXTERM><PRIMARY>núcleos 2.2</PRIMARY><SECONDARY>enmascaramiento IP</SECONDARY></INDEXTERM>
+
+Para usar la función del enmascaramiento IP el núcleo debe ser compilado
+precisamente con soporte de enmascarmiento. Se deben seleccionar las siguientes
+opciones al configurar un núcleo de la serie 2.2:
+
+<screen>
+Networking options  --->
+	[*] Network firewalls
+	[*] TCP/IP networking
+	[*] IP: firewalling
+	[*] IP: enmascaramiento
+	--- Protocol-specific masquerading support will be built as modules.
+	[*] IP: ipautofw masq support
+	[*] IP: ICMP masquerading
+</screen>
+
+Nótese que partes del soporte de enmascaramiento están disponibles únicamente
+como módulos. Esto significa que habrá que ejecutar
+&ldquo;<literal>make modules</literal>&rdquo; además del habitual
+&ldquo;<literal>make bzImage</literal>&rdquo; cuando se compile el núcleo.
+</para>
+
+<para>
+<INDEXTERM><PRIMARY>núcleos 2.4</PRIMARY><SECONDARY>enmascaramiento IP</SECONDARY></INDEXTERM>
+
+Los núcleos de la serie 2.4 no presentan el soporte de enmascaramiento Ip
+como una opción de la compilación. En su lugar, se debe seleccionar la
+opción del filtrado de paquetes de red:
+
+
+<screen width=80>
+Networking options  --->
+    [M] Network packet filtering (replaces ipchains)
+</screen>
+</para>
+
+<para>
+
+En los núcleos de la serie 2.2 cierto número de módulos de asistencia para
+ciertos protocolos se crean durante la compilación del núcleo. Algunos
+protocolos comienzan estableciendo una conexión hacia fuera y entonces
+reciben una conexión desde fuera en otro puerto. Normalmente eso no podría
+ser enmascarado, puesto que no hay forma para la máquina GNU/Linux de asociar
+la segunda conexión con la primera sin meterse dentro del propio protocolo.
+Los módulos asistentes hacen justamente eso: examinan los datagramas y
+permiten que el enmascaramiento funcione para los protocolos que soportan.
+Protocolos que de otra forma serían imposibles de enmascarar. Los protocolos
+soportados son:
+
+<informaltable>
+<tgroup cols="2">
+<thead>
+<row>
+	<entry>Módulo</entry>
+	<entry>Protocolo</entry>
+</row>
+</thead>
+<tbody>
+<row>
+	<entry>ip_masq_ftp</entry>
+	<entry>FTP</entry>
+</row>
+<row>
+	<entry>ip_masq_irc</entry>
+	<entry>IRC</entry>
+</row>
+<row>
+	<entry>ip_masq_raudio</entry>
+	<entry>RealAudio</entry>
+</row>
+<row>
+	<entry>ip_masq_cuseeme</entry>
+	<entry>CU-See-Me</entry>
+</row>
+<row>
+	<entry>ip_masq_vdolive</entry>
+	<entry>Para VDO Live</entry>
+</row>
+<row>
+	<entry>ip_masq_quake</entry>
+	<entry>Quake, de IdSoftware</entry>
+</row>
+</tbody>
+</tgroup>
+</informaltable>
+
+
+Esos módulos deben ser cargados manualmente mediante la orden
+<command>insmod</command>. Nótese que no pueden ser cargados por el
+demonio <command>kerneld</command>. Cada uno de esos módulos acepta
+como argumento el puerto en el que debe escuchar. Para el módulo
+RealAudio&trade; se podría poner:<footnote id="X-087-2-MQ01">
+<para>
+Real Audio es una marca de Progressive Networks Corporation.
+</para>
+</footnote>
+<screen>
+# <userinput>insmod ip_masq_raudio.o ports=7070,7071,7072</userinput>
+</screen>
+
+
+Los puertos especificados dependen del protocolo. El mini-HOWTO del 
+enmascaramiento IP (IP masquerade mini-HOWTO), escrito por Ambrose Au,
+trata con más detalle los módulos asistentes y cómo configurarlos.<footnote id="X-087-2-FNMQ02">
+<para>
+Ambrose es accesible en la dirección de correo
+<systemitem role="email">ambrose@writeme.com</systemitem>.
+</para>
+</footnote>
+</para>
+
+<para>
+
+El paquete <emphasis>netfilter</emphasis> contiene módulos que realizan
+funciones similares. Por ejemplo, para que se hagan cargo del seguimiento
+de las sesiones FTP, se deben cargar los módulos
+<filename>ip_conntrack_&thinsp;ftp</filename> y
+<filename>ip_nat_&thinsp;ftp.o</filename>.
+</para>
+</sect1>
+
+<sect1 id="X-087-2-masq.configuration"><title>Configuración del enmascaramiento IP</title>
+<para>
+<indexterm><primary>enmascaramiento</primary><secondary>configuración</secondary></indexterm>
+<indexterm><primary>configuración</primary><secondary>enmascaramiento IP</secondary></indexterm>
+<INDEXTERM id="ipfwadm.config.masq" class=startofrange><PRIMARY>ipfwadm</PRIMARY><SECONDARY>configuración del enmascaramiento IP</SECONDARY></INDEXTERM>
+<INDEXTERM id="ipchains.config.masq" class=startofrange><PRIMARY>ipchains</PRIMARY><SECONDARY>configuración del enmascaramiento IP</SECONDARY></INDEXTERM>
+<INDEXTERM id="iptables.config.masq" class=startofrange><PRIMARY>iptables</PRIMARY><SECONDARY>configuración del enmascaramiento IP</SECONDARY></INDEXTERM>
+
+Después de leer los capítulos sobre cortafuegos y auditoría IP,
+probablemente no sea sorprendente que los programas
+<command>ipfwadm</command>, <command>ipchains</command>, e <command>
+iptables</command> se utilicen para configurar también
+las reglas de enmascaramiento IP.
+
+</para>
+
+<para>
+Las reglas de enmascaramiento son una clase especial de reglas de filtrado.
+Sólamente se puede enmascarar datagramas que se reciban por una interfaz
+y que vayan a ser encaminados por otra. Una regla de enmascaramiento se
+construye de forma parecida a una regla de encaminamiento de cortafuegos,
+pero incluyendo unas opciones especiales que le dicen al núcleo que debe
+enmascarar el datagrama IP. El programa <command>ipfwadm</command> utiliza
+la opción <emphasis>-m</emphasis>, <command>ipchains</command>
+utiliza <literal>-j MASQ</literal>, e <command>iptables</command>,
+<literal>-j MASQUERADE</literal> para indicar que los datagramas que
+cumplan las condiciones especificadas por la regla deben ser enmascarados.
+</para>
+<?troff .wcon_off>
+
+<para>
+Veamos un ejemplo.
+Una estudiante de informática de la Universidad Groucho Marx tiene unas
+cuantas máquinas en casa interconectadas en una pequeña red local ethernet.
+Ha decidido utilizar uno de los rangos privados de direcciones IP para
+su red. Comparte el lugar con otras estudiantes, todas las cuales tienen
+interés en usar Internet. Dado que las residentes no gozan de una
+economía especialmente boyante, no se plantean
+costearse una conexión permanente a Internet. En su lugar utilizan
+una conexión PPP telefónica. A todas ellas las gustaría
+
+<?troff .ne 10>
+
+poder compartir la conexión para chatear en el IRC, navegar por la Web
+y bajarse ficheros por FTP directamente a cada una de sus computadoras.
+El enmascaramiento IP es la respuesta.
+
+</para>
+
+<para>
+Nuestra estudiante primeramente configura una máquina GNU/Linux para que se
+encargue del enlace telefónico y para que actúe como encaminador de la red local.
+La dirección IP que le asignan cuando se conecta telefónicamente no
+es importante. Configura el encaminador GNU/Linux para que haga enmascaramiento IP
+y usa uno de los rangos privados de direcciones IP para la red local:
+<literal>192.168.1.0</literal>. Se asegura de que todas las computadoras
+de la red tengan como ruta por defecto una que apunte al encaminador GNU/Linux.
+
+</para>
+
+<para>
+Todo lo que se necesita para que el enmascaramiento funcione en ese escenario
+son las siguientes invocaciones del programa <command>ipfwadm</command>:
+
+<screen>
+# <userinput>ipfwadm -F -p deny</userinput>
+# <userinput>ipfwadm -F -a accept -m -S 192.168.1.0/24 -D 0/0</userinput>
+</screen>
+
+
+o, utilizando <command>ipchains</command>:
+
+<screen>
+# <userinput>ipchains -P forward -j deny</userinput>
+# <userinput>ipchains -A forward -s 192.168.1.0/24 -d 0/0 -j MASQ</userinput>
+</screen>
+
+o con <command>iptables</command>:
+
+<screen>
+# <userinput>iptables -t nat -P POSTROUTING DROP</userinput>
+# <userinput>iptables -t nat -A POSTROUTING -o ppp0 -j MASQUERADE</userinput> 
+</screen>
+
+Ahora simpre que alguna de las máquinas de la red local trate de
+acceder a un servicio en una máquina remota, sus datagramas serán automáticamente
+enmascarados por el encaminador enmascarador GNU/Linux. La primera regla en
+cada uno de los ejemplos impide que la máquina GNU/Linux encamine cualquier
+otro datagrama y proporciona cierta seguridad.
+</para>
+
+<para>
+<indexterm><primary>enmascaramiento</primary><secondary>listar las reglas</secondary></indexterm>
+Para listar las reglas de enmascaramiento que se hayan creado,
+se utiliza la opción <literal>-l</literal> para el programa <command>ipfwadm</command>,
+exactamente como se dijo ya al referirnos a los cortafuegos.
+
+</para>
+
+<para>
+
+Para listar la regla que creamos previamente se utiliza:
+
+<screen>
+# <userinput>ipfwadm -F -l -e</userinput>
+</screen>
+
+tras lo que debe aparecer algo como:
+
+<screen>
+# <userinput>ipfwadm -F -l -e</userinput>
+IP firewall forward rules, default policy: accept
+ pkts bytes type  prot opt  tosa tosx ifname  ifaddress  &hellip;
+    0     0 acc/m all  ---- 0xFF 0x00 any     any        &hellip;
+</screen>
+
+La &ldquo;<literal>/m</literal>&rdquo; indica que se trata de una regla
+de enmascaramiento.
+</para>
+
+<para>
+Para listar las reglas de enmascaramiento con <command>ipchains</command>,
+se utiliza la opción <command>-L</command>. Si listamos las reglas creadas
+previamente con <command>ipchains</command>, la salida sería algo como:
+
+<screen>
+<userinput># ipchains -L</userinput>
+Chain input (policy ACCEPT):
+Chain forward (policy ACCEPT):
+target     prot opt     source                destination           ports
+MASQ       all  ------  192.168.1.0/24        anywhere              n/a
+
+Chain output (policy ACCEPT):
+</screen>
+</para>
+
+<para>
+Cualquier regla en la que como <emphasis>objetivo</emphasis> aparezca
+<literal>MASQ</literal> es una regla de enmascaramiento.
+</para>
+
+<para>
+Finalmente, para listar las reglas mediante <command>iptables</command>
+hay que usar:
+
+<screen width=98>
+# <userinput>iptables -t nat -L</userinput>
+Chain PREROUTING (policy ACCEPT)
+target     prot opt source               destination         
+
+Chain POSTROUTING (policy DROP)
+target     prot opt source               destination         
+MASQUERADE  all  --  anywhere             anywhere           MASQUERADE 
+
+Chain OUTPUT (policy ACCEPT)
+target     prot opt source               destination         
+</screen>
+
+Las reglas de enmascaramiento aparecen aquí también con
+<literal>MASQUERADE</literal> como <emphasis>objetivo</emphasis>.
+
+</para>
+
+<sect2 id="X-087-2-masq.setting.timing"><title>Configuración de parámetros temporales</title>
+<para>
+<indexterm><primary>enmascaramiento</primary><secondary>configuración de parámetros temporales</secondary></indexterm>
+Cuando se establece una nueva conexión, el software de enmascaramiento
+IP crea una asociación en memoria entre cada una de las máquinas implicadas.
+Tales asociaciones se pueden ver en cualquier momento inspeccionando
+el fichero <filename>/proc/net/ip_masquerade</filename>.
+Las asociaciones caducan tras un período de inactividad.
+
+</para>
+
+<para>
+<INDEXTERM startref="ipfwadm.config.masq" class=endofrange>
+Los valores de máximo tiempo de inactividad se pueden configurar
+mediante <command>ipfwadm</command>.
+La sintaxis es:
+
+
+<screen>
+ipfwadm -M -s &lt;<replaceable>tcp</replaceable>&gt; &lt;<replaceable>tcpfin</replaceable>&gt; &lt;<replaceable>udp</replaceable>&gt;
+</screen>
+</para>
+
+<para>
+<INDEXTERM startref="ipchains.config.masq" class=endofrange>
+con <command>ipchains</command> sería:
+
+<screen>
+ipchains -M -S &lt;<replaceable>tcp</replaceable>&gt; &lt;<replaceable>tcpfin</replaceable>&gt; &lt;<replaceable>udp</replaceable>&gt;
+</screen>
+</para>
+
+<para>
+
+La implementación de <emphasis>iptables</emphasis> incluye unos
+valores por defecto mucho mayores que no permite cambiar.
+</para>
+
+<para>
+<?troff .hw meanings>
+
+Cada uno de esos valores representa un contador usado por el software de
+enmascaramiento IP y están dados en segundos. La siguiente tabla muestra
+un resumen de los contadores y sus significados:
+</para>
+
+<informaltable>
+<tgroup cols=2><colspec colnum="2" colwidth="9.0678cm">
+<thead>
+<row>
+	<entry>Nombre</entry>
+	<entry>Descripción</entry>
+</row>
+</thead>
+<tbody>
+<row>
+	<entry>tcp</entry>
+	<entry><para>
+	Tiempo de caducidad de la sesión TCP. Cuánto puede estar inactiva
+        una conexión TCP antes de que la correspondiente asociación
+        sea eliminada.
+	</para></entry>
+</row>
+<row>
+	<entry>tcpfin</entry>
+	<entry><para>
+        <?troff .hw disconnected>
+	Tiempo de caducidad de TCP tras un FIN. Cuanto permanece una
+        asociación tras la desconexión de la correspondiente conexión
+        TCP.
+	</para></entry>
+</row>
+<row>
+	<entry>udp</entry>
+	<entry><para>
+	Caducidad de sesión UDP. Tiempo máximo de inactividad de una «conexión»
+	UDP antes de que la asociación correspondiente sea eliminada.
+	</para></entry>
+</row>
+</tbody>
+</tgroup>
+</informaltable>
+
+</sect2>
+
+</sect1>
+
+<sect1 id="X-087-2-masq.namelookups"><title>Manipulación del Servicio de Nombres</title>
+<para>
+<indexterm><primary>enmascaramiento</primary><secondary>servicio de nombres</secondary></indexterm>
+<indexterm><primary>servidores de nombres</primary><secondary>enmascaramiento IP</secondary></indexterm>
+El manejo de las resoluciones de nombres desde las máquinas de una
+red local enmascarada ha representado tradicionalmente un problema.
+Hay dos maneras de encajar el DNS en un entorno con enmascaramiento.
+Se puede instruir a cada máquina para que utilice el mismo servidor DNS
+que utilice el encaminador GNU/Linux y dejar que el enmascaramiento IP haga su
+trabajo. Otra alternativa es ejecutar un servidor de nombres de caché
+en la máquina GNU/Linux y hacer que cada una de las máquinas en la LAN tenga
+configurada a la máquina GNU/Linux como su servidor DNS. Aunque se trata
+de una configuración más agresiva, es seguramente mejor porque
+reduce el volumen de tráfico DNS hacia el enlace con Internet y es
+ligeramente más rápido para la mayor parte de las peticiones, dado que
+serán respondidas utilizando la caché. La desventaja de esta configuración
+es que es más compleja.
+<xref
+linkend="X-087-2-resolv.named-cachingonly">,&rdquo; En el capítulo 6
+se explica cómo configurar un servidor de nombres de sólo-caché.
+</para>
+</sect1>
+
+<sect1><title>Más sobre la traducción de direcciones de red</title>
+<para>
+<indexterm><primary>NAT (Traducción de Direcciones de Red)</primary></indexterm>
+El software <emphasis>netfilter</emphasis> es capaz de realizar muchos tipos
+de traducción de direcciones de red. El enmascaramiento IP es una
+ejemplo simple de ello.
+</para>
+
+<para>
+Es posible, por ejemplo, configurar reglas NAT que traduzcan sólo
+ciertas direcciones o rangos de direcciones y dejen las demás intactas,
+o que traduzcan rangos de direcciones en rangos en vez de en direcciones
+individuales (que es lo que hace el enmascaramiento). Se puede de hecho
+utilizar el programa <command>iptables</command> para crear
+reglas NAT que conviertan casi cualquier cosa, con combinaciones de
+condiciones que utilicen atributos estándares tales como dirección
+origen o destino, tipo de protocolo, puerto, etc.
+
+</para>
+
+<para>
+<INDEXTERM startref="iptables.config.masq" class=endofrange>
+La traducción de la dirección origen de un datagrama es conocida
+como «Source NAT» o <literal>SNAT</literal>, en la documentación de
+<emphasis>netfilter</emphasis>. La traducción de la dirección destino
+de un datagrama es conocida como «Destination NAT» o <literal>DNAT</literal>.
+La traducción del puerto TCP o UDP es conocida como <literal>REDIRECCION</literal>.
+
+<literal>SNAT</literal>, <literal>DNAT</literal>, y
+<literal>REDIRECT</literal> son <emphasis>objetivos</emphasis> que se pueden
+usar con <command>iptables</command> para construir reglas más complejas
+y sofisticadas.
+</para>
+
+<para>
+<indexterm><primary>IPTABLES-HOWTO</primary></indexterm>
+<INDEXTERM><PRIMARY>HOWTOs</PRIMARY><SECONDARY>IPTABLES</SECONDARY></INDEXTERM>
+El tema del NAT y su utilización necesitaría al menos un capítulo completo.
+... ¡y es problable que incluso un libro!
+Lamentablemente no dispongo de espacio en este libro para
+tratarlo en mayor profundidad. Si se desea más información sobre los
+posibles usos del NAT, es conveniente
+leer el IPTABLES-HOWTO (o su versión en castellano: IPTABLES-COMO).
+</para>
+</sect1>
+
+<indexterm class="endofrange" startref="chmq.ip.masq">
+</chapter>

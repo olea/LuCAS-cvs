@@ -1,0 +1,2424 @@
+<!--
+$Header: /home/cvs/lucas/doc-postgresql-es/v7/src/sgml/libpq.sgml,v 1.3 2002/05/20 21:03:31 emaldonadog Exp $
+-->
+
+ <chapter id="libpq-chapter">
+  <title id="libpq">libpq</title>
+
+  <para>
+   <filename>libpq</filename> es la interfaz para los programadores de aplicaciones
+   en <acronym>C</acronym> para <productname>Postgres</productname>.
+   <filename>libpq</filename> es un conjunto de rutinas de biblioteca que 
+   permiten a los programas cliente trasladar consultas al servidor de
+   <productname>Postgres</productname> y recibir el resultado de esas consultas.
+   <filename>libpq</filename> es también el mecanismo subyacente para muchas otras
+   interfaces de aplicaciones de <productname>Postgres</productname>,
+   incluyendo <filename>libpq++</filename> (C++),
+   <filename>libpgtcl</filename> (Tcl), <productname>Perl</productname>, y
+   <filename>ecpg</filename>.  Algunos aspectos del comportamiento de libpq le
+   resultarán de importancia si quiere utilizar uno de estos paquetes.
+  </para>
+
+  <para>
+   Se incluyen tres programas cortos al final de esta sección para mostrarle como 
+   escribir programas que utilicen <filename>libpq</filename>.  Hay varios ejemplos
+   completos de aplicaciones con <filename>libpq</filename> en los siguientes 
+   directorios:
+
+   <programlisting>
+../src/test/regress
+../src/test/examples
+../src/bin/psql
+   </programlisting>
+  </para>
+
+  <para>
+   Los programas cliente que utilicen <filename>libpq</filename> deberán incluir el 
+   fichero de cabeceras <filename>libpq-fe.h</filename>, y deberán enlazarse 
+   con la biblioteca <filename>libpq</filename>.
+  </para>
+
+  <sect1 id="libpq-connect">
+   <title>Funciones de Conexión a la Base de Datos</title>
+
+   <para>
+    Las siguientes rutinas le permitirán realizar una conexión al servidor de
+    <productname>Postgres</productname>.  El programa de aplicación puede tener
+    abiertas
+varias conexiones a servidores al mismo tiempo. (Una razón para hacer
+    esto es acceder a más de una base de datos). Cada conexión se representa por
+    un objeto PGconn que se obtiene de PQconnectdb () o PQsetdbLogin ().
+    Nótese que estas funciones siempre devolverán un puntero a un objeto no nulo,
+    a menos que se tenga demasiada poca memoria incluso para crear el objeto
+    PGconn. Se debería llamar a la función PQstatus para comprobar si la conexión
+    se ha realizado con éxito antes de enviar consultas a traves del objeto de
+    conexión.
+
+    <itemizedlist>
+     <listitem>
+      <para>
+       <function>PQconnectdb</function>
+       Realiza una nueva conexión al servidor de base de datos.
+       <synopsis>
+PGconn *PQconnectdb(const char *conninfo)
+       </synopsis>
+
+   Esta rutina abre una conexión a una base de datos utilizando los parámetros que
+   se dan en la cadena <literal>conninfo</literal>.  Contra lo que ocurre más abajo
+   con PQsetdbLogin(), los parámetros fijados se pueden extender sin cambiar la
+   firma de la función, de modo que el uso de bien esta rutina o bien las análogas
+   sin bloqueo PQconnetStart / PQconnectPoll resulta preferible para la programación
+   de las aplicaciones. La cadena pasada puede estar vacía para utilizar así los
+   parámetros de defecto, o puede contener uno o más parámetros separados por
+   espacios.
+   </para>
+
+   <para>
+   Cada fijación de un parámetro tiene la forma <literal>keyword = value</literal>.
+   (Para escribir un valor nulo o un valor que contiene espación, se emplearán
+   comillas simples, por ejemplo <literal>clave = 'un valor'</literal>.
+   Las comillas simples dentro de un valor se escribirán como <literal>\'</literal>.
+   Los espacios alrededor del signo igual son opcionales). Los parámetros
+   reconocidos actualmente son:
+
+   <variablelist>
+    <varlistentry>
+     <term><literal>host</literal></term>
+     <listitem>
+     <para>
+      Nombre del ordenador al que conectarse. Si comienza por barra ("/") especifica
+			una comunicación en el dominio Unix en vez de comunicación TCP/IP, y el valor
+			será el nombre del directorio en el que esta el fichero de socket. La opción
+			por defecto es conectar un socket de dominio Unix en
+			<filename>/tmp</filename>.
+     </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><literal>hostaddr</literal></term>
+     <listitem>
+     <para>
+      Dirección IP del ordenador al que se debe conectar. Debería estar en el
+      formato estandar de números y puntos, como se usan en las funciones de BSD
+      inet_aton y otras. Si se especifica una cadena de longitud distinta de cero,
+      se emplea una comunicación TCP/IP.
+     </para>
+     <para>
+      El uso de <literal>hostaddr</literal> en lugar de <literal>host</literal>
+      permite a la aplicación evitar la búsqueda del nombre de ordenador, lo que
+      puede ser importante en aplicaciones que tienen una limitación de tiempo.
+      Sin embargo la autenticación Kerberos necesita el nombre del ordenador. En
+      este caso se aplica la siguiente secuencia. Si se especifica
+      <literal>host</literal> sin <literal>hostaddr</literal>, se fuerza la búsqueda
+      del nombre del ordenador. Si se especifica <literal>hostaddr</literal> sin
+      <literal>host</literal>, el valor de <literal>hostaddr</literal> dará la
+      dirección remota; si se emplea Kerberos, se buscará de modo inverso el nombre
+      del ordenador. Si se dan tanto <literal>host</literal> como
+      <literal>hostaddr</literal>, el valor de <literal>hostaddr</literal> dará
+      la dirección remota; el valor de <literal>host</literal> se ignorará,
+      a menos que se emplee Kerberos, en cuyo caso ese valor se utilizará
+      para la autenticación Kerberos. Nótese que libpq fallará si se pasa un
+      nombre de ordenador que no sea el nombre de la máquina en
+      <literal>hostaddr</literal>.
+     </para>
+     <para>
+      Cuando no se empleen ni uno ni otro, libpq conectará utilizando un socket de
+      dominio local.
+     </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><literal>port</literal></term>
+     <listitem>
+     <para>
+      Número del puerto para la conexión en el ordenador servidor, o extensión
+      del nombre de fichero del socket para conexión de dominio Unix.
+     </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><literal>dbname</literal></term>
+     <listitem>
+     <para>
+      Nombre de la base de datos.
+     </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><literal>user</literal></term>
+     <listitem>
+     <para>
+      Nombre del usuario que se debe conectar.
+     </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><literal>password</literal></term>
+     <listitem>
+     <para>
+      Password que se deberá utilizar si el servidor solicita una autenticación
+      con password.
+     </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><literal>options</literal></term>
+     <listitem>
+      <para>
+       Se pueden enviar las opciones Trace/debug al servidor.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><literal>tty</literal></term>
+     <listitem>
+     <para>
+      Un fichero o tty para la salida de la depuración opcional desde el servidor.
+     </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><literal>requiressl</literal></term>
+     <listitem>
+     <para>
+      Se pone a '1' para requerir una conexión ssl con el backend. Libpq
+      rechazará la conexión si el servidor no soporta ssl. Se pone a '0'
+      (la opción por defecto) para negociar con el servidor.
+     </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+
+   Si no se especifica ningún parámetro, se comprobarán las correspondientes
+   variables de entorno. Si no se encuentran fijadas, se emplean los
+   valores de defecto codificadas en el programa. El valor devuelto es
+   un puntero a una estructura abstracta que representa la conexión al
+   servidor.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+   <function>PQsetdbLogin</function>
+       Realiza una nueva conexión al servidor de base de datos.
+<synopsis>
+PGconn *PQsetdbLogin(const char *pghost,
+                     const char *pgport,
+                     const char *pgoptions,
+                     const char *pgtty,
+                     const char *dbName,
+                     const char *login,
+                     const char *pwd)
+</synopsis>
+
+   Esta función es la predecesora de <function>PQconnectdb</function>, con un número
+   fijado de parámetros, pero con la misma funcionalidad.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+   <function>PQsetdb</function>
+       Realiza una nueva conexión al servidor de base de datos.
+<synopsis>
+PGconn *PQsetdb(char *pghost,
+                char *pgport,
+                char *pgoptions,
+                char *pgtty,
+                char *dbName)
+</synopsis>
+   Esta es una función que llama a <function>PQsetdbLogin()</function> con 
+   punteros nulos para los parámetros login y pwd. Se proporciona inicialmente
+   para mantener compatibilidad con programas antigüos.
+   </para>
+  </listitem>
+
+ <listitem>
+  <para>
+   <function>PQconnectStart</function>,
+   <function>PQconnectPoll</function>
+   Realizan una conexión al servidor de base de datos de forma no bloqueante.
+<synopsis>
+PGconn *PQconnectStart(const char *conninfo)
+</synopsis>
+<synopsis>
+PostgresPollingStatusType PQconnectPoll(PQconn *conn)
+</synopsis>
+   Estas dos rutinas se utilizan para abrir una conexión al servidor de base de
+   datos tal que la hebra de ejecución de la aplicación no queda bloqueada en
+   el I/O remoto mientras lo hace.
+  </para>
+  <para>
+   La conexión a la base de datos se realiza utilizando lo parámetros dados en la
+   cadena <literal>conninfo</literal>, que se pasa a PQconnectStart. Esta cadena
+   está en el mismo formato que se describió antes para PQconnectdb.
+  </para>
+  <para>
+   Ni PQconnectStart ni PQconnectPoll bloquearán, aunque se exigen un cierto número
+   de restricciónes:
+   <itemizedlist>
+    <listitem>
+     <para>
+      Los parámetros <literal>hostaddr</literal> y <literal>host</literal> se
+      utilizan apropiadamente para asegurar que no se realizan consultas de nombre
+      ni de nombre inverso. Vea la documentación de estos parámetros bajo
+      PQconnectdb antes para obtener más detalles.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Si llama a PQtrace, asegurese de que el objeto de la secuencia en la cual
+      realiza usted un rastreo no bloquea.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Asegurese usted mismo de que el socket se encuentra en el estado apropiado
+      antes de llamar a PQconnetPoll, como se describe más abajo.
+     </para>
+    </listitem>
+   </itemizedlist>
+  </para>
+
+  <para>
+   Para empezar, llame <literal>conn=PQconnectStart("&lt;connection_info_string&gt;")</literal>.
+   Si conn es NULL, libpq habrá sido incapaz de crear una nueva estructura PGconn.
+   De otro modo, se devolverá un puntero PGconn valido (aunque todavía no represente
+   una conexión válida a la base de datos). Al regreso de PQconnectStart, llame a
+   status=PQstatus(conn). Si status es igual a CONNECTION_BAD, PQconnectStart habrá
+   fallado.
+  </para>
+  <para>
+   Si PQconnectStart funciona con éxito, el siguiente paso es comprobar libpq de
+   forma que pueda proceder con la secuencia de conexión. Realice un bucle como
+   sigue:
+Considere que por defecto una conexión se encuentra 'inactiva'. Si el
+   último PQconnectPoll devolvió PGRES_POLLING_ACTIVE, considere ahora que la
+   conexión está 'activa'. Si el último PQconnectPoll(conn) devolvió
+   PGRES_POLLING_READING, realice una select para leer en PQsocket(conn). Si
+   devolvió PGRES_POLLING_WRITING, realice una select para escribir en
+   PQsocket(conn). Si todavía tiene que llamar a PQconnectPoll, es decir, tras
+   llamar a PQconnectStart, comportese como si hubiera devuelto
+   PGRES_POLLING_WRITING. Si la select muestra que el socket está preparado
+   (ready), considerelo 'activo'. Si ya ha decido que el esta conexión está
+   'activa', llame de nuevo a PQconnectPoll(conn).  Si esta llamada devuelve
+   PGRES_POLLING_OK, la conexión se habrá establecido con éxito.
+  </para>
+  <para>
+    Nótese que el uso de select() para asegurar que el socket se encuentra listo
+    es realmente un ejemplo; aquellos que dispongan de otras facilidades
+    disponibles, como una llamada poll(), por supuesto pueden utilizarla en su
+    lugar.
+  </para>
+  <para>
+    En cualquier momento durante la conexión, se puede comprobar la situación de
+    esta conexión, llamando a PQstatus. Si el resultado es CONNECTION_BAD, el
+    procedimiento de conexión habrá fallado; si es CONNECTION_OK, la conexión está
+    funcionando correctamente. Cualquiera de estas situaciones se puede detectar
+    del mismo modo a partir del valor de retorno de PQconnectPoll, como ántes. Otras
+    situaciones se pueden mostrar durante (y sólo durante) un procedimiento de
+    conexión asíncrona. Estos indican la situación actual del procedimiento de
+    conexión, y se pueden utilizar para proporcionar información de retorno al
+    usuario, por ejemplo. Estas situaciones pueden incluir:
+    <itemizedlist>
+     <listitem>
+      <para>
+      CONNECTION_STARTED: Esperando que se realice una conexión.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+      CONNECTION_MADE: Conexión OK; esperando para enviar.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+      CONNECTION_AWAITING_RESPONSE: Esperando una respuesta del postmaster.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+      CONNECTION_AUTH_OK: Recibida autenticación, espera que arranque del servidor.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+      CONNECTION_SETENV: Negociando el entorno.
+      </para>
+     </listitem>
+    </itemizedlist>
+
+    Téngase en cuenta que, aunque estas constantes se conservarán (para
+    mantener la compatibilidad), una aplicación nunca debería basarse en la
+    aparición de las mismas en un orden particular, o en todos, o en que las
+    situaciones siempre tengan un valor de estos documentados. Una aplicación
+    podría hacer algo así:
+<programlisting>
+    switch(PQstatus(conn))
+    {
+        case CONNECTION_STARTED:
+            feedback = "Connecting...";
+	    break;
+
+        case CONNECTION_MADE:
+            feedback = "Connected to server...";
+            break;
+.
+.
+.
+        default:
+	    feedback = "Connecting...";
+    }
+</programlisting>
+  </para>
+  <para>
+   Nótese que si PQconnectStart devuelve un puntero no nulo, deberá usted 
+   llamar a PQfinish cuando haya terminado con él, para liberar la estructura
+   y cualquier bloque de memoria asociado. Se debe hacer esto incluso si ha
+   fallado una llamada a PQconnectStart o a PQconnectPoll.
+  </para>
+  <para>
+   PQconnectPoll actualmente bloqueará si libpq se compila con USE_SSL definido.
+   Esta restricción se eliminará en el futuro.
+  </para>
+  <para>
+   PQconnectPoll actualmente bloqueará bajo Windows, a menos que libpq se compile
+   con WIN32_NON_BLOCKING_CONNECTIONS definida. Este código no se ha probado aún
+   bajo Windows, de forma que actualmente se encuentra desactivado por defecto.
+   Esto podría cambiar en el futuro.
+  </para>
+  <para>
+   Estas funciones dejarán el socket en un estado de no-bloqueo como si se hubiese
+   llamado a <function>PQsetnonblocking</function>.
+  </para>
+ </listitem>
+
+  <listitem>
+   <para>
+   <function>PQconndefaults</function> Devuelve la opciones de conexión de defecto.
+<synopsis>
+PQconninfoOption *PQconndefaults(void)
+
+struct PQconninfoOption
+{
+    char   *keyword;   /* Palabra clave de la opción */
+    char   *envvar;    /* Nombre de la variable de entorno que recoge su valor
+                          si no se da expresamente */
+    char   *compiled;  /* Valor de defecto en el código fuente si tampoco se asigna
+                          variable de entorno */
+    char   *val;       /* Valor de la opción, o NULL */
+    char   *label;     /* Etiqueta para el campo en el diálogo de conexión */
+    char   *dispchar;  /* Carácter a mostrar para este campo en un diálogo de conexión.
+                          Los valores son:
+                          ""        Muestra el valor entrado tal cual es
+                          "*"       Campo de Password - ocultar el valor
+                          "D"       Opciones de depuración - no mostrar por defecto */
+    int     dispsize;  /* Tamaño del campo en carácteres para dialogo */
+}
+</synopsis>
+   Devuelve un array de opciones de conexión. Se
+   puede utilizar para determinar todas las opciones posibles de PQconnectdb
+   y sus valores de defecto actuales. El valor de retorno apunta a una matriz
+   de estructuras PQconninfoOption, que termina con una entrada que tiene un
+   puntero a NULL. Note que los valores de defecto (los campos "val") dependerán
+   de las variables de entorno y del resto del contexto. Cuando se le llame, se
+   deben tratar los datos de las opciones de conexión como de sólo lectura.
+   </para>
+   <para>
+    Después de procesar el array de opciones, debe liberarse pasándoselo a
+    PQconninfoFree(). Si no se hace, se perderá una pequeña cantidad de memoria
+    por cada llamada a PQconndefaults().
+   </para>
+   <para>
+    En versiones de Postgres anteriores a la 7.0, PQconndefaults() devolvía un
+    puntero a un array estático, en vez de a un array alojado dinámicamente.
+    Esto no era seguro en multihilo y por eso se ha cambiado este comportamiento.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+   <function>PQfinish</function>
+   Cierra la conexión con el servidor. También libera la memoria utilizada por
+   el objeto PGconn.
+<synopsis>
+void PQfinish(PGconn *conn)
+</synopsis>
+   Téngase en cuenta que incluso si falló el intento de conexión con el servidor
+   (como se indicaba en PQstatus), la aplicación deberá llamar a PQfinish para
+   liberar la memoria utilizada por el objeto PGconn.
+   No se debería utilizar el puntero PGconn una vez que se ha llamado a PQfinish.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+   <function>PQreset</function>
+   Inicializa el puerto de comunicación con el servidor.
+<synopsis>
+void PQreset(PGconn *conn)
+</synopsis>
+   Esta función cerrará la conexión con el servidor e intentará
+   establecer una nueva conexión al mismo postmaster, utilizando todos los mismos
+   parámetros anteriores. Se puede utilizar para recuperar un error si una
+   conexión que estaba trabajando se pierde.
+   </para>
+  </listitem>
+
+  <listitem>
+   <para>
+   <function>PQresetStart</function>
+   <function>PQresetPoll</function>
+   Limpian el puerto de comunicación con el servidor de forma no bloqueante.
+<synopsis>
+int PQresetStart(PGconn *conn);
+</synopsis>
+<synopsis>
+PostgresPollingStatusType PQresetPoll(PGconn *conn);
+</synopsis>
+    Estas funciones cerrarán la conexión al servidor e intentarán reestablecer
+    una nueva conexión con el mismo postmaster, utilizando los mismos parámetros
+    previamente utilizados. Esto puede ser utilizable para recuperaciones de
+    errores si se pierde una conexión que estaba trabajando. Difieren de
+    del anterior PQreset en que lo hacen de una forma no bloqueante. Estas
+    funciones sufren las mismas restricciones que PQconnectStart y PQconnectPoll.
+   </para>
+   <para>
+    Ejecute PQresetStart. Si devuelve 0, la limpieza ha fallado. Si devuelve 1,
+    pruebe la limpieza utilizando PQresetPoll exactamente en la misma forma
+    en que habría creado la conexión utilizando PQconnectPoll.
+   </para>
+  </listitem>
+
+ </itemizedlist>
+</para>
+
+<para>
+Los programadores de aplicaciones con libpq deberían ser cuidadosos de mantener
+la abstracción de PGconn. Utilice las funciones siguientes para tomar el contenido
+de PGconn. Prohiba las referencias directas a los campos de la estructura PGconn,
+ya que están sujetas a cambios en el futuro. (A partir de
+<productname>Postgres</productname> 6.4, la definición de la estructura
+PGconn incluso ya no se proporciona en <filename>libpq-fe.h</filename>. Si
+tiene usted viejas aplicaciones que acceden a campos de PGconn directamente,
+puede usted conservarlas utilizando para incluirla <filename>libpq-int.h</filename>
+también, pero le recomendamos encarecidamente que arregle pronto el código).
+<itemizedlist>
+<listitem>
+<para>
+<function>PQdb</function>  
+         Devuelve el nombre de la base de datos de la conexión.
+<synopsis>
+char *PQdb(const PGconn *conn)
+</synopsis>
+PQdb y las siguientes funciones devuelven los valores establecidos en la conexión.
+Estos valores se fijan para toda la vida del objeto PGconn.
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQuser</function>
+         Devuelve el nombre de usuario de la conexión.
+<synopsis>
+char *PQuser(const PGconn *conn)
+</synopsis>
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQpass</function>
+         Devuelve la palabra de paso de la conexión.
+<synopsis>
+char *PQpass(const PGconn *conn)
+</synopsis>
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQhost</function>
+         Devuelve el nombre del ordenador de servidor de la conexión.
+<synopsis>
+char *PQhost(const PGconn *conn)
+</synopsis>
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQport</function>
+         Devuelve el puerto de la conexión.
+<synopsis>
+char *PQport(const PGconn *conn)
+</synopsis>
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQtty</function>
+         Devuelve el terminal tty de depuración de la conexión.
+<synopsis>
+char *PQtty(const PGconn *conn)
+</synopsis>
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQoptions</function>
+       Devuelve las opciones de servidor utilizadas en la conexión.
+<synopsis>
+char *PQoptions(const PGconn *conn)
+</synopsis>
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQstatus</function>
+         Devuelve la situación (status) de la conexión.
+<synopsis>
+ConnStatusType PQstatus(const PGconn *conn)
+</synopsis>
+</para>
+
+      <para>
+       La situación puede tomar varios valores diferentes.
+       Sin embargo, sólo dos de ellos tienen significado fuera
+       de un procedimiento de conexión asíncrona:
+       <literal>CONNECTION_OK</literal> o
+       <literal>CONNECTION_BAD</literal>. Una buena conexión a la
+       base de datos tiene status CONNECTION_OK. Una conexión
+       fallida se señala con la situación <literal>CONNECTION_BAD</literal>.
+       Normalmente, una situación de OK se mantendrá hasta
+       <function>PQfinish</function>, pero un fallo de las comunicaciones
+       puede provocar un cambio prematuro de la situación a
+       <literal>CONNECTION_BAD</literal>. En ese caso, la aplicación
+       podría intentar recuperar la comunicación llamando a
+       <function>PQreset</function>.
+      </para>
+
+      <para>
+       Para averiguar otras posibles situaciónes que podrían comprobarse,
+       revise las entradas de PQconnectStart y PQconnectPoll.
+      </para>
+     </listitem>
+
+     <listitem>
+      <para>
+       <function>PQerrorMessage</function>
+       Devuelve el mensaje de error más reciente que haya generado alguna
+       operación en la conexión.
+       <synopsis>
+char *PQerrorMessage(const PGconn* conn);
+       </synopsis>
+      </para>
+
+      <para>
+       Casi todas las funciones de libpq fijarán el valor de
+       <function>PQerrorMessage</function> si fallan.
+       Tenga en cuenta que por convención de libpq, un
+       <function>PQerrorMessage</function> no vacío incluirá un carácter
+       "nueva línea" final.
+      </para>
+     </listitem>
+
+     <listitem>
+      <para>
+       <function>PQbackendPID</function>
+       Devuelve el identificador (<acronym>ID</acronym>) del proceso
+       del servidor que está controlando esta conexión.
+       <synopsis>
+int PQbackendPID(const PGconn *conn);
+       </synopsis>
+       El <acronym>PID</acronym> del servidor es utilizable si se quiere
+       hacer depuración de errores y para comparar los mensajes de NOTIFY
+       (que incluyen el <acronym>PID</acronym> del servidor que está realizando
+       la notificación). Tenga en cuenta que el <acronym>PID</acronym> corresponde
+       a un proceso que se está ejecutando en el ordenador servidor de la
+       base de datos, ¡no en el ordenador local!
+      </para>
+     </listitem>
+
+     <listitem>
+      <para>
+       <function>PQgetssl</function>
+        Devuelve la estructura SSL utilizada en la conexión, o NULL si no se
+        usa SSL.
+       <synopsis>
+        SSL *PQgetssl(const PGconn *conn);
+       </synopsis>
+        Esta estructura se puede usar para verificar los niveles de encriptación,
+        comprobar el certificado del servidor, etc. Acuda a la documentación de
+        OpenSSL para información sobre esta estructura.
+      </para>
+      <para>
+       Se deberá definir <literal>USE_SSL</literal> para obtener el prototipo
+       de esta función. Esto también incluirá automáticamente <filename>
+       ssl.h</filename> de OpenSSL.
+      </para>
+     </listitem>
+    </itemizedlist>
+   </para>
+  </sect1>
+
+<sect1 id="libpq-exec">
+<title>Funciones de Ejecución de Consultas</title>
+
+<para>
+Una vez que se ha establecido correctamente una conexión con un servidor de base
+de datos, se utilizan las funciones que se muestran a continuación para realizar
+consultas y comandos de SQL.
+</para>
+<sect2 id="libpq-exec-main">
+  <title>Rutinas Principales</title>
+<itemizedlist>
+<listitem>
+<para>
+<function>PQexec</function>
+          Emite una consulta a <productname>Postgres</productname>
+          y espera el resultado.
+<synopsis>
+PGresult *PQexec(PGconn *conn,
+                 const char *query);
+</synopsis>
+          Devuelve un puntero PGresult o, posiblemente, un puntero NULL.
+          Generalmente devolverá un puntero no nulo, excepto en condiciones de
+          "fuera de memoria" (out-of-memory) o errores serios tales como la
+          incapacidad de enviar la consulta al servidor. Si se devuelve un
+          puntero nulo, se debería tratar de la misma forma que un resulado
+          PGRES_FATAL_ERROR. Para conseguir más información sobre el error,
+          utilice PQerrorMessage.
+</para>
+</listitem>
+</itemizedlist>
+
+<para>
+La estructura <function>PGresult</function> encapsula el resultado devuelto por
+el servidor a la consulta. Los programadores de aplicaciones con
+<filename>libpq</filename> deberían mostrarse cuidadosos de mantener la
+abstracción de PGresult. Prohiban la referencia directa a los campos de la
+estructura PGresult, porque están sujetos a cambios en el futuro.
+(Incluso a partir de la versión 6.4 de <productname>Postgres</productname>,
+ha dejado de proporcionarse la definición de PGresult en libpq-fe.h.  Si tiene
+usted código antíguo que accede directamente a los campos de PGresult, puede
+mantenerlo utilizando libpq-int.h también, pero le recomendamos que ajuste
+pronto el código).
+</para>
+<itemizedlist>
+<listitem>
+<para>
+<function>PQresultStatus</function>
+          Devuelve la situación (status) resultante de una consulta.
+<synopsis>
+ExecStatusType PQresultStatus(const PGresult *res)
+</synopsis>
+PQresultStatus puede devolver uno de los siguentes valores:
+<itemizedlist>
+ <listitem>
+  <para><literal>PGRES_EMPTY_QUERY</literal> -- La cadena enviada al servidor estaba vacía.</para>
+ </listitem>
+ <listitem>
+  <para><literal>PGRES_COMMAND_OK</literal> -- El comando se ha ejecutado con éxito sin devolver datos.</para>
+ </listitem>
+ <listitem>
+  <para><literal>PGRES_TUPLES_OK</literal> -- La consulta se ha ejecutado con éxito.</para>
+ </listitem>
+ <listitem>
+  <para><literal>PGRES_COPY_OUT</literal> -- Se ha arrancado la transmisión de datos desde el servidor (Copy Out)</para>
+ </listitem>
+ <listitem>
+  <para><literal>PGRES_COPY_IN</literal> -- Se ha arrancado la transmisión de datos hacia el servidor (Copy In)</para>
+ </listitem>
+ <listitem>
+  <para><literal>PGRES_BAD_RESPONSE</literal> -- El servidor ha dado una respuesta desconocida.</para>
+ </listitem>
+ <listitem>
+  <para><literal>PGRES_NONFATAL_ERROR</literal></para>
+ </listitem>
+ <listitem>
+  <para><literal>PGRES_FATAL_ERROR</literal></para>
+ </listitem>
+</itemizedlist>
+
+Si la situación del resultado es <literal>PGRES_TUPLES_OK</literal>, las rutinas
+descritas más abajo se pueden utilizar para recuperar las tuplas devueltas por
+la consulta. Tengase en cuenta que una SELECT que intente recuperar 0 (cero) tuplas
+también mostrará <literal>PGRES_TUPLES_OK</literal>.
+<literal>PGRES_COMMAND_OK</literal> es para comandos que nunca devuelven tuplas
+(INSERT, UPDATE, etc). Una respuesta <literal>PGRES_EMPTY_QUERY</literal> indica
+que hay un error en el programa cliente.
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQresStatus</function>
+        Convierte los tipos enumerados devueltos por PQresultStatus en una cadena
+        constante que describe el código de la situación.
+<synopsis>
+char *PQresStatus(ExecStatusType status);
+</synopsis>
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQresultErrorMessage</function>
+Devuelve el mensaje de error asociado con la consulta, o una cadena vacía si no
+hay error.
+<synopsis>
+char *PQresultErrorMessage(const PGresult *res);
+</synopsis>
+Siguiendo inmediatamente a una llamada a <function>PQexec</function> o
+<function>PQgetResult</function>, <function>PQerrorMessage</function> (sobre la
+conexión) devolverá la misma cadena que <function>PQresultErrorMessage</function>
+(sobre el resultado). Sin embargo, un PGresult mantendrá su mensaje de error
+hasta que sea destruido, mientras que el mensaje de error de la conexión cambiará
+cuando se realicen subsiguientes operaciones. Utilice
+<function>PQresultErrorMessage</function> cuando quiera conocer la situación asociada
+a un PGresult particular; utilice <function>PQerrorMessage</function> cuando quiera
+conocer la situación de la última operación en la conexión.
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQclear</function>
+  Libera el espacio asociado con el PGresult. Todos los resultados de las
+  query deben ser liberados mediante PQclear cuando no se necesiten más.
+<synopsis>
+void PQclear(PQresult *res);
+</synopsis>
+  Se puede mantener un objeto PGresult todo el tiempo que se necesite, no
+  desaparece cuando se lanza un nuevo query, ni siquiera cuando se cierra la
+  conexión. Para liberarlo, se deberá llamar a <function>PQclear</function>.
+  Fallos en esto producirán pérdidas de memoria en la aplicación principal.
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQmakeEmptyPGresult</function>
+  Construye un objeto PGresult vacio con el estado dado.
+<synopsis>
+PGresult* PQmakeEmptyPGresult(PGconn *conn, ExecStatusType status);
+</synopsis>
+Esta es una rutina interna de libpq para alojar e inicializar un objeto
+PGresult vacio. Se exporta debido a que algunas aplicaciones la encuentran
+útil para generar objetos resultado (particularmente objetos con estado de
+error) por si mismos. Si conn no es NULL y status indica un error, el
+errorMessage actual de la conexión se copia en el PGresult. Observe que
+PQclear deberá ser llamada sobre el objeto, al igual que con un
+PQresult devuelto por la propia librería libpq.
+</para>
+</listitem>
+</itemizedlist>
+</sect2>
+
+<sect2 id="libpq-exec-select-info">
+  <title>Recuperando información de resultado de una SELECT</title>
+
+<itemizedlist>
+<listitem>
+<para>
+
+
+
+<function>PQntuples</function>
+          Devuelve el número de tuplas (filas) del resultado de la consulta.
+<synopsis>
+int PQntuples(const PGresult *res);
+</synopsis>
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQnfields</function>
+          Devuelve el número de campos (atributos) de cada tupla del resultado
+          de la consulta.
+<synopsis>
+int PQnfields(const PGresult *res);
+</synopsis>
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQfname</function>
+ Devuelve el nombre del campo (atributo) asociado con el indice de campo dado.
+ Los índices de campo empiezan con 0.
+<synopsis>
+char *PQfname(const PGresult *res,
+                    int field_index);
+</synopsis>
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQfnumber</function>
+ Devuelve el índice del campo (atributo) asociado con el nombre del campo dado.
+<synopsis>
+int PQfnumber(const PGresult *res,
+              const char *field_name);
+</synopsis>
+</para>
+
+<para>
+        Se devuelve -1 si el nombre de campo dado no se corresponde con ningún campo.
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQftype</function>
+          Devuelve el tipo de campo asociado con el índice del campo dado. El 
+          entero devuelto es una codificación interna del tipo. Los índices de
+          campo empiezan con 0.
+<synopsis>
+Oid PQftype(const PGresult *res,
+            int indice_del_campo);
+</synopsis>
+Puede usted consultar la tabla de sistema <literal>pg_type</literal> para obtener
+el nombre y propiedades de los diferentes tipos de datos.
+Los <acronym>OID</acronym>,s de los tipos de datos incluidos por defecto están
+definidos en <filename>src/include/catalog/pg_type.h</filename>, en el árbol de
+fuentes del producto.
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQfmod</function>
+  Devuelve los datos de modificación específicos del tipo del campo
+  asociado con el índice de campo dado. Los índice de campos empiezan por 0.
+<synopsis>
+int PQfmod(const PGresult *res,
+           int indice_del_campo);
+</synopsis>
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQfsize</function>
+        Devuelve el tamaño en bytes del campo asociado con el índice de campo dado.
+        Los índices de campo empiezan con 0.
+<synopsis>
+int PQfsize(const PGresult *res,
+            int field_index);
+</synopsis>
+        Qfsize devuelve el espacio reservado para este campo en una tupla de base
+        de datos, en otras palabras, el tamaño de la representación binaria del
+        tipo de datos en el servidor. Se devuelve -1 si el campo es de tamaño
+        variable.
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQbinaryTuples</function>
+  Devuelve 1 si el PGresult contiene datos datos binarios en las tuplas.
+  Devuelve 0 si contiene datos ASCII.
+<synopsis>
+int PQbinaryTuples(const PGresult *res);
+</synopsis>
+Actualmente, los datos binarios de las tuplas sólo pueden ser recuperados
+por una query que extraiga datos de un cursor <acronym>BINARY</acronym>.
+</para>
+</listitem>
+</itemizedlist>
+</sect2>
+
+<sect2 id="libpq-exec-select-values">
+  <title>Recuperando valores del resultado de una SELECT</title>
+
+<itemizedlist>
+<listitem>
+<para>
+<function>PQgetvalue</function>
+          Devuelve un valor de un único campo (atributo) de una tupla de PGresult.
+          Los índices de tuplas y de campos empiezan con 0.
+<synopsis>
+char* PQgetvalue(const PGresult *res,
+                 int tup_num,
+                 int field_num);
+</synopsis>
+Para la mayoría de las consultas, el valor devuelto por <function>PQgetvalue</function>
+es una cadena <acronym>ASCII</acronym> terminada en un valor NULL
+que representa el valor del atributo. Pero si el valor de <function>PQbinaryTuples()</function>
+es 1, el valor que devuelve <function>PQgetvalue</function> es la representación
+binaria del tipo en el formato interno del servidor (pero no incluye la palabra del tamaño,
+si el campo es de longitud variable). Es entonces responsabilidad del programador
+interpretar y convertir los datos en el tipo C correcto. El puntero devuelto por
+<function>PQgetvalue</function> apunta a una zona de almacenaje que forma parte de
+la estructura PGresult. No se la debería modificar, sino que se debería copiar explicitamente
+el valor a otra estructura de almacenamiento si se pretende utilizar una vez
+pasado el tiempo de vida de la estructura PGresult misma.
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQgetlength</function>
+          Devuelve la longitud de un campo (atributo) en bytes.
+          Los índices de tupla y de campo empiezan en 0.
+<synopsis>
+int PQgetlength(const PGresult *res,
+                int tup_num,
+                int field_num);
+</synopsis>
+Esta es la longitud de los datos actuales para el valor de datos particular, es decir, el
+tamaño del objeto apuntado por PQgetvalue. Notese que para valores representados en
+ASCII, este tamaño tiene poco que ver con el tamaño binario indicado por PQfsize.
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQgetisnull</function>
+           Prueba un campo por si tiene un valor NULL.
+           Los índices de tupla y de campo empiezan con 0.
+<synopsis>
+int PQgetisnull(const PGresult *res,
+                int tup_num,
+                int field_num);
+</synopsis>
+            Esta función devuelve 1 si el campo contiene un NULL, o 0 si
+            contiene un valor no nulo.(Tenga en cuenta que PQgetvalue devolverá
+            una cadena vacía, no un puntero nulo, para un campo NULL).
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQprint</function>
+  Imprime todas las tuplas y, opcionalmente, los nombre de campo al flujo
+  de salida especificado.
+       <synopsis>
+void PQprint(FILE* fout,      /* flujo de salida */
+             const PGresult *res,
+             const PQprintOpt *po);
+
+struct {
+    pqbool  header;      /* muestra los encabezados de los campos de salida */
+                         /* y el número de filas */
+    pqbool  align;       /* alinea los campos */
+    pqbool  standard;    /* formato antiguo de salida */
+    pqbool  html3;       /* muestra tablas html */
+    pqbool  expanded;    /* expande las tablas */
+    pqbool  pager;       /* utiliza paginado para salida si es necesario */
+    char    *fieldSep;   /* separador de campos */
+    char    *tableOpt;   /* opciones a insertar en el <replaceable>table ...</replaceable> de HTML*/
+    char    *caption;    /* <replaceable>texto</replaceable> HTML */
+    char    **fieldName; /* array terminado en nulo de nombres de campo */
+} PQprintOpt;
+       </synopsis>
+Esta función era utilizada por <application>psql</application> para mostrar
+los resultados de las consultas, pero no va a ser así de aquí en
+adelante y esta función no va a ser soportada activamente.
+</para>
+</listitem>
+</itemizedlist>
+</sect2>
+
+<sect2 id="libpq-exec-nonselect">
+  <title>Recuperando información del resultado de sentencias no SELECT</title>
+
+<itemizedlist>
+
+
+<listitem>
+<para>
+<function>PQcmdStatus</function>
+        Devuelve la cadena de la situación del comando para el comando SQL que
+        generó el PGresult.
+<synopsis>
+char * PQcmdStatus(const PGresult *res);
+</synopsis>
+</para>
+</listitem>
+
+
+<listitem>
+<para>
+<function>PQcmdTuples</function>
+        Devuelve el número de filas afectadas por el comando SQL.
+<synopsis>
+char * PQcmdTuples(const PGresult *res);
+</synopsis>
+        Si el comando <acronym>SQL</acronym> que generó el PGresult
+        era INSERT, UPDATE o DELETE, devolverá una cadena que contiene
+        el número de filas afectadas. Si el comando era cualquier otro, 
+        devolverá una cadena vacía.
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQoidValue</function>
+          Devuelve el identificador de objeto (oid) de la tupla insertada,
+          si el comando <acronym>SQL</acronym> era una INSERT. En caso 
+          contrario, devuelve <literal>InvalidOid</literal>.
+<synopsis>
+Oid PQoidValue(const PGresult *res);
+</synopsis>
+          Tanto el tipo <type>Oid</type> como la constante <literal>InvalidOid</literal>
+          se definirán cuando incluya usted el fichero de cabeceras
+          <application>libpq</application>. Ambos serán de tipo entero (integer).
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQoidStatus</function>
+          Devuelve una cadena con el identificador de objeto de la tupla insertada
+          si el comando <acronym>SQL</acronym> era una INSERT. En otro caso devuelve
+          una cadena vacía.
+<synopsis>
+char * PQoidStatus(const PGresult *res);
+</synopsis>
+Esta función se ha despreciado en favor de <function>PQoidValue</function>
+y no asegura la hebra.
+</para>
+</listitem>
+
+</itemizedlist>
+</sect2>
+</sect1>
+
+<sect1 id="libpq-async">
+<title>Procesamiento Asíncrono de Consultas</title>
+
+<para>
+La función <function>PQexec</function> es adecuada para emitir consultas en
+aplicaciones síncronas sencillas. Sin embargo, tiene una porción de deficiencias
+importantes:
+
+<itemizedlist>
+<listitem>
+<para>
+<function>PQexec</function> espera hasta que se completa la consulta. La aplicación
+puede tener otro trabajo para hacer (como por ejemplo mantener una interfaz de
+usuario), en cuyo caso no se querrá bloquear esperando la respuesta.
+</para>
+</listitem>
+<listitem>
+<para>
+Una vez que el control se pasa a <function>PQexec</function>, la aplicación cliente
+tiene muy dificil intentar cancelar la consulta en curso. (Se puede hacer con un
+manipulador de señales, pero no de otra forma).
+</para>
+</listitem>
+<listitem>
+<para>
+<function>PQexec</function> sólo puede devolver una estructura PGresult. Si la
+cadena de la consulta emitida contiene múltiples comandos <acronym>SQL</acronym>,
+se perderán todos excepto el último.
+</para>
+</listitem>
+</itemizedlist>
+</para>
+
+<para>
+Las aplicaciones que no se quieren encontrar con estas limitaciones, pueden utilizar
+en su lugar las funciones que subyacen bajo <function>PQexec</function>:
+<function>PQsendQuery</function> y <function>PQgetResult</function>.
+</para>
+<para>
+Para los programas antiguos que utilizaban esta funcionalidad utilizando
+<function>PQputline</function> y <function>PQputnbytes</function>
+y esperaban bloqueados el envío de datos del servidor, se añadió la función
+<function>PQsetnonblocking</function>.
+</para>
+<para>
+Las aplicaciones antíguas pueden rechazar el uso de
+<function>PQsetnonblocking</function>
+y mantener el comportamiento anteriorpotencialmente bloquante. Los programas
+más nuevos pueden utilizar<function>PQsetnonblocking</function> para conseguir
+ una conexión con el servidor completamente no bloqueante.
+
+<itemizedlist>
+ <listitem>
+   <para>
+    <function>PQsetnonblocking</function> ajusta el estado no bloqueante
+    de la conexión.
+<synopsis>
+int PQsetnonblocking(PGconn *conn, int arg)
+</synopsis>
+  Asigna el estado de la conexión a no bloqueante si arg es TRUE, y
+  bloqueante si es FALSE. Devuelve 0 si todo ha ido bien, y -1 si hubo error.
+  En estado no bloqueante, las llamadas a
+    <function>PQputline</function>, <function>PQputnbytes</function>,
+    <function>PQsendQuery</function> y <function>PQendcopy</function>
+    se ejecutarán sin bloqueo, devolviendo en su lugar un error si necesitan ser
+    llamadas de nuevo.
+   </para>
+   <para>
+    Cuando una conexión a una base de datos se ha fijado como no bloqueante, y
+    se llama a <function>PQexec</function>, se cambiará el estado temporalmente
+    a bloqueante, hasta que se completa la ejecución de <function>PQexec</function>.
+   </para>
+   <para>
+    Se espera que en el próximo futuro, la mayoría de libp se haga segura para
+    la funcionalidad de <function>PQsetnonblocking</function>.
+  </para>
+ </listitem>
+
+<listitem>
+<para>
+<function>PQisnonblocking</function>
+       Devuelve la situación de bloqueante o no de la conexión a la base de datos.
+<synopsis>
+int PQisnonblocking(const PGconn *conn)
+</synopsis>
+       Devuelve TRUE si la conexión está fijada a modo no bloqueante, y
+       FALSE si está fijada a bloqueante.
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQsendQuery</function>
+          Envía una consulta a <productname>Postgres</productname> sin
+          esperar los resultados. Devuelve TRUE si la consulta se despachó
+          correctamente, y FALSE si no fue así (en cuyo caso, utilice
+          PQerrorMessage para obtener más información sobre el fallo).
+<synopsis>
+int PQsendQuery(PGconn *conn,
+                const char *query);
+</synopsis>
+          Tras llamar correctamente a <function>PQsendQuery</function>, llame a
+          <function>PQgetResult</function> una o más veces para obtener el resultado
+          de la consulta. No se debe volver a llamar a
+          <function>PQsendQuery</function> en la misma conexión hasta que
+          <function>PQgetResult</function> devuelva NULL, indicando que la consulta
+          se ha realizado.
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQgetResult</function>
+          Espera el siguiente resultado de una ejecución previa de
+          <function>PQsendQuery</function>, y lo devuelve. Se devuelve NULL cuando
+          la consulta está completa y ya no habrá más resultados.
+<synopsis>
+PGresult *PQgetResult(PGconn *conn);
+</synopsis>
+	  Se debe llamar a <function>PQgetResult</function> repetidamente hasta que
+          devuelva NULL, indicando que la consulta se ha realizado. (Si se la llama
+          cuando no hay ninguna consulta activa, simplemente devolverá NULL desde
+          el principio). Cada uno de los resultados no nulos de
+          <function>PQgetResult</function> debería procesarse utilizando las mismas
+          funciones de acceso a PGresult previamente descritas.
+          No olvide liberar cada objeto resultado con <function>PQclear</function>
+          cuando lo haya hecho. Nótese que <function>PQgetResult</function> sólo
+          bloqueará si hay una consulta activa y <function>PQconsumeInput</function>
+          aún no a leido los datos de respuesta necesarios.
+</para>
+</listitem>
+
+</itemizedlist>
+</para>
+
+<para>
+Utilizando <function>PQsendQuery</function> y <function>PQgetResult</function>
+se resuelve uno de los problemas de <function>PQexec</function>:
+Si una cadena de consulta contiene múltiples comandos <acronym>SQL</acronym>,
+los resultados de esos comandos se pueden obtener individualmente. (Esto permite
+una forma sencilla de procesamiento paralelo: la aplicación cliente puede estar
+manipulando los resultados de una consulta mientras el servidor sigue trabajando
+sobre consultas posteriores de la misma cadena de consulta). Sin embargo, 
+la llamada a <function>PQgetResult</function> seguirá provocando que el cliente quede
+bloqueado hasta que el servidor complete el siguiente comando <acronym>SQL</acronym>
+de la cadena. Esto se puede impedir con el uso adecuado de tres funciones más:
+
+<itemizedlist>
+<listitem>
+<para>
+<function>PQconsumeInput</function>
+          Si hay una entrada disponible desde el servidor, la recoge.
+<synopsis>
+int PQconsumeInput(PGconn *conn);
+</synopsis>
+<function>PQconsumeInput</function> normalmente devuelve 1 indicando "no hay error",
+pero devuelve 0 si hay algún tipo de problema (en cuyo caso se fija
+<function>PQerrorMessage</function>).  Tengase en cuenta que el resultado no dice
+si se ha recogido algún dato de entrada. Tras llamar a 
+<function>PQconsumeInput</function>, la aplicación deberá revisar
+<function>PQisBusy</function> y/o <function>PQnotifies</function> para ver si sus 
+estados han cambiado.
+</para>
+<para>
+<function>PQconsumeInput</function> se puede llamar incluso si la aplicación aún no
+está preparada para recibir un resultado o una notificación. La rutina leerá los 
+datos disponibles y los situará en un almacenamiento intermedio, provocando así una
+indicación de preparado para leer a la función <function>select</function>(2) para
+que continúe. La aplicación puede por ello utilizar 
+<function>PQconsumeInput</function> para limpiar la condición 
+<function>select</function> inmediatamente, y examinar después los resultados
+tranquilamente.
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQisBusy</function>
+Devuelve 1 si una consulta está ocupada, es decir, si
+<function>PQgetResult</function> se quedaría bloqueada esperando una entrada.
+Un 0 indica que se puede llamar a <function>PQgetResult</function> con la
+seguridad de no bloquear.
+<synopsis>
+int PQisBusy(PGconn *conn);
+</synopsis>
+<function>PQisBusy</function> no intentará por sí mismo leer los datos del servidor;
+por ello, se debe llamar primero a <function>PQconsumeInput</function>, o el estado
+ocupado no terminará nunca.
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQflush</function> Intenta lanzar cualquier dato encolado al servidor,
+y devuelve 0 si lo consigue (o si la cola de envío está vacía) y EOF si ha fallado
+por algún motivo.
+<synopsis>
+int PQflush(PGconn *conn);
+</synopsis>
+Es necesario llamar a <function>PQflush</function> en una conexión no bloqueante
+antes de llamar a <function>select</function> para determinar si ha llegado
+una respuesta. Una respuesta de 0 asegura que no hay datos encolados al servidor
+que no se hayan enviado todavía. Solo las aplicaciones que han usado
+<function>PQsetnonblocking</function> necesitan esto.
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQsocket</function>
+          Obtiene el número descriptor de fichero para el socket de conexión
+          con el servidor. Un descriptor válido sera &gt;= 0; un resultado de -1
+          indica que no hay actualmente ninguna conexión con el servidor abierta.
+<synopsis>
+int PQsocket(const PGconn *conn);
+</synopsis>
+Se debería utilizar <function>PQsocket</function> para obtener el descriptor del
+socket del servidor para preparar la ejecución de <function>select</function>(2).
+ Esto permite a una aplicación que utiliza conexión bloqueante esperar las respuestas
+u otras condiciones del servidor. Si el resultado de <function>select</function>(2)
+indica que los datos se pueden leer desde el socket del servidor, debería llamarse a
+<function>PQconsumeInput</function> para leer los datos; tras ello, se pueden
+utilizar <function>PQisBusy</function>, <function>PQgetResult</function>,
+y/o <function>PQnotifies</function> para procesar la respuesta.
+</para>
+<para>
+Las conexiónes no bloqueantes (que han utilizado
+<function>PQsetnonblocking</function>) no deberían utilizar
+<function>select</function> hasta que <function>PQflush</function>
+haya devuelto 0 indicando que no quedan datos almacenados esperando ser enviados
+al servidor.
+</para>
+</listitem>
+
+</itemizedlist>
+</para>
+
+<para>
+Una aplicación cliente típica que utilice estas funciones tendrá un bucle principal
+que utiliza <function>select</function>(2) para esperar todas las condiciones a las
+que debe responder. Una de estas condiciones será la entrada disponible desde el
+servidor, lo que en términos de <function>select</function> son datos legibles en
+el descriptor de fichero identificado por <function>PQsocket</function>.
+Cuando el bucle principal detecta que hay preparada una entrada, debería llamar a
+<function>PQconsumeInput</function> para leer la entrada. Puede después llamar a
+<function>PQisBusy</function>, seguido de <function>PQgetResult</function>
+si
+<function>PQisBusy</function> devuelve falso (0). Puede llamar también a
+<function>PQnotifies</function> para detectar mensajes NOTIFY
+(ver "Notificación Asíncrona", más abajo).
+</para>
+
+<para>
+Una aplicación cliente que utilice <function>PQsendQuery</function>/<function>PQgetResult</function>
+también puede intentar cancelar una consulta que aún se esté procesando en el
+servidor.
+</para>
+
+<para>
+<itemizedlist>
+<listitem>
+<para>
+<function>PQrequestCancel</function>
+          Requiere de <productname>Postgres</productname> que abandone el
+          procesado de la consulta actual.
+<synopsis>
+int PQrequestCancel(PGconn *conn);
+</synopsis>
+Devuelve un valor 1 si la cancelación se ha despachado correctamente,
+y 0 si no (y si no, <function>PQerrorMessage</function> dirá porqué).
+Que se despache correctamente no garantiza que el requerimiento vaya a tener ningún
+efecto, sin embargo. Sin mirar el valor de retorno de <function>PQrequestCancel</function>,
+la aplicación debe continuar con la secuencia de lectura de resultados normal,
+utilizando <function>PQgetResult</function>.  Si la cancelación ha sido efectiva,
+la consulta actual terminará rápidamente y devolverá un resultado de error. Si falló
+la cancelación (digamos que porque el servidor ya había procesado la consulta),
+no se verá ningún resultado.
+</para>
+</listitem>
+</itemizedlist>
+</para>
+
+<para>
+Nótese que si la consulta forma parte de una transacción, la cancelación abortará la
+transacción completa.
+</para>
+
+<para>
+<function>PQrequestCancel</function> se puede invocar de modo seguro desde un
+manipulador de señales. De esta forma, se puede utilizar en conjunción con
+<function>PQexec</function> plano, si la decisión de cancelar se puede tomar en un
+manipulador de señales. Por ejemplo, <application>psql</application> invoca a
+<function>PQrequestCancel</function> desde un manipulador de la señal SIGINT,
+permitiendo de este modo la cancelación interactiva de consultas que él gestiona
+a través de <function>PQexec</function>.
+Obsérvese que
+<function>PQrequestCancel</function> no tendrá efecto si la conexión no está
+abierta en ese momento, o si el servidor no está procesando una consulta.
+</para>
+
+</sect1>
+
+<sect1 id="libpq-fastpath">
+<title>Ruta Rápida</title>
+
+<para>
+<productname>Postgres</productname> proporciona un interfaz rápido para enviar
+llamadas de función al servidor. Esta es una puerta falsa en la interioridades del
+sistema, y puede suponer un agujero de seguridad. La mayoría de los usuarios no
+necesitarán esta carácterística.
+
+<itemizedlist>
+<listitem>
+<para>
+<function>PQfn</function>
+        Requiere la ejecución de una función de servidor a través del interfaz de
+        ruta rápida.
+<synopsis>
+PGresult* PQfn(PGconn* conn,
+               int fnid,
+               int *result_buf,
+               int *result_len,
+               int result_is_int,
+               const PQArgBlock *args,
+               int nargs);
+</synopsis>
+     El argumento fnid es el identificador del objeto de la función que se debe
+     ejecutar.
+     result_buf es la zona de almacenamiento en la cual se debe situar el
+     valor devuelto. El programa que hace la llamade deberá haber reservado
+     suficiente espacio para almacenar el valor devuelto (¡no se comprueba!).
+     La longitud del resultado real se devolverá en el entero apuntado por
+     result_len.   Si se espera un resultado entero de 4 bytes, fije
+     result_is_int a 1; de otra forma, fíjelo a 0.  (Fijando result_is_int a 1
+     se indica a libpq que administre el valor balanceando los bytes si es necesario,
+     de forma que se envíe un valor int adecuado a la máquina cliente. Cuando
+     result_is_int es 0, la cadena de bytes enviada por el servidor se devuelve sin
+     modificar).
+     args y nargs especifican los argumentos a pasar a la función.
+<synopsis>
+typedef struct {
+    int len;
+    int isint;
+    union {
+        int *ptr;
+        int integer;
+    } u;
+} PQArgBlock;
+</synopsis>
+     <function>PQfn</function> siempre devuelve un PGresult* válido.
+     Se debería comprobar el valor de resultStatus
+antes de utilizar el resultado.
+     El programa que hace la llamada es responsable de liberar el PGresult con
+     <function>PQclear</function> cuando ya no lo necesite.
+</para>
+</listitem>
+</itemizedlist>
+</para>
+
+</sect1>
+
+<sect1 id="libpq-notify">
+<title>Notificación Asíncrona</title>
+ 
+<para>
+<productname>Postgres</productname> soporta notificación asíncrona a través de los
+comandos LISTEN y NOTIFY.  Un servidor registra su interés en una condición de 
+notificación particular con el comando LISTEN (y puede dejar de escuchar con el
+comando UNLISTEN). Todos los servidores que están escuchando una condición de 
+notificación particular recibirán la notificación asíncronamente cuando cualquier
+servidor ejecute un NOTIFY de ese nombre de condición. El servidor que realiza la 
+notificación no pasará ninguna otra información particular a los servidores que
+están escuchando.  Por ello, cualquier dato que deba ser comunicado se transfiere 
+habitualmente a través de una relación de base de datos. También habitualmente el
+nombre de la condición es el mismo de la relación asociada, pero no sólo no es 
+necesario, sino que tampoco lo es que exista ninguna relación asociada.
+</para>
+
+<para>
+Las aplicaciones <filename>libpq</filename> emiten los comandos LISTEN y UNLISTEN
+como consultas SQL ordinarias. Subsiguientemenet, la llegada de mensajes NOTIFY
+se puede detectar llamando a PQnotifies().
+
+<itemizedlist>
+<listitem>
+<para>
+<function>PQnotifies</function>
+          Devuelve la siguiente noficación de una lista de mensajes de notificación
+          aún no manipulados recibidos desde el servidor. Devuelve NULL si no hay
+          notificaciones pendientes. Una vez se devuelve una notificación con
+          PQnotifies, esta se considera manipulada y se borrará de la lista de
+          notificaciones.
+<synopsis>
+PGnotify* PQnotifies(PGconn *conn);
+
+typedef struct PGnotify {
+    char relname[NAMEDATALEN];       /* nombre de la relación */
+                                     /* que contiene los datos */
+    int  be_pid;                     /* identificador del proceso servidor */
+} PGnotify;
+</synopsis>
+Tras procesar un objeto PGnotify devuelto por <function>PQnotifies</function>,
+asegurese de liberarlo con <function>free()</function> para impedir pérdidas de 
+memoria.
+</para>
+<note>
+<para>
+ En <productname>Postgres</productname> 6.4 y posteriores,
+ el <literal>be_pid</literal> corresponde al servidor que realiza la notificación,
+ mientras que en versiones anteriores era siempre el <acronym>PID</acronym> del
+ propio servidor.
+</para>
+</note>
+</listitem>
+</itemizedlist>
+</para>
+
+<para>
+La segunda muestra de programa da un ejemplo del uso de la notificación asíncrona.
+</para>
+
+<para>
+<function>PQnotifies()</function> actualmente no lee datos del servidor; únicamente
+devuelve mensajes previamente absorvidos por otra función
+<application>libpq</application>. En versiones previas de
+<application>libpq</application>, la única forma de asegurar la recepción a tiempo
+de mensajes NOTIFY era emitir constantemente consultas, incluso vacías, y comprobar
+entonces <function>PQnotifies()</function> tras cada <function>PQexec()</function>.
+Aunque esto funcionaba, se menospreciaba como una forma de malgastar poder de
+proceso.
+</para>
+<para>
+Una forma mejor de comprobar los mensajes NOTIFY cuando no se dispone de consultas
+utilizables es hacer una llamada <function>PQconsumeInput()</function>,
+y comprobar entonces <function>PQnotifies()</function>.
+Se puede usar
+<function>select</function>(2) para esperar la llegada de datos del servidor,
+no utilizando en este caso potencia de <acronym>CPU</acronym> a menos que se
+tenga algo que hacer. (Vea <function>PQsocket()</function> para obtener el
+número del descriptor de fichero para utilizar con <function>select</function>.)
+Nótese que esta forma funcionará correctamente mientras
+utilice usted <function>PQsendQuery</function>/<function>PQgetResult</function>
+o símplemente <function>PQexec</function> para las consultas. Debería usted, sin
+embargo, recordar comprobar <function>PQnotifies()</function>
+tras cada
+<function>PQgetResult</function> o <function>PQexec</function> para comprobar si ha
+llegado alguna notificación durante el procesado de la consulta.
+</para>
+
+</sect1>
+
+<sect1 id="libpq-copy">
+<title>Funciones Asociadas con el Comando COPY</title>
+
+<para>
+ El comando COPY en <productname>Postgres</productname> tiene opciones para leer
+ o escribir en la conexión de red utilizada para <filename>libpq</filename>.
+ Por ello, se necesitan funciones para acceder a su conexión de red directamente,
+ de forma que las aplicaciones puedan obtener ventajas de esta capacidad.
+</para>
+
+<para>
+ Estas funciones sólo se deberían utilizar tras obtener un objeto resultado
+ <literal>PGRES_COPY_OUT</literal> o <literal>PGRES_COPY_IN</literal>
+ a partir de <function>PQexec</function> o <function>PQgetResult</function>.
+</para>
+
+<para>
+<itemizedlist>
+<listitem>
+<para>
+<function>PQgetline</function>
+          Lee una línea de caracteres terminada con un caracter "newline"
+          (transmitida por el servidor) en una cadena de almacenamiento de
+          tamaño "length".
+<synopsis>
+int PQgetline(PGconn *conn,
+              char *string,
+              int length)
+</synopsis>
+De modo similar a <function>fgets</function>(3), esta rutina copia longitud-1
+carácteres en una cadena. Es como <function>gets</function>(3), sin embargo, en
+que el carácter "newline" de terminación en un carácter nulo.
+<function>PQgetline</function> devuelve <literal>EOF</literal> en el EOF,
+0 si se ha leido la línea entera, y 1 si se ha llenado la zona de almacenamiento,
+pero aún no se ha leido el fin de línea.
+</para>
+<para>
+Observese que la aplicación deberá comprobar si la nueva línea consiste en los
+dos carácteres "\.", lo que indicaría que el servidor ha terminado de enviar los
+resultados del comando copy.
+Si la aplicación debería recibir líneas que son más largas de longitud-1, deberá
+tener cuidado de reconocer la línea "\." correctamente (y no confunde, por ejemplo,
+el final de una larga línea de datos con la línea de terminación).
+El código de
+<filename>
+src/bin/psql/copy.c
+</filename>
+contiene rutinas de ejemplo que manipulan correctamente el protocolo copy.
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQgetlineAsync</function>
+          Lee una línea de carácteres terminada con "newline"
+          (transmitida por el servidor) en una zona de almacenamiento
+          sin bloquear.
+<synopsis>
+int PQgetlineAsync(PGconn *conn,
+                   char *buffer,
+                   int bufsize)
+</synopsis>
+Esta rutina es similar a <function>PQgetline</function>, pero la pueden utilizar
+aplicaciones que leen datos de COPY asíncronamente, ya que es sin bloqueo.
+Una vez realizado el comando COPY y obtenido una respuesta
+<literal>PGRES_COPY_OUT</literal>, la aplicación debería llamar a
+<function>PQconsumeInput</function> y <function>PQgetlineAsync</function>
+hasta que se detecte la señal end-of-data. Contra <function>PQgetline</function>,
+esta rutina toma la responabilidad de detectar el EOF.
+En cada llamada, <function>PQgetlineAsync</function>
+devolverá datos, siempre que tenga disponible una línea de datos completa
+terminada en "newline" en el almacenamiento de entrada de libpq, o si la línea de
+datos de entrada es demasiado larga para colocarla en el almacenamiento ofrecido
+por la aplicación de llamada. En otro caso, no se devuelve ningún dato hasta que
+llega el resto de la línea.
+</para>
+<para>
+La rutina devuelve -1 si reconoce el marcador end-of-copy-data, 0 si no tiene datos
+disponibles, o un número positivo que la el número de bytes de datos devueltos.
+Si se devuelve -1, la aplicación que realiza la llamada deberá llamar a
+<function>PQendcopy</function>, y volver después al procesado normal.
+Los datos devueltos no se extenderán más allá de un carácter "newline". Si es
+posible, se devolverá una línea completa cada vez. Pero si el almacenamiento ofrecido
+por la aplicación que realiza la llamada es demasiado pequeño para recibir una
+línea enviada por el servidor, se devolverán datos parciales. Se puede detectar esto
+comprobando si el último byte devuelto es <literal>\n</literal> o no.
+La cadena devuelta no se termina con un carácter nulo. (Si quiere usted añadir un
+NULL de terminación, asegurese de pasar una longitud del almacenamiento más
+pequeña que el tamaño del almacenamiento de que realmente dispone).
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQputline</function>
+Envía una cadena terminada en carácter nulo al servidor. Devuelve 0 si todo funciona
+bien, y <literal>EOF</literal> si es incapaz de enviar la cadena.
+<synopsis>
+int PQputline(PGconn *conn,
+              const char *string);
+</synopsis>
+Tenga en cuenta que la aplicación debe envíar explícitamente los dos caracteres
+<literal>\.</literal> en una línea de final para indicar al servidor
+que ha terminado de enviarle datos.
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQputnbytes</function>
+Envía una cadena terminada en un carácter no nulo al servidor.
+Devuelve 0 si todo va bien, y EOF si es incapaz de enviar la cadena.
+<synopsis>
+int PQputnbytes(PGconn *conn,
+                const char *buffer,
+                int nbytes);
+</synopsis>
+Esta función es exactamente igual que <function>PQputline</function>, 
+excepto en que el almacenamiento de datos no necesita estar terminado en un carácter
+nulo, una vez que el número de bytes que se envían se especifica directamente.
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQendcopy</function>
+ Sincroniza con el servidor. Esta función espera hasta que el servidor ha terminado 
+ la copia. Debería utilizarse bien cuando se ha enviado la última cadena al servidor
+ utilizando <function>PQputline</function> o cuando se ha recibido la última cadena
+ desde el servidor utilizando <function>PGgetline</function>.  Debe utilizarse, o
+ el servidor puede recibir "out of sync" (fuera de sincronía)
+ con el cliente. Una vez vuelve de esta función, el servidor está preparado para
+ recibir la siguiente consulta. El valor devuelto es 0 si se completa con éxito, o
+ diferente de cero en otro caso.
+<synopsis>
+int PQendcopy(PGconn *conn);
+</synopsis>
+</para>
+
+<para>
+Como un ejemplo:
+
+<programlisting>
+PQexec(conn, "create table foo (a int4, b char(16), d double precision)");
+PQexec(conn, "copy foo from stdin");
+PQputline(conn, "3\thello world\t4.5\n");
+PQputline(conn,"4\tgoodbye world\t7.11\n");
+...
+PQputline(conn,"\\.\n");
+PQendcopy(conn);
+</programlisting>
+</para>
+</listitem>
+</itemizedlist>
+</para>
+
+<para>
+Cuando se está utilizando <function>PQgetResult</function>, la aplicación debería responder
+a un resultado <literal>PGRES_COPY_OUT</literal> ejecutando repetidamente
+<function>PQgetline</function>, seguido de <function>PQendcopy</function> una vez se
+detecta la línea de terminación. Debería entonces volver al bucle
+<function>PQgetResult</function> hasta que
+<function>PQgetResult</function> devuelva NULL. Similarmente, un resultado
+<literal>PGRES_COPY_IN</literal> se procesa por una serie de llamadas a
+<function>PQputline</function> seguidas por <function>PQendcopy</function>, y volviendo
+entonces al bucle <function>PQgetResult</function>. Esta organización asegurará que
+un comando de copia de entrada o de salida embebido en una serie de comandos
+<acronym>SQL</acronym> se ejecutará correctamente.
+</para>
+<para>
+Las aplicaciones antiguas habitualmente emiten una copia de entrada o de salida a través de
+<function>PQexec</function> y asumen que la transacción ha terminado tras el
+<function>PQendcopy</function>. Este mecanismo trabajará adecuadamente sólo si la copia
+de entrada/salida es el único comando <acronym>SQL</acronym> de la cadena de consulta.
+</para>
+
+</sect1>
+
+<sect1 id="libpq-trace">
+<title>Funciones de Trazado de <application>libpq</application></title>
+
+<para>
+<itemizedlist>
+<listitem>
+<para>
+<function>PQtrace</function>
+          Activa el trazado de la comunicación cliente/servidor hacia un fichero
+          de depuracion.
+<synopsis>
+void PQtrace(PGconn *conn
+             FILE *debug_port)
+</synopsis>
+</para>
+</listitem>
+
+<listitem>
+<para>
+<function>PQuntrace</function>
+          Desactiva la traza arrancada por PQtrace.
+<synopsis>
+void PQuntrace(PGconn *conn)
+</synopsis>
+</para>
+</listitem>
+</itemizedlist>
+</para>
+
+</sect1>
+
+<sect1 id="libpq-control">
+<title>Funciones de control de <application>libpq</application></title>
+
+<para>
+<itemizedlist>
+<listitem>
+<para>
+<function>PQsetNoticeProcessor</function>
+Controla le informe de mensajes de aviso y alarma generados por libpq.
+<synopsis>
+typedef void (*PQnoticeProcessor) (void *arg, const char *message);
+
+PQnoticeProcessor
+PQsetNoticeProcessor(PGconn *conn,
+                     PQnoticeProcessor proc,
+                     void *arg);
+</synopsis>
+</para>
+</listitem>
+</itemizedlist>
+</para>
+
+<para>
+Por defecto, <application>libpq</application> imprime los mensajes de aviso del servidor así
+como unos pocos mensajes de error que genera por sí mismo en <filename>stderr</filename>.
+Este comportamiento se puede sobreescribir suministrando una función de llamada de alarma que
+haga alguna otra cosa con los mensajes. La función de llamada de alarma utiliza como
+argumentos el texto del mensaje de error (que incluye un caracter final de "newline"), y
+un puntero vacío que es el mismo pasado a <function>PQsetNoticeProcessor</function>.
+(Este puntero se puede utilizar para acceder a estados específicos de la aplicación si se
+necesita). El procesador de avisos de defecto es simplemente:
+<programlisting>
+static void
+defaultNoticeProcessor(void * arg, const char * message)
+{
+    fprintf(stderr, "%s", message);
+}
+</programlisting>
+Para utilizar un procesador de avisos especial, llame a
+<function>PQsetNoticeProcessor</function> inmediamente tras la creación de un nuevo
+objeto PGconn.
+</para>
+
+<para>
+El valor devuelto es el puntero al procesador de avisos previo. Si proporciona usted un
+puntero de función de llamada a NUL, no se toma ninguna acción, sino que se devuelve el
+puntero activo.
+</para>
+
+<para>
+Una vez que se ha asignado un procesador de noticias, puede esperar que esa función
+sea llamada mientras existan los objetos PGconn o PGresult construidos desde que
+se generó. En la creación de un PGresult, el puntero al procesador de noticias del
+PGconn se copia al PGresult para un posible uso por rutinas como
+<function>PQgetvalue</function>.
+</para>
+</sect1>
+
+<sect1 id="libpq-envars">
+<title>Variables de Entorno</title>
+
+<para>
+Se pueden utilizar las siguientes variables de entorno para seleccionar valores de parámetros
+de conexión de defecto, que serán utilizadas por <function>PQconnectdb</function> o
+<function>PQsetdbLogin</function> si no se especifica ningún otro valor directamente en
+el código que realiza la llamada. Son utilizables para impedir codificar nombres de bases de
+datos en simples programas de aplicación.
+
+<itemizedlist>
+<listitem>
+<para>
+
+<envar>PGHOST</envar> fija el nombre del ordenador servidor. Si comienza por
+barra ("/"), especifica comunicación en el dominio Unix en vez de comunicación
+TCP/IP y el valor será el nombre del directorio en el que se almacena el socket
+(por defecto "/tmp")
+Si se especifica una cadena de longitud distinta de 0, se utiliza comunicación TCP/IP.
+Sin un nombre de ordenador, libpq conectará utilizando un socket del dominio Unix local.
+</para>
+</listitem>
+<listitem>
+<para>
+<envar>PGPORT</envar> fija el puerto TCP por defecto o la extensión de fichero del socket de
+dominio Unix local para la comunicación con el servidor
+<productname>Postgres</productname>.
+</para>
+</listitem>
+<listitem>
+<para>
+<envar>PGDATABASE</envar>  fija el nombre de la base de datos
+<productname>Postgres</productname>.
+</para>
+</listitem>
+<listitem>
+<para>
+<envar>PGUSER</envar>
+fija el nombre de usuario utilizado para conectarse a la base de datos y para autenticación.
+</para>
+</listitem>
+<listitem>
+<para>
+<envar>PGPASSWORD</envar>
+fija la palabra de paso utilizada si el servidor solicita autenticación por palabra clave.
+</para>
+</listitem>
+<listitem>
+<para>
+<envar>PGREALM</envar> sets the Kerberos realm to  use  with
+<productname>Postgres</productname>, if  it is different from the local realm.
+If <envar>PGREALM</envar> is set, <productname>Postgres</productname>
+applications  will  attempt authentication  with  servers for this realm and use
+separate ticket files to avoid conflicts with  local
+ticket  files.   This  environment  variable is only
+used if Kerberos authentication is selected by the backend.
+</para>
+</listitem>
+<listitem>
+<para>
+<envar>PGOPTIONS</envar> fija opciones de ejecución adicionales para el servidor
+<productname>Postgres</productname>.
+</para>
+</listitem>
+<listitem>
+<para>
+<envar>PGTTY</envar> fija el fichero o tty en el que se mostrarán los mensajes de
+depuración del servidor.
+</para>
+</listitem>
+</itemizedlist>
+</para>
+
+<para>
+Las siguientes variables de entorno se pueden usar para especificar el comportamiento
+de defecto de los usuario para cada sesión de PostgreSQL:
+
+<itemizedlist>
+<listitem>
+<para>
+<envar>PGDATESTYLE</envar>
+Fija el estilo de la representación de fechas y horas.
+</para>
+</listitem>
+<listitem>
+<para>
+<envar>PGTZ</envar>
+Fija el valor de defecto para la zona horaria.
+</para>
+</listitem>
+
+<listitem>
+<para>
+<envar>PGCLIENTENCODING</envar>
+asigna la codificación de cliente por defecto (si se ha seleccionado soporte
+MULTIBYTE cuando se configuraba Postgres).
+</para>
+</listitem>
+
+</itemizedlist>
+</para>
+
+<para>
+Las siguientes variables de entorno se pueden utilizar para especificar el
+comportamiento interno por defecto de cada sesión de PostgreSQL:
+
+<itemizedlist>
+<listitem>
+<para>
+<envar>PGGEQO</envar>
+fija el modo de defecto para el optimizador genético.
+</para>
+</listitem>
+</itemizedlist>
+</para>
+
+<para>
+Refierase al comando <acronym>SQL</acronym> <command>SET</command>
+para obtener información sobre los valores correctos de estas variables de
+entorno.
+</para>
+
+</sect1>
+
+
+<sect1 id="libpq-threading">
+<title>Comportamiento en multihilo</title>
+
+<para>
+<filename>libpq</filename> soporta multihilo, al igual que
+<productname>Postgres</productname> 7.0, mientras no intenten dos hilos
+manipular el mismo objeto PGconn en el mismo momento. En particular, no se
+pueden lanzar consultas a la base de datos desde diferentes hilos a través del
+mismo objeto de conexión. (Si necesita ejecutar consultas concurrentes, necesitará
+arrancar varias conexiones.)
+</para>
+
+<para>
+Los objetos PGresult son de solo lectura después de la creación, y así pueden ser
+pasados libremente entre hilos.
+</para>
+
+<para>
+Las funciones desfasadas <function>PQoidStatus</function> y
+<function>fe_setauthsvc</function> no soportan multihilo.
+<function>PQoidStatus</function> puede ser reemplazada por
+<function>PQoidValue</function> y no hay razón actualmente para llamar a la
+función <function>fe_setauthsvc</function>.
+</para>
+
+</sect1>
+
+
+<sect1 id="libpq-example">
+<title>Programas de Ejemplo</title>
+
+<example id="libpq-example-1">
+<title>Programa de Ejemplo 1</title>
+
+<programlisting>
+/*
+ * testlibpq.c Prueba la versión C de libpq, la librería para aplicaciones
+ * cliente de PostgreSQL
+ *
+ *
+ */
+#include &lt;stdio.h&gt;
+#include &lt;libpq-fe.h&gt;
+
+void
+exit_nicely(PGconn *conn)
+{
+    PQfinish(conn);
+    exit(1);
+}
+
+main()
+{
+    char       *pghost,
+               *pgport,
+               *pgoptions,
+               *pgtty;
+    char       *dbName;
+    int         nFields;
+    int         i,
+                j;
+
+    /* FILE *debug; */
+
+    PGconn     *conn;
+    PGresult   *res;
+
+    /*
+     * Se empieza fijando los parámetros de una conexión al servidor. Si los
+     * parámetros son nulos, el sistema probará a utilizar valores de defecto
+     * razonables para buscar en las variables de entorno, y, si esto falla,
+     * utilizará constantes incluídas directamente en el código.
+     */
+    pghost = NULL;              /* nombre del ordenador servidor.   */
+    pgport = NULL;              /* puerto asignado al servidor */
+    pgoptions = NULL;           /* opciones especiales para arrancar el servidor */
+    pgtty = NULL;               /* tty (terminal) para depuración del servidor */
+    dbName = "template1";
+
+    /* conectar con el servidor */
+    conn = PQsetdb(pghost, pgport, pgoptions, pgtty, dbName);
+
+    /*
+     * se comprueba si la conexión se ha realizado con éxito.
+     */
+    if (PQstatus(conn) == CONNECTION_BAD)
+    {
+        fprintf(stderr, "Falló la conexión con la base de datos '%s'.\n", dbName);
+        fprintf(stderr, "%s", PQerrorMessage(conn));
+        exit_nicely(conn);
+    }
+
+    /* debug = fopen("/tmp/trace.out","w"); */
+    /* PQtrace(conn, debug);  */
+
+    /* comienza un bloque de transacción */
+    res = PQexec(conn, "BEGIN");
+    if (!res || PQresultStatus(res) != PGRES_COMMAND_OK)
+    {
+        fprintf(stderr, "Falló el comando BEGIN\n");
+        PQclear(res);
+        exit_nicely(conn);
+    }
+
+    /*
+     * se debería liberar el PGresult una vez que ya no es necesario, para impedir
+     * pérdidas de memoria.
+     */
+    PQclear(res);
+
+    /*
+     * se recogen filas a partir de pg_database, el catálogo de sistema de
+     * bases de datos
+     */
+    res = PQexec(conn, "DECLARE mycursor CURSOR FOR select * from pg_database");
+    if (!res || PQresultStatus(res) != PGRES_COMMAND_OK)
+    {
+        fprintf(stderr, "Falló el comando DECLARE CURSOR\n");
+        PQclear(res);
+        exit_nicely(conn);
+    }
+    PQclear(res);
+    res = PQexec(conn, "FETCH ALL in mycursor");
+    if (!res || PQresultStatus(res) != PGRES_TUPLES_OK)
+    {
+        fprintf(stderr, "FETCH ALL no devolvió las tuplas correctamente\n");
+        PQclear(res);
+        exit_nicely(conn);
+    }
+
+    /* primero, se imprimen los nombres de los campos */
+    nFields = PQnfields(res);
+    for (i = 0; i &lt; nFields; i++)
+        printf("%-15s", PQfname(res, i));
+    printf("\n\n");
+
+    /* a continuación, se imprimen las filas */
+    for (i = 0; i &lt; PQntuples(res); i++)
+    {
+        for (j = 0; j &lt; nFields; j++)
+            printf("%-15s", PQgetvalue(res, i, j));
+        printf("\n");
+    }
+    PQclear(res);
+
+    /* se cierra el cursor */
+    res = PQexec(conn, "CLOSE mycursor");
+    PQclear(res);
+
+    /* se cierra la transacción */
+    res = PQexec(conn, "COMMIT");
+    PQclear(res);
+
+    /* se cierra la conexión a la base de datos y se limpia */
+    PQfinish(conn);
+
+    /* fclose(debug); */
+}
+</programlisting>
+</example>
+
+<example id="libpq-example-2">
+<title>Programa de Ejemplo 2</title>
+
+<programlisting>
+/*
+ * testlibpq2.c
+ *      Se comprueba el interfaz de notificaciones asíncronas.
+ *
+ *      Arranque este programa, y luego, desde psql en otra ventana ejecute
+ *          NOTIFY TBL2;
+ *
+ *      O, si quiere hacer algo más elegante, intente esto:
+ *      alimente una base de datos con lo siguiente:
+ *
+ *   CREATE TABLE TBL1 (i int4);
+ *
+ *   CREATE TABLE TBL2 (i int4);
+ *
+ *   CREATE RULE r1 AS ON INSERT TO TBL1 DO
+ *     (INSERT INTO TBL2 values (new.i); NOTIFY TBL2);
+
+ *      y haga
+ *
+ *   INSERT INTO TBL1 values (10);
+ *
+ */
+#include &lt;stdio.h&gt;
+#include "libpq-fe.h"
+
+void
+exit_nicely(PGconn *conn)
+{
+    PQfinish(conn);
+    exit(1);
+}
+
+main()
+{
+    char       *pghost,
+               *pgport,
+               *pgoptions,
+               *pgtty;
+    char       *dbName;
+    int         nFields;
+    int         i,
+                j;
+
+    PGconn     *conn;
+    PGresult   *res;
+    PGnotify   *notify;
+
+    /*
+     * Se empieza fijando los parámetros de una conexión al servidor. Si los
+     * parámetros son nulos, el sistema probará a utilizar valores de defecto
+     * razonables para buscar en las variables de entorno, y, si esto falla,
+     * utilizará constantes incluídas directamente en el código.
+     */
+    pghost = NULL;              /* nombre del ordenador del servidor */
+    pgport = NULL;              /* puerto asignado al servidor */
+    pgoptions = NULL;           /* opciones especiales para arrancar el servidor */
+    pgtty = NULL;               /* tty (terminal) de depuración del servidor */
+    dbName = getenv("USER");    /* cambie esto para asignarlo al nombre de su
+                                 * base de datos de prueba */
+
+    /*    Se hace a conexión a la base de datos */
+    conn = PQsetdb(pghost, pgport, pgoptions, pgtty, dbName);
+
+    /*
+     *    Se comprueba si la conexión ha funcionado correctamente.
+     */
+    if (PQstatus(conn) == CONNECTION_BAD)
+    {
+        fprintf(stderr, "Falló la conexión a la base de datos '%s'.\n", dbName);
+        fprintf(stderr, "%s", PQerrorMessage(conn));
+        exit_nicely(conn);
+    }
+   
+    /* Se establece la escucha en TBL2 */
+    res = PQexec(conn, "LISTEN TBL2");
+    if (!res || PQresultStatus(res) != PGRES_COMMAND_OK)
+    {
+        fprintf(stderr, "Falló el comando LISTEN.\n");
+        PQclear(res);
+        exit_nicely(conn);
+    }
+
+    /*
+     *     Se debería liberar el PGresult una vez que ya no es necesario, para
+     *     impedir pérdidas de memoria.
+     */
+    PQclear(res);
+
+    while (1)
+    {
+
+        /*
+         *     esperamos un poquito entre comprobaciónes; esperar con select()
+         *     sería más eficiente.
+         */
+        sleep(1);
+        /*       Se recoge asíncronamente cualquier mensaje del servidor */
+        PQconsumeInput(conn);
+        /*       Se comprueban los mensajes de notificación asíncrona */
+        while ((notify = PQnotifies(conn)) != NULL)
+        {
+            fprintf(stderr,
+                 "Recibida notif. asíncrona '%s' desde el servidor pid '%d'.\n",
+                    notify-&gt;relname, notify-&gt;be_pid);
+            free(notify);
+        }
+    }
+
+    /*      Se cierra la conexión con la base de datos y se limpia */
+    PQfinish(conn);
+
+}
+</programlisting>
+</example>
+
+<example id="libpq-example-3">
+<title>Programa de Ejemplo 3</title>
+
+<programlisting>
+/*
+ * testlibpq3.c Prueba la versión C de libpq
+ *     Comprueba el interfaz de cursores binarios.
+ *
+ *
+ *
+ *
+ *     Alimente una base de datos con lo siguiente:
+ *
+ * CREATE TABLE test1 (i int4, d real, p polygon);
+ *
+ * INSERT INTO test1 values (1, 3.567, polygon '(3.0, 4.0, 1.0, 2.0)');
+ *
+ * INSERT INTO test1 values (2, 89.05, polygon '(4.0, 3.0, 2.0, 1.0)');
+ *
+ *      La salida esperada es:
+ *
+ * tupla 0: obtenida i = (4 bytes) 1, d = (4 bytes) 3.567000, p = (4
+ * bytes) 2 puntos   cierre = (alto=3.000000/4.000000, bajo =
+ * 1.000000,2.000000) tupla 1: obtenida i = (4 bytes) 2, d = (4 bytes)
+ * 89.050003, p = (4 bytes) 2 puntos   cierre =
+ * (alto=4.000000/3.000000, bajo = 2.000000,1.000000)
+ *
+ *
+ */
+#include &lt;stdio.h&gt;
+#include "libpq-fe.h"
+#include "utils/geo-decls.h"    /* para el tipo POLYGON */
+
+void
+exit_nicely(PGconn *conn)
+{
+    PQfinish(conn);
+    exit(1);
+}
+
+main()
+{
+    char       *pghost,
+               *pgport,
+               *pgoptions,
+               *pgtty;
+    char       *dbName;
+    int         nFields;
+    int         i,
+                j;
+    int         i_fnum,
+                d_fnum,
+                p_fnum;
+    PGconn     *conn;
+    PGresult   *res;
+
+    /*
+     * Se empieza fijando los parámetros de una conexión al servidor. Si los
+     * parámetros son nulos, el sistema probará a utilizar valores de defecto
+     * razonables para buscar en las variables de entorno, y, si esto falla,
+     * utilizará constantes incluídas directamente en el código.
+     */
+    pghost = NULL;              /* nombre de ordenador del servidor */
+    pgport = NULL;              /* puerto asignado al servidor. */
+    pgoptions = NULL;           /* opciones especiales para arrancar el servidor */
+    pgtty = NULL;               /* tty (terminal)) para depurar el servidor */
+
+    dbName = getenv("USER");    /* cambie esto al nombre de su base de datos de
+                                 * prueba */
+
+    /*      Se hace la conexión a la base de datos */
+    conn = PQsetdb(pghost, pgport, pgoptions, pgtty, dbName);
+
+    /*
+     *      Se comprueba que la conexión se ha realizado correctamente
+     */
+    if (PQstatus(conn) == CONNECTION_BAD)
+    {
+        fprintf(stderr, "Falló la conexión con la base de datos '%s'.\n", dbName);
+        fprintf(stderr, "%s", PQerrorMessage(conn));
+        exit_nicely(conn);
+    }
+
+    /* comienza un bloque de transacción */
+    res = PQexec(conn, "BEGIN");
+    if (!res || PQresultStatus(res) != PGRES_COMMAND_OK)
+    {
+        fprintf(stderr, "Falló el comando BEGIN\n");
+        PQclear(res);
+        exit_nicely(conn);
+    }
+
+    /*
+     *       Se debería liberar PGresult una vez que ya no es necesario, para
+     *       evitar pérdidas de memoria.
+     */
+    PQclear(res);
+
+    /*
+     *       se recogen las filas de pg_database, el catálogo de sistema de
+     *       bases de datos.
+     */
+    res = PQexec(conn, "DECLARE mycursor BINARY CURSOR FOR select * from test1");
+    if (!res || PQresultStatus(res) != PGRES_COMMAND_OK)
+    {
+        fprintf(stderr, "Falló el comando DECLARE CURSOR\n");
+        PQclear(res);
+        exit_nicely(conn);
+    }
+    PQclear(res);
+
+    res = PQexec(conn, "FETCH ALL in mycursor");
+    if (!res || PQresultStatus(res) != PGRES_TUPLES_OK)
+    {
+        fprintf(stderr, "FETCH ALL no devolvió tuplas correctamente\n");
+                /* no se ha recogido ninguna base de datos */
+        PQclear(res);
+        exit_nicely(conn);
+    }
+
+    i_fnum = PQfnumber(res, "i");
+    d_fnum = PQfnumber(res, "d");
+    p_fnum = PQfnumber(res, "p");
+
+    for (i = 0; i &lt; 3; i++)
+    {
+        printf("tipo[%d] = %d, tamaño[%d] = %d\n",
+               i, PQftype(res, i),
+               i, PQfsize(res, i));
+    }
+    for (i = 0; i &lt; PQntuples(res); i++)
+    {
+        int        *ival;
+        float      *dval;
+        int         plen;
+        POLYGON    *pval;
+
+        /* Recogemos los datos de los tres campos que conocemos */
+        ival = (int *) PQgetvalue(res, i, i_fnum);
+        dval = (float *) PQgetvalue(res, i, d_fnum);
+        plen = PQgetlength(res, i, p_fnum);
+
+        /*
+         *       plen no incluye el campo de longitud, por lo que necesitamos
+         *       incrementar con VARHDSZ
+         */
+        pval = (POLYGON *) malloc(plen + VARHDRSZ);
+        pval-&gt;size = plen;
+        memmove((char *) &amp;pval-&gt;npts, PQgetvalue(res, i, p_fnum), plen);
+        printf("tupla %d: obtenida\n", i);
+        printf(" i = (%d bytes) %d,\n",
+               PQgetlength(res, i, i_fnum), *ival);
+        printf(" d = (%d bytes) %f,\n",
+               PQgetlength(res, i, d_fnum), *dval);
+        printf(" p = (%d bytes) %d puntos \tcierre = (alto=%f/%f, bajo = %f,%f)\n",
+               PQgetlength(res, i, d_fnum),
+               pval-&gt;npts,
+               pval-&gt;boundbox.xh,
+               pval-&gt;boundbox.yh,
+               pval-&gt;boundbox.xl,
+               pval-&gt;boundbox.yl);
+    }
+    PQclear(res);
+
+    /*      Se cierra el cursor   */
+    res = PQexec(conn, "CLOSE mycursor");
+    PQclear(res);
+
+    /*      Se cierra la transacción   */
+    res = PQexec(conn, "COMMIT");
+    PQclear(res);
+
+    /*      Se cierra la conexión a la base de datos y se limpia.   */
+    PQfinish(conn);
+
+}
+</programlisting>
+</example>
+</sect1>
+</chapter>
+
+<!-- Keep this comment at the end of the file
+Local variables:
+mode:sgml
+sgml-omittag:nil
+sgml-shorttag:t
+sgml-minimize-attributes:nil
+sgml-always-quote-attributes:t
+sgml-indent-step:1
+sgml-indent-data:t
+sgml-parent-document:nil
+sgml-default-dtd-file:"./reference.ced"
+sgml-exposed-tags:nil
+sgml-local-catalogs:("/usr/lib/sgml/catalog")
+sgml-local-ecat-files:nil
+End:
+-->

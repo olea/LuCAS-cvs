@@ -1,0 +1,1145 @@
+<?xml version="1.0" encoding="iso-8859-1" ?>
+<!DOCTYPE article PUBLIC "-//OASIS//DTD DocBook V4.1.2//EN"
+"http://www.oasis-open.org/docbook/xml/4.1.2/docbookx.dtd">
+
+<article>
+
+<articleinfo>
+
+<title>Filtros de impresión con Ghostscript</title>
+
+<author>
+<firstname>A. Gustavo González <ulink
+url="mailto:agonzale@cica.es"
+>agonzale@cica.es</ulink
+></firstname>
+</author>
+
+<pubdate>26 de Septiembre 1999</pubdate>
+
+<abstract>
+
+<para>
+En este artículo se introducen los fundamentos para componer
+filtros de impresión mediante el programa Ghostscript.
+</para>
+
+</abstract>
+
+</articleinfo>
+
+<sect1>
+<title>¿Por qué este documento?</title>
+
+<para>
+Hace tiempo leí un mini-Cómo sobre filtros de impresión maquetado por
+nuestro admirado compañero Ismael Olea
+<literal remap="tt"><ulink
+url="mailto:olea@iname.com"
+>olea@iname.com</ulink
+></literal>,
+extraído de la red Fidonet, y me dejó con la miel en los labios, pues era
+muy corto. En este documento, cuyo carácter es fundamentalmente didáctico
+-- pensado para usuarios noveles de linux que ya conocen el funcionamiento
+de la impresión por <emphasis>spooling</emphasis> -- intento presentar de modo breve y
+resumido qué es Ghostcript y cómo usarlo para elaborar filtros de impresión.
+</para>
+
+</sect1>
+
+<sect1>
+<title>Lo primero es lo primero: ¿Por qué necesito Ghostscript para imprimir
+en linux?</title>
+
+<para>
+Pues porque el formato estándar de los ficheros imprimibles en UNIX es
+PostScript (PS), pero no todo el mundo tiene una impresora PS.
+<emphasis>Ghostscript</emphasis>, escrito por Peter Deutsch, fundador de <emphasis>Aladdin
+Enterprises</emphasis>, es el intérprete por excelencia de documentos en formato
+PS (y también PDF). Ghostscript permite presentar datos PS y PDF en la
+pantalla y además traducirlos de manera que puedan ser impresos en una
+impresora con capacidad gráfica mediante el uso del controlador de dicha
+impresora. Como afortunadamente, además, disponemos de herramientas para
+convertir otros formatos, tanto de documentos (como TEX, HTML, etc.) como
+de figuras (como GIF, TIFF, etc.) en PS, basta con diseñar <emphasis remap="bf">filtros de
+impresión</emphasis> combinando el conversor de formato con el programa
+Ghostscript mediante tuberías («pipes», |). 
+</para>
+
+<para>
+Aladdin Enterprises mantiene las nuevas versiones de Ghostscript hasta que
+alcanzan una cierta «edad», y luego las libera a la Fundación de Software
+libre (FSF, Free Software Foundation) para que se distribuya como <emphasis>GNU
+Ghostscript</emphasis>. Estas versiones son las que se distribuyen «libres de
+cargo» en las distribuciones de Linux. La versión Ghostscript 5.1 es de
+las últimas liberadas y funciona de perlas para la creación de filtros de
+impresión.
+</para>
+
+</sect1>
+
+<sect1>
+<title>La orden gs y sus opciones</title>
+
+<para>
+El programa Ghostcript se ejecuta a través de la orden <emphasis>gs</emphasis> con
+diferentes opciones
+</para>
+
+<sect2>
+<title>Entradas a gs</title>
+
+<para>
+Además de las opciones a considerar, <emphasis>gs</emphasis> actúa sobre un fichero de
+entrada en formato PS:
+</para>
+
+<para>
+
+<screen>
+gs [opciones] fichero.ps
+</screen>
+
+</para>
+
+<para>
+Donde <literal remap="tt">fichero.ps</literal> es el fichero de entrada, pero uno también puede
+conectar una entrada por tubería (en el sentido de «to pipe») en
+Ghostscript utilizando el nombre de fichero especial «<literal remap="tt">-</literal>», como por
+ejemplo 
+</para>
+
+<para>
+
+<screen>
+{programa convertidor a formato PS} | gs [opciones] -
+</screen>
+
+</para>
+
+<para>
+La presencia del argumento «<literal remap="tt">-</literal>» al final de la línea de órdenes indica
+a Ghostscript que lea la entrada estándar (<emphasis>STDIN</emphasis>) desde un fichero o
+tubería en lugar de desde el teclado. Es la opción de recibo cuando se diseña
+un filtro de entrada para imprimir en PS.
+</para>
+
+<para>
+El fichero «<literal remap="tt">-</literal>» presenta las siguientes características:
+</para>
+
+<para>
+
+<itemizedlist>
+<listitem>
+
+<para>
+Cuando Ghostscript termina de leer la tubería, deja de estar en modo
+interactivo. Por ello, «<literal remap="tt">-</literal>» es útil únicamente como último argumento
+de la línea de órdenes.
+</para>
+</listitem>
+<listitem>
+
+<para>
+«<literal remap="tt">-</literal>» no puede usarse para conectar con una entrada PDF en
+tubería.
+</para>
+</listitem>
+
+</itemizedlist>
+
+</para>
+
+</sect2>
+
+<sect2>
+<title>Dispositivo de salida</title>
+
+<para>
+Ghostscript dispone de una serie de dispositivos controladores para
+diversos tipos de impresora. Si invocamos <literal remap="tt">gs -h</literal>, nos aparecerá
+gran cantidad de información sobre nuestra versión instalada de
+Ghostscript, entre la que encontraremos los dispositivos controladores.
+He aquí el listado correspondiente a dicha orden:
+</para>
+
+<para>
+
+<screen>
+GNU Ghostscript 5.10 (1998-12-17)
+Copyright (C) 1997 Aladdin Enterprises, Menlo Park, CA.  All rights reserved.
+Usage: gs [switches] [file1.ps file2.ps ...]
+Most frequently used switches: (you can use # in place of =)
+-dNOPAUSE           no pause after page   | -q       `quiet', fewer messages
+-g&lt;width&gt;x&lt;height&gt;  page size in pixels   | -r&lt;res&gt; pixels/inch resolution
+-sDEVICE=&lt;devname&gt;  select device         | -dBATCH  exit after last file
+-sOutputFile=&lt;file&gt; select output file: - for stdout, |command for pipe,
+                                         embed %d or %ld for page #
+Input formats: PostScript PostScriptLevel1 PostScriptLevel2 PDF
+Available devices:
+   x11 x11alpha x11cmyk x11gray2 x11mono lvga256 vgalib t4693d2 t4693d4
+   t4693d8 tek4696 appledmp ccr lp2563 lbp8 lips3 m8510 necp6 cp50 oce9050
+   oki182 okiibm r4081 sj48 xes ln03 la50 la70 la75 la75plus sxlcrt deskjet
+   djet500 laserjet ljetplus ljet2p ljet3 ljet4 declj250 paintjet pjetxl
+   cdeskjet cdjcolor cdjmono cdj550 cdj500 djet500c dnj650c pj pjxl pjxl300
+   hpdj uniprint epson eps9mid eps9high epsonc lq850 lp8000 st800 stcolor
+   ap3250 ibmpro bj10e bj200 bjc600 bjc800 ljet3d lj4dith lj5mono lj5gray
+   lj250 faxg3 faxg32d faxg4 dfaxhigh dfaxlow pcxmono pcxgray pcx16 pcx256
+   pcx24b pcxcmyk pbm pbmraw pgm pgmraw pgnm pgnmraw pnm pnmraw ppm ppmraw
+   pkm pkmraw tiffcrle tiffg3 tiffg32d tiffg4 tifflzw tiffpack cif bmpmono
+   bmp16 bmp256 bmp16m tiff12nc tiff24nc psmono psgray bit bitrgb bitcmyk
+   sgirgb pngmono pnggray png16 png256 png16m cgmmono cgm8 cgm24 jpeg
+   jpeggray miff24 mgrmono mgrgray2 mgrgray4 mgrgray8 mgr4 mgr8 pdfwrite
+   pswrite epswrite pxlmono pxlcolor nullpage
+Search path:
+   . : /usr/lib/ghostscript/common : /usr/lib/ghostscript/5.10 :
+   /usr/lib/ghostscript/fonts
+For more information, see /usr/doc/gs/use.txt.
+Report bugs to ghost@aladdin.com; use the form in bug-form.txt.
+</screen>
+
+</para>
+
+<para>
+Así, si disponemos de una impresora HP Deskjet 550C y vamos a imprimir el
+<literal remap="tt">fichero.ps</literal>, haremos:
+</para>
+
+<para>
+
+<screen>
+gs -sDEVICE=cdj550 fichero.ps
+</screen>
+
+</para>
+
+</sect2>
+
+<sect2>
+<title>Resolución de la impresión</title>
+
+<para>
+Algunas impresoras pueden imprimir a diferentes resoluciones (siendo la
+menor la que se toma por defecto). Para seleccionar la resolución
+horizontal (<literal remap="tt">num1</literal>) y vertical (<literal remap="tt">num2</literal>) en pixels por pulgada, se
+utiliza la opción
+</para>
+
+<para>
+
+<screen>
+-rnum1xnum2
+-rnum es equivalente a -rnumxnum (cuando num1=num2=num)
+</screen>
+
+</para>
+
+</sect2>
+
+<sect2>
+<title>Salida a un fichero</title>
+
+<para>
+Si seleccionamos una impresora como dispositivo de salida, Ghostscript
+también permite controlar a dónde envía el dispositivo su salida. En el
+sistema DOS, la salida se dirige normalmente a a la impresora (PRN); en
+UNIX, generalmente se envía a un fichero temporal para su impresión en
+cola. Para dirigir la salida a un fichero (<literal remap="tt">fichero.out</literal>), se utiliza la
+opción 
+</para>
+
+<para>
+
+<screen>
+-sOutputFile=fichero.out
+</screen>
+
+</para>
+
+<para>
+Pero en UNIX, también podemos usar esta opción para enviar la salida a
+una conexión por tubería, por ejemplo al servidor de impresión, mediante
+la orden <emphasis>lpr</emphasis>
+</para>
+
+<para>
+
+<screen>
+-sOutputFile=\|lpr
+</screen>
+
+</para>
+
+<para>
+o enviarlo a la salida estándar (<literal remap="tt">sOutputFile=-</literal>) para que, por
+ejemplo, el demonio <emphasis>lpd</emphasis> tome esos datos de la salida estándar y
+los entregue a la impresora. Esta es una de las opciones usadas en la
+construcción de filtros de impresión.
+</para>
+
+<para>
+
+<screen>
+gs [opciones] -sOutputFile=- -q |...
+</screen>
+
+</para>
+
+<para>
+En este caso es necesario emplear la opción <literal remap="tt">-q</literal> (quiet) que evita que
+el programa Ghostscript escriba mensajes en la salida estándar y se
+mezclen con la corriente de salida del dispositivo de impresión.
+</para>
+
+</sect2>
+
+<sect2>
+<title>Escogiendo el tamaño de papel</title>
+
+<para>
+Ghostscript se distribuye configurado para usar papel «US letter», que es
+el tamaño de página por defecto, pero existen otros tamaños que se
+configuran empleando la instrucción <literal remap="tt">-sPAPERSIZE=opción</literal>, 
+como por ejemplo
+</para>
+
+<para>
+
+<screen>
+-sPAPERSIZE=a4
+-sPAPERSIZE=legal
+</screen>
+
+</para>
+
+</sect2>
+
+<sect2>
+<title>Otras opciones a considerar</title>
+
+<para>
+En el caso de construcción de filtros de entrada, hay otras opciones
+interesantes:
+</para>
+
+<para>
+
+<itemizedlist>
+<listitem>
+
+<para>
+<literal remap="tt">-dSAFER</literal>: Evita que actúen los operadores de borrado o
+renombrado de ficheros, así como la posibilidad de abrir ficheros en
+cualquier otro modo que no sea de sólo lectura. Esto es fundamental para
+el mecanismo de <emphasis>spooling</emphasis> del demonio de impresión.
+</para>
+</listitem>
+<listitem>
+
+<para>
+<literal remap="tt">-dNOPAUSE</literal>: Deshabilita el <emphasis>prompt</emphasis> y la pausa al final
+de cada página. Se utiliza para producir salidas de impresión o para
+controlar <emphasis>gs</emphasis> desde otro programa.
+</para>
+</listitem>
+<listitem>
+
+<para>
+<literal remap="tt">@fichero</literal>: Hace que <emphasis>gs</emphasis> lea el fichero y trate
+su contenido como si fueran líneas de órdenes. Las instrucciones dentro
+del fichero pueden estar separadas por al menos un espacio en blanco.
+</para>
+</listitem>
+
+</itemizedlist>
+
+</para>
+
+</sect2>
+
+</sect1>
+
+<sect1>
+<title>¿Qué es un filtro de impresión y cómo se construye?</title>
+
+<para>
+Antes que nada es necesario recordar el mecanismo de <emphasis>spooling</emphasis>
+típico de los servidores de impresión en linux. En primer lugar el
+servidor <emphasis>lpr/lprng</emphasis> copia el fichero a imprimir en el directorio
+de «<emphasis>spool</emphasis>» (<literal remap="tt">sd</literal>) indicado en el fichero <literal remap="tt">/etc/printcap</literal>,
+creando en dicho directorio un fichero de control indicando el trabajo a
+imprimir, el usuario que solicita el servicio de impresión, parámetros
+pasados en línea de órdenes, etc. Luego, el demonio de impresión
+(<emphasis>lpd</emphasis>) comprueba periódicamente si hay ficheros de control en el
+directorio <emphasis>spool</emphasis>, y si es así, realiza las siguientes tareas:
+</para>
+
+<para>
+
+<itemizedlist>
+<listitem>
+
+<para>
+Imprime la página de «<emphasis>banner</emphasis>» si no se ha suprimido (con la
+instrucción <literal remap="tt">sh</literal> en el fichero <literal remap="tt">/etc/printcap</literal>) y la pasa a
+través del filtro de salida si lo hay (instrucción <literal remap="tt">of</literal> del fichero
+<literal remap="tt">/etc/printcap</literal>)
+</para>
+</listitem>
+<listitem>
+
+<para>
+Si no se indicó al servidor de impresión que empleara algún filtro
+de impresión en concreto, entonces se utilizará el filtro de entrada, cuya
+ruta indica el parámetro <literal remap="tt">if</literal> del fichero <literal remap="tt">/etc/printcap</literal>.
+</para>
+</listitem>
+<listitem>
+
+<para>
+Al ejecutarse el filtro de entrada, se redirecciona su entrada
+estándar al fichero de control y su salida estándar a:
+
+
+<itemizedlist>
+<listitem>
+
+<para>
+la entrada estándar del filtro de salida (<literal remap="tt">of</literal>) cuando lo haya, y
+la salida de dicho filtro al dispositivo de impresión asociado a la
+impresora (entrada <literal remap="tt">lp</literal> del fichero <literal remap="tt">/etc/printcap</literal>)
+</para>
+</listitem>
+<listitem>
+
+<para>
+al dispositivo de impresión indicado en <literal remap="tt">/etc/printcap</literal>
+</para>
+</listitem>
+
+</itemizedlist>
+
+
+</para>
+</listitem>
+
+</itemizedlist>
+
+</para>
+
+<para>
+Por lo tanto un filtro de entrada de impresión no es más que un programa
+(generalmente un guión) que teniendo en su entrada estándar (<emphasis>STDIN</emphasis>) un
+fichero en un formato determinado , p. ej., ps (postscript), escribe en
+su salida estándar (<emphasis>STDOUT</emphasis>) los códigos necesarios para que la impresora
+imprima dicho fichero.
+</para>
+
+<para>
+Consideremos que disponemos de una impresora <emphasis remap="bf">HP Laserjet Plus</emphasis> y
+vamos a escribir algunos filtros. La resolución será de <emphasis remap="bf">300x300</emphasis>;
+el formato de papel, <emphasis remap="bf">A4</emphasis>; y el controlador de dispositivo es
+<emphasis remap="bf">ljetplus</emphasis>.
+</para>
+
+<para>
+Vamos a escribir el filtro
+para ficheros PS como un <emphasis>shell script</emphasis>:
+</para>
+
+<para>
+
+<screen>
+#!/bin/bash/
+#Filtro de ficheros postscript
+/usr/bin/gs -q -dSAFER -dNOPAUSE -sDEVICE=ljetplus -r300 -sPAPERSIZE=a4 -sOutputFile=- -
+</screen>
+
+</para>
+
+<para>
+Como podemos ver, <emphasis>gs</emphasis> lee la <emphasis>STDIN</emphasis> desde el fichero de control
+que ha creado el servidor de impresión <emphasis>lpr</emphasis>; se ejecuta el filtro y
+la opción <literal remap="tt">-sOutputFile=-</literal> envía la salida a <emphasis>STDOUT</emphasis>. El
+demonio <emphasis>lpd</emphasis> tomará los datos que se encuentren en <emphasis>STDOUT</emphasis> y los
+enviará a la cola de impresión.
+</para>
+
+<para>
+Para procesar un fichero PDF aprovechando la utilidad <emphasis>pdf2ps</emphasis>
+(<emphasis>shell script</emphasis> que convierte un fichero PDF a PS), escribiremos el
+filtro:
+</para>
+
+<para>
+
+<screen>
+#!/bin/bash/
+#Filtro de ficheros pdf
+/usr/bin/pdf2ps | /usr/bin/gs -q -dSAFER -dNOPAUSE -sDEVICE=ljetplus -r300 -sPAPERSIZE=a4\
+-sOutputFile=- -
+</screen>
+
+</para>
+
+<para>
+Para un texto en formato troff, emplearíamos este otro
+</para>
+
+<para>
+
+<screen>
+#!/bin/bash/
+#Filtro de ficheros troff
+/usr/bin/grops -g | /usr/bin/gs -q -dSAFER -dNOPAUSE -sDEVICE=ljetplus -r300 -sPAPERSIZE=a4\
+-sOutputFile=- -
+</screen>
+
+</para>
+
+<para>
+(la opción <literal remap="tt">-g</literal> para la orden <emphasis>grops</emphasis> permite generar documentos en
+formato <literal remap="tt">letter</literal> o <literal remap="tt">a4</literal>)
+</para>
+
+<para>
+Como puede verse el concepto de filtro sería un <emphasis>shell script</emphasis> con los
+siguientes campos:
+</para>
+
+<para>
+
+<screen>
+#!/bin/bash
+#Comentario 'filtro para ficheros XYZ'
+/usr/bin/XYZps | /usr/bin/gs -q -dSAFER -dNOPAUSE -sDEVICE=ljetplus -r300 -sPAPERSIZE=a4\
+-sOutputFile=- -
+</screen>
+
+</para>
+
+<para>
+Donde <emphasis>XYZps</emphasis> es un programa (con opciones) que convierte el formato XYZ a
+PS. Hay una gran cantidad de ellos que servirían para hacer filtros con
+posibilidad de imprimir gráficos; así el formato TIFF se pasa
+directamente con la utilidad <emphasis>tiff2ps</emphasis>, mientras que los GIF y JPEG se pasan
+a formato PNM mediante los programas <emphasis>giftopnm</emphasis> y <emphasis>djpeg</emphasis>,
+respectivamente. Una vez en este formato, se traduce a PS con la utilidad
+<emphasis>pnmtops</emphasis>.
+</para>
+
+</sect1>
+
+<sect1>
+<title>Filtros mágicos</title>
+
+<para>
+Un filtro puede ser tan sencillo como los que hemos visto, o complicarse
+substancialmente, llegando a ser capaz de reconocer el tipo de fichero
+que queremos imprimir y realizar las operaciones necesarias para que
+obtengamos una salida correcta. Un «filtro mágico» analiza la entrada que
+recibe y, de acuerdo con los datos que le llegan, manda el trabajo a otro
+filtro secundario. Así, cuando le llega un fichero en formato PS, lo
+envía a <emphasis>ghostcript</emphasis>, cuando es JPEG, lo manda a otro filtro adecuado para
+la impresión correcta, etc. Los filtros mágicos más conocidos son
+<emphasis remap="bf">magicfilter</emphasis>, <emphasis remap="bf">apsfilter</emphasis> y los <emphasis remap="bf">filtros de impresión de
+RedHat</emphasis>.
+</para>
+
+<sect2>
+<title>Magicfilter</title>
+
+<para>
+Magicfilter es un programa escrito por H. Peter Anvin
+<literal remap="tt"><ulink
+url="mailto:Peter.Anvin@linux.org"
+>Peter.Anvin@linux.org</ulink
+></literal> que puede encontrarse en cualquier
+espejo de sunsite, en el directorio
+</para>
+
+<para>
+
+<screen>
+/mirror/linux/sunsite/system/printing/magicfilter-1.2.tar.gz
+</screen>
+
+</para>
+
+<para>
+y también existe como paquete <literal remap="tt">.deb</literal> y <literal remap="tt">.rpm</literal>. Es el filtro mágico
+recomendado en la distribución Debian. Para configurar una impresora en
+este sistema, primero han de instalarse los paquetes <emphasis>magicfilter</emphasis> y
+<emphasis>recode</emphasis>.
+El programa <emphasis>magicfilterconfig</emphasis> se crea al instalar el paquete
+<emphasis remap="bf">magicfilter</emphasis> y permite una cómoda configuración de la impresora,
+escribiendo el fichero <literal remap="tt">/etc/printcap</literal> a partir de las respuestas a
+una serie de preguntas que nos hace interactivamente. Nos pregunta por el
+puerto del dispositivo (<literal remap="tt">/dev/lp1</literal> o <literal remap="tt">/dev/lp0</literal>), así como
+los nombres que daremos a nuestra impresora: uno largo y descriptivo y
+otro más corto que se usará como nombre para el directorio <emphasis>spool</emphasis> y
+luego muestra una serie de filtros disponibles para elegir. Lo mejor es
+mirar, antes de ejecutar <emphasis>magicfilterconfig</emphasis>, en el directorio
+<literal remap="tt">/etc/magicfilter</literal> para ver cuál es el filtro que mejor viene a
+nuestra impresora. Los filtros son archivos de texto en cuyo cabecera se
+indica la impresora que lo puede utilizar. <emphasis>magicfilterconfig</emphasis> genera
+el fichero <literal remap="tt">/etc/printcap</literal> con toda la información que le hemos
+dado. Para el caso de mi Epson Stylus Color 600, el fichero
+<literal remap="tt">/etc/printcap</literal> generado por <emphasis>magicfilterconfig</emphasis> es (En
+Debian 2.1 kernel 2.0.36):
+</para>
+
+<para>
+
+<screen>
+#
+
+# Copyright (c) 1983 Regents of the University of California.
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms are permitted
+# provided that this notice is preserved and that due credit is given
+# to the University of California at Berkeley. The name of the University
+# may not be used to endorse or promote products derived from this
+# software without specific prior written permission. This software
+# is provided ``as is'' without express or implied warranty.
+#
+#       @(#)etc.printcap        5.2 (Berkeley) 5/5/88
+#
+# This file was generated by /usr/sbin/magicfilterconfig.
+#
+lp|eps|ESC600:\
+        :lp=/dev/lp1:sd=/var/spool/lpd/eps:\
+        :sh:pw#80:pl#72:px#1440:mx#0:\
+        :if=/etc/magicfilter/stylus_color_360dpi-filter:\
+        :af=/var/log/lp-acct:lf=/var/log/lp-errs:
+</screen>
+
+</para>
+
+<para>
+Una vez instalado, <emphasis>magicfilter</emphasis> permite que el sistema reconozca e
+imprima gráficos (GIF, JPEG, TIFF, BMP...), ficheros PS, PDF, DVI, páginas
+de manual, ficheros ASCII con acentos y ñ, e incluso cualquier tipo de
+fichero comprimido con gzip.
+</para>
+
+</sect2>
+
+<sect2>
+<title>Apsfilter</title>
+
+<para>
+<emphasis>apsfilter</emphasis> es otro programa que permite configurar la impresora y
+escribir un fichero <literal remap="tt">/etc/printcap</literal> con los filtros adecuados para
+muchos formatos de fichero (ASCII, DVI, PS, PDF, GIF, TIFF, BMP,
+BITMAP...) y diversos tipos de compresión (compress, gzip, freeze).
+<emphasis>apsfilter</emphasis> ha sido desarrollado por Andreas Klemm <literal remap="tt"><ulink
+url="mailto:andreas@knobel.gun.de"
+>andreas@knobel.gun.de</ulink
+></literal> y es
+el paquete incluido en el <emphasis>YaST</emphasis> de SuSE para la configuración de la
+impresora, así como el que recomienda Pat Volkerding en su mensaje de
+bienvenida a Slackware. Puede obtenerse de
+</para>
+
+<para>
+
+<screen>
+http://www.freebsd.org/&tilde;andreas/
+</screen>
+
+</para>
+
+<para>
+El programa <emphasis>apsfilter</emphasis> ofrece las siguientes colas de impresión para
+una computadora local:
+</para>
+
+<para>
+
+<itemizedlist>
+<listitem>
+
+<para>
+<emphasis remap="bf">lp</emphasis>: Cola estándar para todos los formatos de fichero.
+</para>
+</listitem>
+<listitem>
+
+<para>
+<emphasis remap="bf">lp-mono</emphasis>: Se genera para las impresoras de color cuando ha de
+imprimirse en blanco y negro. Procesa cualquier formato de fichero.
+</para>
+</listitem>
+<listitem>
+
+<para>
+<emphasis remap="bf">ascii</emphasis>: Para imprimir ficheros de texto ASCII. 
+</para>
+</listitem>
+<listitem>
+
+<para>
+<emphasis remap="bf">raw</emphasis>: Para imprimir ficheros que ya tienen el formato específico
+de la impresora y por lo tanto no hay ningún tipo de conversión.
+</para>
+</listitem>
+
+</itemizedlist>
+
+</para>
+
+<para>
+El fichero <literal remap="tt">/etc/printcap</literal> correspondiente a mi Epson Stylus Color
+600, obtenido con <emphasis remap="bf">apsfilter</emphasis>, es el siguiente (En SuSE 6.2 kernel
+2.2.10):
+</para>
+
+<para>
+
+<screen>
+### BEGIN apsfilter: ### stcany.upp a4 color 360 ###
+#   Warning: Configured for apsfilter, do not edit the labels!
+#            apsfilter setup Thu Oct 14 01:30:42 CEST 1999
+#
+ascii|lp1|stcany.upp-a4-ascii-mono-360|stcany.upp a4 ascii mono 360:\
+        :lp=/dev/lp0:\
+        :sd=/var/spool/lpd/stcany.upp-a4-ascii-mono-360:\
+        :lf=/var/spool/lpd/stcany.upp-a4-ascii-mono-360/log:\
+        :af=/var/spool/lpd/stcany.upp-a4-ascii-mono-360/acct:\
+        :if=/var/lib/apsfilter/bin/stcany.upp-a4-ascii-mono-360:\
+        :la@:mx#0:\
+        :tr=:cl:sh:
+#
+lp|lp2|stcany.upp-a4-auto-color-360|stcany.upp a4 auto color 360:\
+        :lp=/dev/lp0:\
+        :sd=/var/spool/lpd/stcany.upp-a4-auto-color-360:\
+        :lf=/var/spool/lpd/stcany.upp-a4-auto-color-360/log:\
+        :af=/var/spool/lpd/stcany.upp-a4-auto-color-360/acct:\
+        :if=/var/lib/apsfilter/bin/stcany.upp-a4-auto-color-360:\
+        :la@:mx#0:\
+        :tr=:cl:sh:
+#
+lp-mono|lp3|stcany.upp-a4-auto-mono-360|stcany.upp a4 auto mono 360:\
+        :lp=/dev/lp0:\
+        :sd=/var/spool/lpd/stcany.upp-a4-auto-mono-360:\
+        :lf=/var/spool/lpd/stcany.upp-a4-auto-mono-360/log:\
+        :af=/var/spool/lpd/stcany.upp-a4-auto-mono-360/acct:\
+        :if=/var/lib/apsfilter/bin/stcany.upp-a4-auto-mono-360:\
+        :la@:mx#0:\
+        :tr=:cl:sh:
+#
+raw|lp4|stcany.upp-a4-raw|stcany.upp a4 raw:\
+        :lp=/dev/lp0:\
+        :sd=/var/spool/lpd/stcany.upp-a4-raw:\
+        :lf=/var/spool/lpd/stcany.upp-a4-raw/log:\
+        :af=/var/spool/lpd/stcany.upp-a4-raw/acct:\
+        :if=/var/lib/apsfilter/bin/stcany.upp-a4-raw:\
+        :la@:mx#0:\
+        :tr=:cl:sh:
+#
+### END   apsfilter: ### stcany.upp a4 color 360 ###
+</screen>
+
+</para>
+
+<para>
+Después de instalar el paquete <emphasis remap="bf">apsfilter</emphasis>, la configuración de la
+impresora se lleva a cabo fácilmente ejecutando el script <emphasis>SETUP</emphasis> que
+encontraremos en el directorio <literal remap="tt">/var/lib/apsfilter</literal> o
+<literal remap="tt">/usr/lib/apsfilter</literal>. <emphasis>SETUP</emphasis> nos irá mostrando menús de
+opciones que seleccionaremos convenientemente, y al final nos escribirá el
+fichero <literal remap="tt">/etc/printcap</literal> como arriba aparece. Existe un fichero de
+configuración de <emphasis remap="bf">apsfilter</emphasis> llamado <literal remap="tt">/etc/apsfilterrc</literal> que
+permite un mayor control del trabajo de los <emphasis>scripts</emphasis> de
+<emphasis remap="bf">apsfilter</emphasis> en el <emphasis>shell</emphasis>. Por ejemplo, <emphasis remap="bf">apsfilter</emphasis> imprime los
+ficheros ASCII del siguiente modo:
+</para>
+
+<para>
+
+<orderedlist>
+<listitem>
+
+<para>
+Convierte el fichero ASCII a PS mediante <emphasis>a2ps</emphasis>
+</para>
+</listitem>
+<listitem>
+
+<para>
+El comportamiento de <emphasis>a2ps</emphasis> por defecto es imprimir el contenido
+de 2 páginas ASCII en una página apaisada
+</para>
+</listitem>
+
+</orderedlist>
+
+</para>
+
+<para>
+Esto no gusta a muchos usuarios que prefieren una salida «normal». Para
+cambiar esto editaremos el fichero <literal remap="tt">/etc/apsfilterrc</literal> y observaremos
+que la variable <literal remap="tt">FEATURE</literal> toma por defecto el valor <literal remap="tt">2n</literal> («<emphasis>To print
+two pages on one sheet without a header</emphasis>»). Debemos comentar (o borrar)
+esa línea y añadir esta otra:
+</para>
+
+<para>
+
+<screen>
+FEATURE=1n
+</screen>
+
+</para>
+
+<para>
+como se observa en este fragmento de mi fichero
+</para>
+
+<para>
+
+<screen>
+...
+##############################################################################
+# Description
+# -----------
+# FEATURE=1       tell a2ps to print 1 page  on one sheet with    header
+# FEATURE=2       tell a2ps to print 2 pages on one sheet with    header
+# FEATURE=1n      tell a2ps to print 1 page  on one sheet without header
+# FEATURE=2n      tell a2ps to print 2 pages on one sheet without header
+# FEATURE=1l      tell a2ps to print 1 pages in landscape with    header
+# FEATURE=1ln     tell a2ps to print 1 pages in landscape without header
+#
+# This is the default I use now(the original default option was FEATURE=2n)
+FEATURE=1n
+...
+</screen>
+
+</para>
+
+<para>
+Para suprimir por completo la conversión de ASCII a PS, e imprimir
+directamente en el modo ASCII de la impresora, se debe quitar el símbolo
+de comentario (#) al comienzo de la orden
+<literal remap="tt">USE_RECODE_NOT_AP2S=yes</literal>, y por supuesto haber instalado el
+programa <emphasis>recode</emphasis>.
+</para>
+
+</sect2>
+
+<sect2>
+<title>Filtros de impresión Red Hat</title>
+
+<para>
+Red Hat cuenta con su propio sistema de configuración de impresora
+(<emphasis remap="bf">printtool</emphasis>) y su propio sistema de filtros de impresión
+(<literal remap="tt">/usr/lib/rhs/rhs-printfilters</literal>), que incluye una herramienta de
+configuración visual y un administrador gráfico de trabajos de impresión.
+La configuración de una impresora mediante <emphasis>printtool</emphasis> es muy sencilla y
+puede hacerse sin muchos conocimientos sobre el sistema. El fichero
+<literal remap="tt">/etc/printcap</literal> para mi Epson Stylus Color 600 obtenido con
+<emphasis>printtool</emphasis> es (En RedHat 6.0 kernel 2.2.7):
+</para>
+
+<para>
+
+<screen>
+#
+
+# Please don't edit this file directly unless you know what you are doing!
+# Be warned that the control-panel printtool requires a very strict format!
+# Look at the printcap(5) man page for more info.
+#
+# This file can be edited with the printtool in the control-panel.
+##PRINTTOOL3## LOCAL uniprint NAxNA a4 {} U_EpsonStylusColor stcany 0 
+lp:\
+        :sd=/var/spool/lpd/lp:\
+        :mx#0:\
+        :sh:\
+        :lp=/dev/lp0:\
+        :if=/var/spool/lpd/lp/filter:
+</screen>
+
+</para>
+
+<para>
+El filtro de RedHat se parece más al de <emphasis remap="bf">magicfilter</emphasis> que al de
+<emphasis remap="bf">apsfilter</emphasis> porque genera sólo una cola de impresión para una
+impresora única <literal remap="tt">lp</literal>.
+</para>
+
+</sect2>
+
+</sect1>
+
+<sect1>
+<title>El controlador uniprint</title>
+
+<para>
+A partir de la versión 5.0 de Ghostscript, ha aparecido un nuevo
+controlador paramétrico -- the <emphasis remap="bf">uniprint</emphasis> driver-- desarrollado por
+Gunther Hess <literal remap="tt"><ulink
+url="mailto:ghess@elmos.de"
+>ghess@elmos.de</ulink
+></literal>, que se adapta a impresoras
+Canon BJC 610, HP Deskjet 550c, Prinwriter 2X y todas las Epson Stylus
+Color mediante un fichero de parámetros especificos. Por ejemplo, para la
+Epson Stylus Color 600 hay tres ficheros:
+</para>
+
+<para>
+
+<itemizedlist>
+<listitem>
+
+<para>
+stc600ih.upp: Para 1440x720dpi, inkjet paper 
+</para>
+</listitem>
+<listitem>
+
+<para>
+stc600p.upp: Para 720x720dpi, plain paper
+</para>
+</listitem>
+<listitem>
+
+<para>
+stc600pl.upp: Para 360x360dpi, plain paper
+</para>
+</listitem>
+
+</itemizedlist>
+
+</para>
+
+<para>
+Si no deseamos más que 360x360 dpi de resolución, puede usarse el fichero
+<literal remap="tt">stcany.upp</literal> que sirve para cualquier impresora Stylus Color. Este
+fichero contiene las siguientes líneas:
+</para>
+
+<para>
+
+<screen>
+-supModel="Any Epson Stylus Color, 360x360DpI"
+-sDEVICE=uniprint
+-dNOPAUSE
+-dSAFER
+-dupColorModel=/DeviceCMYKgenerate
+-dupRendering=/ErrorDiffusion
+-dupOutputFormat=/EscP2
+-r360x360
+-dupMargins="{ 9.0 39.96 9.0 9.0}"
+-dupComponentBits="{1 1 1 1}"
+-dupBeginPageCommand="&lt;
+   1b40   1b40
+   1b2847 0100 01
+   1b2869 0100 01
+   1b2855 0100 0A
+   1b5500
+   1b2843 0200 0000
+   1b2863 0400 0000 0000
+&gt;"
+-dupAdjustPageLengthCommand
+-dupAdjustTopMarginCommand
+-dupAdjustBottomMarginCommand
+-dupEndPageCommand="(\033@\014)"
+-dupAbortCommand="(\033@\15\12\12\12\12    Printout-Aborted\15\014)"
+</screen>
+
+</para>
+
+<para>
+y por lo tanto, para realizar impresión de un fichero PS usando la orden
+<emphasis>gs</emphasis>, escribiríamos (para la Epson Stylus Color) en un filtro para
+ficheros PS la línea
+</para>
+
+<para>
+
+<screen>
+/usr/bin/gs @stcany.upp -sOutputFile=--
+</screen>
+
+</para>
+
+<para>
+en lugar de 
+</para>
+
+<para>
+
+<screen>
+/usr/bin/gs -sDEVICE=stcolor -r360 -q -dSAFER - dNOPAUSE -sOutputFile=- - 
+</screen>
+
+</para>
+
+<para>
+obteniendo el mismo resultado.
+</para>
+
+</sect1>
+
+<sect1>
+<title>Impresión remota</title>
+
+<para>
+En la impresión remota, los filtros se emplean de manera diferente según se
+trate de imprimir en una máquina remota <emphasis remap="bf">unix</emphasis> o <emphasis remap="bf">windows</emphasis>.
+En el primer caso, el administrador de la máquina remota debe incluir la
+nuestra en su <literal remap="tt">/etc/hosts.equiv</literal> o, mejor, en <literal remap="tt">/etc/hosts.lpd</literal>,
+o permitirle la impresión solamente a ciertos usuarios empleando el atributo
+<literal remap="tt">rs</literal> (ver la página <emphasis remap="bf">man</emphasis> de <emphasis>lpd</emphasis>). Para imprimir en la máquina
+remota, añadiremos una nueva entrada a nuestro <literal remap="tt">/etc/printcap</literal>.
+Supongamos que la impresora de la máquina remota (<literal remap="tt">hercules.us.es</literal>)
+es una Epson EPL 5700 y la cola de impresión por defecto (<literal remap="tt">lp</literal>) es la que
+queremos usar. La entrada sería:
+</para>
+
+<para>
+
+<screen>
+#Remote unix printer
+epl5700|Remote unix printer
+        :sd=/var/spool/lpd/epl5700:\
+        :rm=hercules.us.es:\ #nombre de la máquina remota (rm: remote machine)
+        :rp=lp:\ #nombre de la cola de impresión en la máquina remota (rp: remote printer)
+        :mx#0:\
+        :lp=/dev/null:\ 
+        :sh:\
+</screen>
+
+</para>
+
+<para>
+Es necesario tener un directorio <literal remap="tt">spool</literal> en la máquina local, porque si
+la remota está ocupada o desconectada, el trabajo a imprimir esperará en
+dicho directorio hasta que sea enviado.
+</para>
+
+<para>
+Cuando se trata de imprimir en una máquina remota Windows, debemos usar el
+paquete <emphasis remap="bf">SaMBa</emphasis>. Es posible establecer una cola de impresión
+mediante el programa <emphasis>smbclient</emphasis> (parte de samba) por el protocolo
+<literal remap="tt">TCP/IP</literal> mediante el servicio de impresión <literal remap="tt">SMB</literal>. Samba incluye
+un guión para realizar esto, llamado <emphasis>smbprint</emphasis>. En pocas palabras, se
+añade una entrada nueva al <literal remap="tt">/etc/printcap</literal> de la máquina local para
+la impresora remota incluyendo en la entrada <literal remap="tt">if</literal> el script
+<emphasis>smbprint</emphasis>. Si la impresora remota es, por ejemplo, una HP Laserjet,
+podríamos poner:
+</para>
+
+<para>
+
+<screen>
+#Remote samba printer
+HPlaserjet|Remote samba printer
+        :sd=/var/spool/lpd/HPlaserjet:\
+        :mx#0:\
+        :lp=/dev/null:\ 
+        :if=/usr/local/sbin/smbprint #Ruta del guión smbprint
+        :sh:\
+</screen>
+
+</para>
+
+<para>
+Para mayor información acerca de la impresión remota, consultar el
+<emphasis>Cómo</emphasis> correspondiente a la configuración de impresión.
+</para>
+
+</sect1>
+
+<sect1>
+<title>Créditos</title>
+
+<para>
+David Espada García <literal remap="tt"><ulink
+url="mailto:bombadil@santandersupernet.com"
+>bombadil@santandersupernet.com</ulink
+></literal> escribió un interesante
+artículo «<emphasis remap="bf">Configuración de la impresora</emphasis>» en el nº4 de la revista Sólo
+Programadores LINUX. También me han sido muy útiles el «<emphasis remap="bf">Ghostscript User
+Manual</emphasis>» de Thomas Merz <literal remap="tt"><ulink
+url="mailto:tm@muc.de"
+>tm@muc.de</ulink
+></literal>, el «<emphasis remap="bf">Linux Printing Howto</emphasis>» de Grant Taylor
+<literal remap="tt"><ulink
+url="mailto:gtaylor+pht@picante.com"
+>gtaylor+pht@picante.com</ulink
+></literal> y el Manual de SuSE Linux 6.2,
+capítulo 12.
+</para>
+
+</sect1>
+
+<sect1 id="Insflug">
+<title>Anexo: El INSFLUG </title>
+
+<para>
+El <emphasis remap="it">INSFLUG</emphasis> forma parte del grupo internacional <emphasis remap="it">Linux Documentation
+Project</emphasis>, encargándose de las traducciones al castellano de los Howtos,
+así como de la producción de documentos originales en aquellos casos en los
+que no existe análogo en inglés, centrándose, preferentemente, en documentos
+breves, como los <emphasis>COMOs</emphasis> y <emphasis>PUFs</emphasis> (<emphasis remap="bf">P</emphasis>reguntas de <emphasis remap="bf">U</emphasis>so
+<emphasis remap="bf">F</emphasis>recuente, las <emphasis remap="it">FAQs</emphasis>. <literal remap="tt">:)</literal> ), etc.
+</para>
+
+<para>
+Diríjase a la sede del Insflug para más información al respecto.
+</para>
+
+<para>
+En ella encontrará siempre las <emphasis remap="bf">últimas</emphasis> versiones de las traducciones
+«oficiales»:  <literal remap="tt"><ulink
+url="http://www.insflug.org"
+>www.insflug.org</ulink
+></literal>. Asegúrese de comprobar cuál es la última
+versión disponible en el Insflug antes de bajar un documento de un
+servidor réplica. 
+</para>
+
+<para>
+Además, cuenta con un sistema interactivo de gestión de fe de erratas y
+sugerencias en línea, motor de búsqueda específico, y más servicios en los
+que estamos trabajando incesantemente.
+</para>
+
+<para>
+Se proporciona también una lista de los servidores réplica (<emphasis remap="it">mirror</emphasis>)
+del Insflug más cercanos a Vd., e información relativa a otros recursos en
+castellano.
+</para>
+
+<para>
+En <literal remap="tt"><ulink
+url="http://www.insflug.org/insflug/creditos.php3"
+>http://www.insflug.org/insflug/creditos.php3</ulink
+></literal> cuenta con una
+detallada relación de las personas que hacen posible tanto esto como las
+traducciones.
+</para>
+
+<para>
+¡Diríjase a <literal remap="tt"><ulink
+url="http://www.insflug.org/colaboracion/index.php3"
+>http://www.insflug.org/colaboracion/index.php3</ulink
+></literal> si desea
+unirse a nosotros!.
+</para>
+
+<para>
+«Cartel» Insflug, <literal remap="tt"><ulink
+url="mailto:cartel@insflug.org"
+>cartel@insflug.org</ulink
+></literal>. 
+</para>
+
+</sect1>
+
+</article>

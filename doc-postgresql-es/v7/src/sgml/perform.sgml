@@ -1,0 +1,462 @@
+<!--
+$Header: /home/cvs/lucas/doc-postgresql-es/v7/src/sgml/perform.sgml,v 1.2 2002/02/22 20:46:30 emaldonadog Exp $
+-->
+
+ <chapter id="performance-tips">
+  <title>Consejos sobre Rendimiento</title>
+
+  <para>
+   El rendimiento en las consultas puede verse afectado por varias cosas.
+   Algunas de estas pueden ser manipuladas por el usuario, mientras que otras
+   son fundamentales al diseño del sistema subyacente. Este capitulo facilita
+   algunos consejos para la comprension y afinamiento del rendimiento en
+   <productname>Postgres</productname>.
+  </para>
+
+  <sect1 id="using-explain">
+   <title>Utilizando <command>EXPLAIN</command></title>
+
+   <note>
+    <title>Autor</title>
+    <para>
+     Escrito por Tom Lane, de un e-mail fechado el 27-03-2000.
+    </para>
+   </note>
+
+   <para>
+    <productname>Postgres</productname> dispone un <firstterm>plan
+    de consulta</firstterm> para cada consulta que se le da. Escojiendo el plan
+    correcto emparejanado la estructura de la consulta y las propiedades de
+    los datos es absolutamente critico para el buen rendimiento. Puede
+    utilizar el comando <command>EXPLAIN</command> para ver que plan de
+    consulta crea el sistema para cualquier consulta.
+    Desafortunadamente la lectura de planes es una arte que merece un
+    tutorial, y no he tenido tiempo de escribir uno. Aqui hay algunas
+    explicaciones rapidas y vastas.
+   </para>
+
+   <para>
+    Los numeros que estan actualmente citados por EXPLAIN son:
+
+    <itemizedlist>
+     <listitem>
+      <para>
+       Coste estimado de arranque (tiempo empleado antes de que el
+       escaneo de resultado -output- pueda comenzar, por ej. tiempo en
+       hacer la ordenacion en un nodo SORT).
+      </para>
+     </listitem>
+
+     <listitem>
+      <para>
+       Coste estimado total (si todas las tuplas son recuperadas, las cuales
+       pueden no ser ---, por ejemplo, una consulta con un LIMIT dentendra en
+       seco de acumular coste total).
+      </para>
+     </listitem>
+
+     <listitem>
+      <para>
+       Numero estimado de registros resultantes por este nodo de plan (de
+       nuevo, sin considerar ningun LIMIT).
+      </para>
+     </listitem>
+
+     <listitem>
+      <para>
+       Media estimada de anchura (en bytes) de los registros resultantes por
+       este nodo de plan.
+      </para>
+     </listitem>
+    </itemizedlist>
+   </para>
+
+   <para>
+    Los costos son medidos en unidades de paginas de disco que se han ido a
+    buscar.  (las estimaciones de esfuerzo de CPU se convierten en unidades
+    de paginas de disco utilizando algunos factores esquivos bastante
+    arbitrarios. Si quiere experimentar con estos factores, vea la lista de los
+    parametros de configuracion de ejecucion en la <citetitle>Guia del
+    Administrador</citetitle>
+   </para>
+
+   <para>
+    Es importante notar que el coste de un nodo de un nivel superior incluye
+    el coste de todos los nodos hijos. Es tambien importante comprender que
+    el coste solo refleja cosas de las que el planificador/optimizador se
+    ocupa. En particular, el coste no considera el tiempo empleado en
+    transmitir las tuplas resultantes al frontal --- que puede ser un factor
+    bastante dominante en el tiempo real transcurrido (elapsed), pero
+    el planificador lo ignora porque no puede cambiarlo alterando el plan.
+    (Todo plan correcto retornara el mismo conjunto de tuplas, confiemos.)
+   </para>
+
+   <para>
+    El resultado de lineas es un poco dificil porque <emphasis>no</emphasis>
+    es el numero de lineas procesadas/escaneadas por la consulta --- este es
+    usualmente menos, reflejando la selectividad estimada de cualquier
+    restriccion de clausula WHERE que estan siendo aplicadas a este nodo.
+    Idealmente, el nivel superior de lineas sera aproximadamente el numero de
+    lineas actualmente devueltos, actualizados, o borradas por la consulta
+    (de nuevo, sin considerar los efectos de LIMIT).
+   </para>
+
+   <para>
+    Media de anchura en bastante falso porque la cosa realmente no tiene
+    ninguna idea acerca de la longitud media de la longitud variable de las
+    columnas. Estoy considerando la mejora de esto en el futuro, pero puede no
+    valer la pena la preocupacion porque la anchura no es utilizada para mucho.
+   </para>
+
+   <para>
+    Aqui hay algunos ejemplos (utilizando los test de regresion de base de
+    datos despues de un analisos vacio, y las fuentes de casi 7.0):
+
+    <programlisting>
+regression=# explain select * from tenk1;
+NOTICE:  QUERY PLAN:
+
+Seq Scan on tenk1  (cost=0.00..333.00 rows=10000 width=148)
+    </programlisting>
+   </para>
+
+   <para>
+    Esto es acerca de la sencillez y como se obtiene. Si hace
+
+    <programlisting>
+select * from pg_class where relname = 'tenk1';
+    </programlisting>
+
+    obtendra que tenk1 tiene 233 paginas de disco y 10000 tuplas. Asi que
+    el coste esta estimado a 233 lecturas de bloque, definida como 1.0 cada
+    uno, mas 10000 * cpu_tuple_cost lo cual es actualmente 0.01 (prueba
+    <command>show cpu_tuple_cost</cost>).
+   </para>
+
+   <para>
+    Ahora modifiquemos la consulta para añadir una clausula de cualificacion:
+
+    <programlisting>
+regression=# explain select * from tenk1 where unique1 &lt; 1000;
+NOTICE:  QUERY PLAN:
+
+Seq Scan on tenk1  (cost=0.00..358.00 rows=1000 width=148)
+    </programlisting>
+
+    El resultado de registros estimado ha descendido a causa de la clausula
+    WHERE. (Esta estimacion es extrañamente exacta porque tenk1 es un caso
+    particularmente simple --- la columna unique1 tiene 10000 valores distintos
+    desde 0 a 9999, asi que la interpolacion linear del estimador entre minimo
+    y maximo valores de columnas esta agotada.) Sin embargo, el escaneo aun
+    tiene que pasar por todas los 10000 registros, asi que el coste no ha
+    decrecido; de hecho, ha sido un poco mas alto para reflejar el tiempo
+    extra de CPU empleado en comprobar la condicion WHERE.
+   </para>
+
+   <para>
+    Modifique la consulta para restringir la cualificacion aun mas:
+
+    <programlisting>
+regression=# explain select * from tenk1 where unique1 &lt; 100;
+NOTICE:  QUERY PLAN:
+
+Index Scan using tenk1_unique1 on tenk1  (cost=0.00..89.35 rows=100 width=148)
+    </programlisting>
+
+    y vera que si hacemos la condicion WHERE bastante selectiva, el
+    planificador decidira que indexscan es menos costoso en un barrido
+    secuencial.
+    Este plan solo tendra que visitar 100 tuplas gracias al indice,
+    asi que sale ganando a pesar del hecho de que cada recuperacion individual
+    es costosa.
+   </para>
+
+   <para>
+    Añada otras condicion de cualificacion:
+
+    <programlisting>
+regression=# explain select * from tenk1 where unique1 &lt; 100 and
+regression-# stringu1 = 'xxx';
+NOTICE:  QUERY PLAN:
+
+Index Scan using tenk1_unique1 on tenk1  (cost=0.00..89.60 rows=1 width=148)
+    </programlisting>
+
+    La clausula añadida "stringu1= 'xxx'" reduce la estimacion de registros
+    resultantes, pero no el coste porque aun tiene que recorrer el mismo
+    conjunto de tuplas.
+   </para>
+
+   <para>
+    Hagamos una join de dos tablas, utilizando los campos que hemos estado
+    comentando:
+
+    <programlisting>
+regression=# explain select * from tenk1 t1, tenk2 t2 where t1.unique1 &lt; 100
+regression-# and t1.unique2 = t2.unique2;
+NOTICE:  QUERY PLAN:
+
+Nested Loop  (cost=0.00..144.07 rows=100 width=296)
+  -&gt;  Index Scan using tenk1_unique1 on tenk1 t1
+             (cost=0.00..89.35 rows=100 width=148)
+  -&gt;  Index Scan using tenk2_unique2 on tenk2 t2
+             (cost=0.00..0.53 rows=1 width=148)
+    </programlisting>
+   </para>
+
+   <para>
+    En esta join nested-loop, el barrido externo (outer) es el mismo barrido
+    del indice (indexscan) que hemos tenido en el ejemplo penultimo, y por eso
+    su coste y conteo de registros son los mismos porque estamos aplicando la
+    clausula WHERE "unique1 &lt; 100" a este nodo.
+    La clausula "t1.unique2 = t2.unique2" no es relevante aun, asi que no afecta
+    al conteo de registros del barrido externo (outer). Para el barrido interior
+    , el valor actual de la tupla outer-scan esta pinchado dentro del indexscan
+    interno (inner) para producir un indexqual como
+    "t2.unique2 = <replaceable>constant</replaceable>". Asi obtendremos el
+    mismo plan de barrido interno (inner-scan) y costes que obtuvimos de,
+    digamos, "explain select * from tenk2 where unique2 = 42". El coste del
+    nodo loop esta entonces configurado en las bases del coste de barrido
+    externo, mas una repeticion del barrido interno (inner scan)para una de las
+    tuplas (100 * 0.53, aqui), mas un poco de tiempo de CPU para procesar la
+    tarea.
+   </para>
+
+   <para>
+    En este ejemplo el conteo de registros resultante del loop es el mismo que
+    el producto del conteo de registros de dos barridos, pero eso es cierto en
+    general, porque en general puedes tener clausulas que mencionen ambas
+    relaciones y de ese modo solo pueden ser aplicadas en el momento de la
+    union (join), no en los dos barridos de entrada.
+    Por ejemplo, si anadimos "WHERE ... AND t1.hundred &lt; t2.hundred",
+    esto haria decrecer el conteo de registros resultantes de nodo de union,
+    pero no cambiaria los barridos de entrada.
+   </para>
+
+   <para>
+    Una manera de ver planes alternaticos es forzar al planificador a
+    desatender cualquier estategia que el piense que fuera ganadora,
+    utilizando las etiquetas habilitar/deshabilitar (enable/disable)
+    para cada tipo de plan. (Esta es una herramienta tosca, pero util.
+    Vease tambien <xref linkend="explicit-joins">.)
+
+    <programlisting>
+regression=# set enable_nestloop = off;
+SET VARIABLE
+regression=# explain select * from tenk1 t1, tenk2 t2 where t1.unique1 < 100
+regression-# and t1.unique2 = t2.unique2;
+NOTICE:  QUERY PLAN:
+
+Hash Join  (cost=89.60..574.10 rows=100 width=296)
+  -&gt;  Seq Scan on tenk2 t2
+               (cost=0.00..333.00 rows=10000 width=148)
+  -&gt;  Hash  (cost=89.35..89.35 rows=100 width=148)
+        -&gt;  Index Scan using tenk1_unique1 on tenk1 t1
+               (cost=0.00..89.35 rows=100 width=148)
+    </programlisting>
+    Este plan se propone extraer los 100 interesantes registros de tenk1
+    utilizando aun el mismo idexscan viejo, meterlos en una tabla en temporal
+    de hash en memoria y entonces hacer un barrido secuencial de tenk2, probando
+    dentro de la tabla de hash las posibles coincidencias de
+    "t1.unique2 = t2.unique2" en cada tupla de tenk2.
+    El coste de leer tenk1 y configurar la tabla de hash es completamente
+    coste de arranque para la juncion de hash (hash join), porque no queremos
+    obtener ninguna tupla hasta que podamos comenzar a leer tenk2. El tiempo
+    total estimado para la juncion tambien incluye una carga bastante fuerte
+    de tiempo de CPU para probar la tabla de hash 10000 veces. Notese, sin
+    embargo, que no estamos cargando 10000 veces 89.95; la tabla de hash solo
+    se configura una vez en este tipo de plan.
+   </para>
+  </sect1>
+
+ <sect1 id="explicit-joins">
+  <title>Controlando el Planificador con JOINs Explicitas </title>
+
+  <para>
+   Comenzando  con <productname>Postgres</productname> 7.1 es posible
+   controlar el planificador de consultas para algunas extensiones mediante
+   el uso explicito de la sintaxis de JOIN. Para ver porque esto importa,
+   primero necesitamos algun bagaje.
+  </para>
+
+  <para>
+   En una consulta simple de juncion (join), como
+    <programlisting>
+SELECT * FROM a,b,c WHERE a.id = b.id AND b.ref = c.id;
+    </programlisting>
+   el planificador es libre de unir las tablas dadas en cualquier orden. Por
+   ejemplo, podria generar una plan de consulta que uniese A con B, utilizando
+   la clausula WHERE a.id = b.id, y despues unir C a esta tabla unida,
+   utilizando la otra clausula WHERE. O podria unir B con C y despues unir A
+   a este resultado. O podria unir A con C y despues unirlas con B --- pero
+   esto no seria eficiente, porque el producto cartesiano de A y C deberia
+   haber sido formado, no siendo aplicable la clausula WHERE para permitir la
+   optimizacion de la juncion.
+   (Todas las junciones en el ejecutor de <productame>Postgres</productname>
+   ocurren entre dos tablas de entrada, asi que es necesario construir el
+   el resultado en un u otra de esas maneras.) El punto importante es que esas
+   diferentes posibilidades de juncion dan resultados semanticamente
+   equivalentes pero pueden tener costes de ejecucion enormemente diferentes.
+   Asi pues, el planificador explorara todas ellas para intentar encontrar el
+   plan de consulta mas eficiente.
+  </para>
+
+  <para>
+   Cuando una consulta incluye dos o tres tablas, no hay muchas ordenes de las
+   que preocuparse. Pero el numero de posibles ordenes de juncion crece
+   exponencialmente en tanto que el numero de tablas se expande. Mas alla de
+   diez aproximadamente las tablas de entrada deja de ser practico hacer una
+   busqueda exhaustiva de todas las posibilidades, e incluso para seis o siete
+   tablas la planificacion puede tomase un largo tiempo molestante. Cuando hay
+   tantas tablas de entrada, el planificador de
+   <productname>Postgres</productname> cambiara de una busqueda exhaustiva
+   a una busqueda probabilistica <firstterm>genetica</firstterm> a traves de
+   un numero limitado de posibilidades. (El umbral de cambio esta parametrizado
+   por el parametro de ejecucion GEQO_THRESHOLD descrito en la
+   <citetitle>Guia del Administrador</citetitle>.)
+   La busqueda genetica emplea menos tiempo, pero no encontrara
+   necesariamente el mejor plan posible.
+  </para>
+
+  <para>
+   Cuando la consulta incluye junciones externas (outer joins), el planificador
+   tiene mucha menos libertad que cuando hace un plan para junciones (internas -
+   inner). Por ejemplo, consideremos
+    <programlisting>
+SELECT * FROM a LEFT JOIN (b JOIN c ON (b.ref = c.id)) ON (a.id = b.id);
+    </programlisting>
+   Aunque las restricciones de esta consulta son similares superficialmente al
+   ejemplo anterior, la semantica es diferente porque un registro debe estar
+   emitido para cada registro de A que no tiene registro coincidente en la
+   juncion de B y C. Asi pues, el planificador no tiene eleccion de ordenar la
+   juncion aqui: debe unir (join) B a C y entonces unir (join) A a este
+   resultado. Por consiguiente, esta consulta emplea menos tiempo para
+   planificarse que la consulta previa.
+  </para>
+
+  <para>
+   En <productname>Postgres</productname> 7.1, el planificador trata toda
+   las sintaxis explicitas de JOIN como una restriccion en el order de juncion
+   aun pensando que no sea necesario logicamente hacer ese tipo de restriccion,
+   para junciones internas. Asi pues, aunque todas estas consultas den el mismo
+   resultado:
+    <programlisting>
+SELECT * FROM a,b,c WHERE a.id = b.id AND b.ref = c.id;
+SELECT * FROM a CROSS JOIN b CROSS JOIN c WHERE a.id = b.id AND b.ref = c.id;
+SELECT * FROM a JOIN (b JOIN c ON (b.ref = c.id)) ON (a.id = b.id);
+    </programlisting>
+   la segunda y la tercera emplean menos tiempo en planificar que la primera.
+   Este efecto no importa preocupandose de solo tres tablas, pero puede ser
+   un salvavidas con muchas tablas.
+  </para>
+
+  <para>
+   No necesita restringir el orden de juncion completamente para acortar el
+   tiempo de busqueda, porque es correcto utilizar los operadores de JOIN en
+   un listado plano FROM. Pro ejemplo,
+    <programlisting>
+SELECT * FROM a CROSS JOIN b, c, d, e WHERE ...;
+    </programlisting>
+   fuerza al planificador a unir (join) A con B antes de unirlos a ellos en
+   otras tablas, pero no restringe por otro lado sus elecciones. En este
+   ejemplo, el numero de posibles ordenaciones de juncion (join) se reduce en
+   un factor de 5.
+  </para>
+
+  <para>
+   Si tiene una mezcla de junciones internas (inner) y externas (outer) en una
+   consulta compleja, puede no querer restringir la busqueda del planificador
+   para una buena ordenacion de las junciones internas (inner joins) dentro de
+   una juncion externa (outer join). No pude hacerlo directamente en la
+   sisntaxis de JOIN, pero puede dar un rodeo a la limitacion sintactica
+   utilizando sub consultas. Por ejemplo,
+    <programlisting>
+SELECT * FROM d LEFT JOIN
+        (SELECT * FROM a, b, c WHERE ...) AS ss
+        ON (...);
+    </programlisting>
+   Aqui, unir D debe ser el ultimo paso en el plan de consulta, pero el plan
+   es libre de considerar varios ordenes de juncion para A,B,C.
+  </para>
+
+  <para>
+   Restringir la busqueda del planificador de esta manera es una tecnica util
+   tanto para reducir tiempo de planificacion como para dirigir al planificador
+   hacia un buen plan de consulta. Si el planificador elige un orden malo de
+   juncion por defecto, puede forzarlo a elegir un orden mejor a traves de la
+   sintaxis JOIN --- esto es, asumiendo que usted conoce un orden mejor. Se
+   recomienda experimentar.
+  </para>
+ </sect1>
+
+ <sect1 id="populate">
+  <title>Poblando  una Base de Datos</title>
+
+  <para>
+   Uno puede necesitar hacer un gran numero de inserciones en tabla cuando
+   puebla por primera vez una base de datos. Aqui hay algunas pistas y tecnicas
+   para hacerlo tan eficiente como sea posible.
+  </para>
+
+  <sect2 id="disable-autocommit">
+   <title>Disabilitar  el Auto-commit</title>
+
+   <para>
+    Deshabilite el auto-commit y haga solo un commit al final. De otro modo
+    <productname>Postgre</productname> estara haciendio mucho trabajo para cada
+    registro añadido. En general, cuando esta haciendo inserciones voluminosas,
+    puede deshabilitar algunas caracteristicas de la base de datos para ganar
+    velocidad.
+   </para>
+  </sect2>
+
+  <sect2 id="populate-copy-from">
+   <title>Utilice COPY FROM</title>
+
+   <para>
+    Utilice <command>COPY FROM STDIN</command> para cargar todos los registros
+    en solo comando, en lugar de una serie de comandos INSERT. Esto reduce la
+    comprobacion sintactica (parsing), planificacion, etc ganando mucho. Si
+    haces esto no es necesario que se vuelva loco con el autocommitm porque
+    es un solo comando en cualquier caso.
+   </para>
+  </sect2>
+
+  <sect2 id="populate-rm-indices">
+   <title>Eliminar Indices</title>
+
+   <para>
+    Si esta cargando una tabla recientemente creada, la manera más rápida
+    es crear la tabla, hacer una carga masiva con COPY, y despues crear
+    cualquier indice necesitado por la tabla. La creacion de un indice sobre
+    datos pre-existentes es más rápida que actualizar incrementalmente cada
+    cuando cada registro es cargado.
+   </para>
+
+   <para>
+    Si esta incrementando una tabla existente, puede ejecutar <command>DROP
+    INDEX</command>, cargar la tabla, y despues recrear el indice. Por supuesto,
+    el rendimiento se vera adversamente afectado durante el tiempo que el indice
+    no está.
+   </para>
+  </sect2>
+  </sect1>
+
+ </chapter>
+
+<!-- Keep this comment at the end of the file
+Local variables:
+mode:sgml
+sgml-omittag:nil
+sgml-shorttag:t
+sgml-minimize-attributes:nil
+sgml-always-quote-attributes:t
+sgml-indent-step:1
+sgml-indent-data:t
+sgml-parent-document:nil
+sgml-default-dtd-file:"./reference.ced"
+sgml-exposed-tags:nil
+sgml-local-catalogs:("/usr/lib/sgml/catalog")
+sgml-local-ecat-files:nil
+End:
+-->

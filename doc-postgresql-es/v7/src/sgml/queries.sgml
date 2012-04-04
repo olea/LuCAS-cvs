@@ -1,0 +1,851 @@
+<!-- $Header: /home/cvs/lucas/doc-postgresql-es/v7/src/sgml/queries.sgml,v 1.2 2002/06/14 22:43:26 emaldonadog Exp $ -->
+
+<chapter id="queries">
+ <title>Consultas</title>
+
+ <para>
+  Una <firstterm>consulta</firstterm> es el proceso de recuperar o el comando 
+  para recuperar información desde una base de datos.  En SQL el comando <command>SELECT</command>
+  se usa para realizar consultas.  La sintaxis general del comando 
+  <command>SELECT</command> es
+<synopsis>
+SELECT <replaceable>select_list</replaceable> FROM <replaceable>table_expression</replaceable> <optional><replaceable>sort_specification</replaceable></optional>
+</synopsis>
+  La siguiente sección describe los detalles de la lista de consulta (select_list), la
+  expresión de tabla (table_expression) y la clausula de ordenación (sort_specification). 
+  La consulta más simple sería 
+<programlisting>
+SELECT * FROM table1;
+</programlisting>
+  Suponiendo que hay una tabla con el nombre table1, este comando
+  recuperaría todas las filas y todas las columnas de la tabla table1. (El
+  método de recuperación depende de la aplicación cliente. Por ejemplo,
+  el programa <application>psql</application> mostraría una tabla en 
+  formato ASCII, librerias cliente proporcionarían funciones para
+  recuperar filas y columnas individualmente.) El carácter <literal>*</literal>
+  en la lista de consulta significa que se quieren recuperar todas
+  las columnas que proporcione la expresión de tabla. Una lista de consulta
+  puede seleccionar también un subconjunto de las columnas disponibles o
+  incluso hacer cálculos sobre las columnas antes de recuperarlas; véase
+  <xref linkend="queries-select-lists">. Por ejemplo, si la tabla table1 
+  tiene las columnas a, b y c (y quizás otras) podríamos hacer la siguiente
+  consulta:
+<programlisting>
+SELECT a, b + c FROM table1;
+</programlisting>
+  (suponiendo que b y c son de tipo numérico).
+ </para>
+
+ <para>
+  <literal>FROM table1</literal> es una tipo de expresión de tabla 
+  particularmente simple. En general, las expresiones de tabla son 
+  complejas construcciones a partir de tablas base, uniones y 
+  subconsultas. Pero también se puede omitir por completo la expresión
+  de tabla y usar el comando SELECT como una calculadora:
+<programlisting>
+SELECT 3 * 4;
+</programlisting>
+  Esto es más util si la expresión de la lista de consulta devuelve
+  valores variables. Por ejemplo, podríamos llamar una función de 
+  esta forma:
+<programlisting>
+SELECT random();
+</programlisting>
+ </para>
+
+ <sect1 id="queries-table-expressions">
+  <title>Expresiones de tabla</title>
+
+  <para>
+   Una <firstterm>expresión de tabla (table_expression)</firstterm> 
+   hace refernecia a una tabla. 
+   La expresión de tabla contiene una clausula FROM a la que siguen 
+   opcionalmente cláusulas WHERE, GROUP BY, y HAVING. Las expresiones de
+   tabla triviales hacen referencia simplemente a una tabla en el disco, 
+   comunmente llamada tabla base, pero se pueden usar expresiones complejas 
+   para modificar o combinar tablas base de diferentes maneras.
+  </para>
+
+  <para>
+   Las cláusulas opcionales WHERE, GROUP BY, y HAVING en la expresión de tabla 
+   indican una serie de transformaciones sucesivas a realizar en la tabla 
+   indicada en la cláusula FROM. La tabla final producida por todas estas 
+   tranformaciones proporciona las filas de entrada para calcular las filas
+   de salida como son especificadas en la lista de consulta a través de 
+   expresiones de valores de columnas.
+  </para>
+	
+  <sect2 id="queries-from">
+   <title>Cláusula FROM</title>
+ 
+   <para>
+    La cláusula FROM construye una tabla a partir de una o más tablas 
+    dadas en la lista de referencias a tablasseparadas por coma.
+<synopsis>
+FROM <replaceable>table_reference</replaceable> <optional>, <replaceable>table_reference</replaceable> <optional>, ...</optional></optional>
+</synopsis>
+
+    Una referencia a tabla puede ser el nombre de una tabla o una tabla
+    derivada como puede ser una subconsulta, una tabla cruzada, o 
+    complejas coombinaciones de estas. Si se indica más de una referencia 
+    a tabla en la cláusula FROM estas son CROSS JOINed (cruzadas, n.t.) 
+    (ver más abajo) para formar la tabla producto que puede entonces 
+    transformarse por las cláusulas WHERE, GROUP BY, y
+    HAVING para ser finalmente el resultado de la expresión de tabla global.
+   </para>
+
+   <para>
+    Cuando una referencia a tabla se refiere a una tabla que es la supertabla 
+    en una jerarquía de herencia de tablas, la referencia a tabla proporciona
+    la filas no sólo de esa tabla sino de todas las subtablas hijas, a menos que 
+    la palabra reservada ONLY preceda el nombre de la tabla. Sin embargo, la
+    referencia a tabla sólo recupera las columnas que aparecen en la supertabla
+    --- cualquier otra columna añadida en las tablas hijas se ignora.
+   </para>
+
+   <sect3 id="queries-join">
+    <title>Tablas cruzadas</title>
+
+    <para>
+     Una tabla cruzada es una tabla obtenida a partir de otras dos tablas (reales o
+     derivadas) de acuerdo con las reglas del tipo de cruce particular. Se soportan
+     los tipo de cruce INNER, OUTER y CROSS JOIN.
+    </para>
+
+    <variablelist>
+     <title>Tipos de cruce</title>
+
+     <varlistentry>
+      <term>CROSS JOIN</term>
+
+      <listitem>
+<synopsis>
+<replaceable>T1</replaceable> CROSS JOIN <replaceable>T2</replaceable>
+</synopsis>
+
+       <para>
+        Para cada combinación de filas de
+        <replaceable>T1</replaceable> y
+        <replaceable>T2</replaceable>, la tabla producto contendrá una
+        fila conteniendo todas las columnas de <replaceable>T1</replaceable>
+        seguidas por todas las columnas de <replaceable>T2</replaceable>.  Si
+        las tablas tienen N y M filas respectivamente, la tabla cruzada tendrá
+        N * M filas. Una CROSS JOIN es equivalente a una 
+        <literal>INNER JOIN ON TRUE</literal>.
+       </para>
+
+       <tip>
+        <para>
+         <literal>FROM <replaceable>T1</replaceable> CROSS JOIN
+         <replaceable>T2</replaceable></literal> es equivalente a
+         <literal>FROM <replaceable>T1</replaceable>,
+         <replaceable>T2</replaceable></literal>.
+        </para>
+       </tip>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>Cruces cualificados</term>
+      <listitem>
+
+<synopsis>
+<replaceable>T1</replaceable> { <optional>INNER</optional> | { LEFT | RIGHT | FULL } <optional>OUTER</optional> } JOIN <replaceable>T2</replaceable> ON <replaceable>boolean_expression</replaceable>
+<replaceable>T1</replaceable> { <optional>INNER</optional> | { LEFT | RIGHT | FULL } <optional>OUTER</optional> } JOIN <replaceable>T2</replaceable> USING ( <replaceable>join column list</replaceable> )
+<replaceable>T1</replaceable> NATURAL { <optional>INNER</optional> | { LEFT | RIGHT | FULL } <optional>OUTER</optional> } JOIN <replaceable>T2</replaceable>
+</synopsis>
+        
+       <para>
+        Las palabras <token>INNER</token> y <token>OUTER</token> son
+        opcionales para todos los cruces. Por omisión es <token>INNER</token>;
+        <token>LEFT</token>, <token>RIGHT</token>, y
+        <token>FULL</token> implican un OUTER JOIN.
+       </para>
+
+       <para>
+        La <firstterm>condición del cruce</firstterm> se especifica en la
+        cláusula ON o USING, o implícitamente por la palabra NATURAL. Esta
+        condición determina que filas de las dos tablas origen 
+        se estima que <quote>coinciden</quote>, como se explica en detalle
+        más abajo.
+       </para>
+
+       <para>
+        La 	cláusula ON es la clase de condición de cruce más general: toma
+        una expresión con valor lógico de la misma forma a como se usa en la
+        cláusula WHERE. Un par de filas de T1 y T2 coinciden si la expresión
+        ON es verdadero para ellas.
+       </para>
+
+       <para>
+        USING es una notación abreviada: Toma una lista separada por comas de 
+        nombres de columnas, las cuales son comunes a ambas tablas, y conforman
+        una condición de cruce en base a la igualdad de cada uno de estos pares 
+        de columnas. Además, la salida de una JOIN USING tiene una columna por
+        cada uno de los pares iguales de las columnas de entrada, seguidas por
+        todas las restantes columnas de cada tabla. Por eso, 
+        <literal>USING (a, b, c)</literal> es equivalente a 	
+        <literal>ON (t1.a = t2.a AND t1.b = t2.b AND t1.c = t2.c)</literal>
+	  con la excepción de que si se usa ON habrá dos columnas a, b, y c en el
+        resultado, mientras que con USING sólo habrá una de cada.
+       </para>
+
+       <para>
+        Por último, NATURAL es una forma abreviada de USING: forma una lista
+      USING que consta exactamente de aquellos nombres de columnas que aparecen
+      en ambas tablas. Como en USING, estas columnas aparecen sólo una vez en 
+      la tabla de salida.
+       </para>
+
+       <para>
+        Los tipos posibles de cruces cualificados son:
+       </para>
+
+       <variablelist>
+        <varlistentry>
+         <term>INNER JOIN</term>
+
+         <listitem>
+          <para>
+           Para cada fila R1 of T1, la tabla cruzada tiene una fila por cada
+           fila en T2 que satisface la condición de unión con R1
+          </para>
+         </listitem>
+        </varlistentry>
+
+        <varlistentry>
+         <term>LEFT OUTER JOIN</term>
+
+         <listitem>
+          <para>
+           Primero, se realiza un INNER JOIN. Después, para cada fila de T1
+           que no satisface la condición de cruce con ninguna fila de T2, 
+           se devuelve una fila cruzada con valores nulos para las columnas de T2.
+           Por eso, la tabla cruzada tiene, incondicionalmente, al menos una fila 
+           por cada fila de T1.
+          </para>
+         </listitem>
+        </varlistentry>
+         
+        <varlistentry>
+         <term>RIGHT OUTER JOIN</term>
+
+         <listitem>
+          <para>
+           Primero, se realiza un INNER JOIN. Despues, para cada fila de T2 
+           que no satisface la condición de cruce con ninguna fila de T1, se
+           devuelve una fila cruzada con valores nulos para las columnas de T1.
+           Es lo contrario a un left join: la tabla cruzada tendra, obligatoriamente,
+           una fila por cada fila de T2.
+          </para>
+         </listitem>
+        </varlistentry>
+         
+        <varlistentry>
+         <term>FULL OUTER JOIN</term>
+
+         <listitem>
+          <para>
+           Primero, se realiza un INNER JOIN. Despues, para cada fila de T1 
+           que no satisface la condición de cruce con ninguna fila de T2, se
+           devuelve una fila cruzada con valores nulos para las columnas de T2.
+           También, para cada fila de T2 que no satisface la condición de cruce 
+           con ninguna fila de T1, se devuelve una fila cruzada con valores nulos 
+           para las columnas de T1.
+          </para>
+         </listitem>
+        </varlistentry>
+       </variablelist>
+      </listitem>
+     </varlistentry>
+    </variablelist>
+
+    <para>
+     Pueden encadenarse cruces de todos los tipos, juntos o anidados:
+     cualquiera de las tablas <replaceable>T1</replaceable> y
+     <replaceable>T2</replaceable> pueden ser a su vez tablas cruzadas.
+     Se pueden usar paréntesis en las cláusulas JOIN para controlar el orden
+     del cruce. En ausencia de paréntesis, las cláusulas JOIN se agrupan de
+     izquierda a derecha.
+    </para>
+   </sect3>
+
+   <sect3 id="queries-subqueries">
+    <title>Subconsultas</title>
+
+    <para>
+     Las subconsultas que representan una tabla derivada tienen que encerrarse
+     entre paréntesis y <emphasis>deben</emphasis> nombrarse usando la 
+     cláusula AS.  (See <xref linkend="queries-table-aliases">.)
+    </para>
+
+<programlisting>
+FROM (SELECT * FROM table1) AS alias_name
+</programlisting>
+
+    <para>
+     Este ejemplo es equivalente a <literal>FROM table1 AS
+     alias_name</literal>. Las casos más interesantes, que no pueden reducirse
+     a simples cruces de tablas, son aquellos en las que la subconsulta conlleva 
+     agrupamiento o agregación.
+    </para>
+   </sect3>
+
+   <sect3 id="queries-table-aliases">
+    <title>Alias para tablas y columnas</title>
+
+    <para>
+     Puede darse un nombre temporal a las tablas y a las referencias 
+     a tablas complejas para poder referenciarlas posteriormente. A este
+     nombre temporal se le llama <firstterm>alias de tabla</firstterm>.
+<synopsis>
+FROM <replaceable>table_reference</replaceable> AS <replaceable>alias</replaceable>
+</synopsis>
+     Aquí, <replaceable>alias</replaceable> puede ser cualquier identificador 
+     regular. El alias se convierte en el nuevo nombre de la referencia a la tabla
+     para la consulta actual -- no es posible referenciar la tabla con su nombre
+     original. Así
+<programlisting>
+SELECT * FROM my_table AS m WHERE my_table.a > 5;
+</programlisting>
+     no es una sintáxis SQL válida. Lo que ocurre en realidad (esto 
+     es una extensión de <productname>Postgres</productname> al estándar)
+     es que se añade una referencia de tabla a la cláusula FROM, de forma
+     que la consulta se procesa como si se hubiera escrito así
+<programlisting>
+SELECT * FROM my_table AS m, my_table AS my_table WHERE my_table.a > 5;
+</programlisting>
+     Los alias de tabla se usan principalmente por conveniencia de notación,
+     pero su uso es necesario cuando una tabla se une consigo misma, e.g.,
+<programlisting>
+SELECT * FROM my_table AS a CROSS JOIN my_table AS b ...
+</programlisting>
+     Adicionalmente, se requiere un alias si la referencia a tabala
+     es una subconsulta.
+    </para>
+
+    <para>
+     Para resolver ambigüedades se usan los paréntesis. A diferencia del
+     ejemplo anterior, la siguiente sentencia asignará el alias 
+     <literal>b</literal> al resultado del cruce de tablas:
+<programlisting>
+SELECT * FROM (my_table AS a CROSS JOIN my_table) AS b ...
+</programlisting>
+    </para>
+
+    <para>
+<synopsis>
+FROM <replaceable>table_reference</replaceable> <replaceable>alias</replaceable>
+</synopsis>
+     Esta forma es equivalente a la anterior; la palabra clave 
+     <token>AS</token> es opcional.
+    </para>
+
+    <para>
+<synopsis>
+FROM <replaceable>table_reference</replaceable> <optional>AS</optional> <replaceable>alias</replaceable> ( <replaceable>column1</replaceable> <optional>, <replaceable>column2</replaceable> <optional>, ...</optional></optional> )
+</synopsis>
+     En esta caso, además de renombrar la tabla como se describe arriba,
+     a las columnas de la tabla se les da también un nombre temporal para
+     usarlas en la consulta global. Si se especifican menos alias de columnas 
+     de las que tiene la tabla, las columnas restantes no son renombradas. Esta
+     sintaxis es especialmente útil en subconsultas y en cruces de una tabla 
+     consigo misma.
+    </para>
+
+    <para>
+     Cuando un alias se aplica a la salida de una cláusula JOIN, usando 
+     cualquiera de estos casos, el alias oculta el nombre original dentro del
+     JOIN. Por ejemplo,
+<programlisting>
+SELECT a.* FROM my_table AS a JOIN your_table AS b ON ...
+</programlisting>
+     es correcto en SQL, pero
+<programlisting>
+SELECT a.* FROM (my_table AS a JOIN your_table AS b ON ...) AS c
+</programlisting>
+     no es correcto: el alias de tabla A no es visible fuera del alias C.
+    </para>
+   </sect3>
+
+   <sect3 id="queries-table-expression-examples">
+    <title>Ejemplos</title>
+
+    <para>
+<programlisting>
+FROM T1 INNER JOIN T2 USING (C)
+FROM T1 LEFT OUTER JOIN T2 USING (C)
+FROM (T1 RIGHT OUTER JOIN T2 ON (T1C1=T2C1)) AS DT1
+FROM (T1 FULL OUTER JOIN T2 USING (C)) AS DT1 (DT1C1, DT1C2)
+
+FROM T1 NATURAL INNER JOIN T2
+FROM T1 NATURAL LEFT OUTER JOIN T2
+FROM T1 NATURAL RIGHT OUTER JOIN T2
+FROM T1 NATURAL FULL OUTER JOIN T2
+
+FROM (SELECT * FROM T1) DT1 CROSS JOIN T2, T3
+FROM (SELECT * FROM T1) DT1, T2, T3
+</programlisting>
+
+     Más arriba hay ejemplos de tablas cruzadas y tablas derivadas 
+     complejas. Notese como la cláusula AS renombra o nombra una
+     tabla derivada y como la lista opcional de nombres de columnas
+     separadas por comas que le sigue renombra sus columnas. Las dos
+     últimas cláusulas FROM producen las misma tabla derivada de T1,
+     T2 y T3. La palabra clave AS se omitió al nombrar la subconsulta
+     como DT1. Las palabras clave OUTER e INNER pueden también omitirse.
+    </para>
+   </sect3>
+
+  </sect2>
+
+  <sect2 id="queries-where">
+   <title>Cláusula WHERE</title>
+
+   <para>
+    La sintaxis de la cláusula WHERE es
+<synopsis>
+WHERE <replaceable>search_condition</replaceable>
+</synopsis>
+    donde <replaceable>search_condition</replaceable> es cualquier 
+    expresión como se define en <xref linkend="sql-expressions"> 
+    que devuelva un valor de tipo <type>boolean</type>.
+   </para>
+
+   <para>
+    Después de que se ha procesado la cláusula FROM, cada fila de la
+    tabla derivada se comprueba con la condición de búsqueda. S el 
+    resultado de la condición es verdadero, la fila se mantiene en la
+    tabla de salida, en otro caso (esto es, si el resultado de la 
+    condición es falso o NULL) se descarta. La condición de búsqueda
+    hace referencia normalmente, al menos, a algunas columnas de la 
+    tabla generada en la cláusula FROM; esto no es obligatorio, pero
+    en caso contrario la cláusula WHERE sería bastante inutil.
+   </para>
+
+   <note>
+    <para>
+     Antes de implementar la sintaxis de JOIN, era necesario poner la
+     condición de cruce de un INNER JOIN en la cláusula WHERE. Por
+     ejemplo, estas expresiones de tabla son equivalentes:
+<programlisting>
+FROM a, b WHERE a.id = b.id AND b.val &gt; 5
+</programlisting>
+     y
+<programlisting>
+FROM a INNER JOIN b ON (a.id = b.id) WHERE b.val &gt; 5
+</programlisting>
+     o quizás aun
+<programlisting>
+FROM a NATURAL JOIN b WHERE b.val &gt; 5
+</programlisting>
+     Usar uno u otro es sobre todo una cuestión de estilo. La sintaxis
+     del JOIN en la cláusula FROM no es probablemente tan portable a 
+     otros productos. Para los OUTER JOIN no hay elección en ningun caso:
+     deben hacerse en la cláusula FROM. Una cláusula ON/USING de un OUTER
+     JOIN <emphasis>no</> es equivalente a una condición WHERE porque 
+     determina tanto la adición de filas (para filas de entrada que no
+     son coincidentes) como la eliminación de filas del resultado final.
+    </para>
+   </note>
+
+<programlisting>
+FROM FDT WHERE
+    C1 > 5
+
+FROM FDT WHERE
+    C1 IN (1, 2, 3)
+FROM FDT WHERE
+    C1 IN (SELECT C1 FROM T2)
+FROM FDT WHERE
+    C1 IN (SELECT C3 FROM T2 WHERE C2 = FDT.C1 + 10)
+
+FROM FDT WHERE
+    C1 BETWEEN (SELECT C3 FROM T2 WHERE C2 = FDT.C1 + 10) AND 100
+
+FROM FDT WHERE
+    EXISTS (SELECT C1 FROM T2 WHERE C2 > FDT.C1)
+</programlisting>
+
+   <para>
+    En los ejemplos anteriores, FDT es la tabla derivada en la cláusula
+    FROM. Las filas que no satisfacen la condición de búsqueda de la 
+    cláusula where son eliminadas de FDT. Nótese el uso de subconsultas
+    escalares como expresiones de valores. Igual que cualquier otra consulta,
+    las subconsultas pueden hacer uso de expresiones de tabla complejas.
+    Vease como FDT se referencia en la subconsulta. Cualificar C1 como
+    FDT.C1 sólo es necesario si C1 es también el nombre de una columna en
+    la tabla de entrada de la subconsulta. Cualificar los nombres de columnas
+    aporta claridad aun cuando no fuera necesario. Esto muestra como el
+    ámbito del nombre de columna de una consulta se extiende a las consultas
+    que están dentro de ella.
+   </para>
+  </sect2>
+
+
+  <sect2 id="queries-group">
+   <title>Cláusulas GROUP BY y HAVING</title>	   
+
+   <para>
+    Después de pasar el filtro WHERE, la tabla de entrada derivada puede
+    ser objeto de agrupamiento, usando la clúasula GROUP BY, y eliminación de
+    filas agrupadas usando la cláusula HAVING.
+   </para>
+
+<synopsis>
+SELECT <replaceable>select_list</replaceable> FROM ... <optional>WHERE ...</optional> GROUP BY <replaceable>grouping_column_reference</replaceable> <optional>, <replaceable>grouping_column_reference</replaceable></optional>...
+</synopsis>
+
+   <para>
+    La cláusula GROUP BY se usa para agrupar las filas de una tabla que
+    comparten los mismos valores en todas las columnas indicadas.
+    No importa el orden en el que se indican las columnas (en contraposición
+    a la cláusula ORDER BY). El propósito es reducir cada grupo de filas que 
+    comparten valores comunes en una sola fila que representa todas las
+    filas del grupo. Esto se hace para eliminar la redundancia en la salida
+    o para obtener agregados de estos grupos.
+   </para>
+	  
+   <para>
+    Una vez se agrupa una tabla, no puede hacerse referencia a las columnas
+    que no se usan en la cláusula GROUP BY excepto en expresiones de agregación,
+    ya que un valor específico de estas columnas es ambiguo - ¿cuál de las filas
+    del grupo debe tomarse?. Las columnas de la cláusula GROUP BY sí pueden
+    referenciarse en las expresiones de columnas select puesto que tienen un
+    valor constante conocido para cada grupo. Las funciones agregadas en las
+    columnas no agrupadas proporcionan valores sobre las filas de un grupo,
+    no sobre la tabla entera. Por ejemplo, un <function>sum(ventas)</function> 
+    en una tabla agrupada por el código de producto da el total de ventas para
+    cada producto, y no el total de ventas de todos los produtos. Las agregados
+    calculados en las columnas no agrupadas son representativos del grupo, mientras
+    que los valores individuales de una columna no agrupada no lo son.
+   </para>
+
+   <para>
+    Ejemplo:
+<programlisting>
+SELECT pid, p.name, (sum(s.units) * p.price) AS sales
+  FROM products p LEFT JOIN sales s USING ( pid )
+  GROUP BY pid, p.name, p.price;
+</programlisting>
+    En este ejemplo, las columnas pid, p.name, y p.price deben estar en 
+    la cláusula GROUP BY porque se usan en la lista select de la consulta.
+    La columna s.units no tiene que estar el la lista GROUP BY ya que sólo
+    se usa en la expresión agregada (<function>sum()</function>), 
+    que representa el conjunto de ventas de un producto. Para cada producto,
+    se devuelve una fila resumen con todas las ventas de ese producto.
+   </para>
+
+   <para>
+    En SQL estricto, la cláusula GROUP BY sólo puede agrupar por columnas
+    de la tabla origen pero Postgres la extiende para que permita agrupar
+    por columnas de la lista select de la consulta. También se permite
+    agrupar por expresiones de valor en lugar de simples nombres de columnas.
+   </para>
+
+   <para>
+<synopsis>
+SELECT <replaceable>select_list</replaceable> FROM ... <optional>WHERE ...</optional> GROUP BY ... HAVING <replaceable>boolean_expression</replaceable>
+</synopsis>
+    Si una tabla ha sido agrupada usando la cláusula GROUP BY pero sólo 
+    interesan ciertos grupos, se puede usar la cláusula HAVING, muy similar
+    a la cláusula WHERE, para eliminar grupos de una tabla agrupada. Postgres
+    permite usar la cláusula HAVING sin un GROUP BY, en cuyo caso actuaría como
+    otra cláusula WHERE, pero usar HAVING de esta forma es confuso. Una buena
+    regla es que la condición HAVING debería referirse a los resultados de las
+    funciones de agregación. Una restricción que no incluya un agregado es más
+    eficiente expresarla en la cláusula WHERE.
+   </para>
+
+   <para>
+    Ejemplo:
+<programlisting>
+SELECT pid    AS "Products",
+       p.name AS "Over 5000",
+       (sum(s.units) * (p.price - p.cost)) AS "Past Month Profit"
+  FROM products p LEFT JOIN sales s USING ( pid )
+  WHERE s.date > CURRENT_DATE - INTERVAL '4 weeks'
+  GROUP BY pid, p.name, p.price, p.cost
+    HAVING sum(p.price * s.units) > 5000;
+</programlisting>
+    En el ejemplo de arriba, la cláusula WHERE selecciona filas por
+    una columnma que no se agrupa, mientras que la cláusula HAVING 
+    acota la salida a grupos con un total de ventas brutas superior
+    a 5000.
+   </para>
+  </sect2>
+ </sect1>
+
+
+ <sect1 id="queries-select-lists">
+  <title>Listas de selección</title>
+
+  <para>
+   Como se muesra en la sección anterior, la expresión de tabla del comando
+   <command>SELECT</command> construye una tabla virutal intermedia mediante
+   la posible combinación de tablas, vistas, filas eliminadas, agrupación, etc.
+   Esta tabla se pasa finalmente a procesar por la <firstterm>lista de selección</firstterm>.
+   La lista de selección determina que <emphasis>columnas</emphasis> de la 
+   tabla intermedia son, en realidad, devueltas. La forma más simple de lista de
+   selección es <literal>*</literal> que devuelve todas las columnas que produce 
+   la expresión de tabla. En otro caso, una lista de selección es una lista de expresiones
+   de valor separadas por comas (como se define en <xref linkend="sql-expressions">).  
+   Por ejemplo, una lista de nombres de columnas podría ser:
+<programlisting>
+SELECT a, b, c FROM ...
+</programlisting>
+   Los nombres de columnas a, b y c son, o bien los nombres reales de las
+   columnas de las tablas indicadas en la clausula FROM, o bien los alias
+   dados a las mismas como se explica en <xref linkend="queries-table-aliases">.
+   El espacio de nombres disponible en la lista de selección es el mismo que en
+   la cláusula WHERE (a menos que se use agrupación, en cuyo caso es la misma que
+   en la cláusula HAVING). Si más de una tabla tiene una columna con el mismo 
+   nombre, también el nombre de tabla debe indicarse, como en: 
+<programlisting>
+SELECT tbl1.a, tbl2.b, tbl1.c FROM ...
+</programlisting>
+   (véase también <xref linkend="queries-where">).
+  </para>
+
+  <para>
+   Si se usa una expresión de valor arbitraria en la lista de selección, 
+   esta añade, conceptualmente, una nueva columna virtual a la tabla devuelta.
+   La expresión de valor se evalua una vez por cada fila recuperada, con los 
+   valores de la fila sustituidos para cada una de las referencias a columna.
+   Pero las expresiones de la lista de selección no tienen por que hacer 
+   referencia a ninguna columna de la expresión de tabla de la cláusula FROM;
+   podrían ser expresiones aritméticas constantes por ejemplo.
+  </para>
+
+  <sect2 id="queries-column-labels">
+   <title>Etiquetas de columnas</title>
+
+   <para>
+    A los elementos de la lista de selección se les puede asignar nombres 
+    para su proceso posterior. El <quote>proceso posterior</quote> en este 
+    caso es una especificación de ordenación opcional y la aplicación 
+    cliente (e.g., cabeceras de columnas para visualización). Por ejemplo:
+<programlisting>
+SELECT a AS value, b + c AS sum FROM ...
+</programlisting>
+   </para>
+
+   <para>
+    Si no se indica ningún nombre de columna via AS, el sistema asigna un
+    nombre por defecto. Para referencias a columnas simples, este nombre es
+    el mismo que la columna de referencia. Para llamadas a función, es el nombre
+    de la función. Para expresiones complejas, el sistema generará un nombre
+    genérico.
+   </para>
+
+   <note>
+    <para>
+     Aquí, el etiquetado de las columnas de salida es diferente del que se
+     hace en la cláusula FROM (véase <xref linkend="queries-table-aliases">).
+     Este encadenamiento permite de hecho renombrar la misma columna dos veces,
+     pero el nombre elegido en la lista de selección es el que persistirá.
+    </para>
+   </note>
+  </sect2>
+
+  <sect2 id="queries-distinct">
+   <title>DISTINCT</title>
+
+   <para>
+    Despues de que la lista de selección se ha procesado, de la tabla
+    resultado podría, opcionalmente, eliminarse filas duplicadas. La
+    palabra clave <token>DISTINCT</token> se escribe directamente después
+    de <token>SELECT</token> para realizar esto:
+<synopsis>
+SELECT DISTINCT <replaceable>select_list</replaceable> ...
+</synopsis>
+    (En lugar de <token>DISTINCT</token> podría usarse la palabra <token>ALL</token>
+    para seleccionar el comportamiento por defecto de dejar todas las filas.)
+   </para>
+
+   <para>
+    Obviamente, dos filas se consideran distintas si al menos el valor de 
+    una columna es distinto. Valores nulos son considerados iguales en esta
+    comparación.
+   </para>
+
+   <para>
+    De forma alternativa, una expresión arbitraria podría determinar que 
+    filas se consideran distintas:
+<synopsis>
+SELECT DISTINCT ON (<replaceable>expression</replaceable> <optional>, <replaceable>expression</replaceable> ...</optional>) <replaceable>select_list</replaceable> ...
+</synopsis>
+    Aquí, <replaceable>expression</replaceable> es una expresión de valor
+    arbitraria que se evalua para todas las filas. Un conjunto de filas para
+    las que las expresiones son iguales son consideradas duplicados, y sólo
+    la primera fila del conjunto se mantiene en la salida. Nótese que la
+    <quote>primera fila</quote> de un conjunto es impredecible a menos que la
+    consulta esté ordenada por la columnas suficientes para garantizar una 
+    única ordenación de las filas en el momento del filtro DISTINCT. (El
+    procesamiento de la cláusula DISTINCT ON ocurre después de la ordenación
+    ORDER BY).
+   </para>
+
+   <para>
+    La cláusula DISTINCT ON no es parte del estándar de SQL y a veces se
+    considera de mal estilo por la naturaleza potencialmente indeterminada
+    de sus resultados. Con un uso prudente de la cláusula GROUP BY y 
+    subconsultas en la cláusula FROM puede evitarse esta construcción, pero,
+    muy a menudo, es la alternativa más conveniente.
+   </para>
+  </sect2>
+ </sect1>
+
+ <sect1 id="queries-union">
+  <title>Combinando Consultas</title>
+
+  <para>
+   Los resultados de dos consultas pueden combinarse usando las operaciones
+   de conjunto unión, intersección y diferencia. La sintaxis es
+<synopsis>
+<replaceable>query1</replaceable> UNION <optional>ALL</optional> <replaceable>query2</replaceable>
+<replaceable>query1</replaceable> INTERSECT <optional>ALL</optional> <replaceable>query2</replaceable>
+<replaceable>query1</replaceable> EXCEPT <optional>ALL</optional> <replaceable>query2</replaceable>
+</synopsis>
+   <replaceable>query1</replaceable> and
+   <replaceable>query2</replaceable> son consultas que pueden usar cualquiera de 
+   las características discutidas hasta ahora. Las operaciones de conjunto pueden 
+   también anidarse y encadenarse, por ejemplo
+<synopsis>
+<replaceable>query1</replaceable> UNION <replaceable>query2</replaceable> UNION <replaceable>query3</replaceable>
+</synopsis>
+   que quiere decir en realidad
+<synopsis>
+(<replaceable>query1</replaceable> UNION <replaceable>query2</replaceable>) UNION <replaceable>query3</replaceable>
+</synopsis>
+  </para>
+
+  <para>
+   <command>UNION</command> efectivamente añade el resultado de 
+   <replaceable>query2</replaceable> al resultado de 
+   <replaceable>query1</replaceable> (aunque no hay ninguna garantía 
+   de que este sea el orden en el que las filas son realmente devueltas).
+   Además, elimina todas la filas duplicadas, en el sentido de DISTINCT,
+   a menos que se especifique la cláusula ALL
+  </para>
+
+  <para>
+   <command>INTERSECT</command> devuelve todas la filas que están tanto 
+   en el resultado de <replaceable>query1</replaceable> como en el resultado 
+   de <replaceable>query2</replaceable>. Las filas duplicadas se eliminan a
+   menos que se utilice la cláusula ALL.
+  </para>
+
+  <para>
+   <command>EXCEPT</command> devuelve todas la filas que están en el resultado
+   de <replaceable>query1</replaceable> pero que no están en el resultado de
+   <replaceable>query2</replaceable>. De nuevo, se eliminan los duplicados
+   excepto si se usa la cláusula ALL.
+  </para>
+
+  <para>
+   De cara a calcular la unión, la intersección, o la diferencia de dos
+   consultas, las dos consultas deben ser <quote>union compatible</quote>,
+   lo que significa que deben devolver el mismo número de columnas, y que
+   las correspondientes columnas tienen tipos de datos compatibles, como 
+   se describe en <xref linkend="typeconv-union-case">.
+  </para>
+ </sect1>
+
+
+ <sect1 id="queries-order">
+  <title>Ordenando Filas</title>
+	   
+  <para>
+   Una vez que una consulta devuelve una tabla de salida (después de
+   que la lsta de selección ha sido procesada) el resultado puede ordenarse.
+   Si no se opta por la ordenación, las filas son devueltas en orden
+   aleatorio. El orden real en ese caso dependerá de los tipos de planes
+   de escaneo y cruce de filas y del orden en el disco, pero no debemos
+   confiar en ello. Sólo puede garantizarse un orden de salida particular
+   si se opta explicitamente por el proceso de ordenación.
+  </para>
+
+  <para>
+   La cláusula ORDER BY indica la ordenación:
+<synopsis>
+SELECT <replaceable>select_list</replaceable> FROM <replaceable>table_expression</replaceable> ORDER BY <replaceable>column1</replaceable> <optional>ASC | DESC</optional> <optional>, <replaceable>column2</replaceable> <optional>ASC | DESC</optional> ...</optional>
+</synopsis>
+   <replaceable>column1</replaceable>, etc., se refiere a las columnas de
+   la lista de selección. Estas pueden ser el nombre de salida de una columna
+   o el número de la columna. Algunos ejemplos:
+<programlisting>
+SELECT a, b FROM table1 ORDER BY a;
+SELECT a + b AS sum, c FROM table1 ORDER BY sum;
+SELECT a, sum(b) FROM table1 GROUP BY a ORDER BY 1;
+</programlisting>
+  </para>
+
+  <para>
+   Como extensión al SQL estándar, Postgres también permite la ordenación
+   por expresiones arbitrarias.
+<programlisting>
+SELECT a, b FROM table1 ORDER BY a + b;
+</programlisting>
+   También están permitidas las referencias a nombres de columnas de la 
+   cláusula FROM que son renombradas en la lista de selección:
+<programlisting>
+SELECT a AS b FROM table1 ORDER BY a;
+</programlisting>
+   Pero estas extensiones no funcionan en consultas con cláusulas UNION, 
+   INTERSECT, o EXCEPT, y no son portables a otras DBMS.
+  </para>
+
+  <para>
+   Cada elemento de columna pueder ser seguido opcionalmente por ASC o DESC
+   para establecer la dirección de la ordenación. Por defecto se toma ASC. El
+   orden ascendente pone los valores menores primero, donde <quote>smaller</quote> 
+   se define en términos del operador <literal>&lt;</literal>. De forma similar, 
+   el orden descendente se determina por el operador <literal>&gt;</literal>.
+  </para>
+
+  <para>
+   Si se indica más de una columna de ordenación, las últimas entradas
+   se usan para ordenar filas en las que son iguales las columnas 
+   anteriores.
+  </para>
+ </sect1>
+
+ <sect1 id="queries-limit">
+  <title>LIMIT y OFFSET</title>
+
+<synopsis>
+SELECT <replaceable>select_list</replaceable> FROM <replaceable>table_expression</replaceable> <optional>ORDER BY <replaceable>sort_spec</replaceable></optional> <optional>LIMIT { <replaceable>number</replaceable> | ALL }</optional> <optional>OFFSET <replaceable>number</replaceable></optional>
+</synopsis>
+
+  <para>
+   LIMIT permite recuperar sólo una porción de las filas que se generan
+   por el resto de la consulta. Si se da un número límite, se devuelve
+   un número no superior a esas filas. Si se indica un desplazamiento (offset), 
+   se saltan esas primeras filas antes de empezar a devolver filas.
+  </para>
+
+  <para>
+   Cuando se usa LIMIT, es una buena idea usar la cláusula ORDER BY para
+   restringir las filas devueltas en un orden único. En otro caso, se 
+   obtendrá un subconjunto impredecible de filas---¿podrías pedir las
+   filas de la décima a la vigésima, pero en qué orden? La ordenación es
+   desconocida, a menos que lo especifiquemos en la cláusula ORDER BY.
+  </para>
+
+  <para>
+   El optimizador de consultas tiene en cuenta la cláusula LIMIT cuando
+   genera un plan de consulta, de manera que es muy probable que se 
+   obtengan diferentes planes (produciendo diferentes ordenaciones de
+   fila) dependiendo de lo que se indique para LIMIT y OFFSET. Además,
+   usar diferentes valores para LIMIT/OFFSET para seleccionar 
+   distintos subconjuntos en el resultado de una consulta <emphasis>dará
+   resultado inconsistentes</emphasis> a menos que se fuerce una ordenación
+   predecible en el resultado con una ORDER BY. Esto no es fallo; es una 
+   consecuencia inherente al hecho de que SQL no promete suministrar los
+   resultados de una consulta en ningun orden en particular a menos que se
+   use la cláusula de ordenación ORDER BY.
+  </para>
+ </sect1>
+
+</chapter>

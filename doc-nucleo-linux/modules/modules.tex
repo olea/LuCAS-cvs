@@ -1,0 +1,100 @@
+\chapter{Modules}
+\label{modules-chapter}
+\index{Modules}
+\ChapterDescription{
+Este capítulo describe cómo el núcleo de Linux puede cargar funciones dinámicamente, como por ejemplo sistemas de archivos, sólo cuando son necesarios.
+}
+
+Linux es un núcleo monolítico;
+\index{Kernel, monolithic}
+es decir, es un único programa de gran tamaño donde todos los componentes funcionales del núcleo tienen acceso a todas sus estructuras de datos internas y a sus rutinas. La alternativa es tener una estructura de micro-núcleo donde las partes funcionales del núcleo están divididas en unidades separadas con mecanismos de comunicación estrictos entre ellos. Esto hace que la integración de nuevos componentes en el núcleo mediante el proceso de configuración tarde bastante tiempo. Si usted quisiera usar una controladora SCSI para una NCR 810 SCSI y no la tuviera integrada en el núcleo, tendría que configurar el núcleo para poder usar la NCR 810. Hay una alternativa: Linux le permite cargar y descargar componentes del sistema operativo dinámicamente según los vaya necesitando. Los módulos de Linux son trozos de código que se pueden quedar vinculados dinámicante en el núcleo en cualquier momento después de que el sistema haya arrancado. Una vez que ya no se necesitan, se pueden desvincular y quitar del núcleo. El núcleo está compuesto de módulos que en su mayoría son controladores de dispositivo, pseudo-controladores de dispositivo como controladores de red, o sistemas de archivos. Se puede bien cargar y descargar los módulos del núcleo de Linux explícitamente usando los comandos \eg{insmod} y \eg{rmmod} o bien el mismo núcleo puede solicitar que el demonio del núcleo (\texttt{kerneld}) cargue y descargue los módulos según los vaya necesitando. \index{kerneld} Cargar código dinámicamente según se necesite es atractivo ya que impide que el tamaño del núcleo crezca, además de hacerlo muy flexible. El núcleo Intel que tengo actualmente usa bastantes módulos y tiene un tamaño de sólo 406 K. Sólo uso en pocas ocasiones el sistema de archivos \texttt{VFAT}, por lo que tengo configurado mi núcleo de Linux para que cargue automáticamente el módulo para soporte \texttt{VFAT}  mientras monto una partición de tipo \texttt{VFAT}. Cuando he desmontado la partición \texttt{VFAT}, el sistema detecta que ya no necesito el módulo para \texttt{VFAT} y lo quita de mi sistema. Los módulos también pueden ser útiles para comprobar el nuevo código del núcleo sin tener que volver a crear el núcleo y reiniciar el ordenador cada vez que se compruebe. Sin embargo, no hay nada gratuito y hay un significante decremento en el rendimiento y en la memoria asociada con los módulos del núcleo. Un módulo cargable debe proveer un poco más de código, lo que unido a las estructuras de datos adicionales hace que un módulo ocupe un poco más de memoria. Hay también un nivel de "indirección introducido" que hace que los accesos de los recursos del núcleo sean bastante menos eficientes para los módulos. Una vez que un módulo de Linux ha sido cargado, es tan parte del núcleo como cualquier otro código normal del mismo. Tiene los mismos derechos y responsabilidades que cualquier otro código del núcleo; en otras palabras, los módulos del núcleo de Linux pueden hacer dejar de funcionar al núcleo de la misma manera que cualquier otro código o dispositivo integrado en el mismo pueda hacerlo. 
+
+Para que los módulos puedan usar los recursos del núcleo que necesitan, deben ser capaces de encontrarlos. Digamos que un módulo necesita llamar a \dsni{kmalloc()}, la rutina de alojamiento de memoria del núcleo. En el momento en que está construido, un módulo no sabe en qué parte de la memoria está \dsni{kmalloc()}, así que cuando se carga el módulo, todas sus referencias deben ser fijadas por el núcleo para \dsni{kmalloc()} antes de que el módulo pueda funcionar. El núcleo guarda una lista de todos sus recursos en la tabla de símbolos del núcleo, para así porder resolver las referencias a aquellos recursos desde los módulos cuando estén cargados. Linux permite el apilamiento de módulos, que es cuando un módulo requiere los servicios de otro módulo. Por ejemplo, el módulo para \texttt{VFAT} requiere los servicios del módulo \texttt{FAT}, ya que \texttt{VFAT} es más o menos un conjunto de extensiones \texttt{FAT}. Un módulo requiriendo servicios o recursos de otro módulo es muy similar a la situación donde un módulo requiere servicios y recursos del mismo núcleo. Sólo aquí los requeridos están en otro módulo, que ya ha sido previamente cargado. Mientras se carga cada módulo, el núcleo modifica la tabla de símbolos del núcleo, añadiendo a ésta todos los recursos o símbolos exportados por el módulo recién cargado. Esto quiere decir que, cuando el siguiente módulo se carga, tiene acceso a los servicios de los módulos que ya están cargados.
+
+Cuando se intenta descargar un módulo, el núcleo necesita saber que el módulo no está en uso y necesita alguna manera de notificarle que va a ser descargado. De esa forma, el módulo podrá liberar cualquier recurso del sistema que ha usado, como por ejemplo memoria del núcleo o interrupciones, antes de ser quitado del núcleo. Cuando el módulo está descargado, el núcleo quita cualquier símbolo que hubiese sido exportado al interior de la tabla de símbolos del núcleo.
+
+Además de la capacidad que tiene un módulo de poder hacer dejar de funcionar al sistema operativo si no está bien escrito, presenta otro peligro. ¿Qué ocurre si se carga un módulo creado para una versión distinta de la que se está ejecutando actualmente? Esto puede causar un problema si, digamos, el módulo realiza una llamada a  una rutina del núcleo y suministra argumentos erróneos. Opcionalmente, el núcleo puede proteger contra esto haciendo rigurosas comprobaciones de las versiones en el módulo mientras éste se carga.
+
+\section{Cargando módulos}
+\index{Modulos, Cargando}
+\begin{figure}
+\begin{center}
+{\centering \includegraphics{modules/modules.eps} \par}
+\end{center}
+\caption{La lista de los módulos del kernel}
+\label{modules-figure}
+\end{figure}
+Hay dos formas de cargar un módulo del núcleo. La primera es usar el comando \eg{insmod} para insertarlo manualmente en el núcleo. \index{insmod} La segunda, y mucho mejor pensada, es cargar el módulo según se necesite; esto se conoce como carga bajo demanda. \index{Modules, demand loading} Cuando el núcleo descubre que necesita un módulo, por ejemplo cuando el usuario monta un sistema de archivos que no está incluido en el núcleo, éste requerirá que el demonio (\texttt{kerneld}) intente cargar el módulo apropiado.
+
+\index{kerneld, el demonio del kernel}
+\index{demonio del kernel, el}
+\marginnote{\texttt{kerneld} está en el paquete de módulos junto con \eg{insmod}, \eg{lsmod} y \eg{rmmod}.}
+
+El demonio del núcleo es un proceso normal de usuario, pero con privilegios de superusuario. Cuando se inicia, normalmente al arrancar el ordenador, abre un canal de comunicación entre procesos (IPC) al núcleo. Este vínculo lo usa el núcleo para enviar mensajes al \texttt{kerneld}, solicitando que se ejecuten varias tareas. \SeeModule{include/\-linux/\-kerneld.h} La labor principal de \texttt{Kerneld} es cargar y descargar los módulos del núcleo, pero también es capaz de realizar otras tareas como iniciar un enlace PPP sobre una línea serie cuando sea necesario y cerrarlo cuando deje de serlo.
+
+\texttt{Kerneld} no realiza estas tareas por sí mismo, sino que ejecuta los programas necesarios, como \eg{insmod}, para realizar el trabajo. \texttt{Kerneld} es sólo un agente del núcleo, planificando el trabajo según su comportamiento.
+
+La utilidad \eg{insmod} debe encontrar el módulo del núcleo requerido que se va a cargar. Los módulos del núcleo cuya carga ha sido solicitada bajo demanda se guardan normalmente en \fn{/lib/modules/kernel-version}. Los módulos del núcleo son ficheros objeto vinculados igual que otros programas en el sistema, con la excepción de que son vinculados como imágenes reubicables; es decir, imágenes que no están vinculadas para ser ejecutadas desde una dirección específica. Pueden ser ficheros objeto con el formato \texttt{a.out} o \texttt{elf}.
+\eg{insmod} realiza una llamada al sistema con privilegios para encontrar los símbolos exportados pertenecientes al núcleo.
+\SeeCode{sys\_\-get\_\-kernel\_\-syms()}{kernel/\-module.c}
+Éstos se guardan en pares conteniendo el nombre del símbolo y su valor, por ejemplo, su dirección. La tabla del núcleo de símbolos exportados se mantiene en la primera estructura de datos \ds{module} en la lista de módulos mantenida por el núcleo, y manteniendo un puntero desde \ds{module\_list}. \SeeModule{include/\-linux/\-module.h} Sólo los símbolos introducidos específicamente se añaden a la tabla, la cual se construye cuando el núcleo se compila y enlaza, en vez de que {\em cada} símbolo del núcleo se exporte a sus módulos. Un símbolo de ejemplo es \texttt{``request\_irq''}, que es la rutina del núcleo a la que hay que llamar cuando un controlador desea tomar el control de una interrupción del sistema en particular. En mi núcleo, ésta tenía el valor \hex{0010cd30}. Pueden verse fácilmente los símbolos exportados del núcleo y sus valores echando un vistazo a \fn{/proc/ksyms} o usando la utilidad \eg{ksyms}. La utilidad \eg{ksyms} puede mostrarle todos los símbolos exportados del núcleo o sólo aquellos símbolos exportados por los módulos cargados.
+\eg{insmod} lee el módulo en el interior de su memoria virtual y fija las referencias propias hacia las rutinas del núcleo y recursos que estén sin resolver usando los símbolos exportados desde el núcleo. Esta labor de reparación toma la forma de un parche a la imagen del módulo en memoria.
+\eg{insmod} escribe físicamente la dirección del símbolo en el lugar apropiada en el módulo.
+
+Cuando
+\eg{insmod}
+ha arreglado las referencias al módulo convirtiéndolas en símbolos del núcleo exportados, pide al núcleo que le asigne espacio suficiente para el nuevo núcleo, usando, de nuevo, una llamada del sistema privilegiada. El núcleo ubica una nueva estructura de datos \ds{module} y suficiente memoria del núcleo para conservar el nuevo módulo y lo pone al final de la lista de módulos del núcleo.
+El nuevo módulo se queda marcado como \texttt{UNINITIALIZED}.
+\SeeCode{sys\_\-create\_\-module()}{kernel/\-module.c.}
+La figura~\ref{modules-figure} muestra la lista de módulos del núcleo después de que dos módulos, \texttt{VFAT} y \texttt{VFAT} han sido cargados en el núcleo. No se muestra el primer módulo de la lista, que es un pseudo-módulo que sólo está allí para conservar la tabla de símbolos exportados del núcleo. Se puede usar el comando \eg{lsmod} para listar todos los módulos del núcleo cargados, así como sus interdependencias. \eg{lsmod} simplemente reformatea \fn{/proc/modules}, que se construye partiendo de la lista de estructuras de datos del núcleo \ds{module}. La memoria que el núcleo utiliza para esto se puede visualizar en el espacio de dirección de memoria del proceso \eg{insmod}, de forma que pueda acceder a ella. \eg{insmod} copia el módulo en el espacio utilizado y lo reubica, de forma que se ejecutará desde la dirección del núcleo en la que ha sido colocado. Esto debe ser así, ya que el módulo no puede esperar ser cargado dos veces en la misma dirección, y aún menos si se trata de dos sistemas Linux distintos. De nuevo, este proceso de reubicación hace necesario que se ajuste la imagen del módulo con la dirección apropiada. El nuevo módulo también exporta símbolos al núcleo, e \eg{insmod} construye una tabla de estas imágenes exportadas. Cada módulo del núcleo debe contener rutinas de inicialización y limpieza, y estos símbolos no son exportados deliberadamente, pero \eg{insmod} debe conocer sus direcciones para así poder pasárselas al núcleo. Si todo va bien, \eg{insmod} ya está listo para incializar el módulo y hace una llamada privilegiada al sistema pasando al núcleo las direcciones de las rutinas de inicialización y limpieza del módulo.
+
+
+\SeeCode{sys\_\-init\_\-module()}{kernel/\-module.c.}
+Cuando se añade un módulo nuevo al núcleo, éste debe actualizar el conjunto de símbolos y modificar los módulos que están siendo usados por el módulo nuevo. Los módulos que tienen otros módulos que dependen de ellos, deben mantener una lista de referencias al final de su tabla de símbolos, con un puntero a ella lanzado desde su propia estructura de datos \ds{module}.
+La figura~\ref{modules-figure} muestra que el módulo de soporte
+\texttt{VFAT}
+depende del módulo de soporte
+\texttt{FAT}.
+Así, el módulo
+\texttt{FAT}
+contiene una referencia al módulo
+\texttt{VFAT};
+la referencia fue añadida cuando se cargó el módulo
+\texttt{VFAT}.
+El núcleo llama a la rutina de inicialización de módulos y, si todo funciona correctamente, continúa con la instalación del módulo. La dirección de la rutina de limpieza del módulo se almacena en su propia estructura de datos \ds{module}, a la que el núcleo llamará cuando ese módulo esté descargado. Finalmente, el estado del módulo se establece en \texttt{RUNNING}.
+
+\section{Unloading a Module}
+\index{Modules, unloading}
+Los módulos pueden quitarse usando el comando
+\eg{rmmod},
+pero \texttt{kerneld} elimina automaticamente del sistema los módulos cargados mediante demanda cuando ya no se usan. Cada vez que su tiempo de inactividad se acaba, \texttt{kerneld} realiza una llamada al sistema solicitando que todos los módulos cargados mediante demanda que no estén en uso se eliminen del sistema. El valor del tiempo de inactividad se establece cuando se inicia \texttt{kerneld}; mi \texttt{kerneld}  realiza una comprobación cada 180 segundos. Así, por ejemplo, si se monta un CD ROM \texttt{iso9660} y el sistema de archivos \texttt{iso9660} es un módulo cargable, entonces muy poco tiempo después de que se monte el CD ROM, el módulo \texttt{iso9660} se eliminará del núcleo.
+
+Un módulo no puede ser descargado mientras otros componentes del núcleo dependan de él. Por ejemplo, usted no puede descargar el módulo \texttt{VFAT} si tiene uno o más sistemas de archivos \texttt{VFAT} montados. Si echa un vistazo a la salida de \eg{lsmod}, verá que cada módulo tiene un contador asociado.
+Por ejemplo:
+\begin{verbatim}
+Module:         #pages:  Used by:
+msdos              5                  1
+vfat               4                  1 (autoclean)
+fat                6    [vfat msdos]  2 (autoclean)
+\end{verbatim}
+El contador indica el número de entidades que dependen de este módulo.
+En el ejemplo anterior, los módulos
+\texttt{vfat} y \texttt{msdos}
+dependen ambos del módulo
+\texttt{fat},
+de ahí que el contador sea 2.
+Los módulos
+\texttt{vfat} y \texttt{msdos}
+tienen 1 dependencia, que es relativa a un sistema de archivos montado.
+Si yo tuviera que cargar otro sistema de archivos 
+\texttt{VFAT},
+entonces el contador del módulo
+\texttt{vfat}
+pasaría a ser 2.
+El contador de un módulo se conserva en el primer "longword" de su imagen.
+
+Este campo se sobrecarga significativamente, ya que también conserva los indicadores \texttt{AUTOCLEAN} y \texttt{VISITED}. Estos dos indicadores se usan para módulos cargados bajo demanda. Estos módulos se marcan como  \texttt{AUTOCLEAN} para que el sistema pueda reconocer cuáles puede descargar automáticamente. El indicador \texttt{VISITED} marca el módulo como que está en uso por uno o más componentes del sistema; esta marca se establece en cualquier momento que otro componente hace uso del módulo. Cada vez que \texttt{kerneld} pregunta al sistema si puede eliminar módulos cargados bajo demanda, éste inspecciona todos los módulos del sistema buscando candidatos idóneos. Sólo se fija en los módulos marcados como \texttt{AUTOCLEAN} y en el estado \texttt{RUNNING}. Si el candidato no tiene marcado el indicador \texttt{VISITED}, entonces eliminará el módulo; de lo contrario quitará la marcha del indicador \texttt{VISITED} y continuará buscando el siguiente módulo que haya en el sistema.
+
+Teniendo en cuenta que un módulo puede ser descargado, las llamadas a su rutina de limpieza se producen para permitir liberar los recursos del núcleo que éste ha utilizado. 
+\SeeCode{sys\_\-delete\_\-module()}{kernel/\-module.c} La estructura de datos \ds{module} queda marcada como \texttt{DELETED} y queda desvinculada de la lista de módulos del núcleo. Todos los demás módulos de los que dependa el módulo, tienen sus listas de referencia modificadas de forma que ya no lo tienen como dependiente. Toda la memoria del núcleo que necesita el módulo queda desalojada.
+

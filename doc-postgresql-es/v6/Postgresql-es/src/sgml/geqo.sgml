@@ -1,0 +1,356 @@
+<Chapter Id="geqo"> 
+<DocInfo>
+<Author>
+<FirstName>Martin</FirstName>
+<SurName>Utesch</SurName>
+<Affiliation>
+<Orgname>
+Universidad de Minería y Tecnología
+</Orgname>
+<Orgdiv>
+Instituto de Control Automático
+</Orgdiv>
+<Address>
+<City>
+Freiberg
+</City>
+<Country>
+Alemania
+</Country>
+</Address>
+</Affiliation>
+</Author>
+<Date>1997-10-02</Date>
+</DocInfo>
+
+<Title>Optimización Genética de Consulta en Sistemas de Base de Datos</Title>
+
+<Para>
+<Note>
+<Title>Author</Title>
+<Para>
+Escrito por <ULink url="utesch@aut.tu-freiberg.de">Martin Utesch</ULink>
+del Instituto de Control Automático de la Universidad de Minería y Tecnología en Freiberg, Alemania.
+</Para>
+</Note>
+</para>
+
+<Sect1>
+<Title>Planificador de consulta para un Problema Complejo de Optimización</Title>
+
+<Para>
+   Entre todos los operadores relacionales, uno de los más difícil de procesar y optimizar es
+la <FirstTerm>unión</FirstTerm>. El número de vias alternativas para responder 
+a una consulta crece exponencialmente con el número de <Command>uniones</Command> incluidas en ella. 
+EL esfuerzo adicional de optimización esta causado por la existencia de una variedad de <FirstTerm>metodos de unión</FirstTerm> para procesar <Command>uniones</Command> individuales
+(p.e., bucle anidado, exploración de índice, fusión de unión en <ProductName>Postgres</ProductName>)  y de una gran variedad de <FirstTerm>indices</FirstTerm> (e.p., árbol-r, árbor-b, hash en <ProductName>Postgres</ProductName>) como camino de acceso para las relaciones.
+</para>
+
+<Para>
+   La actual implementación del optimizador de <ProductName>Postgres</ProductName> realiza una <FirstTerm>busqueda cercana y exhaustiva</FirstTerm> sobre el espacio de las estrategias alternativas. Esta técnica de optimización de consulta
+no es adecuada para soportar los dominios de la aplicación de base de datos que implica la necesidad de consultas extensivas, tales como la inteligencia artificial.
+</para>
+
+<Para>
+   El Instituto de Control Automático de la Universidad de Minería y Tecnología, en Freiberg, Alemania, 
+se encontró los problemas descritos cuando su personal quiso utilizar la DBMS <ProductName>Postgres</ProductName> como software base para sistema de soporte de decisión basado en el conocimiento para mantener un red de energía eléctrica. La DBMS necesitó manejar consultas con <Command>unión</Command> para el motor de inferencia del sistema basado en el conocimiento.
+</para>
+
+<Para>
+   Las dificultades del rendimiento al explorar el espacio de los posibles planes de la consulta 
+hizo surgir la demanda de un nueva técnica de optimización que se ha desarrollado.
+</para>
+
+<Para>
+   A continuación, proponemos la implementación de un <FirstTerm>Algoritmo Genético</FirstTerm>
+como una opción para el problema de la optimización de consultas de la base de datos.
+</para>
+</sect1>
+
+<Sect1>
+<Title>Algoritmo Genéticos (<Acronym>AG</Acronym>)</Title>
+
+<Para>
+    El <Acronym>AG</Acronym> es un método de búsqueda heurística que opera mediante búsqueda determinada y aleatoria. El conjunto de soluciones posibles para el problema de la optimización se considera como una <FirstTerm>población</FirstTerm> de <FirstTerm>individuos</FirstTerm>.
+El grado de adaptación de un individuo en su entorno esta determinado por su <FirstTerm>adaptabilidad</FirstTerm>.
+</para>
+
+<Para>
+   Las coordenadas de un individuo en el espacio de la búsquedas están representadas por los <FirstTerm>cromosomas</FirstTerm>, en esencia un conjunto de cadenas de caracteres. Un <FirstTerm>gen</FirstTerm> es una subsección de un cromosoma que codifica el valor de un único parámetro que ha de ser optimizado. Las Codificaciones típicas para un gen pueden ser <FirstTerm>binarias</FirstTerm> o <FirstTerm>enteras</FirstTerm>.
+</para>
+
+<Para>
+   Mediante la simulación de operaciones evolutivas <FirstTerm>recombinación</FirstTerm>,
+<FirstTerm>mutación</FirstTerm>, y <FirstTerm>selección</FirstTerm> se encuentran nuevas generaciones de puntos de búsqueda, los cuales muestran un mayor nivel de adaptabilidad que sus antecesores.
+</para>
+
+<Para>
+   Según la <Acronym>FAQ</Acronym> de "comp.ai.genetic" no se puede enfatizar más claramente que un <Acronym>AG</Acronym> no es un búsqueda puramente aleatoria para una solución del problema. El <Acronym>AG</Acronym> usa procesos estocástico, pero el resultado es claramente no aleatorio (mejor que el aleatorio). 
+
+<ProgramListing>
+Diagrama Estructurado de un <Acronym>AG</Acronym>:
+---------------------------
+
+P(t)    generación de antecesores en un tiempo t
+P''(t)  generación de descendientes en un tiempo t
+
++=========================================+
+|>>>>>>>>>>>  Algoritmo AG  <<<<<<<<<<<<<<|
++=========================================+
+| INICIALIZACIÓN t := 0                   |
++=========================================+
+| INICIALIZACIÓN P(t)                     |
++=========================================+
+| evaluación ADAPTABILIDAD de P(t)         |
++=========================================+
+| mientras no CRITERIO DE PARADA hacer    |
+|   +-------------------------------------+
+|   | P'(t)  := RECOMBINACIÓN{P(t)}       |
+|   +-------------------------------------+
+|   | P''(t) := MUTACIÓN{P'(t)}           |
+|   +-------------------------------------+
+|   | P(t+1) := SELECCIÓN{P''(t) + P(t)}  |
+|   +-------------------------------------+
+|   | evaluación ADAPTABILIDAD de P''(t)   |
+|   +-------------------------------------+
+|   | t := t + 1                          |
++===+=====================================+
+</ProgramListing>
+</para>
+</sect1>
+
+<Sect1>
+<Title>Optimización Genética de Consultas (<Acronym>GEQO</Acronym>) en Postgres</Title>
+
+<Para>
+   El módulo <Acronym>OGEC</Acronym> esta previsto para solucionar el problema de optimización 
+de consultas similares al problema del viajante (<Acronym>PV</Acronym>).
+Los planes posibles de consulta son codificados por cadenas de enteros. Cada cadena representa el orden de la una relación de <Command>unión</Command> de la consulta a la siguiente.
+P. e., el árbol de la consulta 
+<ProgramListing>
+       /\
+      /\ 2
+     /\ 3
+    4  1
+</ProgramListing>
+esta codificado por la cadena de enteros '4-1-3-2',
+que significa, la primera relación de unión '4' y '1', después '3', y
+después '2', donde 1, 2, 3, 4 son relids en <ProductName>Postgres</ProductName>.
+</para>
+
+<Para>
+   Partes del módulo <Acronym>OGEC</Acronym> han sido adaptadas del algoritmo Genitor de D. Whitley.
+</para>
+
+<Para>
+   Las características especificas de la implementación de <Acronym>OGEC</Acronym> en <ProductName>Postgres</ProductName>
+son:
+
+<ItemizedList Mark="bullet" Spacing="compact">
+<ListItem>
+<Para>
+   El uso de un <Acronym>AG</Acronym> en <FirstTerm>estado constante</FirstTerm> (remplazo de los individuos con menor adaptación de la población, no el reemplazo total de un generación)
+permite converger rápidamente hacia planes mejorados de consulta. Esto es esencial para el manejo de la consulta en un tiempo razonable; 
+</Para>
+</ListItem>
+
+<ListItem>
+<Para>
+   El uso de <FirstTerm>cruce de recombinación limitada</FirstTerm> que esta especialmente adaptado para quedarse con el límite menor de perdidas para la solución del <Acronym>PV</Acronym> por medio de un <Acronym>AG</Acronym>;
+</Para>
+</ListItem>
+
+<ListItem>
+<Para>
+   La mutación como operación genética se recomienda a fin de que no sean necesarios mecanismos de reparación para generar viajes legales del <Acronym>PV</Acronym>.
+</Para>
+</ListItem>
+</ItemizedList>
+</para>
+
+<Para>
+   El módulo <Acronym>OGEC</Acronym> proporciona los siguientes beneficios para la DBMS <ProductName>Postgres</ProductName> comparado con la implementación del optimizador de consultas de <ProductName>Postgres</ProductName>:
+
+<ItemizedList Mark="bullet" Spacing="compact">
+<ListItem>
+<Para>
+   El manejo de grandes consultas de tipo <Command>unión</Command> a través de una búsqueda no-exhaustiva;
+</Para>
+</ListItem>
+
+<ListItem>
+<Para>
+   Es necesario una mejora en la aproximación del tamaño del coste de los planes de consulta desde la fusión del plan más corto (el módulo <Acronym>OGEC</Acronym> evalúa el coste de un plan de consulta como un individuo).
+</Para>
+</ListItem>
+</ItemizedList>
+</para>
+
+</Sect1>
+
+<Sect1>
+<Title>Futuras Tareas de Implementación para el <Acronym>OGEC</Acronym> de <ProductName>Postgres</ProductName></Title>
+
+<Sect2>
+<Title>Mejoras Básicas</Title>
+
+<Sect3>
+<Title>Mejora en la liberación de memoria cuando la consulta ya se ha procesado</Title>
+
+<Para>
+   Para largas consultas de tipo <Command>unión</Command> el gasto de tiempo de computación para un optimizar genética de la consulta parece ser una simple <Emphasis>fracción</Emphasis> del tiempo que necesita <ProductName>Postgres</ProductName>
+para la liberación de memoria mediante la rutina <Function>MemoryContextFree</Function>, del 
+archivo <FileName>backend/utils/mmgr/mcxt.c</FileName>.
+Depurando se mostró que se atascaba en un bucle de la rutina <Function>OrderedElemPop</Function>, archivo <FileName>backend/utils/mmgr/oset.c</FileName>.
+Los mismos problemas aparecieron con consultas largas cuando se usa el algoritmo normal de optimización de  <ProductName>Postgres</ProductName>.
+</para>
+</sect3>
+
+<Sect3>
+<Title>Mejora de las configuraciones de los parámetros del algoritmo genético</Title>
+
+<Para>
+   En el archivo <FileName>backend/optimizer/geqo/geqo_params.c</FileName>, rutinas
+<Function>gimme_pool_size</Function> y <Function>gimme_number_generations</Function>,
+ha de encontrarse un compromiso entre las configuraciones de parámetros para satisfacer dos demandas que compiten:
+<ItemizedList Spacing="compact">
+<ListItem>
+<Para>
+   Optimización del plan de consulta
+</Para>
+</ListItem>
+<ListItem>
+<Para>
+   Tiempo de computación
+</Para>
+</ListItem>
+</ItemizedList>
+</para>
+</sect3>
+
+<Sect3>
+<Title>Busqueda de una mejor solución para el desbordamiento de entero</Title>
+
+<Para>
+   En el archivo <FileName>backend/optimizer/geqo/geqo_eval.c</FileName>, rutina
+<Function>geqo_joinrel_size</Function>, el valor para el desbordamiento MAXINT esta definido por el valor entero de <ProductName>Postgres</ProductName>, <StructField>rel->size</StructField> como su logaritmo.
+Una modificación de <StructName>Rel</StructName> en <FileName>backend/nodes/relation.h</FileName> tendrá seguramente impacto en la implementación global de <ProductName>Postgres</ProductName>.
+</para>
+</sect3>
+
+<Sect3>
+<Title>Encotrar solución para la falta de memoria</Title>
+
+<Para>
+   La falta de memoria puede ocurrir cuando hay más de 10 relaciones involucradas en la consulta.
+El archivo <FileName>backend/optimizer/geqo/geqo_eval.c</FileName>, rutina
+<Function>gimme_tree</Function> es llamado recursivamente.
+Puede ser que olvidase algo para ser liberado correctamente, pero no se que es.
+Por supuesto la estructura de datos <StructName>rel</StructName> de la <Command>unión</Command> continua creciendo y creciendo; muchas relaciones están empaquetadas dentro de ella.
+Las sugerencias son bienvenidas :-(
+</para>
+</sect3>
+</sect2>
+
+
+<BIBLIOGRAPHY Id="geqo-biblio">
+<TITLE>
+Referencias
+</TITLE>
+<PARA>Información de referencia para algoritmos <Acronym>GEQ</Acronym>.
+</PARA>
+<BIBLIOENTRY>
+
+<BOOKBIBLIO>
+<TITLE>
+The Hitch-Hiker's Guide to Evolutionary Computation
+</TITLE>
+<AUTHORGROUP>
+<AUTHOR>
+<FIRSTNAME>J&ouml;rg</FIRSTNAME>
+<SURNAME>Heitk&ouml;tter</SURNAME>
+</AUTHOR>
+<AUTHOR>
+<FIRSTNAME>David</FIRSTNAME>
+<SURNAME>Beasley</SURNAME>
+</AUTHOR>
+</AUTHORGROUP>
+<PUBLISHER>
+<PUBLISHERNAME>
+Recurso de InterNet
+</PUBLISHERNAME>
+</PUBLISHER>
+<ABSTRACT>
+<Para>
+FAQ en <ULink url="news://comp.ai.genetic">comp.ai.genetic</ULink>
+esta disponible en <ULink url="ftp://ftp.Germany.EU.net/pub/research/softcomp/EC/Welcome.html">Encore</ULink>.
+</Para>
+</ABSTRACT>
+</BOOKBIBLIO>
+
+<BOOKBIBLIO>
+<TITLE>
+The Design and Implementation of the Postgres Query Optimizer
+</TITLE>
+<AUTHORGROUP>
+<AUTHOR>
+<FIRSTNAME>Z.</FIRSTNAME>
+<SURNAME>Fong</SURNAME>
+</AUTHOR>
+</AUTHORGROUP>
+<PUBLISHER>
+<PUBLISHERNAME>
+University of California, Berkeley Computer Science Department
+</PUBLISHERNAME>
+</PUBLISHER>
+<ABSTRACT>
+<Para>
+Archivo <FileName>planner/Report.ps</FileName> en la documentación de postgres en la distribución.
+</Para>
+</ABSTRACT>
+</BOOKBIBLIO>
+
+<BOOKBIBLIO>
+<TITLE>
+Fundamentals of Database Systems
+</TITLE>
+<AUTHORGROUP>
+<AUTHOR>
+<FIRSTNAME>R.</FIRSTNAME>
+<SURNAME>Elmasri</SURNAME>
+</AUTHOR>
+<AUTHOR>
+<FIRSTNAME>S.</FIRSTNAME>
+<SURNAME>Navathe</SURNAME>
+</AUTHOR>
+</AUTHORGROUP>
+<PUBLISHER>
+<PUBLISHERNAME>
+The Benjamin/Cummings Pub., Inc.
+</PUBLISHERNAME>
+</PUBLISHER>
+</BOOKBIBLIO>
+
+</BIBLIOENTRY>
+</BIBLIOGRAPHY>
+
+</sect1>
+</Chapter>
+
+<!-- Keep this comment at the end of the file
+Local variables:
+mode: sgml
+sgml-omittag:nil
+sgml-shorttag:t
+sgml-minimize-attributes:nil
+sgml-always-quote-attributes:t
+sgml-indent-step:1
+sgml-indent-data:t
+sgml-parent-document:nil
+sgml-default-dtd-file:"./reference.ced"
+sgml-exposed-tags:nil
+sgml-local-catalogs:"/usr/lib/sgml/catalog"
+sgml-local-ecat-files:nil
+End:
+-->
+

@@ -1,0 +1,433 @@
+<Chapter Id="triggers">
+<Title>Triggers (disparadores)</Title>
+
+<Para>
+<ProductName>Postgres</ProductName> tiene algunas interfaces cliente 
+como Perl, Tcl, Python y C, así como dos 
+<FirstTerm>Lenguajes Procedurales</FirstTerm>
+(PL).  También es posible
+llamar a funciones C como acciones trigger. Notar que los 
+eventos trigger a nivel STATEMENT no están soportados en la versión
+actual. Actualmente es posible especificar BEFORE o AFTER en los INSERT, 
+DELETE o UPDATE de un registro como un evento trigger. 
+</Para>
+
+<Sect1>
+<Title>Creación de Triggers</Title>
+
+<Para>
+   Si un evento trigger ocurre, el administrador de triggers (llamado Ejecutor)
+inicializa la estructura global TriggerData *CurrentTriggerData (descrita más
+abajo) y llama a la función trigger para procesar el evento.
+</Para>
+
+<Para>
+   La función trigger debe ser creada antes que el trigger, y debe hacerse
+como una función sin argumentos, y códigos de retorno opacos.
+</Para>
+
+<Para>
+   La sintaxis para la creación de triggers es la siguiente:
+
+<ProgramListing>
+   CREATE TRIGGER &lt;trigger name&gt; &lt;BEFORE|AFTER&gt; &lt;INSERT|DELETE|UPDATE&gt;
+       ON &lt;relation name&gt; FOR EACH &lt;ROW|STATEMENT&gt;
+       EXECUTE PROCEDURE &lt;procedure name&gt; (&lt;function args&gt;);
+</ProgramListing>
+</Para>
+
+<Para>
+   El nombre del trigger se usará si se desea eliminar el trigger.
+Se usa como argumento del comando DROP TRIGGER.
+</Para>
+
+<Para>
+   La palabra siguiente determina si la función debe ser llamada antes (BEFORE)
+o después (AFTER) del evento.
+</Para>
+
+<Para>
+   El siguiente elemento del comando determina en que evento/s será llamada
+la función. Es posible especificar múltiples eventos utilizado el operador OR.
+</Para>
+
+<Para>
+   El nombre de la relación (relation name) determinará la tabla afectada por
+ el evento.
+</Para>
+
+<Para>
+   La instrucción FOR EACH determina si el trigger se ejecutará para cada
+fila afectada o bien antes (o después) de que la secuencia se haya completado. 
+</Para>
+
+<Para>
+   El nombre del procedimiento (procedure name) es la función C llamada.
+</Para>
+
+<Para>
+   Los argumentos son pasados a la función en la estructura CurrentTriggerData.
+El propósito de pasar los argumentos a la función es permitir a triggers 
+diferentes con requisitos similares llamar a la misma función.
+</Para>
+
+<Para>
+   Además, la función puede ser utilizada para disparar distintas relaciones
+(estas funciones son llamadas "general trigger funcions").
+</Para>
+
+<Para>
+   Como ejemplo de utilización de lo descrito, se puede hacer una función 
+general que toma como argumentos dos nombres de campo e inserta el nombre
+del usuario y la fecha (timestamp) actuales en ellos. Esto permite, por
+ejemplo,  utilizar los triggers en los eventos INSERT para realizar un 
+seguimiento automático de la creación de registros en una tabla de 
+transacciones. Se podría utilizar también para registrar actualizaciones
+si es utilizado en un evento UPDATE. 
+</Para>
+
+<Para>
+   Las funciones trigger retornan un área de tuplas (HeapTuple) al ejecutor.
+Esto es ignorado para trigger lanzados tras (AFTER) una operación INSERT, 
+DELETE o UPDATE, pero permite lo siguiente a los triggers BEFORE:
+
+   - retornar NULL e ignorar la operación para la tupla actual (y de este 
+     modo la tupla no será insertada/actualizada/borrada);
+   - devolver un puntero a otra tupla (solo en eventos INSERT y UPDATE) que
+     serán insertados (como la nueva versión de la tupla actualizada en caso
+     de UPDATE) en lugar de la tupla original.
+</Para>
+
+<Para>
+   Notar que no hay inicialización por parte del CREATE TRIGGER handler. 
+Esto será cambiado en el futuro. Además, si más de un trigger es definido
+para el mismo evento en la misma relación, el orden de ejecución de los
+triggers es impredecible. Esto puede ser cambiado en el futuro.
+</Para>
+
+<Para>
+   Si una función trigger ejecuta consultas SQL (utilizando SPI) entonces 
+estas funciones pueden disparar nuevos triggers. Esto es conocido como 
+triggers en cascada. No hay ninguna limitación explicita en cuanto al número
+de niveles de cascada.
+</Para>
+
+<Para>
+   Si un trigger es lanzado por un INSERT e inserta una nueva tupla en la
+misma relación, el trigger será llamado de nuevo (por el nuevo INSERT).
+Actualmente, no se proporciona ningún mecanismo de sincronización (etc) para 
+estos casos pero esto puede cambiar. Por el momento, existe una función llamada
+funny_dup17() en los tests de regresión que utiliza algunas técnicas para parar
+la recursividad (cascada) en si misma...
+</Para>
+
+</Sect1>
+
+<Sect1>
+<Title>Interacción con el Trigger Manager</Title>
+
+<Para>
+   Como se ha mencionado, cuando una función es llamada por el administrador
+de triggers (trigger manager), la estructura TriggerData *CurrentTriggerData
+no es NULL y se inicializa. Por lo cual es mejor verificar que 
+CurrentTriggerData no sea NULL al principio y asignar el valor NULL justo 
+después de obtener la información para evitar llamadas a la función trigger
+que no procedan del administrador de triggers.
+</Para>
+
+<Para>
+   La estructura TriggerData se define en src/include/commands/trigger.h:
+
+<ProgramListing>
+typedef struct TriggerData
+{
+	TriggerEvent	tg_event;
+	Relation	tg_relation;
+	HeapTuple	tg_trigtuple;
+	HeapTuple	tg_newtuple;
+	Trigger		*tg_trigger;
+} TriggerData;
+</ProgramListing>
+
+<ProgramListing>
+tg_event 
+   describe los eventos para los que la función es llamada. Puede utilizar
+   las siguientes macros para examinar tg_event:
+
+   TRIGGER_FIRED_BEFORE(event) devuelve TRUE si el trigger se disparó antes;
+   TRIGGER_FIRED_AFTER(event) devuelve TRUE si se disparó después;
+   TRIGGER_FIRED_FOR_ROW(event) devuelve TRUE si el trigger se disparó para un 
+                                evento a nivel de fila;
+   TRIGGER_FIRED_FOR_STATEMENT(event) devuelve TRUE si el trigger se disparó
+                                para un evento a nivel de sentencia. 
+   TRIGGER_FIRED_BY_INSERT(event) devuelve TRUE si fue disparado por un INSERT;
+   TRIGGER_FIRED_BY_DELETE(event) devuelve TRUE si fue disparado por un DELETE;
+   TRIGGER_FIRED_BY_UPDATE(event) devuelve TRUE si fue disparado por un UPDATE.
+
+tg_relation
+   es un puntero a una estructura que describe la relación disparadora. Mirar
+   en src/include/utils/rel.h para ver detalles sobre esta estructura. Lo más
+   interesante es tg_relation->rd_att (descriptor de las tuplas de la relación)
+   y tg_relation->rd_rel->relname (nombre de la relación. No es un char*, sino
+   NameData. Utilizar SPI_getrelname(tg_relation) para obtener char* si se
+   necesita una copia del nombre).
+
+tg_trigtuple
+   es un puntero a la tupla por la que es disparado el trigger, esto es, la
+   tupla que se está insertando (en un INSERT), borrando (DELETE) o 
+   actualizando (UPDATE).
+   En caso de un INSERT/DELETE esto es lo que se debe devolver al Ejecutor si 
+   no se desea reemplazar la tupla con otra (INSERT) o ignorar la operación. 
+
+tg_newtuple
+   es un puntero a la nueva tupla en caso de UPDATE y NULL si es para un INSERT
+   o un DELETE. Esto es lo que debe devolverse al Ejecutor en el caso de un 
+   UPDATE si no se desea reemplazar la tupla por otra o ignorar la operación. 
+
+tg_trigger
+   es un puntero a la estructura Trigger definida en src/include/utils/rel.h:
+
+typedef struct Trigger
+{
+    Oid         tgoid;
+    char       *tgname;
+    Oid         tgfoid;
+    FmgrInfo    tgfunc;
+    int16       tgtype;
+    bool        tgenabled;
+    bool        tgisconstraint;
+    bool        tgdeferrable;
+    bool        tginitdeferred;
+    int16       tgnargs;
+    int16       tgattr[FUNC_MAX_ARGS];
+    char      **tgargs;
+} Trigger;
+
+   tgname es el nombre del trigger, tgnargs es el número de argumentos en 
+   tgargs,
+   tgargs es un array de punteros a los argumentos especificados en el CREATE
+   TRIGGER. Otros miembros son exclusivamente para uso interno.
+</ProgramListing>
+</Para>
+</Sect1>
+
+<Sect1>
+<Title>Visibilidad de Cambios en Datos</Title>
+
+<Para>
+   Regla de visibilidad de cambios en <ProductName>Postgres</ProductName>: durante la ejecución de una consulta,
+los cambios realizados por ella misma (vía funciones SQL O SPI, o mediante triggers) le son invisibles.
+Por ejemplo, en la consulta
+
+<ProgramListing>
+   INSERT INTO a SELECT * FROM a
+</ProgramListing>
+
+   las tuplas insertadas son invisibles para el propio SELECT. En efecto, esto
+duplica la tabla dentro de sí misma (sujeto a las reglas de índice único, por
+supuesto) sin recursividad.
+</Para>
+
+<Para>
+   Pero hay que recordar esto sobre visibilidad en la documentación de SPI:
+
+<ProgramListing>
+   Los cambios hechos por la consulta Q son visibles por las consultas que
+   empiezan tras la consulta Q, no importa si son iniciados desde Q (durante
+   su ejecución) o una vez ha acabado.
+</ProgramListing>
+</Para>
+
+<Para>
+   Esto es válido también para los triggers, así mientras se inserta
+una tupla (tg_trigtuple) no es visible a las consultas en un trigger BEFORE,
+mientras que esta tupla (recién insertada) es visible a las consultas de un
+trigger AFTER, y para las consultas en triggers BEFORE/AFTER lanzados con
+posterioridad!
+</Para>
+</Sect1>
+
+<Sect1>
+<Title>Ejemplos</Title>
+
+<Para>
+   Hay ejemplos más complejos en src/test/regress/regress.c y en contrig/spi.
+</Para>
+
+<Para>
+   He aquí un ejemplo muy sencillo sobre el uso de triggers. La función trigf
+devuelve el número de tuplas en la relación ttest e ignora la operación si la
+consulta intenta insertar NULL en x (i.e - actúa como una restricción NOT NULL
+pero no aborta la transacción).
+
+<ProgramListing>
+#include "executor/spi.h"	/* Necesario para trabajar con SPI */
+#include "commands/trigger.h"	/* -"- y triggers */
+
+HeapTuple		trigf(void);
+
+HeapTuple
+trigf()
+{
+	TupleDesc	tupdesc;
+	HeapTuple	rettuple;
+	char		*when;
+	bool		checknull = false;
+	bool		isnull;
+	int		ret, i;
+
+	if (!CurrentTriggerData)
+		elog(WARN, "trigf: triggers sin inicializar");
+	
+	/* tupla para devolver al Ejecutor */
+	if (TRIGGER_FIRED_BY_UPDATE(CurrentTriggerData->tg_event))
+		rettuple = CurrentTriggerData->tg_newtuple;
+	else
+		rettuple = CurrentTriggerData->tg_trigtuple;
+	
+	/* comprobar NULLs ? */
+	if (!TRIGGER_FIRED_BY_DELETE(CurrentTriggerData->tg_event) &&
+		TRIGGER_FIRED_BEFORE(CurrentTriggerData->tg_event))
+		checknull = true;
+	
+	if (TRIGGER_FIRED_BEFORE(CurrentTriggerData->tg_event))
+		when = "antes ";
+	else
+		when = "después ";
+	
+	tupdesc = CurrentTriggerData->tg_relation->rd_att;
+	CurrentTriggerData = NULL;
+	
+	/* Conexión al gestor SPI */
+	if ((ret = SPI_connect()) < 0)
+		elog(WARN, "trigf (lanzado %s): SPI_connect devolvió %d", when, ret);
+	
+	/* Obtiene el número de tuplas en la relación */
+	ret = SPI_exec("select count(*) from ttest", 0);
+	
+	if (ret < 0)
+		elog(WARN, "trigf (lanzado %s): SPI_exec devolvió %d", when, ret);
+	
+	i = SPI_getbinval(SPI_tuptable->vals[0], SPI_tuptable->tupdesc, 1, &amp;isnull);
+	
+	elog (NOTICE, "trigf (lanzado %s): hay %d tuplas en ttest", when, i);
+	
+	SPI_finish();
+	
+	if (checknull)
+	{
+		i = SPI_getbinval(rettuple, tupdesc, 1, &amp;isnull);
+		if (isnull)
+			rettuple = NULL;
+	}
+
+	return (rettuple);
+}
+</ProgramListing>
+</Para>
+
+<Para>
+   Ahora, compila y
+create table ttest (x int4);
+create function trigf () returns opaque as 
+'...path_to_so' language 'c';
+
+<ProgramListing>
+vac=> create trigger tbefore before insert or update or delete on ttest 
+for each row execute procedure trigf();
+CREATE
+vac=> create trigger tafter after insert or update or delete on ttest 
+for each row execute procedure trigf();
+CREATE
+vac=> insert into ttest values (null);
+NOTICE:trigf (fired before): there are 0 tuples in ttest
+INSERT 0 0
+
+-- Insertion skipped and AFTER trigger is not fired
+
+vac=> select * from ttest;
+x
+-
+(0 rows)
+
+vac=> insert into ttest values (1);
+NOTICE:trigf (fired before): there are 0 tuples in ttest
+NOTICE:trigf (fired after ): there are 1 tuples in ttest
+                                       ^^^^^^^^
+                             remember what we said about visibility.
+INSERT 167793 1
+vac=> select * from ttest;
+x
+-
+1
+(1 row)
+
+vac=> insert into ttest select x * 2 from ttest;
+NOTICE:trigf (fired before): there are 1 tuples in ttest
+NOTICE:trigf (fired after ): there are 2 tuples in ttest
+                                       ^^^^^^^^
+                             remember what we said about visibility.
+INSERT 167794 1
+vac=> select * from ttest;
+x
+-
+1
+2
+(2 rows)
+
+vac=> update ttest set x = null where x = 2;
+NOTICE:trigf (fired before): there are 2 tuples in ttest
+UPDATE 0
+vac=> update ttest set x = 4 where x = 2;
+NOTICE:trigf (fired before): there are 2 tuples in ttest
+NOTICE:trigf (fired after ): there are 2 tuples in ttest
+UPDATE 1
+vac=> select * from ttest;
+x
+-
+1
+4
+(2 rows)
+
+vac=> delete from ttest;
+NOTICE:trigf (fired before): there are 2 tuples in ttest
+NOTICE:trigf (fired after ): there are 1 tuples in ttest
+NOTICE:trigf (fired before): there are 1 tuples in ttest
+NOTICE:trigf (fired after ): there are 0 tuples in ttest
+                                       ^^^^^^^^
+                             remember what we said about visibility.
+DELETE 2
+vac=> select * from ttest;
+x
+-
+(0 rows)
+</ProgramListing>
+
+</Para>
+<para>
+	<Note>
+       <Para>
+        Aportación del traductor.Manuel Martínez Valls
+       </Para>
+	 <para>
+	En la version 6.4 ya existian los triggers, lo que eran triggers para tuplos, (FOR EACH ROW) pero no para sentencias (FOR STATEMENT), por eso creo que es importante poner disparadores para sentencias, no disparadores solo.
+	 </para>
+	 <para>
+	Los trigger son parte de lo que se conoce como "elementos activos" de una BD. Asi como lo son las constraints tales como NOT NULL, FOREIGN KEY, PRIMARY KEY, CHECK. Una vez definidas ellas "se activaran" solo al ocurrir un evento que las viole, un valor nulo en un campo con NOT NULL, etc
+	</para>
+	<para>
+	¿Por que entonces llamar triggers a los triggers? ;Con ellos se quizo dar mas control al programador sobre los eventos que desencadenan un elemento activo, se le conoce en ingles como ECA rules o event-condition-action rule. Es por ello que los triggers tienen una clausula BEFORE, AFTER o INSTEAD (por cierto pgsql no tiene INSTEAD) y bajo que evento (INSERT, UPDATE, DELETE) pero de esta forma el trigger se ejecutara para tuplo (o fila) sometido al evento (clausula FOR EACH ROW) pero el standard (que pgsql no cubre completamente) dice que puede ser tambien FOR EACH SENTENCE. 
+	</para>
+	<para>
+	Esto provoca que se ejecute el trigger para toda la relacion (o tabla) para la cual se define (clausula ON). La diferencia para los que lo han programado, por ejemplo en plpgsql, queda clara entonces: cuando es FOR EACH ROW en la funcion pgsql que implementa el trigger se tiene un objeto NEW y uno OLD que se refiere a la tupla completa, en el trigger de STATEMENT tiene un objeto NEW y OLD que son la relacion (o tabla) completa
+	</para>
+	<para>
+	Esta claro entonces que es un poco mas dificil implementar un trigger para statement que para fila (todavia pgsql no lo tiene).
+	</para>
+	<para>
+	Finalmente este es un buen ejemplo de que por que pgsql dice que "implementa un subconjunto extendido de SQL92", no hay trigger en SQL92, son del SQL3. 
+	</para>
+      </Note>
+</Para>
+</Sect1>
+</Chapter>

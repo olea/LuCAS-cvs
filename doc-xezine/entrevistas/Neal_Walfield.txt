@@ -1,0 +1,559 @@
+Entrevista con Neal Walfield
+
+Neal Walfield, es uno de los desarrolladores del proyecto 
+HURD que forma parte del proyecto GNU.
+Jeremy Andrews entrevisto a Neal Walfield sobre el desarrollo
+de HURD, y el nucleo de Unix, lo que incluye a Linux.
+
+Esta traducción, esta autorizada por sus dos autores,
+los cuales intervienen en ella, Jeremy Andrews y Neal Walfield
+autorizaron la traducción esta entrevista.
+
+La entrevista original en ingles, la podeis encontrar en 
+http://kerneltrap.com/article.php?sid=375 (kerneltrap.com)
+
+Jeremy Andrews:
+¿Como empezó a trabajar en el Hurd de GNU?
+
+Neal Walfield:
+Antes de que empezase a trabajar en el Hurd, yo era un usuario. Las nuevas ideas
+parecían muy poderosas y yo quería saber mas. Asi que, como cualquier hacker,
+me zambullí. Durante el camino hacia la luz, encontré errores y cosas que faltaban
+y comencé a enviar parches.
+
+Jeremy Andrews:
+¿Cuándo comenzó a utilizar el Hurd? ¿Cuánto ha cambiado durante ese tiempo?
+
+Neal Walfield:
+Comencé a involucrarme con el GNU/Hurd hace unos dos años. Desde entonces, el
+GNU/Hurd ha tenido algunas estabilizaciones y mejoras importantes, y ha recibido
+mucho trabajo desde la perspectiva del usuario: la instalación es mas fácil, la
+mayor parte de los paquetes de uso cotidiano existen, etc. Además, la comunidad
+es mucho mas grande hoy que cuando yo empecé: tenemos a muchos con potencial
+esperando ingresar a las filas de los desarrolladores. La barrera principal a
+la entrada es entender el sistema; al contrario de Unix, los conceptos del Hurd
+no estan siendo enseñados en la escuela o tratados en ningún libro.
+
+Jeremy Andrews:
+¿Qué es el Hurd?
+
+Neal Walfield:
+El Hurd es un conjunto de servidores que proveen interfaces similares a las que
+se encuentran en los kernels Unix tradicionales. Los servidores, cada uno
+diseñado para hacer un solo trabajo o administrar una sola parte del sistema,
+corren en el espacio del usuario, aislándose así del kernel o el uno del otro.
+Esto ofrece mas poder y flexibilidad para el administrador y el usuario, y asi
+incrementa la seguridad del sistema.
+
+Cuando Unix fue creado, hace mas de treinta años, ciertos compromisos, dados
+los recursos disponibles en aquel tiempo, tenían sentido. Transcurrió el tiempo
+y tanto Unix como los ordenadores evolucionaron. Sin embargo, los compromisos
+iniciales, que solo se podían reparar rediseñando partes centrales del sistema,
+se convirtieron en fallas de diseño. El Hurd es una reacción contra esos
+defectos.
+
+El concepto central del Hurd es que el usuario tiene el poder, y aun asi está
+aislado del sistema. Esto no existe, ni puede existir, en Unix; Hay demasiadas
+funciones base que viven en el kernel. ¿Por qué es esto algo malo? Pues
+significa que existen partes del sistema, de las que un usuario podría tomar
+ventaja, pero quedan fuera de su alcance.
+
+Un ejemplo de esto es montar sistemas de ficheros. Los usuarios han llegado
+a aceptar que solo root puede montar un cierto sistema de ficheros, aun si el
+usuario tiene acceso a los datos de dicho sistema. Sin embargo, no existe
+ninguna razón por la que un usuario no debiese poder montar un sistema de
+ficheros en cualquier lugar donde tenga permiso de crear un directorio. La razón
+por la cual esto no está permitido en Unix es que el código del sistema de
+ficheros vive en el kernel. Así, si el sistema de ficheros es ajustado
+correctamente, es posible para un usuario elevar sus privilegios o incluso
+colgar el sistema. En el Hurd, esto no es posible; un sistema de ficheros es
+administrado en un proceso normal en el espacio del usuario que corre como el
+usuario que lo inició. Por lo tanto, aún si el sistema de ficheros de un
+usuario se cuelga, para el sistema no es mas que otro programa recibiendo un
+SIGSEGV, es decir, no hay razon para que el sistema entre en pánico.
+
+Cuando nos referimos a los sistemas de ficheros, no nos referimos sólamente
+a los datos que viven en el medio físico, sino también a sistemas de ficheros
+que pueden ser accesados a través de la red y cualquier otra cosa imaginable.
+Así que, si un usuario puede conectarse a un servidor FTP usando un cliente FTP,
+deberían ser capaces de poner todo el árbol de directorios dentro del sistema de
+ficheros trabajar con los archivos directamente. De hecho, ya existen
+herramientas que pueden hacer esto; por ejemplo, bash puede acceder a
+'/dev/tcp/HOST/PUERTO' y Gnome tiene su propio sistema de ficheros virtual. Sin
+embargo, para hacer de esto una solución global, debería ser implementada por
+cada aplicación, desde procesadores de texto hasta el cat. O podríamos
+implementarlo una sola vez, en el lugar correcto: directamente dentro del
+sistema de ficheros.
+
+Al darle mas poder a los usuarios, tambien podemos incrementar la seguridad
+del sistema. Para aclarar hacia donde voy, intentaré ofrecer un pequeño ejemplo
+concreto usando uno de los servidores Hurd, el servidor de password, que escucha
+en el nodo '/servers/password'. Es el trabajo del servidor de passwords entregar
+fichas de autentificación a los clientes que se hayan identificado.
+
+Cuando un proceso obtiene permiso de enviar al nodo '/servers/password' (por
+ejemplo, llamando a open), puede enviar mensajes al servidor subyacente. Una de
+las RPCs, llamadas a procedimientos remotos, que puede enviar es
+'password_check_user'. El protocolo requiere que el proceso suministre un id de
+usuario y una contraseña. El servidor, tras comprobar que la contraseña es
+correcta, retorna una ficha de autentificación al proceso.  Usando esta ficha,
+el cliente puede incrementar sus privilegios con demonios que respeten el token.
+
+Esto significa que, por ejemplo, un servidor FTP puede ser implementado para
+empezar sin ids de usuario (es decir, sin fichas de autentificación y, por lo
+tanto, sin privilegios) y, cuando un cliente intente autentificarse, puede
+pasar el trabajo al servidor de autentificación. Además de haber facilitado
+escribir el código del demonio, se ha ganado una enorme ventaja en la seguridad:
+el demonio incrementa, no disminuye, sus privilegios dentro del sistema cuando
+el cliente se ha autentificado. Aunque el resultado es el mismo, los ataques,
+como los desbordamientos de buffers, se hacen benignos; aún si el atacante logra
+tomar el control del demonio FTP durante la fase de autentificación, entra al
+sistema sin privilegios -- no con privilegios de root, como hubiese sucedido
+con un demonio FTP tradicional que abandona sus privilegios de suid root tras
+la fase de autentificación.
+
+Además, ninguna de las partes del sistema es estática; cada una puede ser
+reemplazada o suplementada tanto por el administrador del sistema como por los
+usuarios. Un ejemplo poderoso es que un usuario puede crear su propio demonio
+de autentificación. Aunque otros procesos no confiarán en las fichas de
+autentificación que emita ese servidor, el nuevo servidor de autentificación
+puede ser usado como un proxy para subdividir los recursos que controla ese
+usuario, y así proveer un subsistema aislado.
+
+Por ejemplo, una aplicación de web, como el email, puede poner todos sus
+mailboxes en un sistema de ficheros ext2 en un fichero (por ejemplo, un
+dispositivo de loopback en terminología de Linux). El fichero podría tener por
+dueño a 'application-data', por ejemplo. Un servidor ext2fs podría ser
+configurado para utilizar ese fichero y el nuevo servidor de autentificación.
+Además, cuando los clientes entran para ver su email, se les entregarían fichas
+del servidor de autentificación privado, no del servidor del sistema. Si un
+atacante logra controlar la aplicación, solo tendrá una ficha de autentificación
+que tendrá valor dentro de la aplicación de email, y será inútil fuera de ese
+subsistema.
+
+Tambien tenemos la habilidad de iniciar un Subhurd: una nueva instancia del
+Hurd que corre en paralelo con el Hurd original. Están casi completamente
+aislados uno del otro, con la excepción de algunos dispositivos compartidos.
+Este es aproximadamente el equivalente de Linux en Modo Usuario; sin embargo,
+ha existido desde el comienzo; el Hurd simplemente se presta a la idea.
+
+Jeremy Andrews:
+¿Es necesario que los servidores se ejecuten en el mismo sistema? ¿Pueden ser
+colocados en algun tipo de cluster multiusuario?
+
+Neal Walfield:
+Los servidores no tienen que correr en el mismo sistema, al menos teóricamente.
+Tengo algunas ideas para hacer funcionar una IPC transparente a la red, pero no
+tengo nada de código. Este es un tópico que quisiera explorar en el futuro.
+
+Jeremy Andrews:
+Poder aislar sistemas de ficheros según cada usuario suena muy poderoso y
+conveniente. ¿Funciona ya de la manera en que lo describió?
+
+Neal Walfield:
+Todo lo que he descrito anteriormente es la forma como ya funciona, exceptuando
+los errores de programación.
+
+Jeremy Andrews:
+Cuando habla de colocar árboles de directorios enteros dentro de un sistema de
+ficheros y usar los ficheros directamente, en qué se diferencia esto del NFS?
+
+Neal Walfield:
+El NFS ofrece el mismo mecanismo, funcionalmente; sin embargo, la idea
+importante aqui es que el Hurd tiene una política totalmente distinta del Unix
+tradicional.
+
+En Unix, solo root puede montar sistemas de ficheros -- incluyendo NFS. Es
+cierto que existen ciertos automontadores de NFS, pero solo son un parche para
+una herida mucho mas profunda: el usuario está limitado a un solo tipo de
+sistema de ficheros. ¿Qué pasa con ftpfs o smbfs? Además, ¿deberíamos
+conformarnos con sistemas de ficheros en red solamente? Por ejemplo, en el Hurd,
+cualquier usuario puede utilizar lo que en Linux llaman un dispositivo Loopback.
+Y, debo añadir, shadowfs: un sistema de ficheros que toma múltiples directorios
+y los combina siguiendo un conjunto dado de reglas. ¿Debería haber un
+automontador para cada uno de estos tipos de sistemas de ficheros? Hasta donde
+puedo ver, tiene mas sentido arrancar el problema de raíz, para que los usuarios
+normales puedan modificar con seguridad el sistema de ficheros virtual, el VFS.
+
+Otra ventaja de la política del Hurd es que todos los sistemas de ficheros son
+desarrollados en el espacio de usuario como programas normales. Así, los
+servidores tienen acceso completo a la libreria de C o cualquier lenguaje que
+el programador elija (incluyendo Perl, Python, Scheme y hasta Bash). El
+programador puede utilizar un auténtico deputador y no preocuparse por caídas
+del sistema: no hay "kernel panics", solo SIGSEVs. Y, cuando se trata de
+distribuir el servidor, se puede hacer de forma completamente independiente del
+kernel, como un programa normal. Un administrador de Debian podría decir algún
+día:
+
+# apt-get install ftpfs
+
+Sin módulos que insertar, sin reiniciar.
+
+Jeremy Andrews:
+El servidor de autentificación del Hurd es interesante, pero ¿que tan a fondo ha
+sido probado para verificar su seguridad? ¿Como se llevan a cabo esas pruebas?
+
+Neal Walfield:
+Todos los programadores le han echado un vistazo en algún momento; sin embargo,
+si lo que cuenta es una verificación formal, no estoy seguro. No me sorprendería
+que aún quedasen errores.
+
+Jeremy Andrews:
+Usted mencionó el sistema de ficheros ext2, el estándar de Linux. ¿Cuál es el
+sistema de ficheros estándar del Hurd?
+
+Neal Walfield:
+El Hurd soporta tanto el sistema de ficheros ext2 y los sistemas de ficheros
+comunes, p.ej. el UFS del BSD; no existe un sistema de ficheros especial para
+el Hurd. Para soportar algunas de las nuevas características del Hurd, como los
+traductores pasivos y un nuevo conjunto de bits de permisos para el usuario
+desconocido (usuarios sin id), hemos ejercido la habilidad de añadir extensiones
+específicas del SO a los sistemas de ficheros, y aún así seguir siendo
+totalmente compatible. El propietario del sistema de ficheros (establecido al
+correr mkfs) determina qué atributos están disponibles.
+
+Jeremy Andrews:
+¿Qué son los traductores pasivos?
+
+Neal Walfield:
+Cuando está corriendo un servidor, o traductor, como tambien le llamamos, está
+escuchando en un puerto en el sistema de ficheros virtual y listo para servir
+a clientes. En la terminología de Unix se llama a esto un sistema de ficheros
+montado.
+
+En Unix, cuando el sistema inicia, los scripts de arranque generalmente
+montarán un cierto número de sistemas de ficheros, siguiendo el contenido del
+fichero /etc/fstab. Usando el mismo método en el Hurd iría contra nuestra
+filosofía: /etc/fstab es un recurso central que solo puede ser modificado por
+el superusuario.
+
+Para superar esto, nació la idea de un traductor pasivo. Se asemeja a un enlace
+simbólico: el traductor pasivo se inserta dentro del inodo. Provee una cadena
+de texto que especifica como iniciar una instancia del traductor activo.
+Normalmente, cuando se busca un camino, los sistemas de ficheros dirigirán las
+solicitudes a los hijos adecuados. Pero ahora el servidor también comprobará si
+un componente del camino contiene un traductor pasivo asociado antes de intentar
+continuar la resolución. De ser así, intentará iniciar un traductor pasivo y
+dirigirle el resto.
+
+Por ejemplo, /home podría contener un traductor pasivo con la siguiente
+especificación: '/hurd/ext2fs /dev/hd0s3'. Esto indica que el programa
+/hurd/ext2fs debería ser ejecutado y darle /dev/hd0s3 como su lista de
+argumentos. También hay un pequeño protocolo usado para conectar el nuevo
+servidor al VFS, pero eso está mas allá de esta discusión.
+
+Ahora, digamos que entras al sistema, una de las primeras cosas que hará tu
+shell es cargar sus ficheros de inicio, p. ej. /home/jeremy/.profile .
+Esto se hace contactando el sistema de ficheros raíz y pidiéndole que retorne
+un puerto a /home/jeremy/.profile . En este caso, el sistema de ficheros raíz
+solo llegará hasta /home antes de ver que otro traductor maneja el VFS pasado
+este punto. Si no hay un traductor activo escuchando en /home, el sistema de
+ficheros raíz iniciará uno, y le retornará al usuario un puerto al nuevo
+servidor y un mensaje indicándole que debe preguntarle a él por el resto
+del camino, es decir, jeremy/.profile . El cliente enviará un nuevo mensaje,
+esta vez al nuevo servidor, y le pedirá que resuelva el resto del camino. Si
+todo sale bien, retornará un puerto al fichero indicado.
+
+Jeremy Andrews:
+¿Posee el Hurd un usuario root con privilegios de superusuario?
+
+Neal Walfield:
+El usuario con id cero se considera generalmente el superusuario y todos los
+servidores del sistema reconocen esto. Sin embargo, los servidores de los
+usuarios no están obligados a respetar esto.
+
+Jeremy Andrews:
+Me temo que no entiendo. Si tengo un servidor corriendo el GNU/Hurd, y soy el
+usuario root, ¿Otro usuario con una cuenta en mi máquina podría crear un
+servidor que no puedo controlar, matar, o afectar de nungún modo? ¿Aún siendo
+el superusuario?
+
+Neal Walfield:
+Un servidor puede elegir negarle acceso a root; sin embargo, el superusuario
+tiene control absoluto sobre todos los servidores del sistema. Así que puede
+enviar señales a cualquier proceso que quiera o reclamar cualquier recurso
+como desee.
+
+Jeremy Andrews:
+¿Podría explicar mas sobre el 'usuario desconocido'? ¿Cómo podría un usuario no
+tener un id?
+
+Neal Walfield:
+El modelo de autentificación en el Hurd se basa en fichas de autentificación:
+o las tienes o no las tienes. Esto es muy distinto del modelo de Unix, donde
+cada proceso corre con una sola identidad discreta.
+
+Puedes pensar en las fichas como carnets de identidad. Dependiendo de adónde vas
+y que servicios requieres determina que carnets necesitas. Un usuario puede
+tener acceso a muchas fichas de identidad diferentes, una sola, o ninguna en
+absoluto. En este último caso, el usuario es considerado un forastero
+indocumentado y se le concederá muy poco acceso al sistema.
+
+Jeremy Andrews:
+¿Cuántos servidores contiene el Hurd? ¿Podría mencionar algunos de los mas
+importantes, o describirlos un poco?
+
+Neal Walfield:
+El Hurd está compuesto de varios servidores centrales, específicamente los
+servicios exec, proc y auth. El servidor exec se encarga de iniciar nuevos
+procesos del Hurd, el servidor proc maneja los procesos (pids, grupos de
+procesos -- todos los detalles POSIX mas algunas extensiones) y el servidor
+auth implementa el protocolo de confianza.
+
+Otros servidores importantes incluyen los de sistemas de ficheros como el
+ext2fs, el UFS y el NFS. También juegan un papel central en la construcción del
+VFS.
+
+Sin embargo, nadie tiene que usar ninguno de estos servidores -- un usuario
+puede escribir los suyos y elegir ignorar lo que el sistema le ofrece.
+
+Jeremy Andrews:
+¿Que tan utilizable está el Hurd en su versión actual?
+
+Neal Walfield:
+No ha habido una liberación oficial del Hurd desde 1997. La mayoría de los
+desarrolladores están concentrándose en finalizar el conjunto de características
+actual y corregir errores importantes.
+
+Con respecto a la usabilidad, el Hurd funciona bastante bien como sistema de
+desktop; sin embatgo, aún no recomiendo que nadie lo utilice como servidor.
+Dicho eso, aproximadamente la mitad del archivo de Debin Woody ha sido
+compilado para el Hurd. Esto incluye la mayor parte de las herramientas de
+desarrollo y programas notorios como el XFree86.
+
+La razón por la que no se han compilado mas programas se debe a dos factores:
+muchos programadores de Software Libre a menudo introducen pequeños Linux-ismos.
+Felizmente, la mayoría pueden ser reparados en cuestión de horas; sin embargo,
+contactar el autor y asegurarse de que el parche haya sido integrado
+correctamente puede tomar mucho mas. Cuando este número se multiplica por el
+número de paquetes del Debian, la segunda razón se aclara: falta de personal.
+
+Cuando digo Linux-ismo, me refiero al fenómeno donde los programadores creen que
+GNU/Linux es POSIX. Eso no es cierto. GNU/Linux es una implementación de POSIX.
+GNU/Hurd es otra. ¿Cómo puede esto ser posible si POSIX es un estándar de la
+industria? POSIX le da a los programadores de sistemas muchas opciones y tiene
+partes donde su conducta no está definida. Claramente, la conducta no definida
+está definida en una implementación real (aún si significa un SIGSEGV); sin
+embargo, no tiene que ser consistente de una implementación a otra. Un ejemplo
+es que POSIX permite cambiar el valor de PATH_MAX, el cual, si está definido,
+es el límite del sistema para la longitud del nombre de un fichero. Nótese el
+'si está definido'. En Linux, esto está definido. En el Hurd, no lo está.
+Sin embargo, muchos programadores creen que, como está definido en GNU/Linux,
+el GNU/Hurd debe estar equivocado. No, esto es una elección que POSIX ofrece
+a los programadores de sistemas operativos. Aquellos que se interesan en
+escribir aplicaciones portables deben respetar todas las opciones posibles.
+
+Jeremy Andrews:
+¿Qué tan grande es el equipo que trabaja actualmente en el Hurd?
+
+Neal Walfield:
+Actualmente hay unas cinco personas que trabajan activamente en el propio Hurd.
+En lo que respecta a portarlo, hay unos quince programadores que participan
+regularmente. Muchos de los programadores de Debian han comenzado a ayudar
+portando sus propios paquetes.
+
+Jeremy Andrews:
+¿Cuales son los "errores importantes" que quedan por corregir?
+
+Neal Walfield:
+Principalmente son asuntos de estabilidad o características que decimos que
+soportamos pero que solo soportamos parcialmente.
+
+Jeremy Andrews:
+En mi deseo de comprender que tan utilizable es ahora el Hurd, quisiera saber:
+¿Cuales son esas características que dicen que soportan, pero que solo
+soportan parcialmente?
+
+Neal Walfield:
+El GNU/Hurd, como entorno gráfico, es bastante utilizable, aunque algo lento.
+En términos de estabilidad, no hay muchos fallos fatales. Es decir, es posible
+tener el sistema funcionando por mas de una semana, Dicho eso, no recomiendo
+usar el GNU/Hurd en un servidor. Al menos, no aún.
+
+Con respecto a las características mal reportadas, decimos que soportamos
+setrlimit y family; sin embargo, no reportamos estadísticas precisas, y no
+podemos configurar todos los límites definidos todavía. Otro ejemplo es el
+locking. Tenemos una implementación del flock del BSD, que se utiliza para
+emular partes del locking de POSIX; sin embargo, la capa de compatibilidad que
+provee no es completa.
+
+Jeremy Andrews:
+¿Se ha fijado alguna fecha para la liberación de la siguiente versión oficial?
+
+Neal Walfield:
+No que yo sepa.
+
+Jeremy Andrews:
+Me parece que tener otra versión oficial generaría mas interés y podría
+incrementar su base de usuarios. ¿Qué hace falta para que salga otra versión
+oficial?
+
+Neal Walfield:
+Estoy seguro de que una nueva versión oficial generaría mucho mas interés en el
+GNU/Hurd; sin embargo, no sé si nos conviene esa clase de interés en estos
+momentos. Los programadores ya estan bastante dispersos y tener que hacerla de
+soporte técnico (que es lo que prometes cuando liberas una versión) sería
+bastante agotador. Además, hay un límite a la cantidad de "segundas"
+oportunidades que podemos pedir a los usuarios. Si liberamos hoy y ven las
+limitaciones actuales, un año después, podrían no querer probar otra vez.
+
+Acerca de lo que se requiere antes de otra liberación, no soy el que las
+mantiene; sin embargo, algunos asuntos importantes que debemos atender incluyen:
+integrar soporte de pthreads; reescribir libdiskfs para permitir particiones
+mas grandes; y usar OSKit-Mach, una implementación de Mach basado en el OSKit de
+la Universidad de Utah que nos proporcionaría un nuevo marco para los
+controladores. También hay problemas de estabilidad que deben ser
+arreglados, y el subsistema de memoria virtual necesita algo de trabajo.
+
+Jeremy Andrews:
+¿Qué manejadores de ventanas y entornos gráficos hay disponibles?
+
+Neal Walfield:
+Todos los manejadores de ventanas básicos están disponibles: blackbox, fvwm,
+twm y windowmaker. Los entornos gráficos mas avanzados Gnome y KDE aun no
+funcionan bajo Hurd debido a la falta de pthreads.
+
+La librería C se adelantó al estándar de pthreads; usamos un paquete llamado
+cthreads. No debería ser difícil conseguir una implementación de pthreads
+utilizable. Sin embargo, hacer una implementación que se ajuste totalmente al
+estándar y que funcione tanto bajo Hurd como Linux (que es la meta de los
+programadores de glibc), requiere algo de reestructuración y diseño cuidadoso.
+
+Cuando tengamos una implementación de pthreads que funcione, muchas mas cosas
+del archivo serán compilables.
+
+Jeremy Andrews:
+¿Qué procesadores soporta el Hurd?
+
+Neal Walfield:
+En estos momentos, solo hay soporte oficial para ia32. En el pasado hubo una
+versión para la arquitectura mips; sin embargo, ya no se le mantiene y
+probablemente sufre de gangrena de bits. Mirando hacia el futuro, Peter Bruin
+está trabajando en portar el Hurd a la plataforma PowerPC. Consideramos la
+facilidad de este porte, que fué hecho por una sola persona en sus ratos libres
+en pocos meses, sin _ninguna_ ayuda de los programadores del núcleo, una
+afirmación de muchas de las decisiones de diseño que se hicieron en el Hurd.
+
+Jeremy Andrews:
+¿El Hurd tiene soporte para múltiples procesadores?
+
+Neal Walfield:
+El Hurd mismo es agresivamente multitarea y todo el locking ha sido hecho con
+la idea de usarlo en sistemas de múltiples procesadores. Dicho eso, aún no
+hemos usado un microkernel que soporte múltiples cpus y sea estable.
+
+Jeremy Andrews:
+El kernel del Hurd ¿está basado en kernels de UNIXes anteriores, o en el de
+Linux?
+
+Neal Walfield:
+Como ya he indicado, el Hurd no es un kernel; es un conjunto de servidores. Sin
+embargo, usamos dos partes del kernel de Linux: en GNU Mach, se ha escrito algo
+de "código pegamento" para permitir el uso de los controladores de dispositivo
+de Linux. También hemos utilizado la implementación de TCP/IP de Linux en el
+servidor pfinet.
+
+Jeremy Andrews:
+He crecido con UNIX. Comprendo que el Hurd no es un kernel, pero debe tener un
+kernel y por lo tanto procesos corriendo en el espacio del kernel, ¿no es así?
+¿qué hace el kernel mismo, y qué procesos permanecen en el espacio del kernel?
+
+Neal Walfield:
+El diseño de Unix es a lo que nos referimos como un kernel monolítico. En esta
+arquitectura, la mayor parte de la funcionalidad del sistema vive en el kernel
+mismo. Las limitaciones que el Hurd intenta resolver son esencialmente las
+limitaciones impuestas al usuario en esta arquitectura.
+
+El GNU/Hurd es un microkernel multiservidor. Esto significa que un microkernel,
+en nuestro caso el GNU Mach, provee los mecanismos básicos -- memoria virtual,
+controladores de dispositivo, un marco de trabajo mínimo y facilidades de
+comunicación entre procesos muy generales -- y múltiples servidores externos
+(ese es el Hurd) dictan la política del sistema -- el concepto de usuarios,
+autentificación y confianza, sistemas de ficheros, VFS, redes, etc.
+
+Vale la pena señalar que el Hurd no está casado con GNU Mach: se está intentando
+portar el Hurd al microkernel L4, un nuevo microkernel de nueva generación que
+fué creado siguiendo muchas de las ideas del Mach. Una vez que esto se haya
+hecho satisfactoriamente, probablemente será adoptado.
+
+Jeremy Andrews:
+El proyexto GNU/Hurd de Debian está intentando tener que el mismo software que
+hay disponible en GNU/Linux de Debian. ¿Qué ventajas tendría utilizar el Hurd
+con este software, en lugar del kernel de Linux?
+
+Neal Walfield:
+Con respecto a las aplicaciones, las ventajas son casi totalmente transparentes:
+como los servidores viven dentro del sistema de ficheros virtual, no se necesita
+un API especial. Los demonios, sin embargo, deberán ser reescritos para tomar
+completa ventaja del modelo de seguridad del Hurd.
+
+Jeremy Andrews:
+Linus Torvalds ha criticado abierta y frecuentemente al Hurd en la Lista de
+Correo del Kernel de Linux.
+
+Recientemente habló mal de MAP_COPY, convencido de que era una idea
+horrible. ¿Puede explicarnos lo que es MAP_COPY? ¿Y por qué Linux puede ser tan
+anti-Hurd?
+
+Neal Walfield:
+Lo único que tengo que decir es que, aparte de algunos vasos de vino de vez en
+cuando, jamás he tomado ninguna droga no prescrita por mi médico.
+
+Jeremy Andrews:
+¿Podría ofrecer algún consejo y/o estímulo a aquellos que aspiran a hackear
+kernels?
+
+Neal Walfield:
+Paciencia. Un elemento importante en programación de sistemas no es escribir
+código sino diseñar: las interfaces son mucho mas difíciles de cambiar que las
+implementaciones. Debes estar preparado para tirar un montón de código a la
+basura antes de encontrar el mejor diseño.
+
+Jeremy Andrews:
+¿Algunos buenos enlaces para conseguir mas información sobre el Hurd?
+
+Neal Walfield:
+ * La página del GNU/Hurd           : http://www.gnu.org/software/hurd/
+ * La página del GNU/Hurd de Debian : http://www.debian.org/ports/hurd/
+ * La Guía de Instalación           : http://web.walfield.org/papers/hurd-installation-guide/
+ * El FAQ                           : http://www.gnu.org/software/hurd/faq.en.html
+
+
+Jeremy Andrews:
+¿Le gustaría añadir algo más?
+
+Neal Walfield:
+Una consideración importante es la velocidad: ¿Será capable el Hurd de superar
+a los sistemas operativos actuales? La respuesta es: quizás, pero, esa no es la
+mayor prioridad. El sistema, como está actualmente, no está optimizado en
+absoluto. Citando a "El Sistema de Tiempo Compartido de UNIX", un artículo
+publicado por Ritchie y Thompson en 1974: "Las primeras versiones del sistema
+operativo fueron escritas en lenguaje ensamblador, pero fué reescrito en C
+durante el verano de 1973. El tamaño del nuevo sistema es alrededor de un tercio
+mas grande que el viejo. Como el nuevo sistema no solo es mas fácil de entender
+y modificar, sino que también ofrece muchas mejoras funcionales... consideramos
+este incremento en tamaño bastante aceptable." Sentimos que el Hurd ofrece
+muchas mejoras funcionales y, como cada servidor está completamente aislado, no
+solo por estar situado en su propio proceso en espacio del usuario, sino también
+por una API estricta y formal, sentimos que también se mejorará enormemente la
+facilidad para mantener el sistema.
+
+Jeremy Andrews:
+¡Muchas gracias por su tiempo! El Hurd suena bastante interesante, tanto que
+ahora me siento inspirado a montar un nuevo servidor para probarlo.
+
+Neal Walfield:
+¡Excelente! Te veré en las listas de correo.
+
+-----
+Copyright (c) 2001, Jeremy Andrews y Neal Walfield
+Se otorga permiso para copiar, distribuir y/o modificar este documento, 
+bajo los términos de la Licencia de Documentación Libre de GNU, versión 1.1 
+o cualquier versión posterior publicada por la Free Software Foundation; 
+sin Secciones Invariantes, sin Textos de Portada ni de Contraportada. 
+Se puede obtener una copia de la licencia en  
+http://www.gnu.org/copyleft/fdl.html.
+-----
+Esta entrevista ha sido traducida por la revista electronica x-ezine, bajo la   
+licencia GPL.
+----

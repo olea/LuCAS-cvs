@@ -1,0 +1,280 @@
+ <Chapter Id="xoper">
+  <Title>Extenediendo <Acronym>SQL</Acronym>: Operadores</Title>
+
+  <Para>
+   <ProductName>Postgres</ProductName> soporta operadores unitarios izquierdos, unitarios derechos y binarios.
+Los operadores pueden ser sobrecargados; eso es, el mismo nombre de operador puede ser usado para diferentes operadores que tengan diferentes número y tipo de argumentos. Si hay una situación ambigua y el sistema no puede determinar el operador correcto a usar, retornará un error.
+Tu puedes tener los tipos  de operadores izquierdo y/o derecho para ayudar a entender que operadores tienen significado usar.
+  </Para>
+
+  <Para>
+Cada operador es "azucar sintáctico" por una llamada hacia una función subyacente que hace el trabajo real; entonces tu debes primero crear la función subyacente antes de que puedas crear el operador. Sin embargo, un operador <emphasis>no</emphasis> es sólo un azucar sintáctico, porque carga información adicional que ayuda al planeador de consultas a obtimizar consultas que usa el operador. Mucho de este capítulo, será dedicado a explicar esa información adicional.
+   merely syntactic sugar, because it carries additional information  </Para>
+
+  <Para>
+Este es un ejemplo de crear un operador para sumar dos números complejos. Nosotros aumimos que ya hemos creado la definición del tipo complejo. Primero necesitamos una función que haga el tragajo; entonces podemos crear el operador.   
+   <ProgramListing>
+CREATE FUNCTION complex_add(complex, complex)
+    RETURNS complex
+    AS '$PWD/obj/complex.so'
+    LANGUAGE 'c';
+
+CREATE OPERATOR + (
+    leftarg = complex,
+    rightarg = complex,
+    procedure = complex_add,
+    commutator = +
+);
+   </ProgramListing>
+  </Para>
+
+  <Para>
+Ahora podemos hacer:   
+
+     
+   <ProgramListing>
+SELECT (a + b) AS c FROM test_complex;
+
++----------------+
+|c               |
++----------------+
+|(5.2,6.05)      |
++----------------+
+|(133.42,144.95) |
++----------------+
+   </ProgramListing>
+  </Para>
+
+  <Para>
+Nosotros hemos mostrado como crear un operador binario aquí. Para crear un operador unario, solamente omite un argumento izquierdo (para unario izquierdo) o un argumento derecho (para unario derecho). El procedimietno y las sentencias del argumneto son los únicos items requeridos para CREATE OPERATOR (Crear operador). La sentencia COMMUTATOR (conmutador) mostrada en esta ejemplo es una indicación opcional para optimizar la consulta. Además de los detalles acerca de COMMUTATOR, aparecen otras indicaciones de optimización.    
+  </Para>
+
+  <sect1>
+   <title>Información de optimización de operador</title>
+
+   <note>
+    <title>Autor</title>
+    <para>
+Escrito por Tom Lane.     
+    </para>
+   </note>
+
+   <para>
+    Una definición de un operador <ProductName>Postgres</ProductName> puede incluir
+muchas sentencias opcionales que dicen al sistema cosas útiles acerca de como el operador se comporta. Estas sentencias deben ser proveidas siempre que sea apropiado, porque ellas pueden hacer considerablemente una más rápida ejecución de la consulta que usa el operador.
+Pero si tu las provees, debes estar seguro que están bien! Un incorrecto uso de una sentencia de optimización puede resultar en choques finales, salidas sutilmente erróneas, o otras cosas malas.
+Tu puedes no poner las sentencias de optimización si no estás seguro de ellas, la única consecuencia es que las consultas pueden ejecutarse más lentamente de lo necesario.
+   </para>
+
+   <para>
+Sentencias de optimización adicionales pueden ser agregadas en versiones posteriores de    
+    <ProductName>Postgres</ProductName>. Las descríptas aquí son todas aquellas que la versión 6.5 entinede. </para>
+
+   <sect2>
+    <title>COMMUTATOR (conmutador)</title>
+
+    <para>
+     La sentencia COMMUTATOR ,si es proveida, nombra un operador que es el conmutador del operador que está siendo definido. Decimos que el operador A es el conmutador del operador B si (x A y) es igual (y B x) para todos los posibles valores de entrada x,y. Nota que B es también el conmutador de A. Por ejemplo, operadores  '<' and '>' (y lógico) para un tipo de dato particular son usualmente entre sí conmutadores, y el operador '+' es usualmente conmutativo con sigo mismo.Pero el operador '-' no es conmutativo con nada.
+    </para>
+
+    <para>
+El tipo de argumento izquierdo de un operador conmutado es el mismo que el tipo de argumento   derecho de su conmutador, y viceversa. Entonces el nombre del operador conmutador es todo lo que     <ProductName>Postgres</ProductName> necesita para ser dado de alta el conmutador y eso es todo lo que necesita ser proveido en la sentencia COMMUTATOR.
+    </para>
+
+    <para>
+     Cuando tu estas definiendo un operador conmutador por si mismo (self-conmutative), tu solamente hazlo.Cuando tu estas definiendo un par de operadores conmutadores, las cosas son un poquito mas engañosas: Cómo pede el primero ser definido refiriéndose a otro, que no ha sido definido todavía? hay dos soluciones a este problema:
+     <itemizedlist>
+      <listitem>
+       <para>
+Un método es omitir la sentencia COMMUTATOR en el primer operador que tu defines, y entonces proveer uno en la segunda definición de operador. Desde que 	
+<ProductName>Postgres</ProductName> sabe que operadores conmutativos vienen de a pares, cuando ve la segunda definición automaticamente volverá y llenará en la sentencia COMMUTATOR faltante en la primera definición.
+       </para>
+      </listitem>
+
+      <listitem>
+       <para>
+La otra, una manera mas honesta es solamente incluir la sentencia COMMUTATOR en ambas definiciones. Cuando  <ProductName>Postgres</ProductName>procesa la primera definición  y se da cuenta COMMUTATOR hace referencia a un opereador inexistenete, el sistema hará una entrada silenciosa para ese operador en la tabla (relación) pg_operator del sistema.
+Esta entrada silenciosa tendrá datos válidos solamente para el nombre del operador, tipos de argumentos izquierdo y derechos, y un tipo de resultado, debido qeu es todo lo que 
+ <ProductName>Postgres</ProductName>puede deducir en ese punto. La primera entrada la catálogo del operador enlazará hacia esa entrada silenciosa. Mas tarde, cuando tu definas el segundo operador, el sistema actualiza la entrada silenciosa con la información adicional de la segunda definición. Si tu tratas de usar el operador silenciosa antes de que sea llenado, tu solo obtendras un mensaje de error. (Nota: Este procedimiento no funciona correctamente en versiones de  <ProductName>Postgres</ProductName> anteriores a la 6.5, pero es ahora la manera recomendada de hacer las cosas.) </para>
+      </listitem>
+     </itemizedlist>
+    </para>
+   </sect2>
+
+   <sect2>
+    <title>NEGATOR(negador)</title>
+
+    <para>
+La sentencia NEGATOR, si es proveida, nombra a un operador que es el negador del operador que está siendo definido. Nosotros decimos que un operador A es el negdor de un operador B si ambos retornan resultados bouleanos y (x A y) no es igual (x B y) para todas las posibles entradas x,y.
+Nota que B es también el negador de A. Por ejemplo, '<' and '>=' son un par de negadores para la mayoría de los tipos de datos.
+    </para>
+
+   <para>
+A diferencia de CONMMUTATOR, un par de operadores unarios, pueden ser validamente marcados como negadores entre si; eso significaría (A x) no es igual (B x) para todo x, o el equivalente para operadores unarios derechos.    
+   </para>
+
+   <para>
+Un operador de negación debe tener el mismo tipo de argumento derecho y/o izquierdo como el operador en si mismo, entonces al igual que con COMMUTATOR, solo el nombre del operador necesita ser dado en la sentencia NEGATOR.    
+   </para>
+
+   <para>
+Proveer NEGATOR es de mucha ayuda para la optimización de las consultas desde que permite expresiones como NOT (x=y) ser simplificadas en x &lt;&gt; y. Esto aparece mas seguido de los que tu debes pensar, porque NOTs pueden ser insertados como una consecuencia de otras reconstrucciones.    
+   </para>
+
+   <para>
+Pares de operadores negadores pueden ser definidos usando el mismo método explicado para pares de conmutadores.    
+  </para>
+
+  </sect2>
+
+  <sect2>
+   <title>RESTRICT (Restringir)</title>
+
+   <para>
+La sentencia RESTRICT, si es proveida, nombra una función de estimación selectiva de restricción para el operador (nota que esto es un nombre de función, no un nombre de un operador).
+Las sentencias RESTRICT solamente tienen sentido para operadores binarios que retornan valores bouleanos. La idea detrás de un estimador selectivo de restricción es suponer que fracción de las filas en una tabla satisfacerán una sentencia de condición WHERE en el formulario
+  RESTRICT clauses only make sense for
+   <ProgramListing>
+    		field OP constant
+   </ProgramListing>
+para el operador corriente y un valor constante particualr. Esto asiste al optimizador dandole alguna idea de como tantas filas van a ser eliminadas por la sentencia WHERE que tiene este formulario. (Qué pasa si la constante está a la izquierda, debes puedes estar preguntándote? bien, esa es una de las cosas para las que sirve CONMMUTATOR...)
+   </para>
+
+   <para>
+Escribiendo nuevas funciones de estimación selectivas de restricción está más allá del alcance de este capítulo, pero afortunadamente tu puedes usualmente solamente usar un estimador estandar del sistema para muchos de tus propios operadores. Estos son los estimadores estandars:    
+   <ProgramListing>
+	eqsel		for =
+	neqsel		for &lt;&gt;
+	scalarltsel	for &lt; or &lt;=
+	scalargtsel	for &gt; or &gt;=
+   </ProgramListing>
+Puede parecer un poco curioso que estas son las categorias, pero ellas tienen sentido si tu piensas acerca de ellas. '=' tipicamente aceptará solamente una fracción pequeña de las filas en la tabla; '&lt;&gt;' tipicamente rechazará solamente una fracción pequeña.
+  '&lt;' aceptara una fracción que depende de donde las constantes dadas quedan en el rango de valores para es columna de la tabla (la cual, solo ha pasado, es información recogida por el ANALIZADOR VACUUM y puesta disponible para el estimador selectivo).
+    '&lt;=' aceptará una fracción un poquito mas laraga que '&lt;' para las mismas constantes comparadas, pero son lo suficientemente cerradas para no ser costosas, especialmente desde que nosotros no estamos probalemente haciendo mejor que una aspera suposición de cualquier manera.
+Los mismos comentarios son aplicados a '&gt;' y '&gt;='.
+   </para>
+
+   <para>
+ Tu puedes frecuentemente escaparse de usar eqsel o neqsel para operadores que tienen muy alta o muy baja selectividad, incluso si ellas no son realmente equivalentes o no equivalentes. Por ejemplok, la expresión regular operadores emparejados (~,~*, etc.) usa eqsel sobre la suposición que ellos usualmente solo emparejen una pequeña fracciónde entradas en una tabla.   
+   </para>
+
+   <para>
+Tu puedes usar scalarltsel y scalargtsel para comparaciones sobre tipos de datos que tienen cierto significado sencible de ser convertido en escalares numéricos para comparaciones de rango. Es posible, añadir el tipo de dato a aquellos entendidos por la rutina convert_to_scalar() in src/backend/utils/adt/selfuncs.c. (Eventualmente, esta rutina debe ser reemplazada por funciones per-datatype identificadas a travéz de una columna de la tabla pg_type; pero eso no ha pasado todavía.)Si tu no haces esto, las cosas seguiran funcionando, pero la estimación del optimizador no estarán tan bien como podrian.   
+   </para>
+
+   <para>
+Hay funciones adicionales de selectividad diseñadas para operadores geométricos en src/backend/adt/geo_selfuncs.c: areasel, positionsel, y contsel. En este escrito estas son solo nombradas, pero tu puedes querer usarlas (o incluso mejormejorarlas).    
+   </para>
+   </sect2>
+
+   <sect2>
+    <title>JOIN (unir)</title>
+
+    <para>
+La sentencia JOIN, si es proveida, nombra una función de estimación selectiva join para el operador (nota que esto es un nombre de una función, no un nombre de un operador). Las sentencias JOIN solamente tienen sentido para operadores binarios que retorna valores bouleanos. La idea detrás de un estimador selectivo join es suponer que fracción de las filas de un par de tablas satisfacerán la condición de la sentencia WHERE del formulario     
+     <ProgramListing>
+                table1.field1 OP table2.field2
+     </ProgramListing>
+para el operador corriente. Como la sentencia RESTRICT, esta ayuda al optimizador muy sustancialmente permitiendole deducir cual de las posibles secuencias join es probable que tome el menor trabajo.    
+    </para>
+
+    <para>
+como antes, este capítulo no procurará explicar como escribir una función estimadora selectiva join, pero solamente sugeriremos que tu uses uno de los estimadores estandars si alguna es aplicable:  
+     <ProgramListing>
+	eqjoinsel	for =
+	neqjoinsel	for &lt;&gt;
+	scalarltjoinsel	for &lt; or &lt;=
+	scalargtjoinsel	for &gt; or &gt;=
+	areajoinsel	for 2D area-based comparisons
+	positionjoinsel	for 2D position-based comparisons
+	contjoinsel	for 2D containment-based comparisons
+    </ProgramListing>
+    </para>
+   </sect2>
+
+   <sect2>
+    <title>HASHES(desmenusamiento)</title>
+
+    <para>
+La sentencia HASHES, si está presente, le dice al sistema que está bien usar un metodo hash join para uno basado en join sobre este operador. HASHES  solamente tiene sentido para operadores binarios que retornan valores binario, y en la práctica el operador tiene que estar igualado a algún tipo de datos.     
+   </para>
+
+    <para>
+    La suposición subyacente de hash join es que el operador join puede selamente retornar TRUE (verdadero) para pares de valores izquierdos o derechos.
+Si dos valores puestos en diferentes recipientes hash, El join nunca los comparará a ellos del todo, implicitamente asumiendo que el resultado del operadior join debe ser FALSE (falso). Entonces nunca tiene sentido especificar HASHES para operadores que no se representan igualmente.
+    </para>
+
+    <para>
+De hecho, la igualdad lógica no es suficientemente buena; el operador tuvo mejor representación por igualdad pura bit a bit, porque la función hash sera computada sobre la representación de la memoria de los valores sin tener en cuenta que significan los bits. Por ejemplo, igualdad de intervalos de tiempo no es igualdad bit a bit; el operador de igualdad de intervalo considera dos  intervalos de tiempos iguales si ellos tienen la misma duración, si son o no son sus puntos finales idénticos. Lo que esto significa es que el uso de join "=" entre campos de intervalos produciría resultados diferentes si es implementado como un hash join o si es implementado en otro modo, porque una fracción larga de los pares que deberían igualar resultarán en valores diferentes y nunca serán comparados por hash join. Pero si el optimizador elige usar una clase diferente de join, todoslos pares que el operador de igualdad dija que son iguales serán encontrados. No queremos ese tipo de inconsistencia, entonces no marcamos igualdad de intervalos como habilitados para hash.
+
+    </para>
+
+    <para>
+Hay también modos de dependencia de máquina en cuales un hash join puede fallar en hacer las cosas bien. Por ejemplo, si tu tipo de dato es una estructura en la cual puede haber bloque de bits sin interes, es inseguro marcar el operador de iguladad HASHES. (al menos, quizas, tu escribes tu otro operador para asegurarte que los bits sin uso son iguales a zero). Otro ejemplo es que los tipo de datos de punto flotante son inseguros para hash joins. Sobre máquinas que cumplan los estándares de la IEEE de puntos flotantes, menos cero y mas cero son dos valores diferentes (diferentes patrones de bit) pero ellos están definidos para compararlos igual. Entonces, si la igualdad de punto flotante estuviese marcada, hashes, un mnos cero y un mas cero probablemente no serían igualados por hash join, pero ellos serían igualados por cualquier otro proceso join.     
+    </para>
+
+    <para>
+La última linea es para la cual tu probablemente deberías usar unicamente HASEHES para igualdad de operadores que son (o podría ser ) implementada por memcmp().    
+    </para>
+
+   </sect2>
+
+   <sect2>
+    <title>SORT1 and SORT2 (orden1 y orden2)</title>
+
+    <para>
+La sentencia SORT, si está presente, le dice al sistema que esta permitido usar el método merge join (unir join) para un join basado sobre el operador corriente.
+Ambos deben ser especificados si tampoco está. El operador corriente debe ser igual para algunos pares de tipo de datos, y las sentencias SORT1 Y SORT2 nombran el operador de orden ('<' operador) para tipos de datos izquierdo y derecho respectivamente.
+    </para>
+
+    <para>
+Merge join está basado sobre la ídea de ordenar las tablas izquierdas y derechas en un orden y luego inspecionarlas en paralelo. Entonces, ambos tipos de datos deben ser aptos de ser ordenados completamente, y el operador join debe ser uno que pueda solamente tener éxito con pares de valores que caigan en el mismo lugar en la busqueda de orden. En práctica esto significa que el operador join debe comportarse como iguldad. Pero distinto de hashjoin, cuando los tipos de datos  izquierdos y derechos tuvieron qe ser mejor el mismo. ( o al menos iquivalentes bit a bit), es posible unir dos tipos de datos distintos tanto como sean ellos compatibles logicamente. Por ejemplo, el operador de igualdad int2-versus-int4 es unible.  Solo necesitamos operadores de oprden que traigna ambos tipos de datos en una secuencia lógica compatible.
+
+    </para>
+
+    <para>
+Cuando se especifican operadores operadores sort merge, el operador corriente y ambos operadores referenciados deben retornar valores bouleanos; el operador SORT1 debe tener ambos tipo de datos de entrada iguales al tipo de argumento izquierdo del operador corriente y el operador SORT2 debe tener ambos tipos de datos de entrada iguales al tipo de argumento derecho del operador corriente. (como con COMMUTATOR y NEGATOR, esto significa que el nombre del operador es suficiente para especificar el operador, y el sistema es capaz de hacer entradas de operador silenciosas si tu definiste el operador de igualda antes que los otros.    
+    </para>
+
+    <para>
+En práctica tu debes solo escribier sentencias SORT para un operador '=', y los dos operadores referenciados deben ser siempre nombrados '<'. Tratando de usar merge join con operadores nombrados nada mas resultará en confusiones inesperadas, por razones que veremos en un momento.
+    </para>
+
+    <para>
+Hay restricciones adicionales sobre operadores que tu marcas mergegoinables. Estas restricciones no son corrientemente chequeadas por CREATE OPERATE, pero un merge join puede fallar en tiempo de  ejecución si alguna no es verdad:
+     <itemizedlist>
+      <listitem>
+       <para>
+El operador de igualdad mergejoinable debe tener un conmutador (El mismo si los dos tipos de datos son iguales, o un operador de igualdad relativo si son diferentes.).	
+       </para>
+      </listitem>
+
+      <listitem>
+       <para>
+Debe haber operadores de orden '<' and '>'  teniendo los mismos tipos de datos izquierdo y derecho de entrada como el operados mergejinable en si mismo. Estos operadores 
+ <emphasis>deben</emphasis>ser nombrados '<' and '>'; tu no tienes opcion en este problema, desde que no hay provición para especificarlos explicitamente. Nota que si los tipo de datos izquierdo y derechos son diferentes, ninguno de estos operadors es el mismo que cualquier operador SORT. pero ellos tuvieron mejores ordenados la compativilidad de los valores de dato con los operadores SORT, o o mergejoin fallará al funcionar.
+       </para>
+      </listitem>
+     </itemizedlist>
+    </para>
+   </sect2>
+
+  </sect1>
+ </Chapter>
+
+<!-- Keep this comment at the end of the file
+Local variables:
+mode: sgml
+sgml-omittag:nil
+sgml-shorttag:t
+sgml-minimize-attributes:nil
+sgml-always-quote-attributes:t
+sgml-indent-step:1
+sgml-indent-data:t
+sgml-parent-document:nil
+sgml-default-dtd-file:"./reference.ced"
+sgml-exposed-tags:nil
+sgml-local-catalogs:"/usr/lib/sgml/CATALOG"
+sgml-local-ecat-files:nil
+End:
+-->

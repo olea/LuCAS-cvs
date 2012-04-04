@@ -1,0 +1,263 @@
+'\" t
+.\" This man page is Copyright (C) 1999 Matthew Wilcox <willy@bofh.ai>.
+.\" Permission is granted to distribute possibly modified copies
+.\" of this page provided the header is included verbatim,
+.\" and in case of nontrivial modification author and date
+.\" of the modification is added to the header.
+.\" Modified June 1999 Andi Kleen
+.\" $Id: arp.7,v 1.1.1.1 2001/11/25 17:34:49 carlos Exp $
+.\"
+.\" Translated on Sat Jul 3 1999 by Juan Piernas <piernas@ditec.um.es>
+.\"
+.TH ARP 7 "3 junio 1999" "Página man de Linux" "Manual del Programador de Linux"
+.SH NOMBRE
+arp \- Módulo ARP del núcleo de Linux. 
+.SH DESCRIPCIÓN
+Este módulo de protocolo del núcleo implementa el protocolo de resolución de
+direcciones (Address Resolution Protocol, ARP) definido en RFC 826.
+Se usa para convertir direcciones hardware de la Capa 2 a direcciones del
+protocolo IPv4 y viceversa, en redes conectadas directamente. El usuario
+normalmente no interactúa directamente con este módulo salvo para
+configurarlo. En cambio, proporciona un servicio para otros protocolos
+dentro del núcleo.
+
+Un proceso de usuario puede recibir paquetes ARP usando conectores
+.BR packet (7).
+También existe un mecanismo para gestionar la cache ARP en el espacio de
+usuario usando conectores
+.BR netlink (7).
+La tabla ARP también se puede controlar aplicando la llamada
+.B ioctl (2) 
+a cualquier conector
+.BR PF_INET .
+
+El módulo ARP mantiene una cache de asociaciones entre direcciones hardware
+y direcciones de protocolo. La cache tiene un tamaño limitado por lo que las
+entradas antiguas y menos frecuentemente usadas son elminadas por un
+recolector de basura. Las entradas marcadas como permanentes nunca son
+eliminadas por el recolector de basura. La caché se puede manipular
+directamente mediante ioctls y su comportamiento se puede ajustar mediante
+las sysctls definidas más abajo.
+
+Una entrada de la cache de vecinos se considerará caduca cuando no exista una
+retroalimentación positiva después de algún tiempo para una asociación
+existente (vea las sysctls más abajo). Para enviar datos de nuevo al destino,
+el módulo ARP primero intenta pedir a un demonio arp local una dirección MAC
+actualizada durante
+.B app_solicit 
+veces.
+Si esto falla y se conoce la antigua dirección MAC, se envía un sondeo
+unidestino durante
+.B ucast_solicit
+veces. Si esto también falla, se realizará la difusión de una nueva
+petición ARP a la red. Las peticiones sólo se envían cuando hay datos
+encolados para ser enviados.
+
+Linux automáticamente añadirá una entrada proxy arp no permanente cuando
+reciba una petición de una dirección a la que él reenvía y cuando el proxy arp
+esté activo en la interfaz receptora. Cuando existe una ruta de rechazo para
+un destino, no se añade ninguna entrada arp.
+
+.SH IOCTLS
+Existen tres ioctls disponibles en todos los conectores
+.BR PF_INET .
+Toman un puntero a una estructura
+.B struct arpreq
+como argumento.
+
+.nf
+.ta 4 20 33
+struct arpreq
+{
+	struct sockaddr	arp_pa;	/* dirección del protocolo */
+	struct sockaddr	arp_ha;	/* dirección hardware */
+	int	arp_flags;	/* opciones */
+	struct sockaddr	arp_netmask;	/* máscara de red de la dirección
+			   de protocolo */
+	char	arp_dev[16];
+};
+.fi
+
+.BR SIOCSARP ", " SIOCDARP " y " SIOCGARP
+establecen, borran u obtienen una asociación ARP, respectivamente.
+Establecer y borrar asociaciones ARP son operaciones privilegiadas y sólo
+pueden ser realizadas por un proceso con la capacidad
+.B CAP_NET_ADMIN
+o con un UID efectivo 0.
+
+.I arp_pa
+debe ser un conector
+.B AF_INET
+y
+.I arp_ha
+debe tener el mismo tipo que el dispositivo que se especifica en
+.IR arp_dev .
+.I arp_dev
+es una cadena terminada en cero que da el nombre de un dispositivo.
+
+.TS
+tab(:) allbox;
+c s
+l l.
+\fIarp_flags\fR
+Bandera:Significado
+ATF_COM:Búsqueda completa
+ATF_PERM:Entrada permanente
+ATF_PUBL:Publicar entrada
+ATF_USETRAILERS:Son necesarios terminadores
+ATF_NETMASK:Usar una máscara de red
+ATF_DONTPUB:No responder
+.TE
+
+.PP
+
+Si se activa la bandera
+.BR ATF_NETMASK ,
+.I arp_netmask
+debe ser válida.
+La versión 2.2 de Linux no soporta entradas de proxy arp de red, por lo que
+debería asignar a
+.I arp_netmask
+el valor 0xffffffff o 0 para eliminar una entrada proxy arp existente.
+La opción
+.B ATF_USETRAILERS
+está obsoleta y no debería usarse.
+
+.SH SYSCTLS
+El módulo ARP soporta una interfaz sysctl para configurar parámetros
+globales o específicos de una interfaz.
+Se puede acceder a las sysctls leyendo o escribiendo los ficheros
+.B /proc/sys/net/ipv4/neigh/*/*
+o con la interfaz
+.BR sysctl (2).
+Cada interfaz del sistema tiene su propio directorio en
+/proc/sys/net/ipv4/neigh/.
+La configuración del directorio `por defecto' se usa para todos los
+dispositivos recién creados. A menos que se indique otra cosa, las sysctls
+relacionadas con el tiempo se especifican en segundos.
+.TP
+.B anycast_delay
+Número máximo de unidades de tiempo (jiffies) a esperar antes de contestar a
+un mensaje IPv6 de solicitud de vecinos.
+El soporte "cualquier dirección" (anycast) todavía no está implementado.
+El valor por defecto es de 1 segundo.
+.TP
+.B app_solicit
+El número máximo de sondeos a enviar a un demonio ARP en el espacio de
+usuario mediante netlink antes de recurrir a sondeos multidestino (vea
+.IR mcast_solicit ).
+Por defecto es 0.
+.TP
+.B base_reachable_time
+Una vez que se ha encontrado un vecino, la entrada se considera válida
+durante, al menos, un valor aleatorio entre
+.IR base_reachable_time "/2 y 3*" base_reachable_time /2.
+La validez de una entrada se ampliará si recibe retroalimentación positiva
+desde los protocolos de los niveles más altos.
+El valor por defecto es de 30 segundos.
+.TP
+.B delay_first_probe_time
+Tiempo de espera antes del primer sondeo después de que se haya decidido que un
+vecino está caduco. Por defecto es 5 segundos.
+.TP
+.B gc_interval
+Periodo con el que el recolector de basura para las entradas de vecinos
+debería intentar ejecutarse. Por defecto es de 30 segundos.
+.TP
+.B gc_stale_time
+Determina la frecuencia con la que se comprueban las entradas en busca de
+vecinos caducos. Cuando la entrada de un vecino se considera caduca, se
+resuelve de nuevo antes de enviarle datos.
+El valor por defecto es de 60 segundos.
+.TP
+.B gc_thresh1
+Número mínimo de entradas a guardar en la cache ARP. El recolector de basura
+no se ejecutará si hay menos entradas en la cache que el número indicado.
+Por defecto vale 128.
+.TP
+.B gc_thresh2
+Número máximo flexible de entradas a guardar en la cache ARP. El recolector
+de basura permitirá que el número de entradas exceda éste límite durante 5
+segundos antes de realizar una recolección. El valor por defecto es de 512
+entradas.
+.TP
+.B gc_thresh3
+Número máximo estricto de entradas a guardar en la cache ARP. El recolector
+de basura se ejecutará siempre si hay más entradas en la caché que el número
+indicado. Por defecto vale 1024.
+.TP
+.B locktime
+Número mínimo de unidades de tiempo que debe permanecer una entrada ARP en la
+cache. Esto evita la modificación continua de la cache ARP si hay más de una
+asociación potencial (debido, generalmente, a una mala configuración de la
+red). Por defecto es 1 segundo.
+.TP
+.B mcast_solicit
+Número máximo de intentos para resolver una dirección mediante
+multidestino/difusión antes de marcar la entrada como inalcanzable. El
+valor por defecto es 3.
+.TP
+.B proxy_delay
+Cuando se recibe una solicitud ARP para una dirección proxy-ARP conocida,
+esperar hasta
+.I proxy_delay
+unidades de tiempo antes de responder. Esto se utiliza para evitar inundar
+la red en algunos casos. Por defecto vale 0,8 segundos.
+.TP
+.B proxy_qlen
+Número máximo de paquetes que se pueden encolar para direcciones proxy-ARP.
+Por defecto vale 64.
+.TP
+.B retrans_time
+Número de unidades de tiempo a esperar antes de retransmitir una petición.
+El valor por defecto es 1 segundo.
+.TP
+.B ucast_solicit
+Número máximo de intentos para enviar sondeos unidestino antes de
+preguntar al demonio ARP (vea
+.IR app_solicit ).
+Por defecto es 3.
+.TP
+.B unres_qlen
+Número máximo de paquetes que otras capas de red pueden encolar para cada
+dirección sin resolver. Por defecto vale 3.
+
+.SH FALLOS
+Algunos valores del cronómetro se especifican en unidades de tiempo
+(jiffies), cuyo valor dependen de la arquitectura. En los Alpha una unidad de
+tiempo es 1/1024 segundos y en la mayoría de arquitecturas es 1/100
+segundos.
+
+No hay forma de indicar una retroalimentación positiva desde el espacio de
+usuario. Esto significa que los protocolos orientados a conexión
+implementados en el espacio de usuario generarán un tráfico ARP excesivo,
+debido a que
+.I ndisc
+volverá regularmente a sondear las direcciones MAC. El
+mismo problema es aplicable a la implementación NFS del núcleo.
+
+Esta página de manual mezcla funcionalidad específica de IPv4 y comportida
+entre IPv4 e IPv6.
+
+.SH VERSIONES
+
+La estructura
+.B struct arpreq
+cambió en la versión 2.0 de Linux para incluir el miembro
+.I arp_dev
+y los números de las ioctls cambiaron a la misma vez.
+El soporte para las antiguas ioctls se eliminó en la versión 2.2 de Linux.
+
+El soporte para entradas proxy arp de red (máscara de red distinta de
+0xffffffff) se eliminó en la versión 2.2 de Linux. Se reemplazó por una
+configuración proxy arp automática realizada por el núcleo para todos los
+anfitriones (hosts) alcanzables a través de otras interfaces (cuando están
+activos el reenvío y el proxy arp en la interfaz).
+
+.SH VÉASE TAMBIÉN
+.BR ip (7)
+.PP
+RFC826 para una descripción de ARP.
+.br
+RFC2461 para una descripción del descubrimiento de vecinos de IPv6 y los
+algoritmos base utilizados.

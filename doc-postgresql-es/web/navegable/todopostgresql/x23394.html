@@ -1,0 +1,632 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<HTML
+><HEAD
+><TITLE
+>Protocolo</TITLE
+><META
+NAME="GENERATOR"
+CONTENT="Modular DocBook HTML Stylesheet Version 1.59"><LINK
+REL="HOME"
+TITLE="PostgreSQL"
+HREF="postgres.html"><LINK
+REL="UP"
+TITLE="Protocolo Frontend/Backend"
+HREF="protocol.html"><LINK
+REL="PREVIOUS"
+TITLE="Protocolo Frontend/Backend"
+HREF="protocol.html"><LINK
+REL="NEXT"
+TITLE="Tipos de Datos de Mensajes"
+HREF="x23549.html"></HEAD
+><BODY
+CLASS="SECT1"
+BGCOLOR="#FFFFFF"
+TEXT="#000000"
+LINK="#0000FF"
+VLINK="#840084"
+ALINK="#0000FF"
+><DIV
+CLASS="NAVHEADER"
+><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TH
+COLSPAN="3"
+ALIGN="center"
+>PostgreSQL</TH
+></TR
+><TR
+><TD
+WIDTH="10%"
+ALIGN="left"
+VALIGN="bottom"
+><A
+HREF="protocol.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="80%"
+ALIGN="center"
+VALIGN="bottom"
+>Protocolo Frontend/Backend</TD
+><TD
+WIDTH="10%"
+ALIGN="right"
+VALIGN="bottom"
+><A
+HREF="x23549.html"
+>Siguiente</A
+></TD
+></TR
+></TABLE
+><HR
+ALIGN="LEFT"
+WIDTH="100%"></DIV
+><DIV
+CLASS="SECT1"
+><H1
+CLASS="SECT1"
+><A
+NAME="AEN23394"
+>Protocolo</A
+></H1
+><P
+>Esta sección describe el flujo de mensajes. Existen cuatro tipos diferentes
+de flujo dependiendo del estado de la conexión: inicio, consulta, llamada
+de función y final. Existen tambien provisiones especiales para notificación
+de respuestas y cancelación de comandos, que pueden ocurrir en cualquier
+instante despues de la fase de inicio.</P
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN23397"
+>Inicio</A
+></H2
+><P
+>El inicio se divide en fase de autentificación y fase de arranque del
+backend.</P
+><P
+>Inicialmente, el frontend envía un StartupPacket. El postmaster utiliza
+esta información y el contenido del fichero pg_hba.conf(5) para determinar
+que método de autentificación debe emplear. El postmaster responde entonces
+con uno de los siguientes mensajes:</P
+><P
+><P
+></P
+><DIV
+CLASS="VARIABLELIST"
+><DL
+><DT
+>ErrorResponse</DT
+><DD
+><P
+>        El postmaster cierra la comunicación inmediatamente.</P
+></DD
+><DT
+>AuthenticationOk</DT
+><DD
+><P
+>        El postmaster entonces cede la comunicación al backend. El
+        postmaster no toma parte en la comunicación posteriormente.</P
+></DD
+><DT
+>AuthenticationKerberosV4</DT
+><DD
+><P
+>        El frontend debe tomar parte en una diálogo de autentificación
+        Kerberos V4 (no descrito aquí) con el postmaster. En caso de
+        éxito, el postmaster responde con un AuthenticationOk, en caso
+        contrario responde con un ErrorResponse.</P
+></DD
+><DT
+>AuthenticationKerberosV5</DT
+><DD
+><P
+>        El frontend debe tomar parte en un diálogo de autentificación
+        Kerberos V5 (no descrito aquí) con el postmaster. En caso de
+        éxito, el postmaster responde con un AuthenticationOk, en
+        otro caso responde con un ErrorResponse.</P
+></DD
+><DT
+>AuthenticationUnencryptedPassword</DT
+><DD
+><P
+>        El frontend debe enviar un UnencryptedPasswordPacket. Si este
+        es el password correcto, el postmaster responde con un
+        AuthenticationOk, en caso contrario responde con un 
+        ErrorResponse.</P
+></DD
+><DT
+>AuthenticationEncryptedPassword</DT
+><DD
+><P
+>        El frontend debe enviar un EncryptedPasswordPacket. Si este
+        esel password correcto, el postmaster responde con un
+        AuthenticationOk, en caso contrario responde con un
+        ErrorResponse.</P
+></DD
+></DL
+></DIV
+></P
+><P
+>Si el frontend no soporta el método de autentificación requerido por el
+postmaster, debería cerrar inmediatamente la conexión.</P
+><P
+>Despues de enviar AuthenticationOk, el postmaster intenta lanzar un
+proceso backend. Como esto podría fallar, o el backend podría encontrar
+un error durante el arranque, el frontend debe esperar por una confirmación
+de inicio correcto del backend. El frontend no debería enviar mensajes
+en este momento. Los posibles mensajes procedentes del backend durante esta
+fase son:
+
+<P
+></P
+><DIV
+CLASS="VARIABLELIST"
+><DL
+><DT
+>BackendKeyData</DT
+><DD
+><P
+>        Este mensaje es enviado despues de un inicio correcto
+        del backend. Proporciona una clave secreta que el frontend
+        debe guardar is quiere ser capaz de enviar peticiones de
+        cancelación más tarde. El frontend no debería responder a
+        este mensaje, pero podría continuar escuchando por un
+        mensaje ReadyForQuery.</P
+></DD
+><DT
+>ReadyForQuery</DT
+><DD
+><P
+>        El arranque del backend tuvo éxito. El frontend puede ahora
+        enviar mensajes de peticiones o llamandas a función.</P
+></DD
+><DT
+>ErrorResponse</DT
+><DD
+><P
+>        El arranque del backend no tuvo éxito. La conexión es
+        cerrada despues de enviar este mensaje.</P
+></DD
+><DT
+>NoticeResponse</DT
+><DD
+><P
+>        Se envía un mensaje de advertencia. El frontend debería
+        mostrar un mensaje pero debería continuar a la espera de
+        un mensaje ReadyForQuery o ErrorResponse.</P
+></DD
+></DL
+></DIV
+></P
+><P
+>El mensaje ReadyForQuery es el mismo que el backend debe enviar despues de
+cada ciclo de consulta. Dependiendo de las necesiades de codificado del
+frontend, es razonable considerar ReadyForQuery como iniciando un ciclo
+de consulta (y entonces BackendKeyData indica una conclusión correcta de
+la fase de inicio), o considerar ReadyForQuery como finalizando la fase
+de arranque y cada subsiguiente ciclo de consulta.</P
+></DIV
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN23447"
+>Consulta</A
+></H2
+><P
+>Un ciclo de consulta se inicia por el frontend enviando un mensaje Query
+al backend. El backend entonces envía uno o más mensajes de respuesta
+dependiendo del contenido de la cadea de consulta, y finalmente un 
+mensaje ReadyForQuery. ReadyForQuery informa al frontend que puede enviar
+una nueva consulta o llamada de función de forma segura.</P
+><P
+>Los posibles mensajes del backend son:
+
+<P
+></P
+><DIV
+CLASS="VARIABLELIST"
+><DL
+><DT
+>CompletedResponse</DT
+><DD
+><P
+>        Una sentencia SQL se completó con normalidad.</P
+></DD
+><DT
+>CopyInResponse</DT
+><DD
+><P
+>        El backend está preparado para copiar datos del frontend
+        a una relación. El frontend debería enviar entonces un
+        mensaje CopyDataRows. El backend responde con un mensaje
+        CompletedResponse con un tag de "COPY".</P
+></DD
+><DT
+>CopyOutResponse</DT
+><DD
+><P
+>        El backend está listo para copiar datos de una relación al
+        frontend. El envía entonces un mensaje CopyDataRows, y
+        un mensaje CompletedResponse con un tag de "COPY".</P
+></DD
+><DT
+>CursorResponse</DT
+><DD
+><P
+>        La consulta fue bien un insert(l), delete(l), update(l),
+        fetch(l) o una sentencia select(l).
+                Si la transacción ha sido abortada entonces el backend envía
+                un mensaje CompletedResponse con un tag "*ABORT STATE*". En
+                otro caso las siguientes respuesta son enviadas.</P
+><P
+>		Para una sentencia insert(l), el backend envía un mensaje 
+		CompletedResponse con un tag de "INSERT <TT
+CLASS="REPLACEABLE"
+><I
+>oid</I
+></TT
+> 
+        <TT
+CLASS="REPLACEABLE"
+><I
+>rows</I
+></TT
+>"
+		donde <TT
+CLASS="REPLACEABLE"
+><I
+>rows</I
+></TT
+> es el número de filas insertadas, y 
+        <TT
+CLASS="REPLACEABLE"
+><I
+>oid</I
+></TT
+> es el ID de objeto de la fila insertada si
+		<TT
+CLASS="REPLACEABLE"
+><I
+>rows</I
+></TT
+> es 1, en otro caso <TT
+CLASS="REPLACEABLE"
+><I
+>oid</I
+></TT
+>
+		es 0.</P
+><P
+>        Para una sentencia delete(l), el backend envía un mensaje CompletedResponse con
+        un tag de "DELETE <TT
+CLASS="REPLACEABLE"
+><I
+>rows</I
+></TT
+>" donde <TT
+CLASS="REPLACEABLE"
+><I
+>rows</I
+></TT
+>
+        es el número de filas borradas.</P
+><P
+>        Para una sentencia update(l) el backend envía un mensaje CompletedResponse
+        con un tag de "UPDATE <TT
+CLASS="REPLACEABLE"
+><I
+>rows</I
+></TT
+>" 
+        donde <TT
+CLASS="REPLACEABLE"
+><I
+>rows</I
+></TT
+>
+        es el número de filas modificadas.</P
+><P
+>		para una sentencia fetch(l) o select(l), el backend envía un mensaje
+		RowDescription.  Es seguido después con un mensaje AsciiRow o BinaryRow
+        (dependiendo de si fué especificado un cursor binario) para cada fila que
+        es envíada al frontend. Por último, el backend envía un mensaje CompletedResponse
+        con un tag de "SELECT".</P
+></DD
+><DT
+>EmptyQueryResponse</DT
+><DD
+><P
+>        Se encontro una caden de consulta vacía. (La necesidad de
+        distinguir este caso concreto es histórica).</P
+></DD
+><DT
+>ErrorResponse</DT
+><DD
+><P
+>        Ocurrió un error.</P
+></DD
+><DT
+>ReadyForQuery</DT
+><DD
+><P
+>        El procesado de la cadena de consulta se completó. Un mensaje
+        seperado es enviado para indicar esto debido a que la cadena de
+        consulta puede contener múltiples sentencias SQL. (CompletedResponse
+        marca el final el procesado del una sentencia SQL, no de toda   
+        la cadena). Siempre se enviará ReadyForQuery, bien el procesado
+        terminase con éxito o con error.</P
+></DD
+><DT
+>NoticeResponse</DT
+><DD
+><P
+>        Un mensaje de advertencia fué enviado en relación con la
+        consulta. Estas advertencias se envían en adición a otras
+        respuestas, es decir, el backend continuará procesando la  
+        sentencia.</P
+></DD
+></DL
+></DIV
+></P
+><P
+>Un frontend debe estar preparado para aceptar mensaje ErrorResponse
+y NoticeResponse cuando se espere cualquier otro tipo de mensaje.</P
+><P
+>De hecho, es posible que NoticeResponse se reciba incluso cuando el frontned
+no está esperando ningún tipo de mensaje, es decir, cuando el backend está
+normalmente inactivo. En particular, el frontend puede solicitar la
+finalización del backend. En este caso se envía una NoticeResponse antes
+de cerrar la conexión. Se recomienda que el frontend compruebe esas advertencias
+asíncronas antes de enviar cada sentencia.</P
+><P
+>También, si el frontend envía cualquier comando listen(l), entonces debe estar
+preparado para aceptar mensajes NotificationResponse en cualquier momento.
+Véase más abajo.</P
+></DIV
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN23501"
+>Llamada a función</A
+></H2
+><P
+>Un ciclo de llamada a función se inicia por el frontend enviando un mensaje
+FunctionCall al backend. El backend entonces envía uno o más mensajes de
+respueste dependiendo de los resultados de la llamada a función, y finalmente
+un mensaje ReadyForQuery. ReadyForQuery informa al frontend que puede enviar
+una nueva consulta o llamada a función de forma segura.</P
+><P
+>Los posibles mensajes de respuesta provinientes de backend son:
+
+<P
+></P
+><DIV
+CLASS="VARIABLELIST"
+><DL
+><DT
+>ErrorResponse</DT
+><DD
+><P
+>        Ocurrió un error.</P
+></DD
+><DT
+>FunctionResultResponse</DT
+><DD
+><P
+>        La llamada a función fue ejecutada y devolvió un resultado.</P
+></DD
+><DT
+>FunctionVoidResponse</DT
+><DD
+><P
+>        La llamada a función fue ejecutada y no devolvió resultados.</P
+></DD
+><DT
+>ReadyForQuery</DT
+><DD
+><P
+>        El procesado de la llamada a función se completó. ReadyForQuery
+        se enviará siempre, aunque el procesado termine con éxito o error.</P
+></DD
+><DT
+>NoticeResponse</DT
+><DD
+><P
+>        Un mensaje de advertencia se generó en relación con la llamada
+        a función. Estas advertencias aparecen en adición a otras
+        respuestas, es decir, el backend continuará procesando el
+        comando.</P
+></DD
+></DL
+></DIV
+></P
+><P
+>El frontend debe estar preparado para aceptar mensajes ErrorResponse y 
+NoticeResponse cuando se esperen otro tipo de mensajes. También si
+envía cualquier comando listen(l) debe estar preparado para aceptar
+mensajes NotificationResponse en cualquier momento, véase más abajo.</P
+></DIV
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN23527"
+>Respuestas de notificación</A
+></H2
+><P
+>Si un frontend envía un comando listen(l), entonces el backend enviará
+un mensaje NotificationResponse (no se confunca con NoticeResponse!)
+cuando un comando notify(l) sea ejecutado para el mismo nombre de
+notificación.</P
+><P
+>Las respuestas de notificación son permitidas en cualquier punto en el
+protocolo (despues del inicio), excepto dentro de otro mensaje del
+backend. Así, el frontend debe estar preparado para reconocer un mensaje
+NotificationResponse cuando está esperando cualquier mensaje. De hecho
+debería ser capaz de manejar mensajes NotificationResponse incluso cuando
+no está envuelto en una consulta.
+
+<P
+></P
+><DIV
+CLASS="VARIABLELIST"
+><DL
+><DT
+>NotificationResponse</DT
+><DD
+><P
+>        Un comando notify(l) ha sido ejecutado para un nombre para
+        el que se ejecutó previamente un comando listen(l). Se
+        pueden enviar notifiaciones en cualquier momento.</P
+></DD
+></DL
+></DIV
+></P
+><P
+>Puede merecer la pena apuntar que los nombres utilizados en los comandos
+listen y notify no necesitan tener nada que ver con los nombres de
+relaciones (tablas) y bases de datos SQL. Los nombres de notificación
+son simplemente nombres arbitrariamente seleccionados.</P
+></DIV
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN23537"
+>Cancelación de peticiones en progreso</A
+></H2
+><P
+>Durante el procesado de una consulta, el frontend puede solicitar la cancelación
+de la consulta mediante el envío de una peticion apropiada al postmaster. La
+petición de cancelación no es enviada directamente al backend por razones de
+eficiencia de implementación: no deseamos tener al backend constantemente
+esperando nuevos datos del frontend durante el procesado de consultas. Las
+peticiones de cancelación deberían ser relativamente infrecuentes, por lo que
+las hacemos un poco mas voluminosas con el fín de evitar una penalización en el
+caso normal.</P
+><P
+>Para enviar una petición de cancelación, el frontend abre una nueva
+conexión con el postmaster y envía un mensaje CancelRequest, en vez del
+mensaje StartupPacket que enviaría normalmente en una nueva conexión. El
+postmaster procesará esta petición y cerrará la conexión. Por razones de
+seguridad, no se envía una respuesta directa al mensaje de cancelación.</P
+><P
+>Un mensaje CancelRequest será ignorado a menos que contenga los mismos
+datos clave (PID y clave secreta) enviados al frontend durante el inicio
+de la conexión. Si la petición contiene el PID e clave secreta el backend
+aborta el procesado de la consulta actual.</P
+><P
+>La señal de cancelación puede tener o no tener efectos - por ejemplo, si llega
+despues de que el backend haya finalizado de procesar la petición, entonces
+no tendrá efecto. Si la cancelación es efectiva, produce la terminación prematura
+del comando actual dando un mensaje de error.</P
+><P
+>La consecuencia de todo esto es que por razones tanto de seguridad como
+de eficiencia, el frontend no tiene forma directa de decidir cuando una
+petición de cancelación tuvo éxito. Debe continuar esperando hasta que
+el backend responda a al petición. Enviar unha petición de cancelación
+simplemente aumenta las probabilidades de que la consulta actual finalice
+pronto, y aumenta las probabilidades de que falle con un mensaje de error
+en vez de terminar con éxito.</P
+><P
+>Ya que la petición de cancelación es enviada al postmaster y no a través
+del enlace normal frontend/backend, es posible que cualquier proceso
+realice la petición, no sólo el frontend cuya consulta va a ser cancelada.
+Esto puede tener algún beneficio de cara a aumentar la flexibilidad al
+diseñar aplicaciones multi-proceso. Tambien introduce un riesgo de 
+seguridad, ya que personas no autorizadas podrían intentar cancelar
+consultas. El riesgo de seguridad es afrontado requiriendo la clave
+secreta generada dinámicamente.</P
+></DIV
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN23545"
+>Finalización</A
+></H2
+><P
+>El procedimiento de finalización normal es que el frontend envíe un
+mensaje Terminate y cierre inmediatamente la conexión. Al recibir el
+mensaje, el backend cierra inmediatamente la conexión y finaliza.</P
+><P
+>Una finalización anormal puede ocurrir debido a fallos de software (i.e. core
+dump) en cualquier extremo. Si el frontend o el backend ve un cierre inexperado
+de la conexión, debería liberar resursos y finalizar. El frontend tiene la
+opción de lanzar un nuevo backen recontactando el postmaster, si lo desea.</P
+></DIV
+></DIV
+><DIV
+CLASS="NAVFOOTER"
+><HR
+ALIGN="LEFT"
+WIDTH="100%"><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+><A
+HREF="protocol.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="postgres.html"
+>Inicio</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+><A
+HREF="x23549.html"
+>Siguiente</A
+></TD
+></TR
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+>Protocolo Frontend/Backend</TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="protocol.html"
+>Subir</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+>Tipos de Datos de Mensajes</TD
+></TR
+></TABLE
+></DIV
+></BODY
+></HTML
+>

@@ -1,0 +1,1157 @@
+#! /bin/sh
+#
+#  Notas del controlador Turtle Beach MultiSound
+#  -- Andrew Veliath <andrewtv@usa.net>
+#
+#  Última actualización:			Septiembre 10, 1998
+#  Versión correspondiente del controlador:	0.8.2
+#
+# ** Este fichero es un LEEME (la parte de arriba) y un archivo de shell 
+#    (la parte de abajo).
+#    Las utilidades empaquetadas en este fichero pueden ser extraidas ejecutando
+#    'sh Multisound' (Las utilidades sólo son necesarias para las tarjetas
+#    Pinnacle y Fiji). **
+#
+#
+#  -=-=- Como Obtener el Firmware -=-=-
+#  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#  
+#  Vea la sección `Obteniendo y Creando los Ficheros de Firmware' en este
+#  documento para las instrucciones sobre como obtener los ficheros necesarios
+#  del firmware.
+#  
+#  
+#  Características Soportadas
+#  ~~~~~~~~~~~~~~~~~~~~~~~~~~
+#  
+#  Actualmente, están soportados el modo full-duplex digital (sólo /dev/dsp, 
+#  /dev/audio actualmente no está soportado) y el mezclador (/dev/mixer) 
+#  (el modo de mapeado digital de memoria no está soportado todavía).
+#  Las transferencias digitales y el monitorizado se pueden hacer si tiene
+#  una tarjeta hija digital (vea la sección sobre el uso del puerto S/PDIF para
+#  obtener más información).
+#
+#  El soporte para la arquitectura Turtle Beach MultiSound Hurricane está 
+#  compuesto de los siguientes módulos (también funcionan si se compilan dentro
+#  del núcleo):
+#  
+#  msnd               - MultiSound base (requiere soundcore)
+#
+#  msnd_classic       - Soporte base de sonido/mezclador para las tarjetas
+#			Classic, Monetery y Tahiti
+#
+#  msnd_pinnacle      - Soporte base de sonido/mezclador para las tarjetas
+#			Pinnacle y Fiji
+#  
+#  
+#  Notas importantes - Lea antes de usar
+#  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#  
+#  Los ficheros del firmware no están incluidos (pueden cambiar en un futuro).
+#  Debe obtener estas imágenes de Turtle Beach (están incluidos en los Equipos
+#  de Desarrolo de Multisound ), y colocarlas en, por ejemplo, /etc/sound
+#  dándole la ruta completa a la configuración de Linux. Si está compilando
+#  dentro del núcleo en vez de en módulos, estos "firmwares" deben ser
+#  accesibles durante la compilación del núcleo.
+#
+#  Por favor note que estos ficheros son binarios, no ensamblador. Vea la
+#  sección posterior para obtener instrucciones sobre estos ficheros.
+#  
+#
+#  Como Configurar los Recursos de la Tarjeta
+#  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#
+#  ** Esta sección es muy importante, ya que su tarjeta puede no funcionar del
+#     todo o su máquina se puede colgar si no lo hace correctamente. **
+#
+#  * Classic/Monterey/Tahiti
+#  
+#  Estas tarjetas de configuran a través del controlador msnd_classic. 
+#  Debe saber el puerto E/S, para que el controlador seleccione la IRQ y 
+#  los recursos de memoria de la tarjeta. Es cosa suya saber si estos recursos
+#  están libres ya que si no lo están un conflicto puede colgar su máquina.
+#
+#  * Pinnacle/Fiji
+#
+#  Las tarjetas Pinnacle y Fiji tienen un puerto extra de configuración, 
+#  que puede ser uno de estos 0x250, 0x260 or 0x270.  Este puerto puede ser
+#  desactivado para configurar la tarjeta mediante PnP. Sin embargo, si usa
+#  PnP pierde la opción de acceder al controlador IDE y al puerto de jostick 
+#  de la tarjeta.
+#  El programa pinnaclecfg incluido en este archivo de shell puede usarse
+#  para configurar la tarjeta en modo no-PnP, y en modo PnP puede usar
+#  isapnptools.  Estas dos opciones se describen brevemente ahora.
+#
+#  pinnaclecfg no es necesario; puede usar el módulo msnd_pinnacle para
+#  configurar totalmente la tarjeta. Sin embargo, pinnaclecfg se puede usar
+#  para cambiar los valores de los recursos de un dispositivo particular
+#  después de que se haya cargado el módulo msnd_pinnacle.
+#  Si está compilando el controlador en el núcleo debe ajustar esos valores
+#  durante la compilación, sin embargo, los recursos se pueden cambiar con 
+#  el programa pinnaclecfg después de que se haya cargado el núcleo.
+#
+#
+#  *** modo PnP
+#  
+#  Use pnpdump para obtener una configuración de muestra; Yo la obtuve con el
+#  comando `pnpdump 1 0x203' -- esto puede ser diferente para usted 
+#  (a mí no me funciono ejecutar pnpdump a secas). Después edite ese fichero y
+#  use isapnp para descomentar y cargar los valores de la tarjeta.
+#  Use estos valores cuando cargue el módulo msnd_pinnacle.  Con este método
+#  puede inicializar los recursos para el DSP y el sintetizador Kurzweil
+#  (Pinnacle).  Ya que Linux no soporta directamente dispositivos PnP
+#  puede tener dificultades para usar la tarjeta en modo PnP cuando este
+#  controlador esté compilado en el núcleo.  En este caso se recomienda usar
+#  en modo no-PnP.
+#
+#  Aquí tiene un ejemplo de mi mypinnacle.conf para isapnp que pone la tarjeta 
+#  con los valores:
+#  base e/s 0x210, irq 5 y memoría 0xd8000, y también pone el sintetizador 
+#  Kurzweil a 0x330 y irq 9 (puede necesitar ser editado para su sistema):
+#
+#  (READPORT 0x0203)
+#  (CSN 2)
+#  (IDENTIFY *)
+#  
+#  # DSP
+#  (CONFIGURE BVJ0440/-1 (LD 0
+#          (INT 0 (IRQ 5 (MODE +E))) (IO 0 (BASE 0x0210)) (MEM 0 (BASE 0x0d8000))
+#          (ACT Y)))
+#  
+#  # Sintetizador Kurzweil (sólo Pinnacle)
+#  (CONFIGURE BVJ0440/-1 (LD 1
+#          (IO 0 (BASE 0x0330)) (INT 0 (IRQ 9 (MODE +E)))
+#          (ACT Y)))
+#  
+#  (WAITFORKEY)
+#
+#
+#  *** modo No-PnP
+#  
+#  La segunda forma es cargar la tarjeta en modo no-PnP. Esto realmente tiene
+#  algunas ventajas en el caso que acceda a los otros dispositivos de la
+#  tarjeta, como el del joystick o la controladora IDE.  Para configurar la
+#  tarjeta, desempaquete este archivo shell y compile el programa pinnaclecfg.
+#  Usando este programa, puede asignar valores a los dispositivos de la tarjeta
+#  o desactivar estos dispositivos. Como alternativa a este programa, puede
+#  especificar muchos de los valores de configuración cuando cargue el módulo
+#  msnd_pinnacle (o durante la configuración del núcleo cuando compile el
+#  controlador dentro de este).
+#
+#  Si especifica cfg=0x250 para el módulo msnd_pinnacle, automáticamente
+#  configura la tarjeta a unos datos dados de e/s, irq y memoria que usan ese
+#  puerto de configuración (el puerto de configuración es seleccionable
+#  mediante puentes en la tarjeta a los valores 0x250, 0x260 or 0x270).
+#
+#  Vea la sección `Opciones adicionales para msnd_pinnacle' más abajo para
+#  conseguir más información de estos parámetros (también, si compila el 
+#  controlador directamente en el núcleo, estos parámetros adicionales pueden 
+#  ser útiles aquí).
+#
+#
+# ** Es muy fácil crear problemas en su máquina si elije unos recursos
+#    de configuración incorrectos. **
+#  
+#
+#  Ejemplos
+#  ~~~~~~~~
+#  
+#  * MultiSound Classic/Monterey/Tahiti:
+#  
+#  modprobe soundcore
+#  insmod msnd
+#  insmod msnd_classic io=0x290 irq=7 mem=0xd0000
+#  
+#  * MultiSound Pinnacle en modo PnP:
+#  
+#  modprobe soundcore
+#  insmod msnd
+#  isapnp mypinnacle.conf
+#  insmod msnd_pinnacle io=0x210 irq=5 mem=0xd8000 <--  concuerda con los 
+#							valores de 
+#							mypinnacle.conf
+#  
+#  * MultiSound Pinnacle en modo no-PnP (reemplace 0x250 por su puerto de 
+#    configuración, uno de 0x250, 0x260 or 0x270):
+#  
+#  insmod soundcore
+#  insmod msnd
+#  insmod msnd_pinnacle cfg=0x250 io=0x290 irq=5 mem=0xd0000
+#  
+# * Para usar el sintetizador compatible MPU Kurzweilen de la Pinnacleh 
+#   en modo PnP, añada lo siguiente (asumiendo que hiciera 
+#   `isapnp mypinnacle.conf'):
+#  
+#  insmod sound
+#  insmod mpu401 io=0x330 irq=9   <-- 	concuerda con los valores de 
+#					mypinnacle.conf
+#  
+# * Para usar el sintetizador compatible MPU de la Pinnacle en modo no-PnP
+#   añada lo siguiente.  Note que primero configuramos los recursos del
+#   periférico y _después_ instalamos el controlador Linux para él:
+#  
+#  insmod sound
+#  pinnaclecfg 0x250 mpu 0x330 9
+#  insmod mpu401 io=0x330 irq=9
+#
+#  -- O puede usar la siguiente secuencia sin usar pinnaclecfg en modo no-PnP
+#
+#  insmod soundcore
+#  insmod msnd
+#  insmod msnd_pinnacle cfg=0x250 io=0x290 irq=5 mem=0xd0000 mpu_io=0x330 mpu_irq=9
+#  insmod sound
+#  insmod mpu401 io=0x330 irq=9
+#
+# * Para inicializar el puerto de joystick de la Pinnacle en modo no-PnP
+#   (Debe encontrar el controlador de Linux para joystick en otra parte), 
+#   puede usar pinnaclecfg:
+#
+#   pinnaclecfg 0x250 joystick 0x200
+#
+#  -- O puede configurarlo usando msnd_pinnacle con lo siguiente:
+#
+#  insmod soundcore
+#  insmod msnd
+#  insmod msnd_pinnacle cfg=0x250 io=0x290 irq=5 mem=0xd0000 joystick_io=0x200
+#
+#  
+#  Opciones requeridas para msnd_classic, msnd_pinnacle
+#  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#  
+#  Si las siguientes opciones n se dan, el módulo no se cargará.
+#  Examine los mensajes del núcleo en busca de mensajes de error.
+#  AVISO--la autocomprobación todavía no está soportada por lo que esté seguro
+#  de que especifica el área de memoria compartida correctamente, de otra 
+#  forma puede experimentar problemas.
+#  
+#  io                   base E/S del DSP, ej. io=0x210
+#  irq                  número de IRQ, ej. irq=5
+#  mem                  área de memoria compartida, ej. mem=0xd8000
+#  
+#  
+#  Opciones adicionales para msnd_classic, msnd_pinnacle
+#  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#  
+#  fifosize             la FIFO de audio digital, en kilobytes.  Si no
+#                       se especifica, se usará el valor por defecto.
+#			si incrementa este valor se reducirán las
+#                       posibilidades de desbordamiento del área FIFO
+#                       a expensas del incremento de la latencia
+#                       Por ejemplo, fifosize=512 asignará 512kB 
+#			de FIFOs de lectura y escritura (1MB en total).
+#                       Mientras esto puede reducir los cortes, una
+#			máquina con una carga grande sin duda no podrá
+#			llenar la FIFO de datos y finalmente obtendrá
+#			cortes de sonido. Una opción es alterar la
+#			prioridad del planificador para el proceso de
+#			reproducción usando 'nice' u otra forma de
+#			planificador POSIX mediante software.
+#
+#  calibrate_signal     Si pone esto a uno se calibrarán los ADCs según la 
+#			señal, cero los calibrará a la tarjeta (por defecto
+#			es cero).
+#  
+#  
+#  Opciones adicionales para msnd_pinnacle
+#  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#
+#  digital              Especifique digital=1 para activar la entrada
+#			S/PDIF si tiene un adaptador de tarjeta hija
+#			digital. De esta forma habilitará el acceso a
+#			la entrada DIGITAL1 de la tarjeta en el 
+#			mezclador. Algunos programas mezcladores 
+#			pueden tener problemas para activar la entrada 
+#			DIGITAL1. Si tiene problemas, pruebe con el 
+#			programa setdigital.c al final de este
+#			documento.
+#
+#  cfg                  Puerto de configuración No-PnP para la
+#			Pinnacle y Fiji (normalmente 0x250, 0x260 
+#			o 0x270, dependiendo de la configuración de 
+#			los puentes.  Si se omite esta opcioón, se
+#			asume que la tarjeta está en modo PnP, y que
+#			los valores especificados del DSP ya están
+#			configurados con PnP (ej. no se intentará
+#			realizar ningún tipo de configuración).
+#
+#  Cuando la Pinnacle está en modo no-Pnp, puede usar las siguientes
+#  opciones para configurar los dispositivos. Si no se da una completa
+#  especificación de un dispositivo, no se configurará ese dispositivo.
+#  Note que todavía deberá usar el controlador Linux para uno de estos
+#  dispositivos una vez que halla configurado sus recursos (tales como el 
+#  controlador Linux de joystick o el controlador para MPU401 del OSS para
+#  el sintetizador Kurzweil).
+#
+#  mpu_io               puerto de E/S  del MPU (sintetizador Kurzweil integrado)
+#  mpu_irq              IRQ del MPU (sintetizador Kurzweil integrado)
+#  ide_io0		Primer puerto E/S del controlador IDE
+#  ide_io1		Segundo puerto E/S del controlador IDE
+#  ide_irq		IRQ del controlador IDE
+#  joystick_io          puerto E/S del joystick
+#  
+#  
+#  Como Obtener y Crear fichero de Firmware
+#  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#  
+#       Para las Classic/Tahiti/Monterey
+#       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+#  
+#  Descargue a /tmp y descomprima el siguiente fichero de Turtle Beach:
+#  
+#       ftp://ftp.voyetra.com/pub/tbs/msndcl/msndvkit.zip
+#  
+#  Después de descomprimirlo, descomprima este otro fichero MsndFiles.zip.  
+#  Después copie los siguiente fichero de firmware a /etc/sound (note el 
+#  cambio de nombres de los ficheros):
+#  
+#    cp DSPCODE/MSNDINIT.BIN /etc/sound/msndinit.bin
+#    cp DSPCODE/MSNDPERM.REB /etc/sound/msndperm.bin
+#  
+#  Cuando configure el núcleo Linux, especifique /etc/sound/msndinit.bin 
+#  y /etc/sound/msndperm.bin para los dos ficheros de firmware (Las versiones
+#  del núcleo Linux más viejas que 2.2 no preguntan por las rutas del
+#  firmware, y están codificadas a /etc/sound).
+#
+#  Si está compilando el controlador en el núcleo, estos ficheros deben ser
+#  accesibles durante la compilación, pero no los necesitará después.
+#  Los ficheros deben permanecer, sin embargo, si se usa el controlador como 
+#  módulo
+#
+#  
+#       Para la Pinnacle/Fiji
+#       ~~~~~~~~~~~~~~~~~~~~~
+#  
+#  Descargue a /tmp y descomprima el siguiente fichero de Turtle Beach (esté
+#  seguro de que usa la URL completa; algunas personas han tenido problemas
+#  navegando hasta la URL):
+#  
+#       ftp://ftp.voyetra.com/pub/tbs/pinn/pnddk100.zip
+#
+#  Desempaquete este archivo de shell y ejecute make en el directorio creado
+#  (Necesitará un compilador de C y flex para construir las utilidades).  
+#  Este debería hacer los ejecutable conv, pinnaclecfg y setdigital.
+#  conv solo se usa temporalmente para crear los ficheros de firmware.
+#  mientras que pinnaclecfg se usa para configurar las tarjetas Pinnacle o 
+#  Fiji en modo no-PnP. setdigital puede usarse para iniciar la entrada
+#  S/PDIF en el mezclador (pinnaclecfg y setdigital deberían ser copiados
+#  a un lugar conveniente, posiblemente durante la inicialización del
+#  sistema).
+#
+#  Para generar los ficheros de firmware con el programa `conv', creamos
+#  los ficheros binarios de firmware haciendo la siguiente conversión
+#  (asumiendo que el archivo desempaquetado está en el directorio llamado
+#   PINNDDK):
+#  
+#    ./conv < PINNDDK/dspcode/pndspini.asm > /etc/sound/pndspini.bin
+#    ./conv < PINNDDK/dspcode/pndsperm.asm > /etc/sound/pndsperm.bin
+#  
+#  El programa conv (y conv.l) no son necesarios después de la conversión, y
+#  puede borrarlos de forma segura. Después, cuando configure el núcleo Linux,
+#  especifique /etc/sound/pndspini.bin y /etc/sound/pndsperm.bin para los dos
+#  ficheros de firmware (Las versiones del núcleo Linux anteriores al 2.2 no 
+#  preguntan por las rutas del firmware, y están codificadas a /etc/sound).
+#  
+#  Si está compilando el controlador en el núcleo, estos ficheros deben estar
+#  accesibles durante la compilación, pero no se necesitarán más tarde.
+#  Sin embargo, los ficheros deberán permanecer si el controlador es usado
+#  como módulo.
+#
+#  
+#  Como usar E/S Digital con el puerto S/PDIF
+#  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#
+#  Si tiene una Pinnacle o Fiji con la tarjeta hija digital y quiere
+#  activarla como la fuente de entrada, puede usar este programa si tiene
+#  problemas haciendolo con un programa mezclador (Asegurese de que carga el
+#  módulo con la opción digital=1, o digo Sí a la opción durante la
+#  compilación del núcleo). Después de la selección del puerto S/PDIF, debería
+#  ser capaz de monitorizar y grabar con él.
+#
+#  Hay algo a tener en cuenta sobre el uso del puerto S/PDIF.  El temporizado
+#  digital se toma de la señal digital, por lo que si no ha conectado ninguna
+#  señal al puerto y lo selecciona como fuente de grabación, encontrará que la
+#  reproducción PCM suena distorsionada en velocidad de reproducción.
+#  También intentar grabar a una velocidad de muestreo dferente a la del DAT
+#  puede ser problemática (ej. intentar grabar a 8000Hz cuando la señal del
+#  DAT es de 44100Hz). Si tiene problemas con esto, poga la entrada de
+#  grabación a analógica si necesita grabar a una velocidad diferente a la del
+#  DAT.
+#
+#
+#  -- Ejecute 'sh Multisound' para extraer el archivo de shell adjunto.
+#     Contiene utilidades para covertir el firmware de las Pinnacle/Fiji 
+#     y para configurar el modo no-PnP y seleccionar la entrada DIGITAL1
+#     del mezclador.
+#
+#
+#!/bin/sh
+# Esto es una archivo de shell (producido por GNU sharutils 4.2).
+# Para extraer los ficheros de este archivo, grabelo a algún FICHERO, borre
+# cualquier cosa antes de la línea`!/bin/sh' y ejecute `sh FICHERO'.
+#
+# Realizado en 04-12-1998 10:07 EST por <andrewtv@ztransform.velsoft.com>.
+# El directorio fuente era `/home/andrewtv/programming/pinnacle/pinnacle'.
+#
+# Los ficheros existentes *no* se sobreescribirán a menos que especifique la
+# opción `-c'.
+#
+# Este shar contiene:
+# tamaño modo       nombre
+# ------ ---------- ------------------------------------------
+#   2046 -rw-rw-r-- MultiSound.d/setdigital.c
+#  10235 -rw-rw-r-- MultiSound.d/pinnaclecfg.c
+#    106 -rw-rw-r-- MultiSound.d/Makefile
+#    141 -rw-rw-r-- MultiSound.d/conv.l
+#   1472 -rw-rw-r-- MultiSound.d/msndreset.c
+#
+save_IFS="${IFS}"
+IFS="${IFS}:"
+gettext_dir=FAILED
+locale_dir=FAILED
+first_param="$1"
+for dir in $PATH
+do
+  if test "$gettext_dir" = FAILED && test -f $dir/gettext \
+     && ($dir/gettext --version >/dev/null 2>&1)
+  then
+    set `$dir/gettext --version 2>&1`
+    if test "$3" = GNU
+    then
+      gettext_dir=$dir
+    fi
+  fi
+  if test "$locale_dir" = FAILED && test -f $dir/shar \
+     && ($dir/shar --print-text-domain-dir >/dev/null 2>&1)
+  then
+    locale_dir=`$dir/shar --print-text-domain-dir`
+  fi
+done
+IFS="$save_IFS"
+if test "$locale_dir" = FAILED || test "$gettext_dir" = FAILED
+then
+  echo=echo
+else
+  TEXTDOMAINDIR=$locale_dir
+  export TEXTDOMAINDIR
+  TEXTDOMAIN=sharutils
+  export TEXTDOMAIN
+  echo="$gettext_dir/gettext -s"
+fi
+touch -am 1231235999 $$.touch >/dev/null 2>&1
+if test ! -f 1231235999 && test -f $$.touch; then
+  shar_touch=touch
+else
+  shar_touch=:
+  echo
+  $echo 'WARNING: not restoring timestamps.  Consider getting and'
+  $echo "installing GNU \`touch', distributed in GNU File Utilities..."
+  echo
+fi
+rm -f 1231235999 $$.touch
+#
+if mkdir _sh01426; then
+  $echo 'x -' 'creating lock directory'
+else
+  $echo 'failed to create lock directory'
+  exit 1
+fi
+# ============= MultiSound.d/setdigital.c ==============
+if test ! -d 'MultiSound.d'; then
+  $echo 'x -' 'creating directory' 'MultiSound.d'
+  mkdir 'MultiSound.d'
+fi
+if test -f 'MultiSound.d/setdigital.c' && test "$first_param" != -c; then
+  $echo 'x -' SKIPPING 'MultiSound.d/setdigital.c' '(file already exists)'
+else
+  $echo 'x -' extracting 'MultiSound.d/setdigital.c' '(text)'
+  sed 's/^X//' << 'SHAR_EOF' > 'MultiSound.d/setdigital.c' &&
+/*********************************************************************
+X *
+X * setdigital.c - sets the DIGITAL1 input for a mixer
+X *
+X * Copyright (C) 1998 Andrew Veliath
+X *
+X * This program is free software; you can redistribute it and/or modify
+X * it under the terms of the GNU General Public License as published by
+X * the Free Software Foundation; either version 2 of the License, or
+X * (at your option) any later version.
+X *
+X * This program is distributed in the hope that it will be useful,
+X * but WITHOUT ANY WARRANTY; without even the implied warranty of
+X * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X * GNU General Public License for more details.
+X *
+X * You should have received a copy of the GNU General Public License
+X * along with this program; if not, write to the Free Software
+X * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X ********************************************************************/
+X
+#include <stdio.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/ioctl.h>
+#include <sys/soundcard.h>
+X
+int main(int argc, char *argv[])
+{
+X	int fd;
+X	unsigned long recmask, recsrc;
+X
+X	if (argc != 2) {
+X		fprintf(stderr, "usage: setdigital <mixer device>\n");
+X		exit(1);
+X	}
+X
+X	if ((fd = open(argv[1], O_RDWR)) < 0) {
+X		perror(argv[1]);
+X		exit(1);
+X	}
+X
+X	if (ioctl(fd, SOUND_MIXER_READ_RECMASK, &recmask) < 0) {
+X		fprintf(stderr, "error: ioctl read recording mask failed\n");
+X		perror("ioctl");
+X		close(fd);
+X		exit(1);
+X	}
+X
+X	if (!(recmask & SOUND_MASK_DIGITAL1)) {
+X		fprintf(stderr, "error: cannot find DIGITAL1 device in mixer\n");
+X		close(fd);
+X		exit(1);
+X	}
+X
+X	if (ioctl(fd, SOUND_MIXER_READ_RECSRC, &recsrc) < 0) {
+X		fprintf(stderr, "error: ioctl read recording source failed\n");
+X		perror("ioctl");
+X		close(fd);
+X		exit(1);
+X	}
+X
+X	recsrc |= SOUND_MASK_DIGITAL1;
+X	
+X	if (ioctl(fd, SOUND_MIXER_WRITE_RECSRC, &recsrc) < 0) {
+X		fprintf(stderr, "error: ioctl write recording source failed\n");
+X		perror("ioctl");
+X		close(fd);
+X		exit(1);
+X	}
+X
+X	close(fd);
+X	
+X	return 0;
+}
+SHAR_EOF
+  $shar_touch -am 1204092598 'MultiSound.d/setdigital.c' &&
+  chmod 0664 'MultiSound.d/setdigital.c' ||
+  $echo 'restore of' 'MultiSound.d/setdigital.c' 'failed'
+  if ( md5sum --help 2>&1 | grep 'sage: md5sum \[' ) >/dev/null 2>&1 \
+  && ( md5sum --version 2>&1 | grep -v 'textutils 1.12' ) >/dev/null; then
+    md5sum -c << SHAR_EOF >/dev/null 2>&1 \
+    || $echo 'MultiSound.d/setdigital.c:' 'MD5 check failed'
+e87217fc3e71288102ba41fd81f71ec4  MultiSound.d/setdigital.c
+SHAR_EOF
+  else
+    shar_count="`LC_ALL= LC_CTYPE= LANG= wc -c < 'MultiSound.d/setdigital.c'`"
+    test 2046 -eq "$shar_count" ||
+    $echo 'MultiSound.d/setdigital.c:' 'original size' '2046,' 'current size' "$shar_count!"
+  fi
+fi
+# ============= MultiSound.d/pinnaclecfg.c ==============
+if test -f 'MultiSound.d/pinnaclecfg.c' && test "$first_param" != -c; then
+  $echo 'x -' SKIPPING 'MultiSound.d/pinnaclecfg.c' '(file already exists)'
+else
+  $echo 'x -' extracting 'MultiSound.d/pinnaclecfg.c' '(text)'
+  sed 's/^X//' << 'SHAR_EOF' > 'MultiSound.d/pinnaclecfg.c' &&
+/*********************************************************************
+X *
+X * pinnaclecfg.c - Pinnacle/Fiji Device Configuration Program
+X *
+X * This is for NON-PnP mode only.  For PnP mode, use isapnptools.
+X *
+X * This is Linux-specific, and must be run with root permissions.
+X *
+X * Part of the Turtle Beach MultiSound Sound Card Driver for Linux
+X *
+X * Copyright (C) 1998 Andrew Veliath
+X *
+X * This program is free software; you can redistribute it and/or modify
+X * it under the terms of the GNU General Public License as published by
+X * the Free Software Foundation; either version 2 of the License, or
+X * (at your option) any later version.
+X *
+X * This program is distributed in the hope that it will be useful,
+X * but WITHOUT ANY WARRANTY; without even the implied warranty of
+X * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X * GNU General Public License for more details.
+X *
+X * You should have received a copy of the GNU General Public License
+X * along with this program; if not, write to the Free Software
+X * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X ********************************************************************/
+X
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <errno.h>
+#include <unistd.h>
+#include <asm/io.h>
+#include <asm/types.h>
+X
+#define IREG_LOGDEVICE		0x07
+#define IREG_ACTIVATE		0x30
+#define LD_ACTIVATE		0x01
+#define LD_DISACTIVATE		0x00
+#define IREG_EECONTROL		0x3F
+#define IREG_MEMBASEHI		0x40
+#define IREG_MEMBASELO		0x41
+#define IREG_MEMCONTROL		0x42
+#define IREG_MEMRANGEHI		0x43
+#define IREG_MEMRANGELO		0x44
+#define MEMTYPE_8BIT		0x00
+#define MEMTYPE_16BIT		0x02
+#define MEMTYPE_RANGE		0x00
+#define MEMTYPE_HIADDR		0x01
+#define IREG_IO0_BASEHI		0x60
+#define IREG_IO0_BASELO		0x61
+#define IREG_IO1_BASEHI		0x62
+#define IREG_IO1_BASELO		0x63
+#define IREG_IRQ_NUMBER		0x70
+#define IREG_IRQ_TYPE		0x71
+#define IRQTYPE_HIGH		0x02
+#define IRQTYPE_LOW		0x00
+#define IRQTYPE_LEVEL		0x01
+#define IRQTYPE_EDGE		0x00
+X
+#define HIBYTE(w)		((BYTE)(((WORD)(w) >> 8) & 0xFF))
+#define LOBYTE(w)		((BYTE)(w))
+#define MAKEWORD(low,hi)	((WORD)(((BYTE)(low))|(((WORD)((BYTE)(hi)))<<8)))
+X
+typedef __u8			BYTE;
+typedef __u16			USHORT;
+typedef __u16			WORD;
+X
+static int config_port = -1;
+X
+static int msnd_write_cfg(int cfg, int reg, int value)
+{
+X	outb(reg, cfg);
+X	outb(value, cfg + 1);
+X	if (value != inb(cfg + 1)) {
+X		fprintf(stderr, "error: msnd_write_cfg: I/O error\n");
+X		return -EIO;
+X	}
+X	return 0;
+}
+X
+static int msnd_read_cfg(int cfg, int reg)
+{
+X	outb(reg, cfg);
+X	return inb(cfg + 1);
+}
+X
+static int msnd_write_cfg_io0(int cfg, int num, WORD io)
+{
+X	if (msnd_write_cfg(cfg, IREG_LOGDEVICE, num))
+X		return -EIO;
+X	if (msnd_write_cfg(cfg, IREG_IO0_BASEHI, HIBYTE(io)))
+X		return -EIO;
+X	if (msnd_write_cfg(cfg, IREG_IO0_BASELO, LOBYTE(io)))
+X		return -EIO;
+X	return 0;
+}
+X
+static int msnd_read_cfg_io0(int cfg, int num, WORD *io)
+{
+X	if (msnd_write_cfg(cfg, IREG_LOGDEVICE, num))
+X		return -EIO;
+X	
+X	*io = MAKEWORD(msnd_read_cfg(cfg, IREG_IO0_BASELO),
+X		       msnd_read_cfg(cfg, IREG_IO0_BASEHI));
+X
+X	return 0;
+}
+X
+static int msnd_write_cfg_io1(int cfg, int num, WORD io)
+{
+X	if (msnd_write_cfg(cfg, IREG_LOGDEVICE, num))
+X		return -EIO;
+X	if (msnd_write_cfg(cfg, IREG_IO1_BASEHI, HIBYTE(io)))
+X		return -EIO;
+X	if (msnd_write_cfg(cfg, IREG_IO1_BASELO, LOBYTE(io)))
+X		return -EIO;
+X	return 0;
+}
+X
+static int msnd_read_cfg_io1(int cfg, int num, WORD *io)
+{
+X	if (msnd_write_cfg(cfg, IREG_LOGDEVICE, num))
+X		return -EIO;
+X	
+X	*io = MAKEWORD(msnd_read_cfg(cfg, IREG_IO1_BASELO),
+X		       msnd_read_cfg(cfg, IREG_IO1_BASEHI));
+X
+X	return 0;
+}
+X
+static int msnd_write_cfg_irq(int cfg, int num, WORD irq)
+{
+X	if (msnd_write_cfg(cfg, IREG_LOGDEVICE, num))
+X		return -EIO;
+X	if (msnd_write_cfg(cfg, IREG_IRQ_NUMBER, LOBYTE(irq)))
+X		return -EIO;
+X	if (msnd_write_cfg(cfg, IREG_IRQ_TYPE, IRQTYPE_EDGE))
+X		return -EIO;
+X	return 0;
+}
+X
+static int msnd_read_cfg_irq(int cfg, int num, WORD *irq)
+{
+X	if (msnd_write_cfg(cfg, IREG_LOGDEVICE, num))
+X		return -EIO;
+X	
+X	*irq = msnd_read_cfg(cfg, IREG_IRQ_NUMBER);
+X
+X	return 0;
+}
+X
+static int msnd_write_cfg_mem(int cfg, int num, int mem)
+{
+X	WORD wmem;
+X
+X	mem >>= 8;
+X	mem &= 0xfff;
+X	wmem = (WORD)mem;
+X	if (msnd_write_cfg(cfg, IREG_LOGDEVICE, num))
+X		return -EIO;
+X	if (msnd_write_cfg(cfg, IREG_MEMBASEHI, HIBYTE(wmem)))
+X		return -EIO;
+X	if (msnd_write_cfg(cfg, IREG_MEMBASELO, LOBYTE(wmem)))
+X		return -EIO;
+X	if (wmem && msnd_write_cfg(cfg, IREG_MEMCONTROL, (MEMTYPE_HIADDR | MEMTYPE_16BIT)))
+X		return -EIO;
+X	return 0;
+}
+X
+static int msnd_read_cfg_mem(int cfg, int num, int *mem)
+{
+X	if (msnd_write_cfg(cfg, IREG_LOGDEVICE, num))
+X		return -EIO;
+X	
+X	*mem = MAKEWORD(msnd_read_cfg(cfg, IREG_MEMBASELO),
+X			msnd_read_cfg(cfg, IREG_MEMBASEHI));
+X	*mem <<= 8;
+X
+X	return 0;
+}
+X
+static int msnd_activate_logical(int cfg, int num)
+{
+X	if (msnd_write_cfg(cfg, IREG_LOGDEVICE, num))
+X		return -EIO;
+X	if (msnd_write_cfg(cfg, IREG_ACTIVATE, LD_ACTIVATE))
+X		return -EIO;
+X	return 0;
+}
+X
+static int msnd_write_cfg_logical(int cfg, int num, WORD io0, WORD io1, WORD irq, int mem)
+{
+X	if (msnd_write_cfg(cfg, IREG_LOGDEVICE, num))
+X		return -EIO;
+X	if (msnd_write_cfg_io0(cfg, num, io0))
+X		return -EIO;
+X	if (msnd_write_cfg_io1(cfg, num, io1))
+X		return -EIO;
+X	if (msnd_write_cfg_irq(cfg, num, irq))
+X		return -EIO;
+X	if (msnd_write_cfg_mem(cfg, num, mem))
+X		return -EIO;
+X	if (msnd_activate_logical(cfg, num))
+X		return -EIO;
+X	return 0;
+}
+X
+static int msnd_read_cfg_logical(int cfg, int num, WORD *io0, WORD *io1, WORD *irq, int *mem)
+{
+X	if (msnd_write_cfg(cfg, IREG_LOGDEVICE, num))
+X		return -EIO;
+X	if (msnd_read_cfg_io0(cfg, num, io0))
+X		return -EIO;
+X	if (msnd_read_cfg_io1(cfg, num, io1))
+X		return -EIO;
+X	if (msnd_read_cfg_irq(cfg, num, irq))
+X		return -EIO;
+X	if (msnd_read_cfg_mem(cfg, num, mem))
+X		return -EIO;
+X	return 0;
+}
+X
+static void usage(void)
+{
+X	fprintf(stderr,
+X		"\n"
+X		"pinnaclecfg 1.0\n"
+X		"\n"
+X		"usage: pinnaclecfg <config port> [device config]\n"
+X		"\n"
+X		"This is for use with the card in NON-PnP mode only.\n"
+X		"\n"
+X		"Available devices (not all available for Fiji):\n"
+X		"\n"
+X		"        Device                       Description\n"
+X		"        -------------------------------------------------------------------\n"
+X		"        reset                        Reset all devices (i.e. disable)\n"
+X		"        show                         Display current device configurations\n"
+X		"\n"
+X		"        dsp <io> <irq> <mem>         Audio device\n"
+X		"        mpu <io> <irq>               Internal Kurzweil synth\n"
+X		"        ide <io0> <io1> <irq>        On-board IDE controller\n"
+X		"        joystick <io>                Joystick port\n"
+X		"\n");
+X	exit(1);
+}
+X
+static int cfg_reset(void)
+{
+X	int i;
+X
+X	for (i = 0; i < 4; ++i)
+X		msnd_write_cfg_logical(config_port, i, 0, 0, 0, 0);
+X	
+X	return 0;
+}
+X
+static int cfg_show(void)
+{
+X	int i;
+X	int count = 0;
+X
+X	for (i = 0; i < 4; ++i) {
+X		WORD io0, io1, irq;
+X		int mem;
+X		msnd_read_cfg_logical(config_port, i, &io0, &io1, &irq, &mem);
+X		switch (i) {
+X		case 0:
+X			if (io0 || irq || mem) {
+X				printf("dsp 0x%x %d 0x%x\n", io0, irq, mem);
+X				++count;
+X			}
+X			break;
+X		case 1:
+X			if (io0 || irq) {
+X				printf("mpu 0x%x %d\n", io0, irq);
+X				++count;
+X			}
+X			break;
+X		case 2:
+X			if (io0 || io1 || irq) {
+X				printf("ide 0x%x 0x%x %d\n", io0, io1, irq);
+X				++count;
+X			}
+X			break;
+X		case 3:
+X			if (io0) {
+X				printf("joystick 0x%x\n", io0);
+X				++count;
+X			}
+X			break;
+X		}
+X	}
+X
+X	if (count == 0)
+X		fprintf(stderr, "no devices configured\n");
+X	
+X	return 0;
+}
+X
+static int cfg_dsp(int argc, char *argv[])
+{
+X	int io, irq, mem;
+X
+X	if (argc < 3 ||
+X	    sscanf(argv[0], "0x%x", &io) != 1 ||
+X	    sscanf(argv[1], "%d", &irq) != 1 ||
+X	    sscanf(argv[2], "0x%x", &mem) != 1)
+X		usage();
+X
+X	if (!(io == 0x290 ||
+X	      io == 0x260 ||
+X	      io == 0x250 ||
+X	      io == 0x240 ||
+X	      io == 0x230 ||
+X	      io == 0x220 ||
+X	      io == 0x210 ||
+X	      io == 0x3e0)) {
+X		fprintf(stderr, "error: io must be one of "
+X			"210, 220, 230, 240, 250, 260, 290, or 3E0\n");
+X		usage();
+X	}
+X	
+X	if (!(irq == 5 ||
+X	      irq == 7 ||
+X	      irq == 9 ||
+X	      irq == 10 ||
+X	      irq == 11 ||
+X	      irq == 12)) {
+X		fprintf(stderr, "error: irq must be one of "
+X			"5, 7, 9, 10, 11 or 12\n");
+X		usage();
+X	}
+X
+X	if (!(mem == 0xb0000 ||
+X	      mem == 0xc8000 ||
+X	      mem == 0xd0000 ||
+X	      mem == 0xd8000 ||
+X	      mem == 0xe0000 ||
+X	      mem == 0xe8000)) {
+X		fprintf(stderr, "error: mem must be one of "
+X			"0xb0000, 0xc8000, 0xd0000, 0xd8000, 0xe0000 or 0xe8000\n");
+X		usage();
+X	}
+X
+X	return msnd_write_cfg_logical(config_port, 0, io, 0, irq, mem);
+}
+X
+static int cfg_mpu(int argc, char *argv[])
+{
+X	int io, irq;
+X
+X	if (argc < 2 ||
+X	    sscanf(argv[0], "0x%x", &io) != 1 ||
+X	    sscanf(argv[1], "%d", &irq) != 1)
+X		usage();
+X	
+X	return msnd_write_cfg_logical(config_port, 1, io, 0, irq, 0);
+}
+X
+static int cfg_ide(int argc, char *argv[])
+{
+X	int io0, io1, irq;
+X
+X	if (argc < 3 ||
+X	    sscanf(argv[0], "0x%x", &io0) != 1 ||
+X	    sscanf(argv[0], "0x%x", &io1) != 1 ||
+X	    sscanf(argv[1], "%d", &irq) != 1)
+X		usage();
+X	
+X	return msnd_write_cfg_logical(config_port, 2, io0, io1, irq, 0);
+}
+X
+static int cfg_joystick(int argc, char *argv[])
+{
+X	int io;
+X
+X	if (argc < 1 ||
+X	    sscanf(argv[0], "0x%x", &io) != 1)
+X		usage();
+X	
+X	return msnd_write_cfg_logical(config_port, 3, io, 0, 0, 0);
+}
+X
+int main(int argc, char *argv[])
+{
+X	char *device;
+X	int rv = 0;
+X
+X	--argc; ++argv;
+X
+X	if (argc < 2)
+X		usage();
+X
+X	sscanf(argv[0], "0x%x", &config_port);
+X	if (config_port != 0x250 && config_port != 0x260 && config_port != 0x270) {
+X		fprintf(stderr, "error: <config port> must be 0x250, 0x260 or 0x270\n");
+X		exit(1);
+X	}
+X	if (ioperm(config_port, 2, 1)) {
+X		perror("ioperm");
+X		fprintf(stderr, "note: pinnaclecfg must be run as root\n");
+X		exit(1);
+X	}
+X	device = argv[1];
+X
+X	argc -= 2; argv += 2;
+X
+X	if (strcmp(device, "reset") == 0)
+X		rv = cfg_reset();
+X	else if (strcmp(device, "show") == 0)
+X		rv = cfg_show();
+X	else if (strcmp(device, "dsp") == 0)
+X		rv = cfg_dsp(argc, argv);
+X	else if (strcmp(device, "mpu") == 0)
+X		rv = cfg_mpu(argc, argv);
+X	else if (strcmp(device, "ide") == 0)
+X		rv = cfg_ide(argc, argv);
+X	else if (strcmp(device, "joystick") == 0)
+X		rv = cfg_joystick(argc, argv);
+X	else {
+X		fprintf(stderr, "error: unknown device %s\n", device);
+X		usage();
+X	}
+X
+X	if (rv)
+X		fprintf(stderr, "error: device configuration failed\n");
+X	
+X	return 0;
+}
+SHAR_EOF
+  $shar_touch -am 1204092598 'MultiSound.d/pinnaclecfg.c' &&
+  chmod 0664 'MultiSound.d/pinnaclecfg.c' ||
+  $echo 'restore of' 'MultiSound.d/pinnaclecfg.c' 'failed'
+  if ( md5sum --help 2>&1 | grep 'sage: md5sum \[' ) >/dev/null 2>&1 \
+  && ( md5sum --version 2>&1 | grep -v 'textutils 1.12' ) >/dev/null; then
+    md5sum -c << SHAR_EOF >/dev/null 2>&1 \
+    || $echo 'MultiSound.d/pinnaclecfg.c:' 'MD5 check failed'
+366bdf27f0db767a3c7921d0a6db20fe  MultiSound.d/pinnaclecfg.c
+SHAR_EOF
+  else
+    shar_count="`LC_ALL= LC_CTYPE= LANG= wc -c < 'MultiSound.d/pinnaclecfg.c'`"
+    test 10235 -eq "$shar_count" ||
+    $echo 'MultiSound.d/pinnaclecfg.c:' 'original size' '10235,' 'current size' "$shar_count!"
+  fi
+fi
+# ============= MultiSound.d/Makefile ==============
+if test -f 'MultiSound.d/Makefile' && test "$first_param" != -c; then
+  $echo 'x -' SKIPPING 'MultiSound.d/Makefile' '(file already exists)'
+else
+  $echo 'x -' extracting 'MultiSound.d/Makefile' '(text)'
+  sed 's/^X//' << 'SHAR_EOF' > 'MultiSound.d/Makefile' &&
+CC	= gcc
+CFLAGS	= -O
+PROGS	= setdigital msndreset pinnaclecfg conv
+X
+all: $(PROGS)
+X
+clean:
+X	rm -f $(PROGS)
+SHAR_EOF
+  $shar_touch -am 1204092398 'MultiSound.d/Makefile' &&
+  chmod 0664 'MultiSound.d/Makefile' ||
+  $echo 'restore of' 'MultiSound.d/Makefile' 'failed'
+  if ( md5sum --help 2>&1 | grep 'sage: md5sum \[' ) >/dev/null 2>&1 \
+  && ( md5sum --version 2>&1 | grep -v 'textutils 1.12' ) >/dev/null; then
+    md5sum -c << SHAR_EOF >/dev/null 2>&1 \
+    || $echo 'MultiSound.d/Makefile:' 'MD5 check failed'
+76ca8bb44e3882edcf79c97df6c81845  MultiSound.d/Makefile
+SHAR_EOF
+  else
+    shar_count="`LC_ALL= LC_CTYPE= LANG= wc -c < 'MultiSound.d/Makefile'`"
+    test 106 -eq "$shar_count" ||
+    $echo 'MultiSound.d/Makefile:' 'original size' '106,' 'current size' "$shar_count!"
+  fi
+fi
+# ============= MultiSound.d/conv.l ==============
+if test -f 'MultiSound.d/conv.l' && test "$first_param" != -c; then
+  $echo 'x -' SKIPPING 'MultiSound.d/conv.l' '(file already exists)'
+else
+  $echo 'x -' extracting 'MultiSound.d/conv.l' '(text)'
+  sed 's/^X//' << 'SHAR_EOF' > 'MultiSound.d/conv.l' &&
+%%
+[ \n\t,\r]
+\;.*
+DB
+[0-9A-Fa-f]+H	{ int n; sscanf(yytext, "%xH", &n); printf("%c", n); }
+%%
+int yywrap() { return 1; }
+main() { yylex(); }
+SHAR_EOF
+  $shar_touch -am 0828231798 'MultiSound.d/conv.l' &&
+  chmod 0664 'MultiSound.d/conv.l' ||
+  $echo 'restore of' 'MultiSound.d/conv.l' 'failed'
+  if ( md5sum --help 2>&1 | grep 'sage: md5sum \[' ) >/dev/null 2>&1 \
+  && ( md5sum --version 2>&1 | grep -v 'textutils 1.12' ) >/dev/null; then
+    md5sum -c << SHAR_EOF >/dev/null 2>&1 \
+    || $echo 'MultiSound.d/conv.l:' 'MD5 check failed'
+d2411fc32cd71a00dcdc1f009e858dd2  MultiSound.d/conv.l
+SHAR_EOF
+  else
+    shar_count="`LC_ALL= LC_CTYPE= LANG= wc -c < 'MultiSound.d/conv.l'`"
+    test 141 -eq "$shar_count" ||
+    $echo 'MultiSound.d/conv.l:' 'original size' '141,' 'current size' "$shar_count!"
+  fi
+fi
+# ============= MultiSound.d/msndreset.c ==============
+if test -f 'MultiSound.d/msndreset.c' && test "$first_param" != -c; then
+  $echo 'x -' SKIPPING 'MultiSound.d/msndreset.c' '(file already exists)'
+else
+  $echo 'x -' extracting 'MultiSound.d/msndreset.c' '(text)'
+  sed 's/^X//' << 'SHAR_EOF' > 'MultiSound.d/msndreset.c' &&
+/*********************************************************************
+X *
+X * msndreset.c - resets the MultiSound card
+X *
+X * Copyright (C) 1998 Andrew Veliath
+X *
+X * This program is free software; you can redistribute it and/or modify
+X * it under the terms of the GNU General Public License as published by
+X * the Free Software Foundation; either version 2 of the License, or
+X * (at your option) any later version.
+X *
+X * This program is distributed in the hope that it will be useful,
+X * but WITHOUT ANY WARRANTY; without even the implied warranty of
+X * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+X * GNU General Public License for more details.
+X *
+X * You should have received a copy of the GNU General Public License
+X * along with this program; if not, write to the Free Software
+X * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+X *
+X ********************************************************************/
+X
+#include <stdio.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/ioctl.h>
+#include <sys/soundcard.h>
+X
+int main(int argc, char *argv[])
+{
+X	int fd;
+X
+X	if (argc != 2) {
+X		fprintf(stderr, "usage: msndreset <mixer device>\n");
+X		exit(1);
+X	}
+X
+X	if ((fd = open(argv[1], O_RDWR)) < 0) {
+X		perror(argv[1]);
+X		exit(1);
+X	}
+X
+X	if (ioctl(fd, SOUND_MIXER_PRIVATE1, 0) < 0) {
+X		fprintf(stderr, "error: msnd ioctl reset failed\n");
+X		perror("ioctl");
+X		close(fd);
+X		exit(1);
+X	}
+X
+X	close(fd);
+X	
+X	return 0;
+}
+SHAR_EOF
+  $shar_touch -am 1204100698 'MultiSound.d/msndreset.c' &&
+  chmod 0664 'MultiSound.d/msndreset.c' ||
+  $echo 'restore of' 'MultiSound.d/msndreset.c' 'failed'
+  if ( md5sum --help 2>&1 | grep 'sage: md5sum \[' ) >/dev/null 2>&1 \
+  && ( md5sum --version 2>&1 | grep -v 'textutils 1.12' ) >/dev/null; then
+    md5sum -c << SHAR_EOF >/dev/null 2>&1 \
+    || $echo 'MultiSound.d/msndreset.c:' 'MD5 check failed'
+c52f876521084e8eb25e12e01dcccb8a  MultiSound.d/msndreset.c
+SHAR_EOF
+  else
+    shar_count="`LC_ALL= LC_CTYPE= LANG= wc -c < 'MultiSound.d/msndreset.c'`"
+    test 1472 -eq "$shar_count" ||
+    $echo 'MultiSound.d/msndreset.c:' 'original size' '1472,' 'current size' "$shar_count!"
+  fi
+fi
+rm -fr _sh01426
+exit 0
+
+# "Traducido para el proyecto NuLies por
+#  Gorka Olaizola Sánchez <olsago@jet.es>"

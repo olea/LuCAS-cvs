@@ -1,0 +1,273 @@
+.\" Hey Emacs! This file is -*- nroff -*- source.
+.\"
+.\" Copyright (c) 1993 Michael Haardt
+.\" (michael@moria.de),
+.\" Fri Apr  2 11:32:09 MET DST 1993
+.\"
+.\" changes Copyright 1999 Mike Coleman (mkc@acm.org)
+.\" -- major revision to fully document ptrace semantics per recent Linux
+.\"    kernel (2.2.10) and glibc (2.1.2) 
+.\" Sun Nov  7 03:18:35 CST 1999
+.\"
+.\" This is free documentation; you can redistribute it and/or
+.\" modify it under the terms of the GNU General Public License as
+.\" published by the Free Software Foundation; either version 2 of
+.\" the License, or (at your option) any later version.
+.\"
+.\" The GNU General Public License's references to "object code"
+.\" and "executables" are to be interpreted as the output of any
+.\" document formatting or typesetting system, including
+.\" intermediate and printed output.
+.\"
+.\" This manual is distributed in the hope that it will be useful,
+.\" but WITHOUT ANY WARRANTY; without even the implied warranty of
+.\" MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+.\" GNU General Public License for more details.
+.\"
+.\" You should have received a copy of the GNU General Public
+.\" License along with this manual; if not, write to the Free
+.\" Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111,
+.\" USA.
+.\"
+.\" Modified Fri Jul 23 23:47:18 1993 by Rik Faith <faith@cs.unc.edu>
+.\" Modified Fri Jan 31 16:46:30 1997 by Eric S. Raymond <esr@thyrsus.com>
+.\" Translated into Spanish Wed Feb 18 16:11:59 CET 1998 by Gerardo
+.\" Aburruzaga García <gerardo.aburruzaga@uca.es>
+.\" Modified Thu Oct  7 17:28:49 1999 by Andries Brouwer <aeb@cwi.nl>
+.\" Translation revised Sat Jan  8 2000 by Juan Piernas <piernas@ditec.um.es>
+.\"
+.TH PTRACE 2 "7 noviembre 1999" "Linux 2.2.10" "Manual del Programador de Linux"
+.SH NOMBRE
+ptrace \- rastreo de un proceso
+.SH SINOPSIS
+.B #include <sys/ptrace.h>
+.sp
+.BI "long int ptrace(enum __ptrace_request " petición ", pid_t " pid ", void * " direc ", void * " datos )
+.SH DESCRIPCIÓN
+La llamada al sistema
+.B ptrace
+proporciona un medio por el que un proceso padre puede observar y controlar
+la ejecución de un proceso hijo y examinar y cambiar su imagen de memoria y
+registros. Se usa principalmente en la implementación de depuración con
+puntos de ruptura y en el rastreo de llamadas al sistema.
+.LP
+El padre puede inicar un rastreo llamando a
+.BR fork (2)
+haciendo que el hijo restultante realice un PTRACE_TRACEME, seguido
+(normalmente) por un
+.BR exec (2).
+Alternativamente, el padre puede comenzar a rastrear un proceso existente
+usando
+PTRACE_ATTACH.
+.LP
+Mientras está siendo rastreado, el hijo se detendrá cada vez que reciba una
+señal, aun cuando la señal se haya ignorado. (La excepción es SIGKILL que
+tiene su efecto habitual.) El padre será informado en su siguiente
+.BR wait (2)
+y puede inspeccionar y modificar el proceso hijo mientras está parado.
+A continuación, el padre puede hacer que el hijo continúe, ignorando
+opcionalmente la señal recibida (o incluso entregando una señal distinta en
+su lugar).
+Cuando el padre termina de rastrear, puede terminar el hijo con
+PTRACE_KILL o hace que se continúe ejecutando en un modo normal sin rastreo
+mediante PTRACE_DETACH.
+.LP
+El valor del argumento \fIpetición\fP determina la acción a realizar:
+.TP
+PTRACE_TRACEME
+Indica que este proceso va a ser rastreado por su padre. Cualquier señal
+(excepto SIGKILL) entregada a este proceso hará que se pare y su padre será
+informado mediante
+.BR wait.
+También, cualquier llamada posterior a
+.BR exec
+realizada por este proceso hará que se le envíe un SIGTRAP, dando al padre
+la posibilidad de obtener el control antes de que el nuevo programa comience
+su ejecución. Probablemente, un proceso no debería hacer esta petición si su
+padre no está esperando para rastrearlo.
+(\fIpid\fP, \fIdirec\fP y \fIdatos\fP se ignoran.)
+.LP
+La petición anterior la usa sólo el proceso hijo. El resto las usa sólo el
+padre. En las siguientes peticiones, \fIpid\fP indica el proceso hijo sobre
+el que se actuará. Para peticiones distintas de PTRACE_KILL, el proceso hijo
+debe estar parado.
+.TP
+PTRACE_PEEKTEXT, PTRACE_PEEKDATA
+Lee una palabra de la posición
+.IR direc .
+.TP
+PTRACE_PEEKUSER
+Lee una palabra en el desplazamiento
+.I direc
+del área
+.B USER
+del hijo, que contiene los registros y otra información sobre el proceso
+(vea <linux/user.h> y <sys/user.h>). La palabra se devuelve como resultado
+de la llamada
+.BR ptrace .
+Típicamente, el desplazamiento debe está alineado en una frontera de
+palabra, aunque esto podría variar en cada arquitectura. (\fIdatos\fP se
+ignora).
+.TP
+PTRACE_POKETEXT, PTRACE_POKEDATA
+Copia una palabra de la posición
+.IR datos
+de la memoria del padre a la posición
+.IR direc
+de la memoria del hijo. Como antes, las dos peticiones son actualmente
+equivalentes.
+.TP
+PTRACE_POKEUSER
+Copia una palabra de la posición
+.IR datos
+de la memoria del padre al desplazamiento
+.I direc
+en el área
+.B USER
+del hijo. Al igual que antes, el desplazamiento debe estar típicamente
+alineado en una frontera de palabra. Para conservar la integridad del
+núcleo, algunas modificaciones al área
+.B USER
+se encuentran deshabilitadas.
+.TP
+PTRACE_GETREGS, PTRACE_GETFPREGS
+Copia los registros de propósito general o de punto flotante del hijo,
+respectivamente, a la posición \fIdatos\fP del padre. Vea <linux/user.h> para
+obtener información sobre el formato de estos datos. (\fIdirec\fP se ignora.)
+.TP
+PTRACE_SETREGS, PTRACE_SETFPREGS
+Copia los registros de propósito general o de punto flotante del hijo,
+respectivamente, desde la posición \fIdatos\fP del padre. Al igual que para
+PTRACE_POKEUSER, alguna modificaciones de los registros de propósito general
+pueden estar deshabilitadas. (\fIdirec\fP se ignora.)
+.TP
+PTRACE_CONT
+Reinicia el proceso hijo parado. Si \fIdatos\fP no es cero y tampoco SIGSTOP
+se interpreta como una señal que se entregará al hijo. En otro caso, no se
+entrega ninguna señal. Así, por ejemplo, el padre puede controlar si una
+señal enviada al hijo es entregada o no. (\fIdirec\fP se ignora.)
+.TP
+PTRACE_SYSCALL, PTRACE_SINGLESTEP
+Reinicia el proceso hijo parado al igual que PTRACE_CONT pero prepara al
+hijo para que se pare en la siguiente entrada a o salida de una llamda al
+sistema o tras la ejecución de una única intrucción, respectivamente. (Como
+es usual, el hijo también se detendrá al recibir una señal). Desde la
+perspectiva del padre, el hijo aparecerá como si se hubiera detenido al
+recibir una señal SIGTRAP. Por lo que, por ejemplo, para PTRACE_SYSCALL, la
+idea es inspeccionar los argumentos de la llamada al sistema en la primera
+parada, realizar a continuación otra PTRACE_SYSCALL e inspeccionar los
+valores devueltos por la llamada al sistema cuando se detenga la segunda
+vez. (\fIdirec\fP se ignora.)
+.TP
+PTRACE_KILL
+Envía al hijo una señal
+.B SIGKILL
+para que termine. (\fIdirec\fP y \fIdatos\fP se ignoran.)
+.TP
+PTRACE_ATTACH
+Ata al proceso especificado en
+.IR pid ,
+convirtiéndolo en un "hijo" rastreado. El hijo se comporta como si hubiera
+realizado un PTRACE_TRACEME.  El proceso actual realmente se convierte en el
+padre del proceso hijo para la mayoría de propósitos (por ejemplo, recibirá
+notificación de los eventos del hijo y aparecerá en la salida de
+.BR ps (1)
+como padre del hijo), pero un
+.BR getpid (2)
+por parte del hijo todavía devolverá el pid del padre original. Al hijo se
+le envía un SIGSTOP pero, necesariamente, no tiene por qué haberse parado
+cuando esta llamada haya terminado. Use
+.BR wait
+para esperar a que el hijo se pare. (\fIdirec\fP y \fIdatos\fP se ignoran.)
+.TP
+PTRACE_DETACH
+Reinicia el hijo parado al igual que PTRACE_CONT pero primero lo desata del
+proceso, deshaciendo el efecto de reparentesco de PTRACE_ATTACH y los
+efectos de PTRACE_TRACEME.  Aunque quizás no sea intencionado, bajo Linux un
+proceso rastreado puede ser desatado de esta manera sin tener en cuenta qué
+método se usó para iniciar el rastreo.  (\fIdirec\fP is ignored.)
+.SH OBSERVACIONES
+Aunque los argumentos de
+.B ptrace
+se interpretan según el prototipo dado, GNU libc declara actualmente
+.B ptrace
+como una función en la que sólo el argumento \fIpetición\fP tiene sentido.
+Esto significa que se pueden omitir los argumentos del final
+innecesarios, aunque al hacerlo así se hace uso de comportamiento de
+.B gcc(1)
+sin documentar.
+.LP
+.BR init (8),
+el proceso con PID 1, no puede ser rastreado.
+.LP
+La disposición de los contenidos de memoria y del área USER son bastante
+específicos del sistema operativo (y la arquitectura).
+.LP
+El tamaño de una "palabra" viene determinado por la variante del sistema
+operativo (por ejemplo, para un Linux de 32 bits es de 32 bits, etc.)
+.LP
+El rastreo provoca unas pocas diferencias sutiles en la semántica de los
+procesos rastreados. Por ejemplo, si se ata un proceso con PTRACE_ATTACH, su
+padre original ya no puede recibir notificaciones mediante
+.BR wait
+cuando se detiene y no hay forma de que el nuevo padre pueda simular de
+forma efectiva esta notificación.
+.LP
+Esta página documenta la forma en que funciona actualmente la llamada
+.B ptrace
+en Linux. Su comportamiento difiere notablemente en otros Unix. En
+cualquier caso, el uso
+.B ptrace
+es altamente específico del sistema operativo (y la arquitectura).
+.LP
+La página de manual de SunOS describe
+.B ptrace
+como "única y arcaica", que lo es. La interfaz de depuración basada en el
+sistema de ficheros virtual "proc" presente en Solaris 2 implementa un
+superconjunto de la funcionalidad de
+.B ptrace
+de forma más potente y uniforme.
+.SH "VALOR DEVUELTO"
+En caso de éxito, las peticiones PTRACE_PEEK* devuelven los datos
+solicitados, mientras que las otras peticiones devuelven cero. En caso de
+error, todas las peticiones devuelven \-1 y a
+.IR errno (3)
+se le asigna un valor apropiado. Ya que el valor devuelto por una petición
+PTRACE_PEEK* con éxito puede ser \-1, el invocador debe comprobar
+.I errno
+después de tales peticiones para determinar si hubo error o no.
+.SH ERRORES
+.TP
+.B EPERM
+El proceso indicado no puede ser rastreado. Esto podría deberse a que el
+padre no tiene suficientes privilegios. Los procesos que no son del root no
+pueden rastrear procesos a los que no pueden enviar señales o programas en
+ejecución setuid/setgid por razones obvias. Alternativamente, puede que el
+proceso ya se esté rastreando o ser el proceso
+.BR init
+(pid 1).
+.TP
+.B ESRCH
+El proceso especificado no existe o el invocador no lo está rastreando
+actualmente o no está parado (para peticiones que necesiten que lo esté).
+.TP
+.B EIO
+\fIPetición\fP no es válida o se ha intentado leer de o escribir en una área
+inválida de la memoria del padre o del hijo, o se ha producido una violación
+en la alineación de palabra o se ha especificado una señal inválida durante
+una petición de reinicio.
+.TP
+.B EFAULT
+Se ha intentado leer de o escribir en una área inválida de la memoria del
+padre o del hijo, probablemente porque el área no estaba asignada o no era
+accesible. Desafortunadamente, en Linux, diferentes versiones de este
+fallo devolverán EIO o EFAULT de forma más o menos arbitraria.
+.SH "CONFORME A"
+SVr4, SVID EXT, AT&T, X/OPEN, BSD 4.3
+.SH "VÉASE TAMBIÉN"
+.BR exec (3),
+.BR wait (2),
+.BR signal (2),
+.BR fork (2),
+.BR gdb (1),
+.BR strace (1)

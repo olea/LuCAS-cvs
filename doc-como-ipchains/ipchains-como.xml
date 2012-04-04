@@ -1,0 +1,3510 @@
+<?xml version="1.0" encoding="iso-8859-15" ?>
+<!DOCTYPE article PUBLIC "-//OASIS//DTD DocBook V4.2//EN"
+"http://www.oasis-open.org/docbook/xml/4.2/docbookx.dtd">
+
+<article>
+
+<articleinfo>
+
+<title>Linux IPChains-COMO</title>
+<author>
+	<firstname>Paul</firstname>
+	<surname>Russell</surname>
+	<affiliation>
+		<address><email>Paul.Russell@rustcorp.com.au</email></address>
+	</affiliation>
+</author>
+<pubdate>v1.0.5, 27 October 1998</pubdate>
+
+<abstract>
+
+<para>
+Este documento intenta describir cómo obtener, instalar y configurar el
+software mejorado de cortafuegos IP chains para Linux, así como algunas
+ideas sobre cómo podría usarlo.
+</para>
+
+</abstract>
+
+</articleinfo>
+
+<sect1>
+<title>Sobre la Traducción</title>
+
+<para>
+ Esta traducción ha sido realizada por Eduardo M. González,
+<ulink
+url="mailto:egg@insetel.es"
+>egg@insetel.es</ulink
+> y revisada
+por Pedro L. Menéndez Lorite 
+<ulink
+url="mailto:i1641014@petra.euitio.uniovi.es"
+>i1641014@petra.euitio.uniovi.es</ulink
+>.
+Los derechos de este documento pertenecen al autor del mismo.
+</para>
+
+</sect1>
+
+<sect1 id="intro">
+<title>Introducción</title>
+
+<para>
+Este es el Ipchains-COMO. Debe leer también el Net-3-COMO. El 
+IP-Masquerading HOWTO, el PPP-HOWTO, el Ethernet-HOWTO y el Cortafuegos
+HOWTO pueden ser lecturas interesantes también.
+(También pueden serlo las FAQ de the alt.fan.bigfoot).
+</para>
+
+<para>
+Si tiene superado el filtrado de paquetes Lea la sección <xref linkend="intro-why"/>, la sección <xref linkend="basics-how"/>, y
+ojee los títulos en la sección <xref linkend="core"/>.
+</para>
+
+<para>
+Si se viene desde  <literal remap="tt">ipfwadm</literal>, lea la sección <xref linkend="intro"/>, la sección <xref linkend="basics-how"/>, y los 
+apéndices en la sección <xref linkend="ipfwadm-diff"/> y en la  <xref linkend="upgrade"/>.
+</para>
+
+<sect2>
+<title>¿Qué?</title>
+
+<para>
+<literal remap="tt">Ipchains</literal> de Linux es una reescritura completa del código de cortafuegos
+del IPv4 de Linux (que fue mayormente robado de BSD) y un reescritura de 
+<literal remap="tt">ipfwadm</literal>, que fue una reescritura del <literal remap="tt">ipfw</literal> de BSD, creo.
+Se necesita para administrar los filtros de paquetes IP en el kernel de Linux
+versión 2.1.102 y superiores.
+</para>
+
+</sect2>
+
+<sect2 id="intro-why">
+<title>¿Por qué?</title>
+
+<para>
+El código antiguo de cortafuegos de Linux no puede manejar fragmentos, tiene
+contadores de 32 bits (por lo menos en arquitecturas Intel), no permite 
+especificar protocolos distintos a TCP, UDP o ICMP, no puede hacer cambios
+importantes atómicamente, no puede especificar reglas inversas, tiene algunas
+rarezas y puede ser difícil de administrar (haciéndolo sensible 
+al error de usuario).
+</para>
+
+</sect2>
+
+<sect2>
+<title>¿Cómo?</title>
+
+<para>
+Actualmente el código está en el núcleo desde la versión 2.1.102. para la
+serie 2.0, necesita bajar un parche desde la página web. Si su núcleo 
+2.0 es más reciente que el parche proporcionado, significa que el parche
+viejo debe funcionar, esta parte de los núcleos 2.0 es bastante estable (el
+parche para el núcleo 2.0.34 funciona bien en el 2.0.35). Ya que el parche 
+para 2.0 es incompatible con los parches ippuertofw y ipautofw, no recomiendo 
+aplicarlo a no ser que necesite realmente alguna funcionalidad que ofrezca 
+ipchains.
+</para>
+
+</sect2>
+
+<sect2>
+<title>¿Dónde?</title>
+
+<para>
+La página oficial es 
+<ulink
+url="http://www.adelaide.net.au/~rustcorp/linux/ipchains"
+>The Linux IP Firewall Chains Page</ulink
+>
+</para>
+
+<para>
+Hay una lista de correo para informar de errores, discutir, desarrollo y 
+uso. Únase a esta lista enviando un mensaje que contenga la palabra
+``subscribe'' a ipchains-request@wantree.com.au.  para enviar correo a la 
+lista, use `ipchains' en vez de `ipchains-request'.
+</para>
+
+</sect2>
+
+</sect1>
+
+<sect1>
+<title>Introducción al filtrado de paquetes.</title>
+
+<sect2>
+<title>¿Qué?</title>
+
+<para>
+Todo el tráfico en una red se envía en la forma de  <emphasis remap="bf">paquetes</emphasis>.  
+Por ejemplo, descargar este paquete (digamos que tiene 50k) podría hacer
+que recibiera algo así como 36 paquetes de 1460 bytes cada uno (diciendo 
+números al azar).
+</para>
+
+<para>
+El comienzo de cada paquete explica a dónde va, de dónde viene, el tipo 
+del paquete y otros detalles administrativos. Este comienzo del paquete se
+llama <emphasis remap="bf">cabecera</emphasis>.  El resto del paquete, que contiene los datos que
+se están transmitiendo, se suele llamar <emphasis remap="bf">cuerpo</emphasis>.
+</para>
+
+<para>
+Algunos protocolos como <emphasis remap="bf">TCP</emphasis>, que se usa para el tráfico
+web, correo y conexiones remotas, usan el concepto de `conexión' -- antes de
+que se manden paquetes con datos válidos, se intercambian varios paquetes de 
+establecimiento de la conexión (con cabeceras especiales) que dicen `Quiero
+conectarmeŽ, `Vale'  y  `Gracias'. Entonces se intercambian los paquetes 
+normales.
+</para>
+
+<para>
+Un filtro de paquetes es un programa que comprueba la <emphasis>cabecera</emphasis>
+de los paquetes según pasan, y decide el destino del paquete entero. Puede
+decidir <emphasis remap="bf">denegar</emphasis> el paquete (es decir descartar el paquete como si nunca
+hubiese sido recibido), <emphasis remap="bf">aceptar</emphasis> el paquete (es decir dejar pasar el 
+paquete) o <emphasis remap="bf"> rechazar</emphasis> el paquete (como denegar, pero diciendo al 
+origen del paquete lo que se ha hecho).
+</para>
+
+<para>
+En Linux, el filtrado de paquetes está dentro del kernel, y hay unos cuantos
+truquitos que podemos hacer con los paquetes, pero el principio general de 
+mirar la cabecera y decidir el destino del paquete persiste.
+</para>
+
+</sect2>
+
+<sect2>
+<title>¿Por qué?</title>
+
+<para>
+Control. seguridad. Vigilancia.
+</para>
+
+<para>
+<variablelist>
+
+<varlistentry>
+<term>Control:</term>
+<listitem>
+<para>
+Cuando use una máquina Linux para conectar su red interna a 
+otra red (como Internet, por ejemplo) tiene la oportunidad de permitir ciertos
+tipos de tráfico y deshabilitar otros. Por ejemplo, la cabecera de un paquete
+contiene la dirección destino del paquete, así que puede evitar que ciertos
+paquetes vayan a ciertas partes de la red exterior. Otro ejemplo: Yo uso 
+Netscape para acceder a los archivos de Dilbert. Hay anuncios de 
+doubleclick.net en la página, y Netscape malgasta mi tiempo descargandolos 
+alegremente. Si le digo al filtro de paquetes que no permita entrar paquetes
+que pertenezcan a doubleclick.net soluciono el problema (hay mejores
+maneras de hacer esto, sin embargo).
+</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>seguridad:</term>
+<listitem>
+<para>
+Cuando su máquina Linux es lo único que separa del
+caos de Internet su bonita y ordenada red, es agradable saber que puede 
+restringir lo que venga aporreando su puerta. Por ejemplo, puede 
+permitir  que salga cualquier cosa de su red, pero a lo mejor se 
+preocupa del conocido `Ping de la muerte' que puede provenir de
+intrusos maliciosos. Otro ejemplo: Puede que no quiera que el 
+exterior sea capaz de hacer telnet a su máquina Linux, aunque todas las cuentas
+tengan contraseña. A lo mejor quiere (como casi todo el mundo) ser un
+observador en Internet, y no un servidor; simplemente evite que cualquiera
+se conecte, diciéndole al filtro de paquetes que rechace los paquetes 
+entrantes usados para establecer conexiones.
+</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>Vigilancia:</term>
+<listitem>
+<para>
+A veces a una máquina de la red local mal configurada le da por
+soltar paquetes al mundo exterior. Es útil decirle al filtro de paquetes que
+le haga saber si algo anormal ocurre, a lo mejor se puede hacer algo al
+respecto, o quizá solo por curiosidad.
+</para>
+</listitem>
+</varlistentry>
+</variablelist>
+</para>
+
+</sect2>
+
+<sect2 id="basics-how">
+<title>¿Cómo?</title>
+
+<sect3>
+<title>Un núcleo con filtrado de paquetes.</title>
+
+<para>
+Necesitará un núcleo que tenga incluídas las cadenas de cortafuegos IP.
+Puede saber si el núcleo que está funcionando ahora las tiene instaladas
+buscando del fichero `/proc/net/ip_fwchains'. Si existe, vamos bien.
+</para>
+
+<para>
+Si no, necesita hacer un núcleo con las cadenas de cortafuegos IP.
+Primero bájese los fuentes del núcleo que quiere. Si tiene un núcleo 
+numerado 2.1.102 o mayor, no necesitará parchearlo (está incluído en
+el núcleo). De otra manera, aplique el parche de la página web listada
+anteriormente, y configure como se detalla más abajo. Si no sabe como
+hacer esto, no se preocupe. Lea el Kernel-HOWTO.
+</para>
+
+<para>
+Las opciones de configuración que necesita configurar <emphasis>para los núcleos
+de la serie 2.0 </emphasis> son:
+</para>
+
+<para>
+
+<programlisting>
+	CONFIG_EXPERIMENTAL=y
+	CONFIG_FIREWALL=y
+	CONFIG_IP_FIREWALL=y
+	CONFIG_IP_FIREWALL_CHAINS=y
+</programlisting>
+
+</para>
+
+<para>
+para los <emphasis>núcleos de la serie 2.1 o 2.2 </emphasis>:
+
+<programlisting>
+	CONFIG_FIREWALL=y
+	CONFIG_IP_FIREWALL=y
+</programlisting>
+
+</para>
+
+<para>
+La herramienta <literal remap="tt">ipchains</literal> habla con el núcleo y le dice qué paquetes
+filtrar. A no ser que sea un programador, o extremadamente curioso, así 
+controlará el filtrado de paquetes.
+</para>
+
+</sect3>
+
+<sect3>
+<title><literal remap="tt">ipchains</literal>.</title>
+
+<para>
+Esta herramienta reemplaza <literal remap="tt">ipfwadm</literal>, usada por el código de cortafuegos
+IP antiguo. El paquete también contiene un archivo de comandos llamado 
+<literal remap="tt">ipfwadm-wrapper</literal> que le permite hacer filtrado de paquetes como se
+hacía antes. <emphasis> No</emphasis> use este archivo de comandos a no ser que quiera
+una manera rápida de actualizar un sistema. En tal caso, no necesita este
+COMO demasiado. Lea el apéndice
+<xref linkend="ipfwadm-diff"/> 
+y el apéndice <xref linkend="upgrade"/> para más detalles sobre temas de <literal remap="tt">ipfwadm</literal>.
+</para>
+
+</sect3>
+
+</sect2>
+
+</sect1>
+
+<sect1>
+<title>¡Estoy confuso! Rutado, enmascarado, reenvío de puertos, ipautofw...</title>
+
+<para>
+Este COMO es sobre filtrado de paquetes. Esto significa decidir si un 
+paquete debería pasar o no. No obstante, siendo como es Linux el campo de 
+juegos de los hackers, probablemente querrá hacer más que eso.
+</para>
+
+<para>
+Un problema es que la misma herramienta (``ipchains'') se usa para controlar 
+enmascarado y hacer proxy transparente, aunque estos están conceptualmente
+separados del filtrado de paquetes (la implementación actual de Linux difumina
+estos conceptos, dejando la impresión de que están estrechamente relacionados).
+</para>
+
+<para>
+Enmascarar y hacer proxy están cubiertos por COMOs distintos, y las 
+características de reenvío automático y de puerto están controladas por 
+herramientas separadas, pero como mucha gente me pregunta sobre ello, voy
+a incluír un conjunto de escenarios comunes e indicaré cuando debe ser 
+aplicado cada uno. Las ventajas de seguridad de cada uno no serán discutidas
+aquí.
+</para>
+
+<sect2>
+<title>Promoción Gratuita: WatchGuard </title>
+
+<para>
+Puede comprar cortafuegos ya hechos. Uno excelente es FireBox, de 
+WatchGuard. Es excelente porque me gusta, es seguro, basado en Linux y
+porque están financiando el mantenimiento de ipchains, así como del 
+nuevo código de cortafuegos (pensado para 2.3). En breve WatchGuard
+me pagará la comida mientras trabajo para usted. Así que por favor
+considere sus productos.
+</para>
+
+<para>
+<ulink
+url="http://www.watchguard.com"
+>http://www.watchguard.com</ulink
+>
+</para>
+
+</sect2>
+
+<sect2>
+<title>Configuraciones corrientes de tipo Firewall</title>
+
+<para>
+Supongamos que está en littlecorp.com. Tiene una red interna, y una  
+conexión simple (PPP) a Internet  (firewall.littlecorp.com con dirección
+1.2.3.4).  Tiene una red local Ethernet, y su máquina personal se llama 
+"myhost".
+</para>
+
+</sect2>
+
+<sect2>
+<title>Red Privada: Proxy tradicional.</title>
+
+<para>
+En este escenario, los paquetes de la red privada nunca llegan a 
+Internet, y viceversa. Las direcciones IP de la red privada deben 
+obtenerse de la RFC1597, espacio de direcciones de redes privadas
+(es decir 10.*.*.*, 172.16.*.* o 192.168.*.*).
+</para>
+
+<para>
+La única manera de que se conecten las máquinas a Internet es conectándolas
+al cortafuegos, que es la única máquina de ambas redes que se conectará de
+ahora en adelante. Usted ejecuta un programa (en el cortafuegos) llamado
+proxy para hacerlo (hay diferentes tipos de proxy para FTP, acceso web, 
+telnet, RealAudio, noticias de usenet y otros servicios. Consulte el 
+Cortafuegos COMO.
+</para>
+
+<para>
+Cualquier servicio que quiera que acceda a Internet debe residir en el
+cortafuegos. (Consulte sin embargo
+(<xref linkend="limited-services"/>
+más tarde).
+</para>
+
+<para>
+Ejemplo: Permitir acceso web desde la red privada a Internet.
+
+<orderedlist>
+<listitem>
+
+<para>
+ La red privada tiene asignada direcciones en 192.168.1.*, 
+siendo myhost la 192.168.1.100, y el interfaz Ethernet del cortafuegos
+la 192.168.1.1.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Instalamos y configuramos un proxy web (p.e. "squid") en el cortafuegos,
+por ejemplo en el puerto 8080.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Se configura Netscape en la red privada para usar el puerto
+8080 del cortafuegos como proxy.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ No hace falta configurar DNS en la red privada.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Pero si que hace falta configurar el DNS en el cortafuegos.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ No hay que configurar rutas por defecto (es decir, gateway) en la red
+privada.
+</para>
+</listitem>
+
+</orderedlist>
+
+</para>
+
+<para>
+Netscape, en myhost lee http://slashdot.org.
+
+<orderedlist>
+<listitem>
+
+<para>
+ Netscape se conecta al puerto 8080 del cortafuegos, usando el puerto 1050 de
+myhost.  Pide la página web en "http://slashdot.org".
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ El proxy busca el nombre "slashdot.org", y obtiene 
+207.218.152.131.  Ahora abre una conexión con esa dirección IP, usando el 
+puerto 1025 del interfaz externo del cortafuegos, y pide al servidor web remoto
+(en el puerto 80) la página web.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Cuando recibe la página de su conexión con el servidor web, copia
+los datos a la conexión con el Netscape.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Netscape dibuja la página.
+</para>
+</listitem>
+
+</orderedlist>
+
+</para>
+
+<para>
+según el punto de vista de slashdot.org, la conexión se hace desde 
+1.2.3.4 (el interfaz PPP del cortafuegos) puerto 1025 a 207.218.152.131
+(slashdot.org) puerto 80.  según el punto  de vista de myhost, la conexión 
+se hace desde 192.168.1.100 (myhost) puerto 1050, a 192.168.1.1
+(interfaz Ethernet del cortafuegos) puerto 8080.
+</para>
+
+</sect2>
+
+<sect2>
+<title>Red Privada: Proxy transparente.</title>
+
+<para>
+En este escenario, los paquetes de la red privada nunca atraviesan Internet y
+viceversa. Las direcciones IP de la red privada deben ser asignadas según la 
+RFC1597 Asignaciones de Redes Privadas (es decir 10.*.*.*, 172.16.*.* o 192.168.*.*).
+</para>
+
+<para>
+La única manera mediante la cual se puede conectar con Internet es conectándose
+al cortafuegos, que es la única máquina de ambas redes que se conectará al exterior.
+Necesita ejecutar un programa (en el cortafuegos) llamado proxy transparente
+para hacer esto; el núcleo envía los paquetes salientes al proxy transparente
+en vez de mandarlos al exterior (es decir, desprecia el rutado).
+</para>
+
+<para>
+El proxy transparente significa que los clientes no necesitan saber 
+que hay un proxy entre medias.
+</para>
+
+<para>
+Cualquier servicio que quera acceder en Internet debe estar en el 
+cortafuegos. (vea sin embargo <xref linkend="limited-services"/> más abajo).
+</para>
+
+<para>
+Ejemplo: Permitir acceso web de la red privada a Internet.
+
+<orderedlist>
+<listitem>
+
+<para>
+ La red privada tiene direcciones 192.168.1.* con myhost con la 
+dirección 192.168.1.100, y el interfaz Ethernet del cortafuegos 
+con la dirección 192.168.1.1.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Un proxy web transparente (creo que hay parches para que squid
+trabaje de esta manera, o intente probar con "transproxy") se instala y 
+configura en el cortafuegos, por ejemplo en el puerto 8080.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Le decimos al núcleo que redirija las conexiones al puerto 80 hacia
+el proxy mediante ipchains. 
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Netscape se configura para conectarse directamente.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Configuramos un DNS en la red privada (es decir, tiene que ejecutar
+un servidor DNS como proxy en el firewall).
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ La ruta por defecto (es decir, el gateway) se configura en los clientes
+de la red privada, para que envíen los paquetes al cortafuegos.
+</para>
+</listitem>
+
+</orderedlist>
+
+</para>
+
+<para>
+Netscape en myhost lee http://slashdot.org.
+
+<orderedlist>
+<listitem>
+
+<para>
+ Netscape busca el nombre "slashdot.org", y obtiene
+207.218.152.131.  Ahora abre una conexión con esa dirección IP, usando el 
+puerto local 1050, y pide la página web al servidor web (puerto 80).
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Los paquetes que vienen de myhost (puerto 1050) hacia slashdot.org (puerto
+80) pasan a través del cortafuegos y son redirigidos al proxy transparente esperando
+en el puerto 8080.  El proxy transparente abre una conexión (usando el puerto local 1025) 
+con 207.218.152.131 puerto 80 (que es donde iban los paquetes originales).
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ A medida que el proxy recibe la página web de su conexión con el servidor web, 
+copia los datos a la conexión con Netscape.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Netscape dibuja la página.
+</para>
+</listitem>
+
+</orderedlist>
+
+</para>
+
+<para>
+Desde el punto de vista de slashdot.org, la conexión se hace desde 
+1.2.3.4 (interfaz PPP del cortafuegos) puerto 1025 hasta 207.218.152.131
+(slashdot.org) puerto 80.  según el punto de vista de myhost, la conexión se hace desde 
+192.168.1.100 (myhost) puerto 1050, a 207.218.152.131
+(slashdot.org) puerto 80, pero en realidad está hablando con el proxy transparente.
+</para>
+
+</sect2>
+
+<sect2>
+<title>Redes privadas: Enmascarado.</title>
+
+<para>
+En este escenario, los paquetes de la red privada nuncan atraviesan 
+Internet sin antes recibir un tratamiento especial y viceversa. Las
+direcciones IP de la red privada deben asignarse según RFC1597 
+Asignación de redes privadas (es decir 10.*.*.*, 172.16.*.* o 192.168.*.*).
+</para>
+
+<para>
+En vez de usar un proxy, usamos una característica especial del núcleo 
+llamada enmascarado. El enmascarado sobrescribe los paquetes
+a medida que pasan a través del cortafuegos, de tal forma que siempre 
+parecen venir del cortafuegos. También sobreescribe las respuestas
+para que parezca que van a los destinatarios originales.
+</para>
+
+<para>
+El enmascarado tiene módulos independientes para manejar protocolos
+intrincados, como FTP, RealAudio, Quake, etc.  para los protocolos 
+que son encaje de bolillos se puede probar con la utilidad de 
+"reenvío automático", que puede manejar algunos de ellos configurando 
+el reenvío de puertos para los conjuntos de puertos relacionados:
+consulte ``ipportfw'' (serie 2.0 ) o ``ipmasqadm'' (serie 2.1).
+</para>
+
+<para>
+Cualquier servicio que quera acceder en Internet debe estar en el 
+cortafuegos. (vea sin embargo <xref linkend="limited-services"/> más abajo).
+</para>
+
+<para>
+Ejemplo: Permitir el acceso web a Internet desde la red privada.
+
+<orderedlist>
+<listitem>
+
+<para>
+ La red privada tiene direcciones 192.168.1.* con myhost con la 
+dirección 192.168.1.100, y el interfaz Ethernet del cortafuegos 
+con la dirección 192.168.1.1.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Configuramos el cortafuegos para que enmascare todos los
+paquetes que vengan de la red privada y vayan hacia el puerto 80 de un
+servidor en Internet.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Configuramos conexión directa en Netscape.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Configuramos un DNS en la red privada.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ El cortafuegos es la ruta por defecto en la red privada.
+</para>
+</listitem>
+
+</orderedlist>
+
+</para>
+
+<para>
+Netscape en myhost pide http://slashdot.org.
+
+<orderedlist>
+<listitem>
+
+<para>
+ Netscape busca el nombre "slashdot.org", y devuelve
+207.218.152.131.  Abre una conexión con esta dirección, usando el puerto
+local 1050, y pide al servidor web (puerto 80) la página web.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ A medida que van pasando paquetes desde myhost (puerto 1050) a 
+slashdot.org (puerto 80) a través del cortafuegos, se reescriben para 
+que parezca que vienen del interfaz PPP del cortafuegos, puerto 65000.  
+El cortafuegos tiene una dirección válida en internet (1.2.3.4), así que los 
+paquetes en respuesta desde www.linuxhq.com se rutan correctamente.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Los paquetes desde slashdot.org (puerto 80) a firewall.littlecorp.com 
+(puerto 65000) son reescritos a medida que llegan, para que vayan a myhost, 
+puerto 1050.  Esta es la auténtica magia del enmascarado: recuerda cuando
+sobreescribe los paquetes salientes para poder volver a reescribirlos cuando 
+vuelvan las respuestas.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Netscape dibuja la página.
+</para>
+</listitem>
+
+</orderedlist>
+
+</para>
+
+<para>
+según el punto de vista de slashdot.org, la conexión se hace desde el 
+interfaz PPP del cortafuegos (dirección 1.2.3.4, puerto 65000) hasta
+207.218.152.131 (slashdot.org) puerto 80.  Desde el punto de vista de 
+myhost, la conexión se hace desde 192.168.1.100 (myhost) puerto 1050, 
+a 207.218.152.131 (slashdot.org) puerto 80.
+</para>
+
+</sect2>
+
+<sect2>
+<title>Red Pública.</title>
+
+<para>
+En este escenario, su red personal es parte de Internet: los
+paquetes pueden fluír sin cambio a través de ambas redes. Las
+direcciones IP de la red interna deben asignarse pidiendo un
+bloque de direcciones, para que el resto de la red sepa
+cómo enviarle paquetes. Esto implica una conexión permanente.
+</para>
+
+<para>
+En este rol, el filtrado de paquetes se usa para restringir
+qué paquetes pueden ser reenviados entre su red y el resto de
+Internet, por ejemplo para restringir al resto de Internet que sólo 
+acceda a sus servidores web internos.
+</para>
+
+<para>
+Ejemplo: Permitir el acceso web desde una red privada a Internet.
+
+<orderedlist>
+<listitem>
+
+<para>
+ Su red interna tiene asignaciones según el bloque de
+direcciones IP que ha registrado (por ejemplo 1.2.3.*).
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ El cortafuegos se configura para que permita todo el tráfico.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Netscape se configura para que se conecte directamente.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Configure correctamente el DNS en su red.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ El cortafuegos debe ser la ruta por defecto de la red privada.
+</para>
+</listitem>
+
+</orderedlist>
+
+</para>
+
+<para>
+Netscape en myhost pide http://slashdot.org.
+
+<orderedlist>
+<listitem>
+
+<para>
+ Netscape busca el nombre "slashdot.org", y obtiene 
+207.218.152.131.  Abre entonces una conexión con esta dirección IP, 
+usando el puerto local 1050, y pide la página web al servidor web 
+(puerto 80).
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Los paquetes pasan a través de su cortafuegos, de la misma
+manera que pasan a través de otros routers entre usted y slashdot.org.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Netscape dibuja la página.
+</para>
+</listitem>
+
+</orderedlist>
+
+</para>
+
+<para>
+Sólo hay una conexión: de 1.2.3.100 (myhost) puerto
+1050, a 207.218.152.131 (slashdot.org) puerto 80.
+</para>
+
+</sect2>
+
+<sect2 id="limited-services">
+<title>Servicios Internos Limitados</title>
+
+<para>
+Hay unos cuantos trucos que puede usar para permitir a Internet 
+que acceda a sus servicios internos, en vez de correr los servicios
+en el cortafuegos. Estos funcionarán con un proxy o con enmascarado
+para las conexiones externas.
+</para>
+
+<para>
+La manera más simple es ejecutar un "redirector", que es un 
+proxy sencillo que espera conexiones en un puerto determinado para abrir
+conexiones con una máquina y puerto fijos internos, copiando entonces los
+datos entre las dos conexiones. Un ejemplo de ésto es el programa "redir".
+Desde el punto de vista de Internet, la conexión se hace con su cortafuegos.
+Desde el punto de vista de su servidor interno, la conexión se hace desde el 
+interfaz interno del cortafuegos con el servidor.
+</para>
+
+<para>
+Otra aproximación (que requiere un núcleo 2.0 parcheado con ipportfw, o un 
+núcleo 2.1 o posterior) es usar reenvío de puertos en el núcleo. Esto hace 
+lo mismo que "redir" de una manera diferente: el núcleo reescribe los paquetes
+a medida que pasan, cambiando sus direcciones destino y los puertos para que 
+apunten a un puerto y una máquina interna. Desde el punto de vista de Internet, 
+la conexión se hace con su cortafuegos. Desde el punto de vista de su servidor 
+interno se hace una conexión directa desde el servidor Internet al servidor. 
+</para>
+
+</sect2>
+
+</sect1>
+
+<sect1 id="core">
+<title>Cadenas de cortafuegos IP .</title>
+
+<para>
+Esta sección describe todo lo que necesitará saber para generar un filtro
+de paquetes que satisfaga sus necesidades.
+</para>
+
+<sect2>
+<title>Cómo atraviesan los filtros los paquetes.</title>
+
+<para>
+El núcleo comienza con tres listas de reglas; estas listas se llaman
+<emphasis remap="bf">cadenas de cortafuegos (firewall chains)</emphasis> o simplemente 
+<emphasis remap="bf">cadenas (chains)</emphasis>.  Las tres cadenas se denominan <emphasis remap="bf">entrada</emphasis>, 
+<emphasis remap="bf">salida</emphasis> y <emphasis remap="bf">reenvío</emphasis>.  Cuando llega un paquete al núcleo 
+(por ejemplo, a través de la tarjeta Ethernet) el núcleo usa la cadena de
+<literal remap="tt">entrada</literal> para decidir su destino. Si sobrevive a este paso, el 
+núcleo decide dónde enviar ahora el paquete (esto se llama <emphasis remap="bf">rutado</emphasis>).
+Si está destinado a otra máquina, consulta la cadena de <literal remap="tt">reenvío</literal>.
+Finalmente, justo antes de que el paquete vaya a salir, el núcleo consulta 
+la cadena de <literal remap="tt">salida</literal>.
+</para>
+
+<para>
+Una cadena es un conjunto de <emphasis remap="bf">reglas</emphasis>.  Cada regla dice `si la 
+cabecera del paquete dice tal, entonces haz esto con el paquete'.  Si 
+la regla no es aplicable al paquete se consulta la siguiente regla de
+la cadena. finalmente, si no hay más reglas que consultar, se mira en
+la cadena <emphasis remap="bf">política</emphasis> para decidir qué hacer. En un sistema que 
+piense en la seguridad, esta política normalmente obliga al núcleo  a
+rechazar o denegar el paquete.
+</para>
+
+<para>
+para los amantes del arte ASCII, la figura muestra el camino completo
+de un paquete entrante a una máquina.
+</para>
+
+<programlisting>
+        ----------------------------------------------------------------
+        |           ACEPTAR/                               interfaz lo |
+        v           REDIRIGIR                                          |
+--&#62; C --&#62; S --&#62; _______ -&#62; D --&#62; ~~~~~~~~ --&#62; ¿local? ----&#62; _______ --&#62; 
+    h  -&#62; a    |Cadena |   e    {Decisión}    __|____      |Cadena |ACEPTAR
+    e  |  n    |entrada|   s    {Rutado  }   |Cadena |----&#62;|Salida |
+    c  |  i    |______ |   e     ~~~~~~~~    |reenvio|   ^ |_______|
+    k  |  d       |        n        |  ^     |_______|   |     |    
+    s  |  a       |        m        |  |         |       |     |    
+    u  |  d       v        a        v  |         |       |     v    
+    m  |  |   DENEGAR/     s  Proceso Local      v       | DENEGAR/
+    |  |  v   RECHAZAR     c        |       DENEGAR/     |  RECHAZAR
+    |  |DENY               a        |        RECHAZAR    | 
+    v  |                   r        |                    |
+DENEGAR|                   a        |                    |
+       |                   r        |                    |
+       |                     -------+--------------------- 
+       -----------------------------|
+
+Ahora tiene una descripción mucho más detallada de cada paso:
+</programlisting>
+
+<para>
+<variablelist>
+
+<varlistentry>
+<term>Checksum:</term>
+<listitem>
+<para>
+Esta es una comprobación de que la integridad del paquete
+no ha sido comprometida de alguna manera. Si lo ha sido, es denegado.
+</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>Sanidad:</term>
+<listitem>
+<para>
+Hay una de estas comprobaciones de sanidad antes de cada 
+cadena de cortafuegos, pero la cadena de entrada es la más importante. Algunos
+paquetes mal formados pueden confundir el código de comprobación de reglas, 
+y estos paquetes son denegados aquí (se imprime un mensaje a syslogo si
+esto ocurre).
+</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>Cadena de entrada:</term>
+<listitem>
+<para>
+Esta es la primera cadena de cortafuegos 
+contra la que se probará el paquete. Si el veredicto de la cadena no es ni
+<literal remap="tt">DENEGAR</literal> ni <literal remap="tt">RECHAZAR</literal>, el paquete continúa.
+</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>Desenmascarar:</term>
+<listitem>
+<para>
+Si el paquete es contestación a algún paquete previamente
+enmascarado, se desenmascara, y directamente pasa a la cadena de <literal remap="tt">salida</literal>.
+Si no usa enmascarado IP, puede borrar esto de su diagrama mental.
+</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>Decisión de rutado:</term>
+<listitem>
+<para>
+Se examina el campo destino para decidir si el paquete 
+debe ir a un proceso local (vea más abajo Proceso local) o reenviado a una 
+máquina remota (vea cadena de reenvío más adelante).
+</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>Proceso Local:</term>
+<listitem>
+<para>
+Un proceso que se ejecute en la máquina puede recibir
+paquetes después del paso de Decisión de Rutado, y puede enviar paquetes
+(que van a través del paso de Decisión de Rutado y luego atraviesan
+la cadena de salida).
+</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>interfaz lo:</term>
+<listitem>
+<para>
+Si los paquetes de un proceso local están destinados 
+a un proceso local, irán a través de la cadena de salida con el interfaz
+`lo', y luego volverán a través de la cadena de entrada con el interfaz 
+`lo' también.  El interfaz lo suele llamarse interfaz de loopback
+(vuelta atrás).
+</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>local:</term>
+<listitem>
+<para>
+Si el paquete no fue creado por un proceso local, se 
+comprueba la cadena de reenvío, de otra forma el paquete va a la 
+cadena de salida.
+</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>cadena de reenvío:</term>
+<listitem>
+<para>
+Esta cadena es atravesada por cualquier
+paquete que intente pasar a través de esta máquina hasta otra.
+</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>cadena de salida:</term>
+<listitem>
+<para>
+Esta cadena es atravesada por todos los 
+paquetes justo antes de que sean enviados.
+</para>
+</listitem>
+</varlistentry>
+</variablelist>
+</para>
+
+<sect3>
+<title>Usando <literal remap="tt">ipchains</literal>.</title>
+
+<para>
+Primero compruebe que tiene la versión de ipchains a la que se refiere 
+este documento: 
+</para>
+
+<para>
+
+<screen>
+$ ipchains --version
+ipchains 1.3.8, 27-Oct-1998
+</screen>
+
+</para>
+
+<para>
+ipchains tiene una página del manual bastante detallada (<literal remap="tt">man ipchains</literal>),
+y si necesita mas detalles particulares, puede comprobar el interfaz de 
+programación (<literal remap="tt">man 4 ipfw</literal>), o el fichero 
+<literal remap="tt">net/ipv4/ip_fw.c</literal> en las fuentes del núcleo 2.1.x, que es 
+(obviamente) oficial.
+</para>
+
+<para>
+Hay también una tarjeta de referencia rápida por  Scott Bronson 
+en el paquete fuente, en PostScript(TM) tamaños A4 y US Letter .
+</para>
+
+<para>
+Hay varias cosas más que puede hacer con <literal remap="tt">ipchains</literal>.
+Primero las operaciones para gestionar cadenas completas. Comience
+con las tres cadenas ya hechas, <literal remap="tt">entrada</literal>, <literal remap="tt">salida</literal> 
+y <literal remap="tt">reenvío</literal> que no puede borrar.
+</para>
+
+<para>
+
+<orderedlist>
+<listitem>
+
+<para>
+ Crear una cadena nueva (-N).
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Borrar una cadena vacía (-X).
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Cambiar la política de una cadena ya hecha. (-P).
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Listar las reglas de una cadena (-L).
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Vaciar las reglas de una cadena (-F).
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Poner a cero los contadores de octeto y paquete de una cadena (-Z).
+</para>
+</listitem>
+
+</orderedlist>
+
+</para>
+
+<para>
+Hay varias maneras de manimpular reglas en una cadena:
+</para>
+
+<para>
+
+<orderedlist>
+<listitem>
+
+<para>
+ Añadir una regla nueva a una cadena (-A).
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Insertar una regla nueva en alguna posición de una cadena (-I).
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Reemplazar una regla en alguna posición de una cadena (-R).
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Borrar una regla en alguna posición en una cadena (-D).
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Borrar la primera regla que coincida en una cadena (-D).
+</para>
+</listitem>
+
+</orderedlist>
+
+</para>
+
+<para>
+Hay unas cuantas operaciones para enmascarado, incluídas en 
+<literal remap="tt">ipchains</literal> por conveniencia:
+</para>
+
+<para>
+
+<orderedlist>
+<listitem>
+
+<para>
+ Listar las conexiones actualmente enmascaradas (-M -L).
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Establecer los valores de timeout del enmascarado(-M -S). (consulte <xref linkend="no-timeout"/>).
+</para>
+</listitem>
+
+</orderedlist>
+
+</para>
+
+<para>
+La última (y quizá más útil) función le permite comprobar que le pasaría a un paquete si atravesara 
+una cadena dada.
+</para>
+
+</sect3>
+
+<sect3>
+<title>Operaciones con una sola regla.</title>
+
+<para>
+Esta es la base de ipchains, la manipulación de reglas. La mayor parte
+de las veces usará los comandos de añadir (-A) y borrar (-D). El resto
+(-I para insertar y -R de reemplazar) son extensiones sencillas de estos conceptos.
+</para>
+
+<para>
+Toda regla especifica un conjunto de condiciones que el paquete debe
+cumplir, y qué hacer si se las encuentra (un `objetivo'). Por ejemplo,
+podría querer denegar todos los paquetes ICMP que vengan de la dirección
+IP 127.0.0.1.  En este caso, nuestras condiciones son ICMP y que la 
+dirección origen sea 127.0.0.1.  Nuestro objetivo es `DENEGAR'.
+</para>
+
+<para>
+127.0.0.1 es el interfaz `loopback' que tendrá incluso si no tiene 
+conexión de red. Puede usar el programa `ping' para generar estos 
+paquetes (simplemente envía un paquete ICMP tipo 8 (petición de eco)
+que debe ser obligatoriamente respondido por todas las máquinas 
+cooperativas con un paquete ICMP tipo 0 (respuesta de eco) ). Es útil
+para pruebas.
+</para>
+
+<para>
+
+<screen>
+# ping -c 1 127.0.0.1
+PING 127.0.0.1 (127.0.0.1): 56 data bytes
+64 bytes from 127.0.0.1: icmp_seq=0 ttl=64 time=0.2 ms
+
+--- 127.0.0.1 ping statistics ---
+1 packets transmitted, 1 packets received, 0% packet loss
+round-trip min/avg/max = 0.2/0.2/0.2 ms
+# ipchains -A input -s 127.0.0.1 -p icmp -j DENY
+# ping -c 1 127.0.0.1
+PING 127.0.0.1 (127.0.0.1): 56 data bytes
+
+--- 127.0.0.1 ping statistics ---
+1 packets transmitted, 0 packets received, 100% packet loss
+# 
+</screen>
+
+</para>
+
+<para>
+Puede ver aquí que el primer ping funciona ( `-c 1' le dice a 
+ping que sólo mande un paquete).
+</para>
+
+<para>
+Entonces añadimos (-A) a la cadena de entrada (`input') una regla 
+especificando que para los paquetes que vengan de 127.0.0.1 
+(`-s 127.0.0.1') con protocolo ICMP (`-p ICMP') saltemos 
+directamente (jump) a DENEGAR (`-j DENY').
+</para>
+
+<para>
+Comprobamos ahora nuestra regla, usando el segundo ping. Habrá una
+pausa antes de que el programa deje de esperar una respuesta que
+nunca llegará.
+</para>
+
+<para>
+Podemos borrar la regla de dos formas. Primero, ya que sabemos que es
+la única regla en la cadena de entrda, podemos usar un borrado numerado,
+es decir:
+
+<screen>
+	# ipchains -D input 1
+	#
+</screen>
+
+para borrar la regla número 1 de la cadena de entrada.
+</para>
+
+<para>
+El segundo método es replicar el comando -A, pero reemplazando -A con
+-D. esto es útil cuando tiene una cadena compleja de reglas y
+no quiere contarlas todas para averiguar que la regla 37 es la que
+quiere borrar. En este caso, usamos:
+
+<screen>
+	# ipchains -D input -s 127.0.0.1 -p icmp -j DENY
+	#
+</screen>
+
+La sintaxis de -D tiene que tener exactamente las mismas opciones 
+que tenía -A (o -I o -R). Si hay varias reglas idénticas
+en la misma cadena, sólo la primera será borrada.
+</para>
+
+</sect3>
+
+<sect3>
+<title>Especificaciones de filtrado.</title>
+
+<para>
+Hemos visto el uso de `-p' para especificar protocolo, y de `-s' para
+especificar dirección origen, pero hay otras opciones que podemos usar
+para especificar las características del paquete. Lo siguiente es un
+compendio exhaustivo.
+</para>
+
+<sect4>
+<title>Especificando direcciones IP origen y destino.</title>
+
+<para>
+Las direcciones origen (-s) y destino (-d) pueden ser especificados de
+cuatro formas. La más común es usar el nombre completo, como 
+`localhost' o `www.linuxhq.com'.  La segunda manera es especificar 
+la dirección IP como `127.0.0.1'.  
+</para>
+
+<para>
+La tercera y cuarta manera permiten especificar un grupo de direcciones
+IP, como `199.95.207.0/24' o `199.95.207.0/255.255.255.0'.
+Ambos especifican cualquier dirección IP desde la 192.95.207.0 a la 
+192.95.207.255 inclusives; los dígitos después del`/' especifican 
+qué partes de la dirección IP son significativas. `/32' o `/255.255.255.255' 
+es la opción por defecto (la dirección IP completa). para especificar
+cualquier dirección IP, podemos usar `/0', por lo que:
+
+<screen>
+	# ipchains -A input -s 0/0 -j DENY
+	#
+</screen>
+
+</para>
+
+<para>
+Esto se usa poco, ya que el efecto de lo anterior es como no especificar
+la opción `-s' en absoluto.
+</para>
+
+</sect4>
+
+<sect4>
+<title>Especificando la inversión.</title>
+
+<para>
+Muchas opciones, incluyendo `-s' y `-d' pueden tener los argumentos
+precedidos por `!' (se lee `no') para concordar con direcciones que
+NO son iguales a aquellas dadas. Por ejemplo. `-s ! localhost' concuerda
+con cualquier paquete que NO venga de localhost.
+</para>
+
+</sect4>
+
+<sect4>
+<title>Especificando el protocolo.</title>
+
+<para>
+El protocolo puede ser especificado con la opción `-p'. El protocolo puede
+ser un número (si sabe los valores numéricos del protocolo para IP) o un 
+nombre para los casos particulares de `TCP', `UDP' o `ICMP'.  No se distingue entre 
+mayúsculas y minúsculas, así que `tcp' funciona como también `TCP'.
+</para>
+
+<para>
+El nombre de protocolo puede ser precedido por un `!', para invertirlo,
+como `-p ! TCP'.
+</para>
+
+<sect5>
+<title>Especificando los puertos TCP y UDP.</title>
+
+<para>
+En el caso particular en el que se especifica un protocolo TCP o UDP,
+puede haber un argumento extra indicando el puerto  TCP o UDP, o un
+intervalo de puertos (cerrado) (vea <xref linkend="handling-fragments"/> below).  Un intervalo se reperesenta usando un 
+caracter `:', como `6000:6010', que cubre 11 números de puerto, 
+del 6000 al 6010 inclusives.  Si se omite el límite inferior, el 
+valor por defecto es 0. Si se omite límite superior, el valor por
+defecto es 65535.  Así que para especificar las conexiones TCP de los 
+puertos menores a 1024, la sintaxis sería `-p TCP -s 0.0.0.0/0 :1023'. 
+Los números de puerto pueden especificarse por nombre, como `www'.
+</para>
+
+<para>
+Advierta que la especificación de puerto puede ser precedido por un `!', 
+que lo invierte. Así que especificar cualquier paquete TCP excepto un paquete WWW
+se escribiría 
+-p TCP -d 0.0.0.0/0 ! www
+</para>
+
+<para>
+Es importante darse cuenta que especificar 
+</para>
+
+<para>
+-p TCP -d ! 192.168.1.1 www
+</para>
+
+<para>
+es muy diferente de 
+-p TCP -d 192.168.1.1 ! www
+</para>
+
+<para>
+La primera especifica cualquier paquete TCP al puerto WWW en cualquier
+máquina excepto 192.168.1.1.  La segunda especifica cualquier conexión
+TCP a cualquier puerto de 192.168.1.1 excepto el puerto WWW.
+</para>
+
+<para>
+Finalmente, este caso significa excepto puerto WWW y direccion 192.168.1.1:
+-p TCP -d ! 192.168.1.1 ! www
+</para>
+
+</sect5>
+
+<sect5>
+<title>Especificando tipo y código ICMP.</title>
+
+<para>
+ICMP también permite un argumento opcional, pero como ICMP no tiene puertos,
+(ICMP tiene un <emphasis remap="bf">tipo</emphasis> y un <emphasis remap="bf">código</emphasis>) tienen un 
+significado distinto.
+</para>
+
+<para>
+Puede especificarlos como nombres ICMP (use <literal remap="tt">ipchains -h icmp</literal> 
+para listar todos los nombres) después de la opción `-s', o como un
+tipo y código ICMP, donde el tipo sigue a la opción `-s' y el código
+sigue a la opción `-d'.
+</para>
+
+<para>
+Los nombres ICMP son bastante largos: sólo necesita usar las letras
+suficientes para diferenciar el nombre del resto.
+</para>
+
+<para>
+Aquí hay una pequeña tabla de algunos de los paquetes ICMP más comunes:
+
+<screen>
+Número	Nombre		 	 Requerido por 
+
+0	echo-reply		 ping
+3	destination-unreachable	 Todo el tráfico TCP/UDP.
+5	redirect		 rutado si no ejecutamos el demonio de rutado
+8	echo-request		 ping
+11	time-exceeded		 traceroute
+</screen>
+
+</para>
+
+<para>
+Advierta que los nombres ICMP no pueden ser precedidos por `!' de momento.
+</para>
+
+<para>
+NUNCA NUNCA NUNCA bloquee todos los mensajes ICMP tipo 3. (vea <xref linkend="ICMP"/> más abajo).
+</para>
+
+</sect5>
+
+</sect4>
+
+<sect4>
+<title>Especificando un interfaz. </title>
+
+<para>
+La opción `-i' especifica el nombre de un <emphasis remap="bf">interfaz</emphasis> a buscar. Un
+interfaz es el dispositivo físico por el que vino el paquete, o por el que
+va a salir. Puede usar el comando <literal remap="tt">ifconfig</literal> para listar los 
+interfaces que están `up' (es decir funcionando en ese momento).
+</para>
+
+<para>
+El interfaz de los paquetes entrantes (es decir paquetes que están atravesando 
+la cadena de <literal remap="tt">entrada</literal>) se considera que es el interfaz por el
+que llegan. Lógicamente, el interfaz para los paquetes salientes (paquetes
+que están atravesando la cadena de <literal remap="tt">salida</literal>) es el interfaz por el
+que van a salir. El interfaz de los paquetes atravesando la cadena de 
+<literal remap="tt">reenvío</literal> es también el interfaz por el que van a salir, una 
+decisión bastante arbitraria, me parece a mí.
+</para>
+
+<para>
+Es perfectamente legal especificar un interfaz que actualmente no 
+exista; la regla no concordará hasta que el interfaz esté activo. 
+Esto es extremadamente útil para enlaces PPP de llamada (usualmente interfaz
+<literal remap="tt">ppp0</literal>) y similares.
+</para>
+
+<para>
+Como caso particular, un nombre de interfaz que acabe con un `+' 
+concordará con todos los interfaces (existan o no actualmente) que empiecen 
+con esa cadena. Por ejemplo, podemos especificar una regla que 
+se aplique a todos los interfaces PPP, usando la opción 
+<literal remap="tt">-i ppp+</literal>.
+</para>
+
+<para>
+El nombre del interfaz puede ser precedido por un `!' para referirnos a los 
+paquetes que NO concuerden con los interfaces especificados.
+</para>
+
+</sect4>
+
+<sect4>
+<title>Especificando sólo paquetes TCP SYN.</title>
+
+<para>
+Algunas veces es útil permitir conexiones TCP en una dirección, pero
+no en la otra. Por ejemplo, puede querer permitir conexiones a un 
+servidor externo WWW, pero no conexiones de ese servidor.
+</para>
+
+<para>
+La aproximación inguenua sería bloquear paquetes TCP que vengan del
+servidor. Desafortunadamente, las conexiones TCP requieren paquetes
+que vayan en ambas direcciones.
+</para>
+
+<para>
+La solución es bloquear sólo los paquetes usados para requerir una
+conexión. Estos paquetes se llaman paquetes <emphasis remap="bf">SYN</emphasis> (bueno, 
+técnicamente son paquetes con el testigo SYN activado, y con FIN y 
+ACK desactivados, pero los llamamos paquetes SYN). Bloquear sólo estos 
+paquetes nos permite interrumpir conexiones en sus orígenes.
+</para>
+
+<para>
+El testigo  `-y' se usa para esto: sólo es válido para reglas que 
+especifiquen TCP como su protocolo. Por ejemplo, especificar 
+intentos de conexión TCP desde 192.168.1.1:
+-p TCP -s 192.168.1.1 -y
+</para>
+
+<para>
+Una vez más, este testigo puede ser invertido precediendole con 
+un `!', que se refiere a cualquier paquete distinto al inicio de
+conexión.
+</para>
+
+</sect4>
+
+<sect4 id="handling-fragments">
+<title>Manejando fragmentos.</title>
+
+<para>
+A veces un paquete es demasiado largo para caber en un cable a 
+la vez. Cuando esto ocurra, el paquete se divide en <emphasis remap="bf">fragmentos</emphasis>, 
+y paquetes múltiples. El otro lado vuelve a ensamblar los fragmentos
+para reconstruir el paquete entero.
+</para>
+
+<para>
+El problema con los fragmentos es que algunas de las especificaciones
+listadas antes (en particular puerto origen, puerto destino, 
+tipo ICMP, código ICMP o testigo TCP SYN) requieren que el núcleo 
+busque en el comienzo del paquete, el cual sólo está contenido en el
+primer fragmento.
+</para>
+
+<para>
+Si su máquina es la única conexión con una red externa, puede decirle 
+al núcleo de Linux que reensamble todos los fragmentos que pasen a 
+través de él, compilando el núcleo con <literal remap="tt">IP: always defragment</literal>
+puesto a `Y'. Esto soluciona el asunto limpiamente.
+</para>
+
+<para>
+Sino, es importante comprender cómo los fragmentos son tratados
+las reglas de filtrado. Cualquier regla de filtrado que pida información
+que no tengamos <emphasis>no</emphasis> concordará. Esto significa que el primer 
+fragmento es tratado como cualquier otro paquete. Los fragmentos segundo
+y siguientes no lo serán. Así, una regla como 
+<literal remap="tt">-p TCP -s 192.168.1.1 www</literal> (especificando un puerto origen
+`www') nunca concordará con un fragmento (distinto al primero).
+Tampoco lo hará la regla opuesta <literal remap="tt">-p TCP -s 192.168.1.1 ! www</literal>.
+</para>
+
+<para>
+Sin embargo, puede especificar una regla específica para los 
+fragmentos segundo y siguientes, usando la opción `-f' flag. Obviamente,
+es ilegal especificar un puerto TCP o UDP, tipo ICMP, código ICMP o 
+testigo TCP SYN flag en una regla de fragmento como esa.
+</para>
+
+<para>
+También es legal especificar que una regla <emphasis>no</emphasis> se aplica a 
+los fragmentos segundo y siguientes, precediendo `-f' con `!'.
+</para>
+
+<para>
+Normalmente se considera seguro dejar los fragmentos segundo y siguientes
+pasar, ya que el filtrado afectará al primer fragmento, y evitará
+el reensamblado en la máquina destino. No obstante se han
+sabido de errores que provocan que las máquinas se cuelguen sólo
+enviando fragmentos. Es decisión suya.
+</para>
+
+<para>
+Nota para cabeceras de red: los paquetes malformados (TCP, UDP e
+ICMP demasiado cortos para que el código de cortafuegos lea los 
+puertos ICMP o el tipo y código ICMP) son tratados como fragmentos
+también. Sólo los fragmentos TCP comenzando en la posición 8 son 
+explícitamente descartados por el código de cortafuegos (un mensaje
+debe aparecer en syslog si esto ocurre).
+</para>
+
+<para>
+Como ejemplo, la regla siguiente descartará cualquier fragmento
+que vaya a 192.168.1.1:
+</para>
+
+<para>
+
+<screen>
+ 
+# ipchains -A output -f -D 192.168.1.1 -j DENY
+#
+</screen>
+
+</para>
+
+</sect4>
+
+</sect3>
+
+<sect3>
+<title>Filtrando efectos colaterales.</title>
+
+<para>
+Muy bien, ahora que ya conocemos todas las maneras de las que podemos 
+seleccionar paquetes mediante reglas. Si un paquete concuerda con una
+regla, pasan estas cosas:
+</para>
+
+<para>
+
+<orderedlist>
+<listitem>
+
+<para>
+ El contador de octetos para esa regla se incrementa con el 
+tamaño del paquete (todo, incluyendo la cabecera).
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ El contador de paquete para esa regla se incrementa.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Si la regla lo pide, el paquete se archiva.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Si la regla lo pide, el campo tipo de Servicio del paquetes se
+cambia.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Si la regla lo pide, se marca el paquete (no aplicable a la serie 2.0 del núcleo).
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Se determina qué hacer con el paquete mediante el objetivo de la regla.
+</para>
+</listitem>
+
+</orderedlist>
+
+</para>
+
+<para>
+para variar, me referiré a estas en order de importancia.
+</para>
+
+<sect4 id="target-spec">
+<title>Especificando un objetivo.</title>
+
+<para>
+Un <emphasis remap="bf">objetivo</emphasis> le dice al núcleo qué hacer con un paquete que concuerde
+con una regla.  ipchains usa `-j' (`saltar a ') para la especificación del
+objetivo.
+</para>
+
+<para>
+El caso más sencillo es cuando no hay objetivo especificado. Este tipo de
+regla (llamada usualmente regla de `contabilidad') es útil para simplemente
+contar un cierto tipo de paquete. Concuerde o no esta regla, el núcleo 
+examinará la siguiente regla de la cadena. Por ejemplo, para contar el número de
+paquetes que vengan de 192.168.1.1, podemos hacer:
+
+<screen>
+# ipchains -A input -s 192.168.1.1
+#
+</screen>
+
+</para>
+
+<para>
+(Con `ipchains -L -v' podemos ver los contadores de octeto y paquete asociados
+a cada regla).
+</para>
+
+<para>
+Hay seis objetivos especiales. Los tres primeros, <literal remap="tt">ACEPTAR (ACCEPT)</literal>,
+<literal remap="tt">RECHAZAR (REJECT)</literal> y <literal remap="tt">DENEGAR (DENY)</literal> son sencillitos.  
+<literal remap="tt">ACEPTAR</literal> permite que pase el paquete. <literal remap="tt">DENEGAR</literal> descarta el 
+paquete como si nunca se hubiera recibido.  <literal remap="tt">RECHAZAR</literal> descarta el 
+paquete, pero (si no es un paquete ICMP) genera una respuesta ICMP al origen 
+diciéndole que el destino era inalcanzable.
+</para>
+
+<para>
+La siguiente, <literal remap="tt">ENMASCARAR (MASQ)</literal> obliga al núcleo a enmascarar el 
+paquete. para que esto funcione, el núcleo necesita ser compilado con el 
+enmascarado IP activado. para más detalle, consulte el Masquerading-HOWTO 
+y el apéndice <xref linkend="ipfwadm-diff"/>.  Este objetivo es válido sólo para los paquetes que atraviesen la
+regla de <literal remap="tt">reenvío</literal>.
+</para>
+
+<para>
+El otro objetivo especial importante es <literal remap="tt"> REDIRIGIR (REDIRECT)</literal> que le
+dice al núcleo que envíe al paquete a un puerto local en vez de a donde 
+estuviera dirigido. Esto sólo puede aplicarse a reglas que especifiquen 
+protocolo TCP o UDP. Opcionalmente, un puede especificarse un puerto (número o
+nombre) siguiendo a `-j REDIRECT' lo que causará que el paquete sea redirigido 
+a ese puerto particular, incluso si iba dirigido a otro puerto. Este objetivo
+sólo es aplicable a paquetes a través de la cadena de <literal remap="tt">entrada</literal>.
+</para>
+
+<para>
+El objetivo especial final es <literal remap="tt">DEVOLVER (RETURN)</literal> que es idéntico a 
+caer al final de la cadena inmediatamente.(Vea <xref linkend="policy"/> más abajo).
+</para>
+
+<para>
+Cualquier otro objetivo indica una cadena definida por el usuario (como se 
+describe en <xref linkend="chain-ops"/> 
+más tarde).  El paquete comenzará a atravesar las reglas en esa cadena. Si 
+esa cadena no decide el destino del paquete, una vez que haya acabado de 
+atravesar esa cadena, continúa atravesando en la siguiente regla de la 
+cadena actual.
+</para>
+
+<para>
+Más arte ASCII. Considere dos cadenas tontas de ejemplo:  <literal remap="tt">Entrada</literal> 
+(la cadena predefinida) y <literal remap="tt">Prueba</literal> (una definida por el usuario).
+</para>
+
+<programlisting>
+	  `input'			  `Prueba'
+-----------------------------	 ----------------------------
+| Regla1: -p ICMP -j REJECT |	 | Regla1: -s 192.168.1.1   |
+|---------------------------|	 |--------------------------|
+| Regla2: -p TCP -j Prueba  |	 | Regla2: -d 192.168.1.1   |
+|---------------------------|	 ----------------------------
+| Regla3: -p UDP -j DENY    |
+-----------------------------
+</programlisting>
+
+<para>
+Imagine un paquete TCP que llegue desde 192.168.1.1, hacia 1.2.3.4.  Entra
+en la cadena de <literal remap="tt">entrada</literal>, y se comprueba con la Regla1 - 
+no concuerda. Regla2 conincide, y su objetivo es <literal remap="tt">Prueba</literal>, 
+así que la siguiente regla que se examina es el comienzo de <literal remap="tt">Prueba</literal>.
+Regla1 de <literal remap="tt">prueba</literal> concuerda, pero no especifica un objetivo, así que
+se examina la siguiente, Regla2. Esta no concuerda, así que hemos alcanzado
+el final de la cadena. Volvemos a la cadena de <literal remap="tt">entrada</literal> donde 
+como acabamos de examinar Regla2, nos vamos a examinar la Regla3 que tampoco
+coincide.
+</para>
+
+<programlisting>
+Así que el camino seguido por el paquete es:
+			v    __________________________
+`input'		|   /	 `Prueba'              v
+------------------------|--/	-----------------------|----
+| Regla1                | /|	| Regla1               |   |
+|-----------------------|/-|	|----------------------|---|
+| Regla2                /  |	| Regla2               |   |
+|--------------------------|	-----------------------v----
+| Regla3                /--+___________________________/
+------------------------|---
+                                v
+</programlisting>
+
+<para>
+Lea la sección <xref linkend="organisation"/> para usar reglas definidas por el usuario con efectividad.
+</para>
+
+</sect4>
+
+<sect4>
+<title>Controlando paquetes.</title>
+
+<para>
+Este es un efecto colateral que puede tener la concordancia de una regla; 
+puede hacer que el paquete coincidente sea registrado con la opción `-lŽ. 
+Normalmente no lo hará para los paquetes rutinarios, pero es una característica
+útil si quiere buscar eventos excepcionales (vea <literal remap="tt">man klogd</literal> o
+<literal remap="tt">man dmesg</literal>).
+</para>
+
+</sect4>
+
+<sect4>
+<title>Manipulando el tipo de Servicio</title>
+
+<para>
+Hay cuatro bits raramente usados en la cabecera IP, llamados los bits de 
+<emphasis remap="bf"> tipo de Servicio (type of Service, TOS)</emphasis>. Afectan la forma en que se
+trata a los paquetes, y son "Mínimo retraso", "Máxima velocidad", "Máxima
+Fiabilidad" y "Mínimo Coste". Sólo uno de estos bits pueden estar activado. 
+Rob van Nieuwkerk, el autor del código de gestión de los TOS, dice lo siguiente:
+</para>
+
+<para>
+<quote
+>"Mínimo Retraso" es especialmente importante para mi. Lo activo en los
+paquetes "interactivos" en mi router (Linux) hacia Internet. Estoy detrás
+de un enláce módem a 33k6. Linux prioriza los paquetes en tres colas. De esta 
+forma obtengo un comportamiento interactivo aceptable mientras me bajo algo voluminoso
+a la vez. (Podría ser incluso mejor si no hubiera una cola tan larga en el 
+controlador serie, pero la latencia está bajo los 1.5 segundos).</quote>
+</para>
+
+<para>
+La práctica más corriente es configurar las conexiones de control de 
+telnet y ftp a "Mínimo Retraso", y los datos de FTP a "Máxima Velocidad". 
+Esto se hace como sigue:
+</para>
+
+<para>
+
+<screen>
+ipchains -A output -p tcp -d 0.0.0.0/0 telnet -t 0x01 0x10
+ipchains -A output -p tcp -d 0.0.0.0/0 ftp -t 0x01 0x10
+ipchains -A output -p tcp -s 0.0.0.0/0 ftp-data -t 0x01 0x08
+</screen>
+
+</para>
+
+<para>
+La opción  `-t' lleva dos parámetros más, ambos en hexadecimal. Esto nos 
+permite combinaciones complejas de los bits TOS: la primera máscara opera un
+AND lógico con el TOS actual del paquete, y la segunda realiza un XOR. Si esto es
+demasiado complicado, puede usar la tabla siguiente:
+</para>
+
+<para>
+
+<screen>
+Nombre del TOS          Valor           Usos típicos
+
+Mínimo Retraso          0x01 0x10       ftp, telnet
+Máxima Velocidad        0x01 0x08       ftp-data
+Máxima Fiabilidad       0x01 0x04       snmp
+Mínimo Coste            0x01 0x02       nntp
+</screen>
+
+</para>
+
+<para>
+Andi Kleen añade lo siguiente (editado para la posteridad):
+<quote
+>A lo mejor sería útil añadir una referencia al parámetro txqueuelen de
+ifconfig en la discusión de los bits TOS. La longitud de la cola por 
+defecto para los dispositivos se afina para tarjetas ethernet; en módems
+es demasiado larga y provoca que el repartidor de 3 bandas (que encola
+según los TOS) no funcione a pleno rendimiento. Es una buena idea ponerlo 
+a un valor entre 4 y 10 en un módem o enlaces RDSI de un sólo canal b. En 
+dispositivos empaquetados se requiere una cola más larga. Esto es un
+problema en los 2.0 y 2.1, pero en 2.1 hay una opción de ifconfig (con
+las nettools recientes), mientras que la 2.0 requiere parches en los
+controladores de dispositivo.</quote>
+</para>
+
+<para>
+Por tanto, para ver el máximo de beneficio en la manipulación del TOS en 
+enlaces PPP de módem, haga `ifconfig $1 txqueuelen' en su 
+/etc/ppp/ip-up script.  El número a usar depende de la velocidad del 
+módem y la cantidad de memoria intermedia en el módem; de nuevo 
+Andi me lo aclara:
+</para>
+
+<para>
+<quote>El mejor valor para una configuración dada depende de la experimentación.
+Si las colas son demasiado cortas en un router, se descartarán paquetes.  
+Claro que uno tiene beneficios incluso sin la reescritura del TOS, tan 
+sólo que la reescritura del TOS ayuda a beneficiar aquellos programas
+no cooperantes (sin embargo, todos los paquetes linux estándar son 
+cooperantes).</quote>
+</para>
+
+</sect4>
+
+<sect4>
+<title>Marcando un paquete.</title>
+
+<para>
+Esto nos permite hacer interaccions complejas y potentes con la nueva
+implementación de la Calidad de Servicio (QoS) de  Alexey Kuznetsov,
+así como el reenvío basado en marcas de los últimos núcleos 2.1. Habrá
+más noticias a medida que las tenga a mano. Esta opción se ignora 
+totalmente en la serie  2.0 del núcleo.
+</para>
+
+</sect4>
+
+<sect4 id="chain-ops">
+<title>Operaciones en una cadena entera.</title>
+
+<para>
+Una característica muy útil de ipchains es la capacidad de agrupar reglas
+relacionadas en una cadena. Puede llamar las cadenas como quiera, siempre
+que no colisionen con las instaladas (<literal remap="tt">input</literal>,
+<literal remap="tt">output</literal> y <literal remap="tt">forward</literal>) o las objetivo (<literal remap="tt">MASQ</literal>,
+<literal remap="tt">REDIRECT</literal>, <literal remap="tt">ACCEPT</literal>, <literal remap="tt">DENY</literal>, <literal remap="tt">REJECT</literal> o
+<literal remap="tt">RETURN</literal>).  Sugiero evitar etiquetas en mayúsculas, puesto que 
+seguramente las use en extensiones futuras. El nombre de la cadena puede
+tener hasta 8 caracteres de largo.
+</para>
+
+</sect4>
+
+<sect4>
+<title>Creando una cadena nueva.</title>
+
+<para>
+Creemos una nueva cadena. Como soy un chico tan imaginativo, la voy a 
+llamar <literal remap="tt">prueba</literal>.
+</para>
+
+<para>
+
+<screen>
+# ipchains -N prueba
+#
+</screen>
+
+</para>
+
+<para>
+Y ya está. Ahora metemos reglas dentro como he detallado antes.
+</para>
+
+</sect4>
+
+<sect4>
+<title>Borrando una cadena.</title>
+
+<para>
+También es sencillo borrar cadenas.
+</para>
+
+<para>
+
+<screen>
+# ipchains -X prueba
+# 
+</screen>
+
+</para>
+
+<para>
+¿Por qué `-X'?  Bueno, todas las letras buenas estaban usadas ya.
+</para>
+
+<para>
+Hay un par de restricciones al borrado de cadenas: tienen que estar
+vacías (vea <xref linkend="flushing"/> más tarde)
+y no pueden ser el objetivo de ninguna regla. No se puede borrar ninguna
+de las tres cadenas predefinidas.
+</para>
+
+</sect4>
+
+<sect4 id="flushing">
+<title>Vaciando una cadena.</title>
+
+<para>
+Hay una manera sencilla de vaciar todas las reglas de una cadena, usando
+el comando `-F'.
+</para>
+
+<para>
+
+<screen>
+        # ipchains -F forward
+        # 
+</screen>
+
+</para>
+
+<para>
+Si no se especifica una cadena, se vaciarán <emphasis>TODAS</emphasis> las cadenas.
+</para>
+
+</sect4>
+
+<sect4>
+<title>Listando una cadena.</title>
+
+<para>
+Puede listar todas las reglas de una cadena usando el comando `-L'.
+</para>
+
+<para>
+
+<screen>
+# ipchains -L input
+Chain input (refcnt = 1): (policy ACCEPT)
+target     prot opt    source                destination           puertos
+ACCEPT     icmp -----  anywhere              anywhere              any
+# ipchains -L prueba
+Chain test (refcnt = 0):
+target     prot opt    source                destination           puertos
+DENY       icmp -----  localnet/24           anywhere              any
+#
+</screen>
+
+</para>
+
+<para>
+El valor `refcnt' listado para <literal remap="tt">prueba</literal> es el número de reglas que 
+tienen a <literal remap="tt">prueba</literal> como objetivo. Tiene que ser cero (y la cadena estar
+vacía) antes de que esta cadena pueda ser borrada.
+</para>
+
+<para>
+Si se omite el nombre de la cadena, se listan todas, incluso las vacías.
+</para>
+
+<para>
+Hay tres opciones acompañando a `-L'. La opción `-n' (numérico) es muy útil 
+ya que evita que <literal remap="tt">ipchains</literal> intente buscar las direcciones IP, que 
+(si usa DNS como casi todo el mundo) creará grandes retrasos si su DNS no está
+correctamente configurado, o si ha filtrado peticiones DNS. También provoca 
+que los puertos se impriman como números en vez de nombres.
+</para>
+
+<para>
+La opción `-v' muestra todos los detalles de las reglas, como los contadores 
+de octeto y de paquete, las máscaras TOS, el interfaz y la marca de paquete. 
+Si no la pone, estos valores se omiten. Por ejemplo:
+</para>
+
+<para>
+
+<screen>
+# ipchains -v -L input
+Chain input (refcnt = 1): (policy ACCEPT)
+ pkts bytes target     prot opt   tosa tosx  ifname    mark        source                destination           puertos
+   10   840 ACCEPT     icmp ----- 0xFF 0x00  lo                    anywhere              anywhere              any
+</screen>
+
+</para>
+
+<para>
+Advierta que los contadores de byte y paquete se immprimen usando los sufijos 
+`K', `M' or `G' para 1000, 1,000,000 y 1,000,000,000 respectivamente. Mediante
+la opción `-x' (expandir números) también imprime los números completos, sin
+importar su tamaño.
+</para>
+
+</sect4>
+
+<sect4>
+<title>Reseteo (puesta a cero) de los contadores.</title>
+
+<para>
+Es útil ser capaz de resetear los contadores. Esto puede hacerse con la opción
+`-Z' (contadores a cero). Por ejemplo:
+</para>
+
+<para>
+
+<screen>
+# ipchains -v -L input
+Chain input (refcnt = 1): (policy ACCEPT)
+ pkts bytes target     prot opt   tosa tosx  ifname    mark        source                destination           puertos
+   10   840 ACCEPT     icmp ----- 0xFF 0x00  lo                    anywhere              anywhere              any
+# ipchains -Z input
+# ipchains -v -L input
+Chain input (refcnt = 1): (policy ACCEPT)
+ pkts bytes target     prot opt   tosa tosx  ifname    mark        source                destination           puertos
+    0     0 ACCEPT     icmp ----- 0xFF 0x00  lo                    anywhere              anywhere              any
+#
+</screen>
+
+</para>
+
+<para>
+El problema con esto es que a veces necesita saber los valores de los 
+contadores inmediatamente antes de que se pongan a cero. En el ejemplo 
+anterior, algunos paquetes podrían pasar entre los comandos `-L' y `-Z'. Por 
+esta razón puede usar los comandos `-L' y `-Z' <emphasis>a la vez</emphasis>, para poner a
+cero los contadores a la vez que los lee. Desafortunadamente, si hace esto, no 
+puede operar en una sola regla, tiene que listar y poner a cero todas las 
+cadenas a la vez.
+</para>
+
+<para>
+
+<screen>
+# ipchains -L -v -Z
+Chain input (policy ACCEPT):
+ pkts bytes target     prot opt   tosa tosx  ifname    mark        source                destination           puertos
+   10   840 ACCEPT     icmp ----- 0xFF 0x00  lo                    anywhere              anywhere              any
+
+Chain forward (refcnt = 1): (policy ACCEPT)
+Chain output (refcnt = 1): (policy ACCEPT)
+Chain test (refcnt = 0):
+    0     0 DENY       icmp ----- 0xFF 0x00  ppp0                  localnet/24           anywhere              any
+# ipchains -L -v
+Chain input (policy ACCEPT):
+ pkts bytes target     prot opt   tosa tosx  ifname    mark        source                destination           puertos
+   10   840 ACCEPT     icmp ----- 0xFF 0x00  lo                    anywhere              anywhere              any
+
+Chain forward (refcnt = 1): (policy ACCEPT)
+Chain output (refcnt = 1): (policy ACCEPT)
+Chain test (refcnt = 0):
+    0     0 DENY       icmp ----- 0xFF 0x00  ppp0                  localnet/24           anywhere              any
+#
+</screen>
+
+</para>
+
+</sect4>
+
+<sect4 id="policy">
+<title>Estableciendo una política.</title>
+
+<para>
+Hemos glosado qué ocurre cuando un paquete llega al final de una cadena
+incluida cuando hemos mostrado cómo camina un paquete a través de las cadenas 
+en <xref linkend="target-spec"/> anteriormente. En 
+este caso, la <emphasis remap="bf">política</emphasis> de la cadena determina el destino del paquete. 
+Sólo las cadenas predefinidas (<literal remap="tt">input</literal>, <literal remap="tt">output</literal> y 
+<literal remap="tt">forward</literal>) tienen políticas, porque si un paquete cae al final de una
+cadena definida por el usario, se continúa atravesando la cadena anterior.
+</para>
+
+<para>
+La política puede ser uno de las primeros cuatro objetivos especiales:
+<literal remap="tt">ACCEPT</literal>, <literal remap="tt">DENY</literal>, <literal remap="tt">REJECT</literal> o <literal remap="tt">MASQ</literal>.  
+<literal remap="tt">MASQ</literal> es válido solamente para la cadena de reenvío `forward'.
+</para>
+
+<para>
+También es importante darse cuenta que un objetivo de devolución 
+(<literal remap="tt">RETURN</literal>) en una regla de una de las cadenas incorporadas es útil para
+fijar explícitamente como objetivo cuando un paquete concuerda con una regla.
+</para>
+
+</sect4>
+
+</sect3>
+
+<sect3>
+<title>Operaciones en el enmascarado.</title>
+
+<para>
+Hay diversos parámetros con los que puede jugar cuando haga enmascarado IP.
+Vienen con <literal remap="tt">ipchains</literal> porque no vale la pena escribir una herramienta
+separada para ellos (aunque esto va a cambiar).
+</para>
+
+<para>
+El comando para enmascarado IP es `-M', y puede ser combinado con `-L'
+para listar las conexiones enmascaradas acutales, o `-S' para fijar los
+parámetros de enmascarado.
+</para>
+
+<para>
+El comando `-L' puede acompañarse por `-n' (mostrar números en vez de nombres
+de máquina y puerto) o `-v' (mostrar deltas en los números de secuencia para 
+conexiones enmascaradas, si es que le interesa).
+</para>
+
+<para>
+El comando `-S' debe ir seguido por tres valores de temporización, en segundos:
+para sesiones TCP, para sesiones TCP después de un paquete FIN, y para paquetes
+UDP. Si no quiere cambiar uno de estos valores, simplemente de un valor de '0'.
+</para>
+
+<para>
+Los valores por defecto se listan en `/usr/include/net/ip_masq.h',
+actualmente 15 minutos, 2 minutos y 5 minutos respectivamente.
+</para>
+
+<para>
+El valor más comun a cambiar es el primero, para FTP (consulte <xref linkend="ftp"/> más abajo).
+</para>
+
+<para>
+Advierta los problemas con la fijación de los temporizadores listados en 
+<xref linkend="no-timeout"/>.
+</para>
+
+</sect3>
+
+<sect3>
+<title>Comprobando un paquete.</title>
+
+<para>
+A veces quiere ver qué ocurre cuando cierto paquete entra en su máquina, 
+como por ejemplo cuando depura sus cadenas de cortafuegos. 
+<literal remap="tt">ipchains</literal> tienen el comando `-C' que permite hacer esto, usando
+exactamente las mismas rutinas que usa el núcleo para diagnosticar paquetes
+reales.
+</para>
+
+<para>
+Usted decide que cadena va a usar para probar el paquete siguiendo al
+argumento `-C' con su nombre. Aunque el núcleo siempre comienza atravesando
+una de las cadenas predefinidas <literal remap="tt">input</literal>, <literal remap="tt">output</literal> o 
+<literal remap="tt">forward</literal>, usted, para probar, puede empezar en cualquier cadena.
+</para>
+
+<para>
+Los detalles del `paquete' se especifican usando la misma sintaxis 
+que usa para especificar reglas de cortafuegos. En particular, un protocolo
+(`-p'), dirección origen (`-s'), dirección destino (`-d') e interfaz (`-i') 
+son obligatorios. Si el protocolo es TCP o UDP, entonces deben ser usadas
+una dirección origen y destino únicas, y deben especificarse un código y tipo
+ICMP para el protocolo ICMP (a no ser que se especifique una opción `-f' para
+indicar una regla de fragmentación, en cuyo caso estas opciones son ilegales).
+</para>
+
+<para>
+Si el protocolo es TCP (y la opción `-f' no se especifica), la opción `-y'
+puede ser especificada, para indicar que el paquete de prueba debe tener el
+bit SYN activado.
+</para>
+
+<para>
+Aquí hay un ejemplo de prueba de un paquete TCP SYN de 192.168.1.1 puerto
+60000 a 192.168.1.2 puerto www, llegando al interfaz eth0, entrando en la 
+cadena de entrada `input'. (esta es una conexión entrante de iniciación WWW
+clásica):
+</para>
+
+<para>
+
+<screen>
+# ipchains -C input -p tcp -y -i eth0 -s 192.168.1.1 60000 -d 192.168.1.2 www
+packet accepted
+# 
+</screen>
+
+</para>
+
+</sect3>
+
+<sect3>
+<title>Estableciendo múltiples reglas a la vez y ver qué pasa.</title>
+
+<para>
+A veces una sóla línea de comandos puede resultar en que se efectuen varias 
+reglas.
+Esto se hace de dos formas. Primero, si especifica un nombre de máquina
+que se resuelva (por DNS) en múltiples direcciones IP. <literal remap="tt">ipchains</literal> 
+actuará como si hubiera mecanografiado varios comandos  con cada combinación
+de direcciones.
+</para>
+
+<para>
+Así que si el nombre de máquina `www.foo.com' resuelve tres direcciones IP, y
+el nombre `www.bar.com' resuelve dos direcciones IP, el comando 
+`ipchains -A input -j reject -s www.bar.com -d www.foo.com'
+añadirá seis reglas a la cadena de entrada <literal remap="tt">input</literal>.
+</para>
+
+<para>
+La otra manera de hacer que <literal remap="tt">ipchains</literal> realice múltiples acciones es
+usar la opción bidireccional (`-b').  Esta opción hace que <literal remap="tt">ipchains</literal>
+se comporte como si hubiera introducido el comando dos veces, el segundo 
+comando con los argumentos `-s' y `-d' cambiados. Así que para evitar reenvío
+de o hacia 192.168.1.1, podría hacer lo siguiente:
+</para>
+
+<para>
+
+<screen>
+# ipchains -b -A forward -j reject -s 192.168.1.1
+# 
+</screen>
+
+</para>
+
+<para>
+Personalmente no me gusta mucho la opción `-b'; si quiere esta característica 
+consulte más abajo <xref linkend="ipchains-save"/>.
+</para>
+
+<para>
+La opción -b puede ser usada con los comandos de inserción (`-I'), borrado 
+(`-D') (excepto con la variación de que toma un número de regla), añadir (`-A')
+y comprobar (`-C').
+</para>
+
+<para>
+Otra opción útil es `-v' (verbose, detallado) que imprime con exactitud qué 
+está haciendo <literal remap="tt">ipchains</literal> con sus comandos. Esto es útil si trata con 
+comandos que pueden realizar múltiples reglas. Por ejemplo, aquí comprobamos
+el comportamiento de los fragmentos entre  192.168.1.1 y 192.168.1.2.
+</para>
+
+<para>
+
+<screen>
+# ipchains -v -b -C input -p tcp -f -s 192.168.1.1 -d 192.168.1.2 -i lo
+  tcp opt   ---f- tos 0xFF 0x00  via lo    192.168.1.1  -&#62; 192.168.1.2    * -&#62;   *
+packet accepted
+  tcp opt   ---f- tos 0xFF 0x00  via lo    192.168.1.2  -&#62; 192.168.1.1    * -&#62;   *
+packet accepted
+# 
+</screen>
+
+</para>
+
+</sect3>
+
+</sect2>
+
+<sect2>
+<title>Ejemplos útiles</title>
+
+<para>
+Tengo una conexión saliente PPP (<literal remap="tt">-i ppp0</literal>).  Me bajo las noticias 
+(<literal remap="tt">-p TCP -s news.virtual.net.au nntp</literal>) y el correo (<literal remap="tt">-p TCP -s
+mail.virtual.net.au pop-3</literal>) cada vez que llamo. Uso el FTP de Debian para
+actualizar mi máquina con regularidad (<literal remap="tt">-p TCP -y -s
+ftp.debian.org.au ftp-data</literal>).  Navego usando el proxy de mi ISP mientras
+tanto (<literal remap="tt">-p TCP -d proxy.virtual.net.au 8080</literal>), pero odio los anuncios
+de doubleclick.net en el repositorio de Dilbert (<literal remap="tt">-p TCP -y
+-d 199.95.207.0/24</literal> &#38; <literal remap="tt">-p TCP -y -d 199.95.208.0/24</literal>).
+</para>
+
+<para>
+No me importa que la gente intente hacerme ftp mientras esté conectado
+(<literal remap="tt">-p TCP -d $LOCALIP ftp</literal>), pero no quiero que nadie del exterior
+obtenga una dirección ip de mi red interna(<literal remap="tt">-s
+192.168.1.0/24</literal>).  Esto se llama engaño IP (IP spoofing) y hay una 
+manera mejor de protegerle de él en los núcleos 2.1.x y superiores: consulte
+<xref linkend="antispoof"/>.
+</para>
+
+<para>
+Esta configuración es bastante sencilla porque no hay otras máquinas en
+mi red interna actualmente.
+</para>
+
+<para>
+No quiero que ningún proceso local (Netscape, lynx etc.) se conecte a 
+doubleclick.net:
+</para>
+
+<para>
+
+<screen>
+# ipchains -A output -d 199.95.207.0/24 -j REJECT
+# ipchains -A output -d 199.95.208.0/24 -j REJECT
+# 
+</screen>
+
+</para>
+
+<para>
+Ahora quiero configurar prioridades en varios paquetes salientes (no tiene
+mucho sentido hacerlo en los paquetes entrantes). Como tengo un número 
+razonable de estas reglas, tiene sentido ponerlas todas en un sóla cadena, que
+llamo <literal remap="tt">ppp-out</literal>.
+</para>
+
+<para>
+
+<screen>
+# ipchains -N ppp-out
+# ipchains -A output -i ppp0 -j ppp-out
+# 
+</screen>
+
+</para>
+
+<para>
+Mínimo retraso para tráfico web y para telnet.
+</para>
+
+<para>
+
+<screen>
+# ipchains -A ppp-out -p TCP -d proxy.virtual.net.au 8080 -t 0x01 0x10
+# ipchains -A ppp-out -p TCP -d 0.0.0.0 telnet -t 0x01 0x10
+# 
+</screen>
+
+</para>
+
+<para>
+Bajo coste para datos ftp, nntp y pop-3:
+</para>
+
+<para>
+
+<screen>
+# ipchains -A ppp-out -p TCP -d 0.0.0.0/0 ftp-data -t 0x01 0x02
+# ipchains -A ppp-out -p TCP -d 0.0.0.0/0 nntp -t 0x01 0x02
+# ipchains -A ppp-out -p TCP -d 0.0.0.0/0 pop-3 -t 0x01 0x02
+# 
+</screen>
+
+</para>
+
+<para>
+Hay unas cuantas restricciones para los paquetes llegando al interfaz
+ppp0, así que creamos la cadena `ppp-in':
+</para>
+
+<para>
+
+<screen>
+# ipchains -N ppp-in
+# ipchains -A input -i ppp0 -j ppp-in
+# 
+</screen>
+
+</para>
+
+<para>
+Ahora no permito que ningún paquete que llegue a <literal remap="tt">ppp0</literal> pueda decir
+que viene de una dirección del rango 192.168.1.*, así que los registramos y 
+denegamos:
+</para>
+
+<para>
+
+<screen>
+# ipchains -A ppp-in -s 192.168.1.0/24 -l -j DENY
+#
+</screen>
+
+</para>
+
+<para>
+Permito entrar paquetes UDP de DNS (estoy ejecutanto un servidor de nombres 
+con memoria intermedia que reenvía todas las peticiones a la dirección 
+203.29.16.1, así que espero respuestas DNS de esta dirección únicamente), ftp 
+entrante y  datos ftp de vuelta (que sólo deberían llegar a un puerto por 
+encima del 1023, y no a puertos alrededor del 6000, de X11).
+</para>
+
+<para>
+
+<screen>
+# ipchains -A ppp-in -p UDP -s 203.29.16.1 -d $LOCALIP dns -j ACCEPT
+# ipchains -A ppp-in -p TCP -s 0.0.0.0/0 ftp-data -d $LOCALIP 1024:5999 -j ACCEPT
+# ipchains -A ppp-in -p TCP -s 0.0.0.0/0 ftp-data -d $LOCALIP 6010: -j ACCEPT
+# ipchains -A ppp-in -p TCP -d $LOCALIP ftp -j ACCEPT
+#
+</screen>
+
+</para>
+
+<para>
+Finalmente, permito todos los paquetes de local a local:
+</para>
+
+<para>
+
+<screen>
+# ipchains -A input -i lo -j ACCEPT
+# 
+</screen>
+
+</para>
+
+<para>
+Mi política por defecto para la cadena de entrada <literal remap="tt">input</literal> es 
+<literal remap="tt">DENY</literal>, así que todo lo demás se descarta:
+</para>
+
+<para>
+
+<screen>
+# ipchains -P input DENY
+# 
+</screen>
+
+</para>
+
+<para>
+NOTA: No configuraría mis cadenas en este orden, ya que los paquetes 
+podrían entrar mientras configuro. Lo más seguro es establecer la
+política de denegación primero y luego insertar las reglas. Por supuesto
+si sus reglas requieren búsquedas DNS para resolver nombres de máquina
+podría tener problemas.
+</para>
+
+<sect3 id="ipchains-save">
+<title>Usando <literal remap="tt">ipchains-save</literal>.</title>
+
+<para>
+Configurar las cadenas de cortafuegos como desee e intentar entonces 
+recordar los comandos que usó para hacerlo la próxima vez es, sencillamente,
+doloroso.
+</para>
+
+<para>
+Es decir, <literal remap="tt">ipchains-save</literal> es un archivo de comandos que lee su 
+configuración actual de cadenas y la guarda en un fichero. De momento le
+mantendré en vilo sobre qué hace <literal remap="tt">ipchains-restore</literal>.
+</para>
+
+<para>
+<literal remap="tt">ipchains-save</literal> puede guardar una cadena solamente o todas (si no se
+especifica un nombre de cadena).  La única opción permitida por el momento es
+`-v' que imprime las reglas (en stderr) a medida que se graban. La política de
+la cadena es grabada también para las cadenas <literal remap="tt">input</literal>, <literal remap="tt">output</literal> 
+y <literal remap="tt">forward</literal>.
+</para>
+
+<para>
+
+<screen>
+$ ipchains-save &#62; my_firewall
+Saving `input'.
+Saving `output'.
+Saving `forward'.
+Saving `ppp-in'.
+Saving `ppp-out'.
+$ 
+</screen>
+
+</para>
+
+</sect3>
+
+<sect3>
+<title>Usando <literal remap="tt">ipchains-restore</literal>.</title>
+
+<para>
+<literal remap="tt">ipchains-restore</literal> recupera las cadenas salvadas con 
+<literal remap="tt">ipchains-save</literal>.  Puede tomar dos opciones: `-v' que describe cada regla
+a medida que se añade, y `-f' que fuerza el vaciado de cadenas definidas por
+el usuario si éstas existen, como se describe abajo.
+</para>
+
+<para>
+Si una cadena definida por el usuario se encuentra a la entrada, 
+<literal remap="tt">ipchains-restore</literal> comprueba si esa cadena ya existe. Si es así,
+se le pregunta si la cadena debe ser vaciada o si omitimos la recuperación
+de esta cadena. Si especifica `-f' en la línea de comandos no se le 
+preguntará, la cadena será vaciada.
+</para>
+
+<para>
+Tiene que ser root para ejecutar este archivo de comandos; use 
+<literal remap="tt">ipchains</literal> para intentar recuperar las reglas.
+</para>
+
+<para>
+Por ejemplo:
+</para>
+
+<para>
+
+<screen>
+# ipchains-restore &#60; my_firewall
+Restoring `input'.
+Restoring `output'.
+Restoring `forward'.
+Restoring `ppp-in'.
+Chain `ppp-in' already exists. Skip or flush? [S/f]? s
+Skipping `ppp-in'.
+Restoring `ppp-out'.
+Chain `ppp-out' already exists. Skip or flush? [S/f]? f
+Flushing `ppp-out'.
+# 
+</screen>
+
+</para>
+
+</sect3>
+
+</sect2>
+
+</sect1>
+
+<sect1>
+<title>Miscelánea.</title>
+
+<para>
+Esta sección contiene la información y preguntas mas frecuentes que no
+encajaban bien en la estructura anterior.
+</para>
+
+<sect2 id="organisation">
+<title>Como Organizar Sus Reglas de Cortafuegos.</title>
+
+<para>
+La pregunta requiere algo de reflexión. Puede intentar organizarlas para
+optimizar la velocidad (minimizar el número de comprobaciones de regla para
+los paquetes más comunes) o para incrementar la flexibilidad.
+</para>
+
+<para>
+Si tiene un enlace intermitente, como uno PPP, puede querer que la primera
+regla de la cadena de entrada sea `-i ppp0 -j DENY' en el momento de arranque,
+y poner entonces en su archivo de comandos <literal remap="tt">ip-up</literal> algo así:
+</para>
+
+<para>
+
+<screen>
+# Recuperar la cadena `ppp-in'.
+ipchains-restore -f &#60; ppp-in.firewall
+
+# Reemplazar la regla de denegación con un salto a la cadena de manejo del PPP.
+ipchains -R input 1 -i ppp0 -j ppp-in
+</screen>
+
+</para>
+
+<para>
+Su archivo <literal remap="tt">ip-down</literal> debería ser algo así:
+</para>
+
+<para>
+
+<screen>
+ipchains -R input 1 -i ppp0 -j DENY
+</screen>
+
+</para>
+
+</sect2>
+
+<sect2>
+<title>Qué cosas <emphasis>no</emphasis> filtrar.</title>
+
+<para>
+Hay algunas cosas que debe tener en cuenta antes de que empiece a 
+filtrar todo lo que no quiere.
+</para>
+
+<sect3 id="ICMP">
+<title>Paquetes ICMP.</title>
+
+<para>
+Los paquetes ICMP se usan (entre otras cosas) para indicar un fallo de
+otros protocolos (como TCP y UDP). En particular, los paquetes de 
+`destination-unreachable'. Bloquear estos paquetes significa que nunca
+obtendrá errores como `Host unreachable' o `No route to host', las conexiones
+esperarán sin final a una conexión que en realidad nunca llega. Esto es
+irritante, pero casi nunca fatal.
+</para>
+
+<para>
+Peor problema es el papel de los paquetes ICMP en el descubrimiento del
+MTU. Cualquier implementación buena de TCP (incluida la de Linux) intentará
+usar el descubrimiento de MTU para hacerse una idea de cual es el mayor
+paquete que puede llegar a cierto destino sin ser fragmentado (la fragmentación
+empeora el rendimiento, especialmente cuando se pierden paquetes 
+eventualmente).
+El descubrimiento de MTU funciona enviando paquetes con el bit "No fragmentar"
+activado, y enviando entonces paquetes menores si se recibe un paquete ICMP
+indicando "Fragmentación requerida con DF activado" (`fragmentation-needed').  
+Este es un tipo de paquete `destination-unreachable', y si nunca es recibido
+la máquina local no va a reducir el MTU, con lo que el rendimiento será
+bajo o nulo.
+</para>
+
+</sect3>
+
+<sect3>
+<title>Conexiones TCP a DNS (servidores de nombres).</title>
+
+<para>
+Si va a bloquear las conexiones TCP salientes, recuerde que el DNS
+no siempre usa UDP; si la respuesta del servidor excede de 512 bytes, 
+el cliente usa una conexión TCP (que sigue yendo al puerto 53) para 
+obtener datos.
+</para>
+
+<para>
+Esto puede ser una trampa porque DNS `funcionará casi siempre' si desactiva
+estas transferencias TCP; puede experimentar extraños y largos retrasos y 
+otros problemas ocasionales de DNS si lo hace.
+</para>
+
+<para>
+Si sus consultas DNS se dirigen siempre a la misma fuente externa (bien sea
+directamente mediante la línea <literal remap="tt">nameserver</literal> en 
+<literal remap="tt">/etc/resolv.conf</literal> o usando un servidor de nombres con memoria 
+intermedia en modo reenvío), necesitará permitir sólo las conexiones TCP al 
+puerto <literal remap="tt">domain</literal> en ese servidor de nombres desde el puerto 
+<literal remap="tt">domain</literal> local (si usa un servidor de nombres con memoria intermedia) 
+o desde un puerto alto (&gt; 1023) si usa <literal remap="tt">/etc/resolv.conf</literal>.
+</para>
+
+</sect3>
+
+<sect3 id="ftp">
+<title>Pesadillas con FTP .</title>
+
+<para>
+El problema clásico de filtrado es FTP. FTP tiene dos <emphasis remap="bf">modos</emphasis>;
+el tradicional se llama <emphasis remap="bf">modo activo</emphasis> y el más reciente se llama
+<emphasis remap="bf">modo pasivo</emphasis>.  Los navegadores web usan por defecto el modo pasivo, 
+pero los clientes de línea de comandos suelen usar por defecto el modo activo.
+</para>
+
+<para>
+En el modo activo, cuando el extremo remoto quiere enviar un fichero (o incluso
+los resultados de un comando <literal remap="tt">ls</literal> o <literal remap="tt">dir</literal>) intenta abrir una 
+conexión TCP con la máquina local.  Esto significa que no puede filtrar estas
+conexiones TCP sin romper los FTP activos.
+</para>
+
+<para>
+Si tiene la opción de usar el modo pasivo, vamos bien; el modo pasivo hace las
+conexiones del cliente al servidor, incluso para datos entrantes. Sino, es 
+recomendable que permita sólo conexiones TCP en puertos sobre 1024 y no 
+entre 6000 y 6010 (6000 se usa para X-Windows).
+</para>
+
+</sect3>
+
+</sect2>
+
+<sect2>
+<title>Filtrando el Ping de la Muerte.</title>
+
+<para>
+Las máquinas Linux son ahora inmunes al famoso <emphasis remap="bf">Ping de la Muerte</emphasis>, que 
+immplica enviar un paquete ICMP ilegalmente largo que desborda los buffers en 
+la pila TCP del receptor y provoca el caos.
+</para>
+
+<para>
+Si está protegiendo máquinas que puedan ser vulnerables, puede bloquear
+fragmentos ICMP. Los paquetes ICMP normales no son suficientemente largos 
+para requerir fragmentación, así que no partirá nada excepto los pings 
+grandes. He oído informes (no confirmados) de que algunos sistemas se 
+corrompían con sólo el último fragmento de un paquete ICMP sobredimensionado,
+así que el bloqueo del primer fragmento únicamente no se recomienda.
+</para>
+
+<para>
+Aunque todos los programas que he visto usan ICMP, no hay razones por las que 
+fragmentos TCP o UDP (o de un protocolo desconocido) no puedan ser usados 
+para este ataque, así que el bloqueo de fragmentos ICMP es tan sólo una 
+solución temporal.
+</para>
+
+</sect2>
+
+<sect2>
+<title>Filtrando Teardrop y Bonk.</title>
+
+<para>
+Teardrop y Bonk son dos ataques (principalmente contra máquinas Microsoft 
+Windows NT) que se basan en fragmentos solapados. Hacer que su router Linux
+haga la defragmentación o eliminando los fragmentos a sus máquinas vulnerables
+son las otras opciones.
+</para>
+
+</sect2>
+
+<sect2>
+<title>Filtrando bombas fragmentarias.</title>
+
+<para>
+Algunas pilas TCP poco fiables son conocidas por tener problemas manejando un 
+número grande de fragmentos de paquetes cuando no reciben todos los 
+fragmentos. Linux no tiene este problema. Puede filtrar los fragmentos (que 
+podrían violar usos legítimos) o compilar el núcleo con la opción 
+'IP: always defragment' activada (sólo si su máquina Linux es la única ruta 
+posible para estos paquetes).
+</para>
+
+</sect2>
+
+<sect2>
+<title>Cambiando reglas de cortafuegos.</title>
+
+<para>
+Hay algunos asuntos de temporización implicados en el cambio de reglas de
+cortafuegos. Si no es cuidadoso, puede dejar pasar paquetes mientras está 
+cambiando las reglas. Una solución simple es hacer lo siguiente:
+</para>
+
+<para>
+
+<screen>
+# ipchains -I input 1 -j DENY
+# ipchains -I output 1 -j DENY
+# ipchains -I forward 1 -j DENY
+
+... hacer los cambios...
+
+# ipchains -D input 1
+# ipchains -D output 1
+# ipchains -D forward 1
+# 
+</screen>
+
+</para>
+
+<para>
+Lo que elimina todos los paquetes mientras duran los cambios.
+</para>
+
+<para>
+Si sus cambios se restringen a una cadena sola, puede querer crear una nueva 
+cadena con las reglas nuevas, y entonces reemplazar  (`-R') la regla que 
+apuntaba a la cadena vieja con una que apunta a la cadena nueva: ahora puede 
+borrar su cadena vieja. Este reemplazo ocurrirá atómicamente.
+</para>
+
+</sect2>
+
+<sect2 id="antispoof">
+<title>¿Cómo configuro la protección contra el engaño IP?</title>
+
+<para>
+El engaño IP es una técnica por la que una máquina envía paquetes que dicen
+ser de otra máquina.  Ya que el filtrado de paquetes toma sus decisiones basado
+en lo que dice la dirección origen, el engaño IP se usa para engañar a los 
+filtros de paquete. También se usa para esconder la identidad de los 
+atacantes usando ataques SYN, Teardrop, Ping de la muerte y similares (no se 
+preocupe si no sabe qué son).
+</para>
+
+<para>
+La mejor manera de protegerse del engaño IP es llamada Verificación de la
+Dirección Origen, y se hace por el código de rutado, no por el cortafuegos.
+Busque un fichero llamado <literal remap="tt">/proc/sys/net/ipv4/conf/all/rp_filter</literal>.  
+Si existe, activar la verificación de dirección origen en el arranque es 
+la solución correcta para usted.  para hacerlo, inserte las siguientes líneas
+en algún lugar de sus archivos de inicialización, antes de que se inicialice
+ningún interfaz de red (p.e. Los usuarios de Debian lo deberían poner en 
+/etc/init.d/netbase si no están ya):
+</para>
+
+<para>
+
+<screen>
+# Este es el mejor método: conectar verificación de dirección origen y 
+# protegerse de engaños en todos los interfaces actuales y futuros.
+if [ -e /proc/sys/net/ipv4/conf/all/rp_filter ]; then
+  echo -n "Activando protección contra el engaño IP..."
+  for f in /proc/sys/net/ipv4/conf/*/rp_filter; do
+      echo 1 &#62; $f
+  done
+  echo "listo."
+else
+  echo PROBLEMAS CONFIGURANDO LA PROTECCIÓN DE ENGAÑO. PREOCÚPESE.
+  echo "CONTROL-D para salir y continuar con el arranque del sistema."
+  echo
+  # Arrancar una estación monousuario en la consola.
+  /sbin/sulogin $CONSOLE
+fi
+</screen>
+
+</para>
+
+<para>
+Si no puede esto, puede insertar reglas manualmente para proteger
+todos los interfaces. Esto requiere conocimientos de cada interfaz. Los 
+núcleos de la serie 2.1 rechazan automáticamente paquetes que digan venir de 
+direcciones 127.* (reservadas para el interfaz local de vuelta atrás, 
+<literal remap="tt">lo</literal>).  
+</para>
+
+<para>
+Por ejemplo, digamos que tengo tres interfaces, <literal remap="tt">eth0</literal>, <literal remap="tt">eth1</literal>
+y <literal remap="tt">ppp0</literal>.  Podemos usar <literal remap="tt">ifconfig</literal> para que nos diga la dirección
+y máscara de los interfaces. Imaginemos que <literal remap="tt">eth0</literal> se conecta a una red 
+192.168.1.0 con máscara 255.255.255.0, <literal remap="tt">eth1</literal> se conecta a una red 
+10.0.0.0 con máscara 255.0.0.0, y <literal remap="tt">ppp0</literal> se conecta a Internet (donde
+cualquier dirección excepto las direcciones reservadas IP privadas se 
+permiten), insertaríamos las reglas siguientes:
+</para>
+
+<para>
+
+<screen>
+# ipchains -A input -i eth0 -s ! 192.168.1.0/255.255.255.0 -j DENY
+# ipchains -A input -i ! eth0 -s 192.168.1.0/255.255.255.0 -j DENY
+# ipchains -A input -i eth1 -s ! 10.0.0.0/255.0.0.0 -j DENY
+# ipchains -A input -i ! eth1 -s 10.0.0.0/255.0.0.0 -j DENY
+# 
+</screen>
+
+</para>
+
+<para>
+Lo cual no es una solución tan buena como la verificación de dirección 
+origen, ya que si su red cambia, tendrá que cambiar las reglas de 
+cortafuegos para funcionar.
+</para>
+
+<para>
+Si ejecuta un núcleo de la serie 2.0, puede que quiera proteger el 
+interfaz loopback o de vuelta atrás también, usando una regla como esta:
+</para>
+
+<para>
+
+<screen>
+# ipchains -A input -i ! lo -s 127.0.0.0/255.0.0.0 -j DENY
+#
+</screen>
+
+</para>
+
+</sect2>
+
+<sect2>
+<title>Proyectos avanzados.</title>
+
+<para>
+He escrito una libreria en espacio de usuario y que está incluida con 
+la distribución del código fuente que se llama `libfw'.  Usa la capacidad de
+IP Chains 1.3 y superior de copiar un paquete al espacio de usuario (usando la
+opción de configuración IP_FIREWALL_NETLINK).
+</para>
+
+<para>
+Cosas como la <emphasis remap="bf">inspección de gala</emphasis> (Prefiero el término cortafuegos
+dinámico) pueden implementarse en espacio de usuario usando esta librería.
+Otras ideas interesantes incluyen controlar paquetes en función del 
+usuario haciendo búsquedas en un demonio de espacio de usuario. Esto 
+debería ser bastante fácil.
+</para>
+
+<para>
+La capacidad de `marca' de los cortafuegos esta infrautilizada: podría ser
+fácilmente usada para representar una prioridad para el código de Calidad 
+de Servicio, que podría hacer simple el control de prioridades de paquetes.
+</para>
+
+</sect2>
+
+<sect2>
+<title>Mejoras futuras.</title>
+
+<para>
+Cortafuegos y NAT se van a rediseñar en el 2.3. Hay planes y discusiones
+disponibles en el archivo netdev. Estas mejoras deberían eliminar muchos
+de los temas de uso pendientes (en realidad el cortafuegos y el
+enmascarado no deberían ser <emphasis>tan difíciles</emphasis>), y permitir el
+desarrollo de cortafuegos mucho más flexibles.
+</para>
+
+</sect2>
+
+</sect1>
+
+<sect1>
+<title>Problemas comunes.</title>
+
+<sect2>
+<title>¡ipchains -L se queda parado!</title>
+
+<para>Seguramente esté bloqueando las búsquedas DNS; a veces saldrá por
+tiempo excedido. Intente usar la opción `-n' (numérico) en ipchains, lo que elimina la búsqueda de nombres.</para>
+
+</sect2>
+
+<sect2>
+<title>¡El Enmascarado o Reenvío no funcionan!</title>
+
+<para>
+Asegúrese de que está activado el reenvío de paquetes (en los núcleos recientes
+está desactivado por defecto, por lo que los paquetes nunca intentan 
+atravesar la cadena de reenvío) Puede activarlo (como root) haciendo
+</para>
+
+<para>
+
+<screen>
+# echo 1 &#62; /proc/sys/net/ipv4/ip_forward
+#
+</screen>
+
+</para>
+
+<para>
+Si esto funciona, puede poner esto en algún lugar de sus archivos de arranque 
+para que esté activo siempre, querrá configurar su cortafuegos antes de que 
+este comando se ejecute. Sino, hay posibilidades de que pasen los paquetes.
+</para>
+
+</sect2>
+
+<sect2>
+<title>¡No funcionan los comodines de interfaz!</title>
+
+<para>
+Había un error en las versiones  2.1.102 y 2.1.103 del núcleo (y algunos de 
+los parches viejos que hice) que hacía que los comandos ipchains que 
+especificaban un interfaz comodín (como <literal remap="tt">-i ppp+</literal>) fallasen.
+</para>
+
+<para>
+Esto está corregido en los núcleos recientes, y en el parche para el 
+2.0.34 de la página web. También puede corregirlo a mano modificando los 
+fuentes del núcleo cambiando la línea 63 o así de include/linux/ip_fw.h:
+</para>
+
+<para>
+
+<screen>
+#define IP_FW_F_MASK	0x002F	/* All possible flag bits mask   */
+</screen>
+
+</para>
+
+<para>
+Que debería ser ``0x003F''. Arréglelo y recompile el núcleo.
+</para>
+
+</sect2>
+
+<sect2>
+<title>¡El TOS no funciona!</title>
+
+<para>
+Esto fue un error mío: establecer el campo tipo de Servicio no configuraba
+en realidad el tipo de Servicio en las versiones del núcleo 2.1.102 a
+2.1.111.  Se arregló este problema en el  2.1.112.
+</para>
+
+</sect2>
+
+<sect2>
+<title>¡<literal remap="tt">ipautofw</literal> y <literal remap="tt">ipportfw</literal> no funcionan!</title>
+
+<para>
+para los 2.0.x es cierto; no he tenido tiempo de crear y mantener un 
+superparche para ipchains y ipautofw/ipportfw.
+</para>
+
+<para>
+para los 2.1.x, bájese ipmasqadm de 
+&#60;url url="http://juanjox.home.ml.org/"
+        name="http://juanjox.home.ml.org/"&#62;
+y úselo exactamente como habría usado <literal remap="tt">ipautofw</literal> o
+<literal remap="tt">ippuertofw</literal>, excepto que en vez de <literal remap="tt">ipportfw</literal> debe teclear
+<literal remap="tt">ipmasqadm portfw</literal>, y en vez de <literal remap="tt">ipautofw</literal> debe poner 
+<literal remap="tt">ipmasqadm autofw</literal>.
+</para>
+
+</sect2>
+
+<sect2>
+<title>¡No funciona xosview!</title>
+
+<para>
+Actualícese a la versión  1.6.0 o superior, que no requiere reglas de 
+cortafuegos en los núcleos 2.1.x. Parece que se ha vuelto a estropear en
+la versión 1.6.1; por favor informe al autor (¡no es culpa mía!)...
+</para>
+
+</sect2>
+
+<sect2>
+<title>¡segmentation fault con <literal remap="tt">-j REDIRECT</literal>!</title>
+
+<para>
+Esto era un error en ipchains versión 1.3.3. Por favor, actualícese.
+</para>
+
+</sect2>
+
+<sect2 id="no-timeout">
+<title>¡No puedo configurar los temporizadores de enmascarado!
+</title>
+
+<para>
+Cierto (en núcleos 2.1.x) hasta 2.1.123.  En 2.1.124, intentar configurar los
+temporizadores de enmascarado provoca que el núcleo se bloquee (cambie 
+<literal remap="tt">return</literal> a <literal remap="tt">ret =</literal> en la línea 1328 de net/ipv4/ip_fw.c).  
+En el 2.1.125, funciona bien.
+</para>
+
+</sect2>
+
+<sect2>
+<title>¡Quiero hacer cortafuegos con IPX!</title>
+
+<para>
+Como otros muchos, parece. Mi código sólo funciona con IP, desafortunadamente.
+Sin embargo toda la base para hacerlo está hecha, así que sólo necesita 
+escribir el código. Estaré muy contento de ayudar donde sea posible.
+</para>
+
+</sect2>
+
+</sect1>
+
+<sect1 id="ipfwadm-diff">
+<title>Apéndice: Diferencias entre <literal remap="tt">ipchains</literal> e <literal remap="tt">ipfwadm</literal>
+</title>
+
+<para>
+Algunos de estos cambios son resultado de cambios en núcleo, y algunos se 
+deben a que <literal remap="tt">ipchains</literal> es diferente de <literal remap="tt">ipfwadm</literal>.
+</para>
+
+<para>
+
+<orderedlist>
+<listitem>
+
+<para>
+ Hay muchos argumentos que han sido cambiados de función: Las mayúsculas
+indican comando y las minúsculas indican opción.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Se permiten las cadenas arbitrarias, así que incluso las cadenas 
+predefinidas tienen nombres completos en vez de opciones (p.e. `input' en vez 
+de `-I').
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ No existe la opción `-k' : use `! -y'.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ La opción `-b' inserta/añade/borra dos reglas, más que una sola regla
+`bidireccional'.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ La opción `-b' puede pasarse a `-C' para hacer dos comprobaciones, una 
+en cada dirección).
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ La opción `-x' con `-l' se reemplaza por `-v'.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Ya no son válidos múltiples puertos de origen y destino. Espero que la 
+capacidad de negar a un rango de puertos supla esta carencia.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Sólo se pueden especificar interfaces por nombre (no por dirección).
+La vieja semántica fue silenciosamente cambiada de alguna forma en la 
+serie 2.1.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Se examinan los fragmentos, y no se permiten pasar por defecto.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Se han eliminado las cadenas sólo para contabilidad.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Pueden comprobarse protocolos arbitrarios sobre IP.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ El antiguo comportamiento de la comprobación de SYN y ACK (que era
+anteriormente ignorado para paquetes no TCP) ha cambiado: la opción SYN no
+es válida para reglas no específicas de TCP.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Los contadores son ahora de 64 bits en máquinas de 32 bits y no de 32 
+bits.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Son válidas opciones inversas.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Se permiten códigos ICMP.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Se permiten interfaces comodín.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ Las manipulaciones del TOS se comprueban ahora: el viejo código del 
+núcleo le impediría sin advertirle la manipulación (ilegal) del bit `Debe 
+ser cero'. ipchains devuelve ahora un error si lo intenta, así como en otros 
+casos ilegales.
+</para>
+</listitem>
+
+</orderedlist>
+
+</para>
+
+<sect2>
+<title>Tabla de referencia rápida.</title>
+
+<para>
+&lsqb; En su mayoría, los argumentos de comando son MAYUSCULAS, y las opciones
+son minúsculas ]
+</para>
+
+<para>
+Advierta que el enmascarado se especifica con `-j MASQ', es completamente
+diferente de `-j ACCEPT', y no se trata como un simple efecto colateral
+ocmo hace <literal remap="tt">ipfwadm</literal>.
+</para>
+
+<programlisting>
+================================================================
+| ipfwadm      | ipchains              | notes
+----------------------------------------------------------------
+| -A [both]    | -N acct               | Crea la cadena `acct' 
+|              |&#38; -I 1 input -j acct   | y hace que los paquetes  
+|              |&#38; -I 1 output -j acct  | entrantes y salientes   
+|              |&#38; acct                 | la atraviesen
+----------------------------------------------------------------
+| -A in        | input                 | Una regla sin objetivo
+----------------------------------------------------------------
+| -A out       | output                | Una regla sin objetivo
+----------------------------------------------------------------
+| -F           | forward               | Use esta como [cadena].
+----------------------------------------------------------------
+| -I           | input                 | Use esta como [cadena].
+----------------------------------------------------------------
+| -O           | output                | Use esta como [cadena].
+----------------------------------------------------------------
+| -M -l        | -M -L                 |
+----------------------------------------------------------------
+| -M -s        | -M -S                 |
+----------------------------------------------------------------
+| -a policy    | -A [chain] -j POLICY  | (consulte -r and -m).
+----------------------------------------------------------------
+| -d policy    | -D [chain] -j POLICY  | (consulte -r and -m).
+----------------------------------------------------------------
+| -i policy    | -I 1 [chain] -j POLICY| (consulte -r and -m).
+----------------------------------------------------------------
+| -l           | -L                    |
+----------------------------------------------------------------
+| -z           | -Z                    |
+----------------------------------------------------------------
+| -f           | -F                    |
+----------------------------------------------------------------
+| -p           | -P                    |
+----------------------------------------------------------------
+| -c           | -C                    |
+----------------------------------------------------------------
+| -P           | -p                    |
+----------------------------------------------------------------
+| -S           | -s                    | Toma un solo puerto o    
+|              |                       | rango, no multiples. 
+----------------------------------------------------------------
+| -D           | -d                    | Toma un solo puerto o    
+|              |                       | rango, no multiples. 
+----------------------------------------------------------------
+| -V           | &#60;none&#62;                | Use -i [nombre].
+----------------------------------------------------------------
+| -W           | -i                    |
+----------------------------------------------------------------
+| -b           | -b                    | Ahora hace 2 reglas.
+----------------------------------------------------------------
+| -e           | -v                    |
+----------------------------------------------------------------
+| -k           | ! -y                  | No funciona a no ser    
+|              |                       | que especifique -p tcp.   
+----------------------------------------------------------------
+| -m           | -j MASQ               |
+----------------------------------------------------------------
+| -n           | -n                    |
+----------------------------------------------------------------
+| -o           | -l                    |
+----------------------------------------------------------------
+| -r [redirpt] | -j REDIRECT [redirpt] |
+----------------------------------------------------------------
+| -t           | -t                    |
+----------------------------------------------------------------
+| -v           | -v                    |
+----------------------------------------------------------------
+| -x           | -x                    |
+----------------------------------------------------------------
+| -y           | -y                    | No funciona a no ser    
+|              |                       | que especifique -p tcp. 
+----------------------------------------------------------------
+</programlisting>
+
+</sect2>
+
+<sect2>
+<title>Ejemplos de comandos ipfwadm traducidos</title>
+
+<para>
+Comando antigo: ipfwadm -F  -p deny
+</para>
+
+<para>
+Nuevo  comando: ipchains -P forward DENY
+</para>
+
+<para>
+Comando antigo: ipfwadm -F -a m -S 192.168.0.0/24 -D 0.0.0.0/0
+</para>
+
+<para>
+Nuevo  comando: ipchains -A forward -j MASQ -s 192.168.0.0/24 -d 0.0.0.0/0
+</para>
+
+<para>
+Comando antigo: ipfwadm -I -a accept -V 10.1.2.1 -S 10.0.0.0/8 -D 0.0.0.0/0
+</para>
+
+<para>
+Nuevo  comando: ipchains -A input -j ACCEPT -i eth0 -s 10.0.0.0/8 -d 0.0.0.0/0
+</para>
+
+<para>
+(Advierta que no hay equivalente para especificar interfaces por dirección: 
+use el nombre de interfaz. En esta máquina, 10.1.2.1 corresponde a eth0).
+</para>
+
+</sect2>
+
+</sect1>
+
+<sect1 id="upgrade">
+<title>Apéndice: Usando <literal remap="tt">ipfwadm-wrapper</literal>.</title>
+
+<para>
+El archivo de comandos <literal remap="tt">ipfwadm-wrapper</literal> debería ser un reemplazo de 
+<literal remap="tt">ipfwadm</literal> para mantener la compatibilidad hacia atrás con ipfwadm 2.3a.
+</para>
+
+<para>
+La única característica que no puede manejar es la opción `-V'. Cuando se usa
+se da un aviso. Si la opción `-W' es usada también, se ignora la opción `-V'.
+Si no, el archivo de comandos intenta encontrar el nombre de interfaz
+asociado con esa dirección, usando <literal remap="tt">ifconfig</literal>.  Si esto falla
+(como con un interfaz que está caído) entonces saldrá con un mensaje de error.
+</para>
+
+<para>
+Este aviso puede ser suprimido cambiando el `-V' por un `-W',
+o dirigiendo la salida estándar del archivo de comandos a /dev/null.
+</para>
+
+<para>
+Si encuentra fallos en este archivo, o cualquier cambio entre el ipfwadm 
+verdadero y este archivo, <emphasis>por favor</emphasis> infórmeme del error: envíe un 
+correo electrónico a ipchains@wantree.com.au with "BUG-REPORT" como tema del 
+correo.
+Por favor, liste su versión antigua de <literal remap="tt">ipfwadm</literal> (<literal remap="tt">ipfwadm -h</literal>), 
+su versión de <literal remap="tt">ipchains</literal> (<literal remap="tt">ipchains --version</literal>) y la versión del
+archivo de comandos ipfwadm-wrapper (<literal remap="tt">ipfwadm-wrapper --version</literal>).  
+Mándeme también la salida de <literal remap="tt">ipchains-save</literal>. Gracias por adelantado.
+</para>
+
+<para>
+La mezcla de <literal remap="tt">ipchains</literal> con <literal remap="tt">ipfwadm-wrapper</literal> corre bajo su
+propia responsabilidad.
+</para>
+
+</sect1>
+
+<sect1>
+<title>Apéndice: Gracias.</title>
+
+<para>
+Muchas  gracias a Michael Neuling, quien escribió la primera sección
+publicable del código de las cadenas IP mientras trabajaba para mí. 
+Perdón públicamente por usar su idea de almacenamiento de resultados, que 
+finalmente propuso Alan Cox y he empezado a implementar, ya he visto el error 
+de mi acción.
+</para>
+
+<para>
+Gracias a Alan Cox por su apoyo técnico y ánimos durante las 24 horas por 
+e-mail.
+</para>
+
+<para>
+Gracias a todos los autores del código de ipfw e ipfwadm, especialmente
+Jos Vos. Apoyarse en los hombros de gigantes y todo eso... Esto es 
+aplicable a Linus Torvalds y también a todos los hackers del núcleo y del 
+espacio de usuario.
+</para>
+
+<para>
+Gracias a los beta testers y buscadores de errores, especialmente a Jordan
+Mendelson, Shaw Carruthers, Kevin Moule, Dr. Liviu Daia, Helmut Adams,
+Franck Sicard, Kevin Littlejohn, Matt Kemner, John D. Hardin, Alexey
+Kuznetsov, Leos Bitto, Jim Kunzman, Gerard Gerritsen, Serge Sivkov,
+Andrew Burgess, Steve Schmidtke, Richard Offer, Bernhard Weisshuhn y
+Pavel Krauz por hacerme ver el sentido de las cosas del DNS TCP.
+</para>
+
+</sect1>
+
+</article>

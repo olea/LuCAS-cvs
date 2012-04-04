@@ -1,0 +1,740 @@
+<chapter Id="typeconv">
+<title>Conversión de tipos</title>
+
+<para>
+Las consultas<acronym>SQL</acronym> pueden, intencionadamente o no, requerir
+mezclar diferentes tipos de datos en una misma expresión.
+<productname>Postgres</productname> posee grandes facilidades para evaluar
+expresiones que contengan diferentes tipos.
+</para>
+
+<para>
+En muchos casos un usuario no necesita comprender los detalles del
+mecanismo de conversión de tipos.
+Sin embargo, la conversión implícita realizada por 
+<productname>Postgres</productname> puede afectar a los resultados
+de una consulta. Estos resultados pueden ser ajustados por un usuario
+o por un programador usando conversión de tipos 
+<emphasis>explícita</emphasis> 
+</para>
+
+<para>
+Este capitulo es una introducción a los mecanismos y convenciones de 
+conversión de tipos en <productname>Postgres</productname>.
+Diríjase a las secciones correspondientes en la guía del usuario y en la
+guía del programador para obtener más información sobre tipos de datos
+específicos, funciones y operadores permitidos.
+</para>
+
+<para>
+La guía del programador tiene más detalles sobre los algoritmos exactos
+usados por la conversión implícita de tipos.
+</para>
+
+<sect1>
+<title>Conceptos generales</title>
+<para>
+<acronym>SQL</acronym> es un lenguaje con una definición de tipos rígida.
+Así, cada dato tiene asociado un tipo de dato que determina como se comporta
+y como se permite usar. <productname>Postgres</productname> tiene un sistema
+de tipos extensible que es mucho más general y flexible que otras 
+implementaciones <acronym>RDBMS</acronym>.
+Por lo tanto, la mayoría de las reglas para convertir tipos en 
+<productname>Postgres</productname> pueden ser regidas por unas normas 
+generales bastante mejores que unas normas heurísticas que permitan a las
+expresiones con tipos distintos mezclados ser significantes, de la misma
+manera sucede con los tipos definidos por el usuario.
+</para>
+
+<para>
+El analizador de <productname>Postgres</productname> clasifica los
+elementos léxicos en solo cinco categorías fundamentales: enteros, reales, 
+cadenas, nombres y palabras clave. La mayoría de los tipos extendidos son
+convertidos en cadenas en primer lugar. El lenguaje de definición <acronym>
+SQL</acronym> permite especificar nombres de tipo con cadenas. Este mecanismo
+es usado por <productname>Postgres</productname> para indicar al analizador
+el camino correcto. Por ejemplo, la consulta:
+
+
+<programlisting>
+tgl=> SELECT text 'Origin' AS "Label", point '(0,0)' AS "Value";
+Label |Value
+------+-----
+Origin|(0,0)
+(1 row)
+</programlisting>
+
+tiene dos cadenas, de tipo <type>text</type> y de tipo <type>point</type>.
+Si un tipo no es especificado, entonces el tipo <type>unknown</type>
+es asignado inicialmente. En posteriores fases se resolverá tal y como se
+describe más adelante.
+</para>
+
+<para>
+Hay cuatro construcciones fundamentales en <acronym>SQL</acronym> las cuales
+ requieren distintas reglas de conversión de tipos en el analizador de
+<productname>Postgres</productname>:
+</para>
+
+<variablelist>
+<varlistentry>
+<term>
+Operadores
+</term>
+<listitem>
+<para>
+<productname>Postgres</productname> permite tanto expresiones con
+operadores de un solo argumento como con operadores de dos
+argumentos.
+</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>
+Llamadas a funciones
+</term>
+<listitem>
+<para>
+Gran parte del sistema de tipos de <productname>Postgres</productname> está
+construido alrededor de un rico conjunto de funciones. Las llamadas a funciones
+tienen uno o más argumentos los cuales, para cualquier consulta especifica,
+deben ser adaptados a las funciones disponibles en el sistema.
+</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>
+Objetivos de consultas
+</term>
+<listitem>
+<para>
+Una declaración <acronym>SQL</acronym> INSERT pone los resultados de una consulta
+en una tabla. Las expresiones en la consulta debe ser ajustadas, y quizás convertidas, a 
+las columnas del objetivo del INSERT.
+</para>
+</listitem>
+</varlistentry>
+<varlistentry>
+<term>
+Consultas UNION
+</term>
+<listitem>
+<para>
+Debido a que todos los resultados de una declaración UNION SELECT deben aparecer
+como un único conjunto de columnas, los tipos de cada clausula SELECT deben ser 
+ajustados y convertidos a un conjunto uniforme.
+</para>
+</listitem>
+</varlistentry>
+</variablelist>
+
+<para>
+Muchas de las reglas de conversión de tipos generales usan convenciones sencillas
+que están en las tablas del sistema de funciones y operadores de 
+<productname>Postgres</productname>. Hay algo de heurística en las reglas de
+conversión para dar un mejor soporte a las convenciones de los tipos nativos
+estándar de <acronym>SQL92</acronym> como <type>smallint</type>, 
+<type>integer</type>, y <type>float</type>.
+</para>
+
+<para>
+El analizador de <productname>Postgres</productname> usa la convención de que
+todas las funciones de conversión de tipo toman un solo argumento como tipo
+de origen y se llaman de la misma manera que el tipo de destino. Se considera 
+que cualquier función que cumpla este criterio es una función de conversión
+valida, y debe ser usada por el analizador de esta manera. Esta simple afirmación
+le da al analizador el poder para explorar las posibilidades de conversión de
+tipo sin dificultad, permitiendo a los tipos definidos por el usuario usar
+las mismas características de manera transparente.
+</para>
+
+<para>
+El analizador esta provisto de una lógica adicional para permitir ajustarse
+más a la conducta correcta de los tipos estándar <acronym>SQL</acronym>. Hay
+cinco categorías de tipos definidas: boolean, string, numeric, geometric y 
+user-defined. Cada categoría, con la excepción de user-defined, tiene un 
+"tipo preferido" el cual es usado para resolver ambigüedades entre los
+candidatos. Cada tipo "user-defined" es su propio "tipo preferido", así las
+expresiones ambiguas (aquellas en las que el analizador tiene varios candidatos)
+con solo un tipo definido por el usuario pueden resolverse con una única solución, mientras
+que las que tienen varios tipos definidos por el usuario serán ambiguas y darán un error.
+</para>
+
+<para>
+Las expresiones ambiguas que tienen posibles soluciones con solo una categoría de
+tipos son fáciles de resolver, mientras que las expresiones ambiguas con posibles
+soluciones de distintas categorías dan fácilmente un error y preguntan al usuario
+una aclaración.
+</para>
+
+<sect2>
+<title>Guidelines</title>
+
+<para>
+Todas
+ las reglas de conversión de tipos están diseñadas teniendo presentes
+diversos principios:
+
+<itemizedlist mark="bullet" spacing="compact">
+<listitem>
+<para>
+Las conversiones implícitas no deberían tener nunca un resultado sorprendente
+o impredecible.
+</para>
+</listitem>
+
+<listitem>
+<para>
+Los tipos definidos por el usuario, de los cuales el analizador no tiene conocimiento
+a priori, deben de estar situados en un lugar alto dentro de la jerarquía de tipos.
+Dentro de expresiones con tipos mezclados, los tipos nativos deberían ser convertidos
+siempre a tipos definidos por el usuario (por supuesto, solo si la conversión es
+necesaria).
+</para>
+</listitem>
+
+<listitem>
+<para>
+Los tipos definidos por el usuario no están relacionados. Por lo general, 
+<productname>Postgres</productname> no tiene disponible información sobre las relaciones
+entre tipos aparte de la lógica codificada para los tipos predefinidos y las relaciones
+implícitas basadas en las funciones disponibles en en el catálogo.
+</para>
+</listitem>
+
+<listitem>
+<para>
+No debería haber una carga extra del analizador o del ejecutor si una consulta no necesita
+conversión implícita de tipos. De esta manera, si una consulta esta bien construida y los
+tipos ya están adaptados, entonces la consulta debería realizarse sin consumir tiempo extra
+en el analizador y sin realizar funciones de conversión innecesarias dentro de la consulta.
+</para>
+
+<para>
+Adicionalmente, si una consulta normalmente requiere una conversión implícita para una función,
+y entonces el usuario define una función explicita con los tipos de los argumentos correctos,
+el analizador debería usar esta nueva función y no realizar nunca más una conversión implícita
+usando la función antigua.
+</para>
+</listitem>
+</itemizedlist>
+</para>
+</sect2>
+</sect1>
+
+<sect1>
+<title>Operadores</title>
+
+<sect2>
+<title>Procedimiento de conversión</title>
+
+<procedure>
+<title>Operador de evaluación</title>
+
+
+<step performance="required">
+<para>
+Inspecciona en busca de un ajuste exacto en el catálogo del sistema pg_operator.
+</para>
+
+<substeps>
+<step performance="optional">
+<para>
+Si un argumento de un operador binario es <type>unknown</type>,
+entonces se asume que es del mismo tipo que el otro argumento.
+</para>
+</step>
+<step performance="required">
+<para>
+Invierte los argumentos, y busca un ajuste exacto con un operador el cual
+apunta a él mismo ya que es conmutativo.
+Si lo halla, entonces invierte los argumentos en el árbol del analizador y usa
+este operador.
+</para>
+</step>
+</substeps>
+</step>
+
+<step performance="required">
+<para>
+Busca el mejor ajuste.
+</para>
+<substeps>
+<step performance="optional">
+<para>
+Hace una lista de todos los operadores con el mismo nombre.
+</para>
+</step>
+<step performance="required">
+<para>
+Si solo hay un operador en la lista usa este si el tipo de la entrada puede
+ser forzado, y genera un error si el tipo no puede ser forzado.
+</para>
+</step>
+<step performance="required">
+<para>
+Guarda todos los operadores con los ajustes más explícitos de tipos. Guarda todo
+si no hay ajustes explícitos y salta al siguiente paso.
+Si solo queda un candidato, usa este si el tipo puede ser forzado.
+</para>
+</step>
+<step performance="required">
+<para>
+Si algún argumento de entrada es "unknown", categoriza los candidatos de entrada
+como boolean, numeric, string, geometric, o user-defined. Si hay una mezcla de
+categorías, o más de un tipo definido por el usuario, genera un error porque la elección
+correcta no puede ser deducida sin más pistas.
+Si solo está presente una categoría, entonces asigna el tipo preferido
+a la columna de entrada que previamente era "unknown".
+</para>
+</step>
+<step performance="required">
+<para>
+Escoge el candidato con los ajustes de tipos más exactos, y que ajustan el "tipo preferido"
+para cada categoría de columna del paso previo. Si todavía queda más de un candidato, o si
+no queda ninguno, entonces se genera un error.
+</para>
+</step>
+</substeps>
+</step>
+</procedure>
+</sect2>
+
+<sect2>
+<title>Ejemplos</title>
+
+<sect3>
+<title>Operador exponente</title>
+
+<para>
+Solo hay un operador exponente definido en el catálogo, y toma argumentos <type>float8</type>.
+El examinador asigna un tipo inicial <type>int4</type> a ambos argumentos en la 
+expresión de esta consulta:
+<programlisting>
+tgl=> select 2 ^ 3 AS "Exp";
+Exp
+---
+  8
+(1 row)
+</programlisting>
+De esta manera, el analizador hace una conversión de tipo sobre ambos operadores y
+la consulta es equivalente a
+<programlisting>
+tgl=> select float8(2) ^ float8(3) AS "Exp";
+Exp
+---
+  8
+(1 row)
+</programlisting>
+
+or
+
+<programlisting>
+tgl=> select 2.0 ^ 3.0 AS "Exp";
+Exp
+---
+  8
+(1 row)
+</programlisting>
+
+<note>
+<para>
+Esta ultima forma es la que tiene menos sobrecarga, ya que no se llama a funciones
+para hacer un conversión implícita de tipo. Esto no es una ventaja para pequeñas
+consultas, pero puede tener un gran impacto en el rendimiento de consultas que
+abarquen muchas tablas.
+</para>
+</note>
+</para>
+</sect3>
+
+<sect3>
+<title>Concatenación de cadenas</title>
+
+<para>
+Una sintaxis similar es usada tanto para trabajar con tipos alfanuméricos como
+con tipos complejos extendidos.
+Las cadenas alfanuméricas con tipo sin especificar son ajustadas con los operadores candidatos
+afines.
+</para>
+
+<para>
+Un argumento sin especificar:
+<programlisting>
+tgl=> SELECT text 'abc' || 'def' AS "Text and Unknown";
+Text and Unknown
+----------------
+abcdef
+(1 row)
+</programlisting>
+</para>
+
+<para>
+En este caso el analizador mira si existe algún operador que necesite el
+operador <type>text</type> en ambos argumentos. Si existe, asume que el segundo
+operador debe ser interpretado como de tipo <type>text</type>.
+</para>
+
+<para>
+Concatenación con tipos sin especificar:
+<programlisting>
+tgl=> SELECT 'abc' || 'def' AS "Unspecified";
+Unspecified
+-----------
+abcdef
+(1 row)
+</programlisting>
+</para>
+
+<para>
+En este caso hay ninguna pista inicial sobre que tipo usar, ya que no se han 
+especificado tipos en la consulta. De esta manera, el analizador busca en todos los
+operadores candidatos aquellos en los que todos los argumentos son de tipo alfanumérico. Elige
+el "tipo preferido" para las cadenas alfanuméricas, <type>text</type>, para esta consulta. 
+</para>
+
+<note>
+<para>
+Si un usuario define un nuevo tipo y define un operador <quote>||</quote> para
+trabajar con el, entonces esta consulta tal como esta escrita no tendrá éxito. El analizador
+tendría ahora tipos candidatos de dos categorías, y no podría decidir cual de ellos usar.
+</para>
+</note>
+</sect3>
+
+<sect3>
+<title>Factorial</title>
+
+<para>
+Este ejemplo ilustra un interesante resultado. Tradicionalmente, el operador factorial
+está definido solo para enteros. El catalogo de operadores de <productname>Postgres</productname>
+tiene solamente una entrada para el factorial, que toma un entero como operador.
+Si recibe un argumento numérico no entero, <productname>Postgres</productname> intentará
+convertir este argumento a un entero para la evaluación del factorial.
+
+<programlisting>
+tgl=> select (4.3 !);
+?column?
+--------
+      24
+(1 row)
+</programlisting>
+
+<note>
+<para>
+Por supuesto, esto conduce a un resultado matemáticamente sospechoso, debido a que en principio
+el factorial de un número no entero no está definido. De cualquier modo, el papel de una base
+de datos no es enseñar matemáticas, sino más bien ser una herramienta para manipular datos.
+Si un usuario decide obtener en factorial de un número real, <productname>Postgres</productname>
+intentará hacerlo.
+</para>
+</note>
+</para>
+</sect3>
+</sect2>
+</sect1>
+
+<sect1>
+<title>Funciones</title>
+
+<procedure>
+<title>Evaluación de función</title>
+
+<step performance="required">
+<para>
+Busca una entrada exacta en el catálogo del sistema pg_proc.
+</para></step>
+<step performance="required">
+<para>
+Busca la mejor entrada.
+</para>
+<substeps>
+<step performance="required">
+<para>
+Hace una lista de todas las funciones con el mismo nombre y con el mismo número
+de argumentos.
+</para></step>
+<step performance="required">
+<para>
+Si solo hay una función en la lista, usa esta si los tipos de la entrada pueden
+ser convertidos, y produce un error si los tipos no pueden ser convertidos.
+</para></step>
+<step performance="required">
+<para>
+Guarda todas las funciones con los ajustes más explícitos para los tipos. Guarda
+todas si no hay ajustes explícitos y salta al siguiente paso.
+Si solo queda un candidato, usa este si el tipo puede ser convertido.
+</para></step>
+<step performance="required">
+<para>
+Si cualquiera de los argumentos de entrada son de tipo desconocido, clasifica 
+los argumentos de entrada candidatos en categorías como boolean, numeric, string, geometric o 
+user-defined. Si hay una mezcla de categorías, o más de un tipo definido por el usuario, se produce un error
+debido a que la elección correcta no puede ser deducida si no se aportan más pistas.
+Si solo hay una categoría , entonces asigna el "tipo preferido" a la columna de entrada que
+antes era de tipo desconocido.
+</para></step>
+<step performance="required">
+<para>
+Escoge el candidato con el ajuste de tipos más exacto, y el cual ajusta el "tipo preferido"
+a cada categoría de columna desde el paso anterior.
+Si hay más de un candidato, o si no hay ninguno, entonces se produce un error.
+</para></step>
+</substeps>
+</step>
+</procedure>
+<sect2>
+<title>Ejemplos</title>
+
+<sect3>
+<title>Función factorial</title>
+
+<para>
+Solo hay una función factorial definida en el catálogo pg_proc.
+Debido a esto, las siguientes consultas convierten automáticamente el argumento <type>int2</type>
+a <type>int4</type>:
+
+<programlisting>
+tgl=> select int4fac(int2 '4');
+int4fac
+-------
+     24
+(1 row)
+</programlisting>
+
+y es de hecho transformado por el analizador a
+<programlisting>
+tgl=> select int4fac(int4(int2 '4'));
+int4fac
+-------
+     24
+(1 row)
+</programlisting>
+</para>
+</sect3>
+
+<sect3>
+<title>Función substring</title>
+
+<para>
+Hay dos funciones <function>substr</function> declaradas en pg_proc. Sin embargo,
+solo una tiene dos argumentos, de tipos <type>text</type> y <type>int4</type>.
+</para>
+
+<para>
+Si es llamada con una constante de cadena de tipo sin especificar, el tipo es ajustado
+directamente con la única función candidata de tipo:
+<programlisting>
+tgl=> select substr('1234', 3);
+substr
+------
+    34
+(1 row)
+</programlisting>
+</para>
+
+<para>
+Si la cadena es declarada como tipo <type>varchar</type>, como puede ser en 
+el caso de que venga de una tabla, entonces el analizador intentará convertirla
+ al tipo <type>text</type>:
+<programlisting>
+tgl=> select substr(varchar '1234', 3);
+substr
+------
+    34
+(1 row)
+</programlisting>
+lo que es transformado por el analizador a:
+<programlisting>
+tgl=> select substr(text(varchar '1234'), 3);
+substr
+------
+    34
+(1 row)
+</programlisting>
+</para>
+<note>
+<para>
+Hay algunas estrategias en el analizador para optimizar la relación entre
+los tipos <type>char</type>, <type>varchar</type> y <type>text</type>.
+En este caso, la función <function>substr</function> es llamada directamente con 
+una cadena <type>varchar</type> en vez de hacer una llamada para realizar
+una conversión explícita.
+</para>
+</note>
+
+<para>
+Y, si la función es llamada con un <type>int4</type>, el analizador intentará convertirlo
+a <type>text</type>
+<programlisting>
+tgl=> select substr(1234, 3);
+substr
+------
+    34
+(1 row)
+</programlisting>
+realmente se ejecuta como
+<programlisting>
+tgl=> select substr(text(1234), 3);
+substr
+------
+    34
+(1 row)
+</programlisting>
+</para>
+</sect3>
+</sect2>
+</sect1>
+
+<sect1>
+<title>Resultados de consultas</title>
+
+<procedure>
+<title>Evaluación del resultado</title>
+
+<step performance="required">
+<para>
+Busca un ajuste exacto con el resultado.
+</para></step>
+<step performance="required">
+<para>
+Si es necesario intenta convertir la expresión directamente al tipo del resultado.
+</para></step>
+
+<step performance="required">
+<para>
+Si el resultado es un tipo de longitud fija (por ejemplo <type>char</type> o
+<type>varchar</type> declarado con una longitud) entonces intenta encontrar una
+función que ajuste la longitud con el mismo nombre que el tipo de los dos argumentos, 
+el primero el nombre del tipo y el segundo un entero con la longitud.
+</para></step>
+
+</procedure>
+
+<sect2>
+<title>Ejemplos</title>
+
+<sect3>
+<title>Almacenamiento de <type>varchar</type></title>
+
+<para>
+Para cada columna declarada como <type>varchar(4)</type> la siguiente consulta
+asegura que el resultado tiene el tamaño adecuado:
+
+<programlisting>
+tgl=> CREATE TABLE vv (v varchar(4));
+CREATE
+tgl=> INSERT INTO vv SELECT 'abc' || 'def';
+INSERT 392905 1
+tgl=> select * from vv;
+v
+----
+abcd
+(1 row)
+</programlisting>
+</para>
+</sect3>
+</sect2>
+</sect1>
+
+<sect1>
+<title>Consultas UNION</title>
+
+<para>
+La construcción UNION es algo diferente en cuanto que es más
+posible el que haya tipos distintos en un resultado.
+</para>
+<procedure>
+<title>Evaluación de UNION</title>
+
+<step performance="required">
+<para>
+Comprueba si los tipos son idénticos para todos los resultados.
+</para></step>
+
+<step performance="required">
+<para>
+Convierte cada resultado de la clausula UNION para ajustarlo al tipo
+de la primera clausula SELECT o de la columna de resultado.
+</para></step>
+</procedure>
+
+<sect2>
+<title>Ejemplos</title>
+
+<sect3>
+<title>Tipos sin especificar</title>
+
+<para>
+<programlisting>
+tgl=> SELECT text 'a' AS "Text" UNION SELECT 'b';
+Text
+----
+a
+b
+(2 rows)
+</programlisting>
+</para>
+</sect3>
+
+<sect3>
+<title>UNION simple</title>
+
+<para>
+<programlisting>
+tgl=> SELECT 1.2 AS Float8 UNION SELECT 1;
+Float8
+------
+     1
+   1.2
+(2 rows)
+</programlisting>
+</para>
+</sect3>
+
+<sect3>
+<title>UNION transpuesto</title>
+
+<para>
+Los tipos del UNION son forzados a ajustarse a los tipos de
+la primera clausula en el UNION:
+
+<programlisting>
+tgl=> SELECT 1 AS "All integers"
+tgl-> UNION SELECT '2.2'::float4
+tgl-> UNION SELECT 3.3;
+All integers
+------------
+           1
+           2
+           3
+(3 rows)
+</programlisting>
+</para>
+<para>
+Una estrategia alternativa del analizador podría ser escoger el "mejor" tipo
+del grupo, pero esto es más difícil debido a la técnica recursiva usada en el
+analizador. De cualquier modo, se usa el "mejor" tipo cuando hacemos una selección
+<emphasis>dentro</emphasis> de una tabla:
+
+<programlisting>
+tgl=> CREATE TABLE ff (f float);
+CREATE
+tgl=> INSERT INTO ff
+tgl-> SELECT 1
+tgl-> UNION SELECT '2.2'::float4
+tgl-> UNION SELECT 3.3;
+INSERT 0 3
+tgl=> SELECT f AS "Floating point" from ff;
+  Floating point
+----------------
+               1
+2.20000004768372
+             3.3
+(3 rows)
+</programlisting>
+</para>
+</sect3>
+</sect2>
+</sect1>
+</chapter>

@@ -1,0 +1,334 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<HTML
+><HEAD
+><TITLE
+>Using Large Objects</TITLE
+><META
+NAME="GENERATOR"
+CONTENT="Modular DocBook HTML Stylesheet Version 1.59"><LINK
+REL="HOME"
+TITLE="Guia del Programador de PostgreSQL"
+HREF="programmer.html"><LINK
+REL="UP"
+TITLE="JDBC Interface"
+HREF="jdbc.html"><LINK
+REL="PREVIOUS"
+TITLE="Closing the Connection"
+HREF="x6237.html"><LINK
+REL="NEXT"
+TITLE="Postgres Extensions to the
+    JDBC API"
+HREF="x6267.html"></HEAD
+><BODY
+CLASS="SECT1"
+BGCOLOR="#FFFFFF"
+TEXT="#000000"
+LINK="#0000FF"
+VLINK="#840084"
+ALINK="#0000FF"
+><DIV
+CLASS="NAVHEADER"
+><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TH
+COLSPAN="3"
+ALIGN="center"
+>Guia del Programador de PostgreSQL</TH
+></TR
+><TR
+><TD
+WIDTH="10%"
+ALIGN="left"
+VALIGN="bottom"
+><A
+HREF="x6237.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="80%"
+ALIGN="center"
+VALIGN="bottom"
+>JDBC Interface</TD
+><TD
+WIDTH="10%"
+ALIGN="right"
+VALIGN="bottom"
+><A
+HREF="x6267.html"
+>Siguiente</A
+></TD
+></TR
+></TABLE
+><HR
+ALIGN="LEFT"
+WIDTH="100%"></DIV
+><DIV
+CLASS="SECT1"
+><H1
+CLASS="SECT1"
+><A
+NAME="AEN6241"
+>Using Large Objects</A
+></H1
+><P
+>    In <TT
+CLASS="APPLICATION"
+>Postgres</TT
+>, 
+    large objects (also known as <I
+CLASS="FIRSTTERM"
+>blobs</I
+>) are used to hold data in
+    the database that cannot be stored in a normal SQL table. They are stored as a
+    Table/Index pair, and are referred to from your own tables by an OID value.
+   </P
+><P
+>    <DIV
+CLASS="IMPORTANT"
+><P
+></P
+><TABLE
+CLASS="IMPORTANT"
+WIDTH="100%"
+BORDER="0"
+><TR
+><TD
+WIDTH="25"
+ALIGN="CENTER"
+VALIGN="TOP"
+><IMG
+SRC="./stylesheet-images/important.gif"
+HSPACE="5"
+ALT="Importante"></TD
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+><P
+>      For <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+>, you must access large
+      objects within an SQL transaction. Although this has always been 
+      true in principle, it was not strictly enforced until the
+      release of v6.5. You would open a transaction by using the
+      <TT
+CLASS="FUNCTION"
+>setAutoCommit()</TT
+> method with an input
+      parameter of <TT
+CLASS="LITERAL"
+>false</TT
+>:
+
+      <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>Connection mycon;
+...
+mycon.setAutoCommit(false);
+... now use Large Objects
+      </PRE
+></TD
+></TR
+></TABLE
+>
+     </P
+></TD
+></TR
+></TABLE
+></DIV
+>
+   </P
+><P
+>    Now, there are two methods of using Large Objects. The first is the
+    standard <SPAN
+CLASS="ACRONYM"
+>JDBC</SPAN
+> way, and is documented here. The
+    other, uses our own extension
+    to the api, which presents the libpq large object
+    <SPAN
+CLASS="ACRONYM"
+>API</SPAN
+> to Java, providing even
+    better access to large objects than the standard. Internally, the driver uses
+    the extension to provide large object support.
+   </P
+><P
+>    In <SPAN
+CLASS="ACRONYM"
+>JDBC</SPAN
+>, the standard way to access them is using the getBinaryStream()
+    method in ResultSet, and setBinaryStream() method in PreparedStatement. These
+    methods make the large object appear as a Java stream, allowing you to use the
+    java.io package, and others, to manipulate the object.
+   </P
+><P
+>    For example, suppose
+    you have a table containing the file name of an image, and a large object
+    containing that image:
+
+    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>create table images (imgname name,imgoid oid);
+    </PRE
+></TD
+></TR
+></TABLE
+>
+   </P
+><P
+>    To insert an image, you would use:
+
+    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>File file = new File("myimage.gif");
+FileInputStream fis = new FileInputStream(file);
+PreparedStatement ps = conn.prepareStatement("insert into images values (?,?)");
+ps.setString(1,file.getName());
+ps.setBinaryStream(2,fis,file.length());
+ps.executeUpdate();
+ps.close();
+fis.close();
+    </PRE
+></TD
+></TR
+></TABLE
+>
+   </P
+><P
+>    Now in this example, setBinaryStream transfers a set number of bytes from a
+    stream into a large object, and stores the OID into the field holding a
+    reference to it.
+   </P
+><P
+>    Retrieving an image is even easier (I'm using PreparedStatement here, but
+    Statement can equally be used):
+
+    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>PreparedStatement ps = con.prepareStatement("select oid from images where name=?");
+ps.setString(1,"myimage.gif");
+ResultSet rs = ps.executeQuery();
+if(rs!=null) {
+    while(rs.next()) {
+        InputStream is = rs.getBinaryInputStream(1);
+        // use the stream in some way here
+        is.close();
+    }
+    rs.close();
+}
+ps.close();
+    </PRE
+></TD
+></TR
+></TABLE
+>
+   </P
+><P
+>    Now here you can see where the Large Object is retrieved as an InputStream.
+    You'll also notice that we close the stream before processing the next row in
+    the result. This is part of the <SPAN
+CLASS="ACRONYM"
+>JDBC</SPAN
+> Specification, which states that any
+    InputStream returned is closed when ResultSet.next() or ResultSet.close() is called.
+   </P
+></DIV
+><DIV
+CLASS="NAVFOOTER"
+><HR
+ALIGN="LEFT"
+WIDTH="100%"><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+><A
+HREF="x6237.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="programmer.html"
+>Inicio</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+><A
+HREF="x6267.html"
+>Siguiente</A
+></TD
+></TR
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+>Closing the Connection</TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="jdbc.html"
+>Subir</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+><TT
+CLASS="APPLICATION"
+>Postgres</TT
+> Extensions to the
+    <SPAN
+CLASS="ACRONYM"
+>JDBC</SPAN
+> <SPAN
+CLASS="ACRONYM"
+>API</SPAN
+></TD
+></TR
+></TABLE
+></DIV
+></BODY
+></HTML
+>

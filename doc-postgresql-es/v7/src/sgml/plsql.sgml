@@ -1,0 +1,2544 @@
+<!--
+$Header: /home/cvs/lucas/doc-postgresql-es/v7/src/sgml/plsql.sgml,v 1.2 2002/06/25 21:42:07 emaldonadog Exp $
+-->
+
+<chapter id="plpgsql"> 
+  <title>PL/pgSQL - Lenguaje Procedural de <acronym>SQL</acronym></title>
+
+ <para>
+  PL/pgSQL es un lenguaje procedural cargable para la base de datos
+  <productname>Postgres</productname>.
+ </para>
+   
+ <para>
+  Este paquete fué escrito originalmente por Jan Wieck. Esta documentación
+	fué escrita en parte por Roberto Mello (<email>rmello@fslc.usu.edu</email>).
+ </para>
+
+  <sect1 id="plpgsql-overview">
+   <title>Revisión</title>
+
+   <para>
+	  Los objetivos de diseño de PL/pgSQL fueron crear un lenguaje procedural
+		cargable que
+    <itemizedlist>
+     <listitem>
+      <para>
+			 pueda ser usado para crear funciones y procedimientos disparables
+			 (triggers),
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+			 añada estructuras de control al lenguaje <acronym>SQL</acronym>,
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+			 pueda realizar cálculos complejos,
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+			 herede todos los tipos, funciones y operadores definidos por el
+			 usuario,
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+			 pueda ser definido para ser confiable por parte del servidor,
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+			 sea fácil de usar.
+      </para>
+     </listitem>
+    </itemizedlist>
+   </para>
+   <para>
+		El gestor de llamadas de PL/pgSQL analiza el texto fuente de la
+		función y genera un árbol de instrucciones binarias internas la primera
+		vez que se llama esa función. El código de bytes generado es
+		identificado por el gestor por el ID de objeto de la función. Esto
+		asegura que el cambio de la función con una secuencia DROP/CREATE se
+		llevará a efecto sin tenerse que establecer una nueva conexión a base
+		de datos.
+   </para>
+   <para>
+		Para todas la expresiones y las sentecias <acronym>SQL</acronym>
+		utilizadas en la función, el intérprete de código de bytes de PL/pgSQL
+		crea un plan de ejecución preparado utilizado las funciones
+    <function>SPI_prepare()</function> y
+    <function>SPI_saveplan()</function> del gestor <acronym>SPI</acronym>.
+		Esto se hace la primera vez que se procesa la sentencia individual en
+		la función PL/pgSQL. De esta forma, una función con código condicional
+		que contenga varias sentencias para las que se requieran planes de 
+		ejecución, sólo preparará y guardará aquellos planes que realmente se
+		utilizan durante el tiempo de vida de la conexión con la base de datos.
+   </para>
+  <para>
+	Esto implica que se debe tener cuidado con las funciones definidas por
+	el usuario. Por ejemplo:
+
+<programlisting>
+CREATE FUNCTION generaDatos() RETURNS INTEGER AS '
+DECLARE
+    -- Declaraciones
+BEGIN
+    PERFORM mi_funcion();
+END;
+' LANGUAGE 'plpgsql';
+</programlisting>
+		Si usted crea la anterior función, ésta referenciará el OID de
+    <function>mi_funcion()</function> en su código de bytes. Si, más tarde,
+		elimina y vuelve a crear <function>mi_funcion()</function>, 
+    <function>generaDatos()</function> no podrá encontrar
+    <function>mi_funcion()</function> nunca más. Tendrá también que rehacer
+    <function>generaDatos()</function>.
+   </para>
+
+   <para>
+		Debido a que PL/pgSQL guarda los planes de ejecución de esta manera, las
+		sentencias que aparecen directamente en una función PL/pgSQL deben 
+		referirse en todas las ejecuciones a las mismas tablas y campos; es
+		decir, no se puede utilizar un parámetro como nombre de tabla o campo
+		en una consulta. Para saltarse esta restricción, se pueden construir
+		consultas dinámicamente utilizando la sentencia EXECUTE de PL/pgSQL, al
+		precio de que se tenga que generar un nuevo plan para cada ejecución.
+   </para>
+   <para>
+		Excepto para conversión de entrada/salida y funciones de cálculo sobre
+		tipos definidos por el usuario, cualquier cosa que pueda ser definida en
+		funciones de lenguaje C puede realizarse con PL/pgSQL. Es posible crear
+		funciones de cálculo condicionales complejas y más tarde utilizarlas
+		para definir operadores o en índices funcionales.
+   </para>
+  <sect2 id="plpgsql-advantages">
+   <title>Ventajas de usar PL/pgSQL</title>
+
+   <itemizedlist>
+    <listitem>
+     <para>
+			Mejor rendimiento (vea <xref linkend="plpgsql-advantages-performance">)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Soporte SQL (vea <xref linkend="plpgsql-advantages-sqlsupport">)
+     </para>
+    </listitem> 
+
+    <listitem>
+     <para>
+      Portabilidad (vea <xref linkend="plpgsql-advantages-portability">)
+     </para>
+    </listitem>
+   </itemizedlist>
+
+   <sect3 id="plpgsql-advantages-performance">
+    <title>Mejor rendimiento</title>
+
+    <para>
+     <acronym>SQL</acronym> es el lenguaje que PostgreSQL (y la mayoría de
+		 otras bases de datos relacionales) utiliza como lenguaje de consulta.
+		 Es portable y fácil de aprender. Pero cada sentencia 
+     <acronym>SQL</acronym> debe ser ejecutada individualmente por el servidor.
+    </para>
+
+    <para>
+		 Esto significa que su aplicación cliente debe enviar cada consulta al
+		 servidor, esperar a que la procese, recibir los resultados, realizar
+		 algunos cálculos, depués enviar otras consultas al servidor.
+		 Todo esto implica comunicación entre procesos y puede implicar también
+		 sobrecarga de la red si el cliente está en diferente máquina que el 
+		 servidor.
+    </para>
+
+    <para>
+		 Con PL/pgSQL se pueden agrupar bloques de cálculo y sentencias de 
+		 consulta <emphasis>dentro</emphasis> del servidor, por tanto
+		 teniendo la potencia de un lenguaje procedural y sencillo se usar como
+		 SQL, pero ahorrando tiempo debido a no tener la sobrecarga de la
+		 comunicación cliente/servidor. Su aplicación apreciará un incremento
+		 considerable de rendimiento usando PL/pgSQL.
+    </para>
+   </sect3>
+
+   <sect3 id="plpgsql-advantages-sqlsupport">
+    <title>Soporte SQL</title>
+
+    <para>
+     PL/pgSQL añade la potencia de lenguajes procedurales a la 
+		 flexibilidad y facilidad de <acronym>SQL</acronym>. Con PL/pgSQL se
+		 pueden usar todos los tipos de datos, columnas, operadores y funciones
+		 de SQL.
+    </para>
+   </sect3>
+
+   <sect3 id="plpgsql-advantages-portability">
+    <title>Portabilidad</title>
+
+    <para>
+		 Debido a que las funciones de PL/pgSQL se ejecutan dentro de PostgreSQL,
+		 estas funciones correrán en cualquier plataforma en la que se pueda
+		 ejecutar PostgreSQL. Así se puede reutilizar código y disminuir los
+		 costes de desarrollo.
+    </para>
+   </sect3>
+  </sect2>
+
+  <sect2 id="plpgsql-overview-developing-in-plpgsql">
+   <title>Desarrollando en PL/pgSQL</title>
+
+   <para>
+		Desarrollar en PL/pgSQL es muy directo, especialmente si se ha
+		desarrolado en otros lenguajes procedurales de bases de datos, como
+		Oracle PL/SQL. Dos buenos caminos para desarrollar en PL/pgSQL son:
+
+    <itemizedlist>
+     <listitem>
+      <para>
+			 Utilizar un editor de texto y recargar el fichero con
+			 <command>psql</command>
+      </para>
+     </listitem>
+
+     <listitem>
+      <para>
+       Utilizar la herramienta gráfica de desarrollo de PostgreSQL:
+			 pgaccess
+      </para>
+     </listitem>
+    </itemizedlist>
+   </para>
+
+   <para>
+		Una buena forma de desarrollar en PL/pgSQL es simplemente utilizar su
+		editor de texto preferido para crear sus funciones y, en otra consola,
+		usar <command>psql</command> (monitor interactivo de PostgreSQL) para
+		cargar esas funciones. Si lo hace así (y está empezando con PL/pgSQL o
+		está depurando), es una buena idea siempre eliminar 
+		(<command>DROP</command>) su función antes de crearla. De esta forma,
+		cuando se recarga el fichero, eliminará sus funciones y después las
+		recreará. Por ejemplo:
+<programlisting>
+drop function funcionPrueba(integer);
+create function funcionPrueba(integer) return integer as '
+    ....
+end;
+' language 'plpgsql';
+</programlisting>
+   </para>
+
+   <para>
+		Al cargar el fichero por primera vez, <productname>PostgreSQL</>
+		lanzará un aviso indicando que esta función no existe e irá a crearla.
+		Para cargar un fichero SQL (nombreFichero.sql) en una base de datos
+		llamada "basedatos", utilice el comando:
+<programlisting>
+psql -f nombreFichero.sql basedatos
+</programlisting>
+   </para>
+
+   <para>
+		Otra buena idea para desarrollar con PL/pgSQL es usar la herramienta
+		gráfica de <productname>PostgreSQL</>: pgaccess. Realiza algunas buenas
+		cosas por nosotros, como el tratamiento de las comillas simples y 
+		facilitar la recreación y depurado de funciones.
+   </para>
+  </sect2>
+ </sect1>
+
+  <!-- **** PL/pgSQL Description **** -->
+
+  <sect1 id="plpgsql-description">
+   <title>Descripción</title>
+
+   <!-- **** PL/pgSQL structure **** -->
+
+   <sect2>
+    <title>Estructura de PL/pgSQL</title>
+
+    <para>
+     PL/pgSQL es un lenguaje <emphasis>estructurado por bloques</emphasis>.
+		 Todas las palabras clave e identificadores pueden ser utilizados
+		 indistintamente en mayúsculas y minúsculas. Un bloque se define como:
+<synopsis>
+<optional>&lt;&lt;label&gt;&gt;</optional>
+<optional>DECLARE
+    <replaceable>declaraciones</replaceable></optional>
+BEGIN
+    <replaceable>sentencias</replaceable>
+END;
+</synopsis>
+    </para>
+
+    <para>
+		 Puede haber cualquier cantidad de subbloques en la sección de
+		 sentencias de un bloque. Se pueden utilizar subbloques para ocultar
+		 variables al exterior de bloque de sentencias.
+    </para>
+
+    <para>
+		 Las variables declaradas en la sección de declaraciones que precede al
+		 bloque se inicializan a sus valores por defecto cada vez que se entra 
+		 en el bloque, no sólo una vez por cada llamada a la función. Por ejemplo:
+<programlisting>
+CREATE FUNCTION unafuncion() RETURNS INTEGER AS '
+DECLARE
+   cantidad INTEGER := 30;
+BEGIN
+   RAISE NOTICE ''La cantidad es %'',cantidad;  -- La cantidad es 30
+   cantidad := 50;
+   --
+   -- Creamos un subbloque
+   --
+   DECLARE
+      cantidad INTEGER := 80;
+   BEGIN
+      RAISE NOTICE ''La cantidad es %'',cantidad;  -- La cantidad es 80
+   END;
+
+   RAISE NOTICE ''La cantidad es %'',cantidad;  -- La cantidad es 50
+END;
+' LANGUAGE 'plpgsql';
+</programlisting>
+    </para>
+
+    <para>
+		 Es importante no confundir el uso de BEGIN/END para agrupar 
+		 sentencias en PL/pgSQL con los comandos de base de datos para el control
+		 de transacciones. El BEGIN/END de PL/pgSQL es sólo para agrupar: no 
+		 empieza ni termina una transacción. Las funciones y los procesos
+		 disparados (triggers) se ejecutan siempre dentro de una transacción
+		 establecida por una query externa (no arrancan ni cierran transacciones,
+		 ya que <productname>Postgres</productname> no soporta transacciones
+		 anidadas.
+    </para>
+   </sect2>
+
+   <sect2>
+    <title>Comentarios</title>
+
+    <para>
+		 Hay dos tipos de comentarios en PL/pgSQL. Un doble guión
+		 <literal>--</literal> empieza un comentario que se extiende hasta el
+		 final de la linea. Un <literal>/*</literal> empieza un comentario de
+		 bloque que se extiende hasta el siguiente <literal>*/</literal>.
+		 No se pueden anidar comentarios de bloque, pero los comentarios de
+		 doble guión se pueden encerrar en un comentario de bloque y los
+		 dobles guiones pueden ocultar los delimitadores de lo comentarios de
+		 bloque.
+    </para>
+   </sect2>
+
+   <!-- **** PL/pgSQL Variables and Constants **** -->
+   <sect2>
+    <title>Variables y Constantes</title>
+
+    <para>
+		 Todas las variables, filas y registros utilizados en un bloque o en 
+		 sus subbloques deben ser declarados en la sección de declaraciones de
+		 un bloque. La excepción es la variable de un bucle FOR iterando un
+		 rango de valores enteros.
+    </para>
+
+    <para>
+		 Las variables PL/pgSQL puede tener cualquier tipo de datos de SQL, tal
+		 como <type>INTEGER</type>, <type>VARCHAR</type> y
+     <type>CHAR</type>. Todas las variables tienen como valor por defecto
+     el valor NULL de <acronym>SQL</acronym>. 
+    </para>
+
+    <para>
+		 Algunos ejemplos de declaración de variables:
+<programlisting>
+id_usuario INTEGER;
+cantidad NUMBER(5);
+url VARCHAR;
+</programlisting>
+    </para>
+
+    <sect3 id="plpgsql-description-default-vars">
+     <title>Constantes y Variables con Valores por Defecto</title>
+
+     <para>
+			Las declaraciones tienen la siguiente sintaxis:
+<synopsis>
+<replaceable>nombre</replaceable> <optional> CONSTANT </optional> <replaceable>tipo</replaceable> <optional> NOT NULL </optional> <optional> { DEFAULT | := } <replaceable>valor</replaceable> </optional>;
+</synopsis>
+     </para>
+
+     <para>
+			El valor de las variables declaradas como CONSTANT no puede cambiarse.
+			Si se especifica NOT NULL, la asignación de un valor NULL produce error
+			en tiempo de ejecución. Ya que el valor por defecto de todas las
+			variables es NULL, todas las variables declaradas como NOT NULL deben
+			también tener especificado un valor por defecto.
+     </para>
+
+     <para>
+			El valor por defecto se evalua cada vez que se llama la función. Por
+			lo que asignar '<literal>now</literal>' a una variable de tipo
+      <type>timestamp</type> hace que la variable contenga el momento actual
+			de llamada a la función, no el momento en que la función fue 
+			precompilada a código de bytes.
+     </para>
+
+     <para>
+      Ejemplos:
+<programlisting>
+cantidad INTEGER := 32;
+url varchar := ''http://misitio.com'';
+id_usuario CONSTANT INTEGER := 10;
+</programlisting>
+     </para>
+    </sect3>
+
+    <sect3 id="plpgsql-description-passed-vars">
+     <title>Paso de variables a funciones</title>
+
+     <para>
+			Las variables que se pasan a funciones son nombradas con los
+			identificadores <literal>$1</literal>, <literal>$2</literal>,
+      etc. (máximo de 16). Algunos ejemplos:
+<programlisting>
+CREATE FUNCTION tasa_de_ventas(REAL) RETURNS REAL AS '
+DECLARE
+    subtotal ALIAS FOR $1;
+BEGIN
+    return subtotal * 0.06;
+END;
+' LANGUAGE 'plpgsql';
+
+
+CREATE FUNCTION instr(VARCHAR,INTEGER) RETURNS INTEGER AS '
+DECLARE
+    texto ALIAS FOR $1;
+    indice ALIAS FOR $2;
+BEGIN
+    -- Aquí se ponen los cálculos
+END;
+' LANGUAGE 'plpgsql';
+</programlisting>
+     </para>
+    </sect3>
+
+    <sect3 id="plpgsql-description-attributes">
+     <title>Atributos</title>
+
+     <para>
+			Utilizando los atributos <type>%TYPE</type> y <type>%ROWTYPE</type>,
+			se pueden declarar variables con el mismo tipo de datos o estructura
+			que otro elemento de la base de datos (p. ej: un 
+			campo de una tabla).
+     </para>
+
+     <variablelist>
+      <varlistentry>
+       <term>
+        %TYPE
+       </term>
+       <listitem>
+        <para>
+         <type>%TYPE</type> proporciona el tipo de datos de una variable
+				 o columna de la base de datos. Se puede utilizar para declarar
+				 variables que contengan valores de la base de datos. 
+				 Por ejemplo, digamos que tiene una columna llamada
+         <type>id_usuario</type> en la tabla <type>usuarios</type>. 
+				 Para declarar una variable con su mismo tipo de datos escribiríamos:
+<programlisting>
+id_usuario usuarios.id_usuario%TYPE;
+</programlisting>
+        </para>
+
+        <para>
+         Utilizando <type>%TYPE</type> no necesita saber el tipo de datos de
+				 la estructura que está referenciando y, lo más importante, si el 
+				 tipo de datos cambia en el futuro (p.ej: si cambia id_usuario a un
+				 tipo de datos REAL), no necesitará cambiar la definición en su
+				 función.
+        </para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>
+        <replaceable>nombre</replaceable> <replaceable>tabla</replaceable>%ROWTYPE;
+       </term>
+       <listitem>
+        <para>
+				 Declara una fila con la estructura de la tabla dada. 
+				 <replaceable>tabla</replaceable> debe ser una tabla o vista 
+				 existente en la base de datos. Se accede a los campos de la fila
+				 por notación de puntos. Los parámetros de una función pueden ser
+				 tipos compuestos (filas completas de una tabla). En ese caso, el
+				 identificador correspondiente $n será un tipo de fila, y debe 
+				 utilizar con él, el comando ALIAS ya visto.
+        </para>
+
+        <para>
+				 Solamente puede acceder a los campos de usuario de una fila de 
+				 la tabla, no al OID u otros campos de sistema (porque la fila
+				 podría ser de una vista). Los campos del tipo de fila heredan los
+				 tamaños y la precisión de los campos de la tabla.
+        </para>
+<programlisting>
+DECLARE
+    reg_usuarios usuarios%ROWTYPE;
+  id_usuario usuarios%TYPE;
+BEGIN
+    id_usuario := reg_usuarios.id_usuario;
+    ...
+
+create function cs_refresh_one_mv(integer) returns integer as '
+   DECLARE
+        key ALIAS FOR $1;
+        table_data cs_materialized_views%ROWTYPE;
+   BEGIN
+        SELECT INTO table_data * FROM cs_materialized_views
+               WHERE sort_key=key;
+
+        IF NOT FOUND THEN
+           RAISE EXCEPTION ''Vista '' || key || '' no encontrada'';
+           RETURN 0;
+        END IF;
+
+        -- La columna mv_name de cs_materialized_views almacena
+        -- los nombres de las vistas.
+ 
+        TRUNCATE TABLE table_data.mv_name;
+        INSERT INTO table_data.mv_name || '' '' || table_data.mv_query;
+
+        return 1;
+end;
+' LANGUAGE 'plpgsql';
+</programlisting>
+       </listitem>
+      </varlistentry>
+     </variablelist>
+    </sect3>
+
+    <sect3 id="plpgsql-description-remaning-vars">
+     <title>
+      RENAME
+     </title>
+
+     <para>
+      RENAME sirve para cambiar el nombre de una variable, registro o fila. 
+			Es útil si NEW u OLD deberían ser referenciados con otro nombre dentro
+			de un procedimiento disparado (trigger).
+     </para>
+
+     <para>
+			Sintaxis y ejemplos:
+<programlisting>
+RENAME <replaceable>nombreviejo</replaceable> TO <replaceable>nombrenuevo</replaceable>;
+
+RENAME id TO id_usuario;
+RENAME esta_variable TO esa_variable;
+</programlisting>
+     </para>
+    </sect3>
+   </sect2>
+
+   <!-- **** PL/pgSQL expressions **** -->
+
+   <sect2>
+    <title>Expresiones</title>
+
+    <para>
+		 Todas las expresiones que se usan en PL/pgSQL se procesan en el 
+		 ejecutor del servidor.
+		 Aún las expresiones que parezcan contener valores constantes pueden
+		 requerir evaluación en tiempo de ejecución
+     (P.ej: <literal>'now'</literal> para el tipo <type>timestamp</type>) 
+		 por lo que es imposible para el analizador de PL/pgSQL identificar
+		 valores que sean realmente constantes con la excepción de NULL. Todas
+		 las expresiones de evalúan internamente ejecutando una consulta
+<synopsis>
+SELECT <replaceable>expresion</replaceable>
+</synopsis>
+     utilizando el gesto <acronym>SPI</acronym>. En la expresión, las
+		 ocurrencias de los identificadores de variables se sustituyen por
+		 parámetros y los valores actuales de las variables se pasan al 
+		 ejecutor en el array de parámetros. Todas las expresiones que se usan
+		 en una función PL/pgSQL solamente se preparan y guardan una vez. La
+		 única excepción es la sentencia EXECUTE si se necesita analizar una
+		 query cada vez que se encuentra.
+    </para>
+
+    <para>
+		 La comprobación de tipos realizada por el analizador principal de
+		 <productname>Postgres</productname> tiene algunos efectos laterales
+		 en la interpretación de valores constantes. Detalladamente hay una
+		 diferencia entre lo que hacen estas dos funciones:
+
+<programlisting>
+CREATE FUNCTION logfunc1 (text) RETURNS timestamp AS '
+    DECLARE
+        logtxt ALIAS FOR $1;
+    BEGIN
+        INSERT INTO logtable VALUES (logtxt, ''now'');
+        RETURN ''now'';
+    END;
+' LANGUAGE 'plpgsql';
+</programlisting>
+
+     y
+
+<programlisting>
+CREATE FUNCTION logfunc2 (text) RETURNS timestamp AS '
+    DECLARE
+        logtxt ALIAS FOR $1;
+        curtime timestamp;
+    BEGIN
+        curtime := ''now'';
+        INSERT INTO logtable VALUES (logtxt, curtime);
+        RETURN curtime;
+    END;
+' LANGUAGE 'plpgsql';
+</programlisting>
+
+     En el caso de <function>logfunc1()</function>, el analizador principal
+		 de <productname>Postgres</productname> conoce mientras prepara el plan
+		 para el INESRT que la cadena <literal>'now'</literal> debería ser
+		 interpretada como <type>timestamp</type> ya que el campo destino de
+		 logtable es de ese tipo. Así, hará una constante de él y esta hora y
+		 este valor constante es usado en todas las invocaciones de 
+     <function>logfunc1()</function> durante el tiempo de vida del servidor.
+		 No necesitamos decir que esto no es lo que el programdor quería.
+    </para>
+
+    <para>
+     En el caso de <function>logfunc2()</function>, el analizador principal
+		 de <productname>Postgres</productname> no conoce a que tipo debería
+		 convertir <literal>'now'</literal> y por tanto devuelve un tipo de 
+		 datos <type>text</type> conteniendo la cadena <literal>'now'</literal>.
+		 En la asignación de la variable local curtime, el intérprete PL/pgSQL
+		 convierte esta cadena al tipo timestamp llamando a las funciones
+     <function>text_out()</function> y <function>timestamp_in()</function>.
+    </para>
+
+    <para>
+		 La comprobación de tipos realizada por el analizador principal de
+		 <productname>Postgres</productname> se implementó posteriormente al
+		 PL/pgSQL. Hay una diferencia entre las versiones 6.3 y 6.4 que afecta
+		 a todas las funciones que utilizan la característica de plan preparado
+		 del gestor <acronym>SPI</acronym>. La única forma de que los valores de
+		 interpreten correctamente para una variable local es la vista
+		 anteriormente.
+    </para>
+
+    <para>
+		 Si se usan los campos de registro en expresiones y sentencias, los tipos
+		 de datos de los campos no deberían cambiar entre llamadas a la misma
+		 expresión. Tenga esto en mente cuando escriba procedimientos disparados
+		 que manejen eventos para más de una tabla.
+    </para>
+   </sect2>
+
+   <!-- **** PL/pgSQL statements **** -->
+
+  <sect2>
+   <title>Sentencias</title>
+
+   <para>
+		Cualquier cosa no entendida por el analizador PL/pgSQL tal como se 
+		especifica abajo será puesto en una query y enviada al motos de la
+		base de datos para ejecutar. La query resultante no debería devolver
+		datos.
+   </para>
+   
+   <sect3 id="plpgsql-statements-assignment">
+    <title>Asignación</title>
+    <para>
+		 La asignación de un valor a una variable o fila/registro se escribe:
+<synopsis>
+<replaceable>identificador</replaceable> := <replaceable>expresion</replaceable>;
+</synopsis>
+		 Si el tipo de datos resultado de la expresión no coincide con el tipo
+		 de datos de la variable, o la variable tiene un tamaño/precisión conocido
+		 (como para <type>char(20)</type>), el valor resultante será convertido
+		 implícitamente por el intérprete de código de bytes de PL/pgSQL 
+		 utilizando las funciones de salida del tipo de datos del resultado y
+		 las funciones de entrada del tipo de datos de la variable. Tenga en
+		 cuenta que esto puede producir errores en tiempo de ejecución
+		 generados por las funciones de entrada del tipo de datos.
+    </para>
+
+<programlisting>
+id_usuario := 20;
+tasa := subtotal * 0.06;
+</programlisting>
+   </sect3>
+
+   <sect3 id="plpgsql-statements-calling-other-funcs">
+    <title>LLamando a otra función</title>
+
+    <para>
+		 Todas las funciones definidas en <productname>Postgres</productname>
+		 devuelven un valor. Así la forma normal de llamar a una expresión es
+		 ejecutar una consulta SELECT o hacer una asignación (resultante de
+		 hacer una SELECT interna de PL/pgSQL).
+    </para>
+
+    <para>
+		 Pero hay casos en los que no interesa el resultado de la función; 
+		 utilice entonces la sentencia PERFORM.
+<synopsis>
+PERFORM <replaceable>consulta</replaceable>
+</synopsis>
+     Esto ejecuta <literal>SELECT <replaceable>consulta</replaceable></literal>
+		 sobre el <acronym>gestor SPI</acronym> y descarta el resultado. Los 
+		 identificadores como las variables locales son aún sustituidos en los
+		 parámetros.
+    </para>
+<programlisting>
+PERFORM create_mv(''cs_session_page_requests_mv'',''
+     select   session_id, page_id, count(*) as n_hits,
+              sum(dwell_time) as dwell_time, count(dwell_time) as dwell_count
+     from     cs_fact_table
+     group by session_id, page_id '');
+</programlisting>
+   </sect3>
+   
+   <sect3 id="plpgsql-statements-executing-dyn-queries">
+    <title>Ejecutando consultas dinámicas</title>
+    
+    <para>
+		 Con frecuencia se necesita generar consulta dinámicas dentro de las
+		 funciones PL/pgSQL. O se tienen funciones que generarán otras funciones.
+		 PL/pgSQL proporciona la sentencia EXECUTE para estas situaciones.
+    </para>
+
+    <para>
+<synopsis>
+EXECUTE <replaceable class="command">texto-consulta</replaceable>
+</synopsis>
+     donde <replaceable>texto-consulta</replaceable> es una cadena de tipo
+     <type>text</type> que contiene la <replaceable>consulta</replaceable>
+     que se va a ejecutar.
+    </para>
+
+    <para>
+		Cuando se trabaja con querys dinámicas se encuentra con el problema de
+		<literal>escapar</literal> las comillas simples en PL/pgSQL. Vea la
+		tabla disponible en el capítulo "Portando desde PL/SQL de Oracle" para
+		una explicación detallada que el ahorrará algun esfuerzo.
+    </para>
+     
+    <para>
+		 A diferencia de todas las demás consultas en PL/pgSQL, una
+     <replaceable>consulta</replaceable> ejecutada por una sentecia EXECUTE
+		 no es preparada y guardada únicamente una vez durante en tiempo de vida
+		 del servidor. En vez de eso, la <replaceable>consulta</replaceable> se 
+		 prepara cada vez que se ejecuta la sentencia. El
+     <replaceable>texto-consulta</replaceable> puede ser creado dinámicamente
+		 dentro del procedimiento al realizar acciones sobre variables y campos.
+    </para>
+  
+    <para>
+		 Los resultados de las consultas SELECT son descartados por EXECUTE, y
+		 no se soporta actualmente SELECT INTO dentro de EXECUTE. Por lo que la
+		 única forma de obtener el resultado de una SELECT creada dinámicamente
+		 es usar la forma FOR ... EXECUTE que se describe más adelante.
+    </para>
+
+    <para>
+     Ejemplo:
+<synopsis>
+EXECUTE ''UPDATE tbl SET ''
+        || quote_ident(nombre_campo)
+        || '' = ''
+        || quote_literal(valor_nuevo)
+        || '' WHERE ...'';
+</synopsis>
+    </para>
+
+    <para>
+		 Este ejemplo muestra el uso de las funciones
+     <function>quote_ident</function>(<type>TEXT</type>) y
+     <function>quote_literal</function>(<type>TEXT</type>).
+		 Las variables que contienen identificadores de campos y tablas se
+		 deberían pasar a la función <function>quote_ident()</function>.
+		 Las variables que contienen elementos literales de la cadena de consulta
+		 dinámica se deberían pasar a <function>quote_literal()</function>.
+		 Ambas hacen los pasos apropiados para devolver el texto de entrada
+		 encerrado en comillas simples o dobles y con los caracteres especiales
+		 incluidos.
+    </para>
+
+    <para>
+		 Aquí hay un ejemplo más grande de consulta dinámica y EXECUTE:
+<programlisting>
+CREATE FUNCTION cs_update_referrer_type_proc() RETURNS INTEGER AS '
+DECLARE
+    referrer_keys RECORD;  -- Declara un registro genérico para usar con FOR
+    a_output varchar(4000);
+BEGIN 
+    a_output := ''CREATE FUNCTION cs_find_referrer_type(varchar,varchar,varchar) 
+                  RETURNS varchar AS '''' 
+                     DECLARE 
+                         v_host ALIAS FOR $1; 
+                         v_domain ALIAS FOR $2; 
+                         v_url ALIAS FOR $3; ''; 
+
+    -- 
+    -- Vea como recorremos los resultados del query en un bucle FOR   
+    -- usando la construcción FOR &lt;record&gt; .
+    --
+
+    FOR referrer_keys IN select * from cs_referrer_keys order by try_order LOOP
+        a_output := a_output || '' if v_'' || referrer_keys.kind || '' like '''''''''' 
+                 || referrer_keys.key_string || '''''''''' then return '''''' 
+                 || referrer_keys.referrer_type || ''''''; end if;''; 
+    END LOOP; 
+  
+    a_output := a_output || '' return null; end; '''' language ''''plpgsql'''';''; 
+ 
+    -- Esto funciona porque no estamos sustituyendo ninguna variable,
+    -- en caso contrario fallaría. Vea PERFORM para otra forma de ejecutar
+		-- funciones.
+    
+    EXECUTE a_output; 
+end; 
+' LANGUAGE 'plpgsql';
+</programlisting>
+    </para>
+   </sect3>
+
+   <sect3 id="plpgsql-statements-diagnostics">
+    <title>Obtener otros estados de los resultados</title>
+
+    <para>
+<synopsis>
+GET DIAGNOSTICS <replaceable>variable</replaceable> = <replaceable>item</replaceable> <optional> , ... </optional>
+</synopsis>
+
+		 Este comando permite recoger indicadores de estado del sistema. Cada
+     <replaceable>item</replaceable> es una clave que identifica un valor de
+		 estado para ser asignado a la variable especificada (que debe ser del 
+		 tipo de datos adecuado para contenerla). Los items de estado disponibles
+		 actualmente son <varname>ROW_COUNT</>, el número de filas procesadas por
+		 la última consulta enviada al motor <acronym>SQL</acronym>, y 
+		 <varname>RESULT_OID</>, el OID de la última fila insertada por la 
+		 sentencia <acronym>SQL</> más reciente. Observe que 
+     <varname>RESULT_OID</> solamente es útil después de un INSERT.
+    </para>
+   </sect3>
+   
+   <sect3 id="plpgsql-statements-returning">
+    <title>Devolviendo valores desde una función</title>
+
+    <para>
+<synopsis>
+RETURN <replaceable>expresión</replaceable>
+</synopsis>
+		 La función termina y el valor de 
+     <replaceable>expresión</replaceable> será devuelto al ejecutor
+		 superior. El valor devuelto por una función no puede estar indefinido.
+		 Si el control llega al final del bloque principal de la función sin
+		 encontrar una sentencia RETURN, se producirá un error en tiempo de
+		 ejecución.
+    </para>
+
+    <para>
+		 Las expresiones del resultado será automáticamente transformadas al
+		 tipo de resultado de la función tal como se describió para las
+		 asignaciones.
+    </para>
+   </sect3>
+  </sect2>
+
+   <!-- **** PL/pgSQL Control Structures **** -->
+
+  <sect2 id="plpgsql-description-control-structures">
+
+   <title>Estructuras de control</title>
+   <para>
+		Las estructuras de control son probablemente la parte más útil (e
+		importante) de PL/pgSQL. Con las estructuras de control se pueden
+		manipular los datos de <productname>PostgreSQL</> de una forma muy
+		flexible y potente.
+   </para>
+    
+   <sect3 id="plpgsql-description-conditionals">
+    <title>Control condicional: sentencias IF</title>
+
+    <para>
+     Las sentencias <function>IF</function> permiten ejecutar acciones
+		 dependiendo de ciertas condiciones. PL/pgSQL tiene tres formas de IF:
+     IF-THEN, IF-THEN-ELSE, IF-THEN-ELSE IF. Observe: Todas las sentecias
+		 IF de PL/pgSQL necesitan la correspondiente sentencia
+		 <function>END IF</function>. En las sentencias ELSE-IF se necesitan
+		 dos: uno para el primer IF y otro para el segundo (ELSE IF).
+    </para>
+
+    <variablelist>
+     <varlistentry>
+      <term>
+       IF-THEN
+      </term>
+
+      <listitem>
+       <para>
+        Las sentencias IF-THEN son la forma más simple de IF. Las sentencias
+				entre THEN y END IF serán ejecutadas si la condición es verdadera.
+				En otro caso se ejecutarán las sentencia posteriores al END IF.
+<programlisting>
+IF v_user_id &lt;&gt; 0 THEN
+    UPDATE users SET email = v_email WHERE user_id = v_user_id;
+END IF;
+</programlisting>
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       IF-THEN-ELSE
+      </term>
+
+      <listitem>
+       <para>
+        Las sentencias IF-THEN-ELSE complementan a IF-THEN permitiendo
+				especificar las sentencias que se ejecutarán en caso de que la
+				condición que se evalua sea FALSA.
+<programlisting>
+IF parentid IS NULL or parentid = ''''
+THEN 
+    return fullname;
+ELSE
+    return hp_true_filename(parentid) || ''/'' || fullname;
+END IF;
+
+
+IF v_count > 0 THEN 
+    INSERT INTO users_count(count) VALUES(v_count);
+    return ''t'';
+ELSE 
+    return ''f'';
+END IF;
+</programlisting>
+       </para>
+
+       <para>
+        Se pueden anidar las sentencias IF como en el siguiente ejemplo:
+<programlisting>
+IF demo_row.sex = ''m'' THEN
+  pretty_sex := ''man'';
+ELSE
+  IF demo_row.sex = ''f'' THEN
+    pretty_sex := ''woman'';
+  END IF;
+END IF;
+</programlisting>
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       IF-THEN-ELSE IF
+      </term>
+
+      <listitem>
+       <para>
+				Cuando se usa "ELSE IF", realmente se está anidando una IF dentro
+				de la sentencia ELSE. Así, necesitamos una sentencia END IF para
+				cada IF anidada y otra para el IF-ELSE padre.
+       </para>
+
+       <para>
+        Por ejemplo:
+<programlisting>
+IF demo_row.sex = ''m'' THEN
+   pretty_sex := ''man'';
+ELSE IF demo_row.sex = ''f'' THEN
+        pretty_sex := ''woman'';
+     END IF;
+END IF;
+</programlisting>
+       </para>
+      </listitem>
+     </varlistentry>
+    </variablelist>
+   </sect3>
+
+   <sect3 id="plpgsql-description-control-structures-loops">
+    <title>Control de iteraciones: LOOP, WHILE, FOR y EXIT</title>
+
+    <para>
+		 Con las sentencias LOOP, WHILE, FOR y EXIT, se puede controlar el 
+		 flujo de ejecución del programa PL/pgSQL en iteraciones.
+    </para>
+
+    <variablelist>
+     <varlistentry>
+      <term>
+       LOOP
+      </term>
+
+      <listitem>
+       <para>
+<synopsis>
+<optional>&lt;&lt;etiqueta&gt;&gt;</optional>
+LOOP
+    <replaceable>sentencias</replaceable>
+END LOOP;
+</synopsis>
+				Un bucle condicional que debe terminarse explícitamente por una
+				sentencia EXIT. La etiqueta opcional puede ser usada por las sentencias
+				EXIT de bucles anidados para especificar que nivel de anidamiento
+				debe finalizarse.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       EXIT
+      </term>
+
+      <listitem>
+       <para>
+<synopsis>
+EXIT <optional> <replaceable>etiqueta</replaceable> </optional> <optional> WHEN <replaceable>expresión</replaceable> </optional>;
+</synopsis>
+        Si no se proporciona <replaceable>etiqueta</replaceable>, se finalizará
+				el bucle más interno y se ejecutará a partir de la siguiente sentencia
+				al END LOOP.
+				Si se proporciona <replaceable>etiqueta</replaceable>, deberá ser la
+				etiqueta del actual o de un nivel superior de bloques anidados. 
+				Después el bucle nombrado se finaliza y el control continua con la
+				sentencia posterior al END del bucle.
+       </para>
+
+       <para>
+        Ejemplos:
+<programlisting>
+LOOP
+    -- algunos cálculos
+    IF count > 0 THEN
+        EXIT;  -- sale del bucle
+    END IF;
+END LOOP;
+
+LOOP
+    -- algunos cálculos
+    EXIT WHEN count > 0;
+END LOOP;
+
+BEGIN
+    -- algunos cálculos
+    IF stocks > 100000 THEN
+        EXIT;  -- ilegal. No se puede usar EXIT fuera de un bucle.
+    END IF;
+END;
+</programlisting>
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       WHILE
+      </term>
+
+      <listitem>
+       <para>
+				Con la sentencia WHILE, se puede recorrer un bucle de una secuencia
+				de sentencias mientras la condición de la expresión sea VERDADERA.
+<synopsis>
+<optional>&lt;&lt;etiqueta&gt;&gt;</optional>
+WHILE <replaceable>expresión</replaceable> LOOP
+    <replaceable>sentencias</replaceable>
+END LOOP;
+</synopsis>
+        Por ejemplo:
+<programlisting>
+WHILE amount_owed > 0 AND gift_certificate_balance > 0 LOOP
+    -- Algunos cálculos
+END LOOP;
+
+WHILE NOT boolean_expression LOOP
+    -- algunos cálculos
+END LOOP;
+</programlisting>
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       FOR
+      </term>
+
+      <listitem>
+       <para>
+<synopsis>
+<optional>&lt;&lt;etiqueta&gt;&gt;</optional>
+FOR <replaceable>nombre</replaceable> IN <optional> REVERSE </optional> <replaceable>expresión</replaceable> .. <replaceable>expresión</replaceable> LOOP
+    <replaceable>sentencias</replaceable>
+END LOOP;
+</synopsis>
+				Un bucle que itera a través de un rango de valores enteros. La
+				variable <replaceable>nombre</replaceable> se crea automáticamente
+				como tipo entero y existe sólo dentro del bucle. Las dos expresiones
+				que proporcionan el límite inferior y superior del rango se
+				evalúan sólo cuando se entra en el bucle. El incremento en cada
+				iteración es siempre 1.
+       </para>
+
+       <para>
+        Algunos ejemplo de bucles FOR (vea <xref
+        linkend="plpgsql-description-records"> para iterar mediante registros
+				en bucles FOR):
+<programlisting>
+FOR i IN 1..10 LOOP
+  -- algunas expresiones
+
+    RAISE NOTICE 'i es %',i;
+END LOOP;
+
+FOR i IN REVERSE 1..10 LOOP
+    -- algunas expresiones
+END LOOP;
+</programlisting>
+       </para>
+      </listitem>
+     </varlistentry>
+    </variablelist>
+      </sect3>
+   </sect2>
+
+   <!-- **** PL/pgSQL records **** -->
+
+  <sect2 id="plpgsql-description-records">
+   <title>Trabajando con RECORDs (registros)</title>
+
+   <para>
+		Los registros son similares a tipos de filas, pero no tienen una 
+		estructura predefinida. Se usan en selecciones y bucles FOR para
+		contener una fila actual de una operación SELECT.
+   </para>
+
+   <sect3 id="plpgsql-description-records-declaration">
+    <title>Declaración</title>
+
+    <para>
+		 Una variable de tipo RECORD se puede usar para diferentes selecciones.
+		 Se produce un error en tiempo de ejecución cuando se accede al registro
+		 o se intenta asignar un valor a un campo del registro y no contiene
+		 una fila actual. Se pueden declarar así:
+    </para>
+
+    <para>
+<synopsis>
+<replaceable>nombre</replaceable> RECORD;
+</synopsis>
+    </para>
+   </sect3>
+
+   <sect3 id="plpgsql-description-records-assignment">
+    <title>Asignación</title>
+
+    <para>
+		 Se puede realizar la asignación de una selección completa en un 
+		 registro así:
+<synopsis>
+SELECT  INTO <replaceable>destino</replaceable> <replaceable>expresiones</replaceable> FROM ...;
+</synopsis>
+     <replaceable>destino</replaceable> puede ser un registro, una variable
+		 de fila o una lista separada por comas de variables y 
+		 registros/variables de fila. Observe que esta es una interpretación
+		 un poco diferente de la interpretación normal de Postgres del SELECT INTO,
+		 que es que "INTO destino" es una nueva tabla. (Si quiere crear una
+		 tabla desde el resultado de una select dentro de una función PL/pgSQL,
+		 utilice la sintaxis equivalente
+     <command>CREATE TABLE AS SELECT</command>.)
+    </para>
+
+    <para>
+		 Si se usa una fila o una lista de variables como destino, los
+		 valores del select deben coincidir exactamente con la estructura del
+		 destino o se producirá un error en la ejecución. La palabra clave
+		 FROM puede continuar con cualquier cualificación, agrupamiento,
+		 ordenación, etc, que se pueda proporcionar con una sentencia SELECT.
+    </para>
+
+    <para>
+		 Una vez que se asigna una fila a una variable RECORD, se puede usar la
+		 notación de punto "." para acceder a los campos en ese registro:
+<programlisting>
+DECLARE
+    reg_usuarios RECORD;
+    nombre_completo varchar;
+BEGIN
+    SELECT INTO reg_usuarios * FROM usuarios WHERE id_usuario=3;
+
+  nombre_completo := reg_usuarios.nombre || '' '' || reg_usuarios.apellidos;
+</programlisting>
+    </para>
+
+    <para>
+		 Hay una variable especial llamada FOUND de tipo
+     <type>boolean</type> que se puede usar inmediatamente después de un
+		 SELECT INTO para comprobar si se ha producido la asignación.
+  
+<programlisting>
+SELECT INTO mireg * FROM EMP WHERE nomemp = minombre;
+IF NOT FOUND THEN
+    RAISE EXCEPTION ''empleado % no encontrado'', minombre;
+END IF;
+</programlisting>
+
+		 También se pueden usar condicionales IS NULL (o ISNULL) para 
+		 comprobar la NULLidad de un registro/fila. Si la selección devuelve
+		 múltiples filas, solamente la primera se mueve a los campos destino.
+		 Los demás son descartados silenciosamente.
+    </para>
+
+    <para>
+<programlisting>
+DECLARE
+    reg_usuarios RECORD;
+    nombre_completo varchar;
+BEGIN
+    SELECT INTO reg_usuarios * FROM usuarios WHERE id_usuarios=3;
+
+    IF reg_usuarios.pagina_personal IS NULL THEN
+        -- Si el usuarios tiene página personal, devuelve "http://"
+
+        return ''http://'';
+    END IF;
+END;
+</programlisting>
+    </para>
+   </sect3>
+
+   <sect3 id="plpgsql-description-records-iterating">
+    <title>Iterando a través de los registros</title>
+
+    <para>
+		 Se puede iterar a través de los resultados de una consulta y manipular
+		 esos datos mediante un tipo especial de bucle FOR. La sintaxis es:
+<synopsis>
+<optional>&lt;&lt;etiqueta&gt;&gt;</optional>
+FOR <replaceable>registro | fila</replaceable> IN <replaceable>claúsula_select</replaceable> LOOP
+    <replaceable>sentencias</replaceable>
+END LOOP;
+</synopsis>
+		 Al registro o fila se le asignan todas las filas resultado de la claúsula
+		 SELECT y el cuerpo del bucle se ejecuta para cada una. Un ejemplo:
+    </para>
+
+    <para>
+<programlisting>
+create function cs_refresh_mviews () returns integer as '
+DECLARE
+     mviews RECORD;
+
+     -- Si en vez de esto, se hace:
+     -- mviews  cs_materialized_views%ROWTYPE;
+		 -- este registro sólo valdría para usarse con 
+		 -- la tabla cs_materialized_views
+
+BEGIN
+     PERFORM cs_log(''Refrescando materialized views...'');
+
+     FOR mviews IN SELECT * FROM cs_materialized_views ORDER BY sort_key LOOP
+
+         -- Ahora "mviews" tiene un registro de cs_materialized_views
+
+         PERFORM cs_log(''Refrescando materialized view '' || mview.mv_name || ''...'');
+         TRUNCATE TABLE mview.mv_name;
+         INSERT INTO mview.mv_name || '' '' || mview.mv_query;
+     END LOOP;
+
+     PERFORM cs_log(''Finalizado el refresco de materialized views.'');
+     return 1;
+end;
+' language 'plpgsql';
+</programlisting>
+
+		 Si se termina el bucle con una sentencia EXIT, todavia sería accesible
+		 la última fila asignada después del bucle.
+    </para>
+
+    <para>
+		 La sentencia FOR-IN EXECUTE es otra forma de iterar los registros:
+<synopsis>
+<optional>&lt;&lt;etiqueta&gt;&gt;</optional>
+FOR <replaceable>registro | fila</replaceable> IN EXECUTE <replaceable>expresión</replaceable> LOOP 
+    <replaceable>sentencias</replaceable>
+END LOOP;
+</synopsis>
+		 Es como la forma anterior, excepto que la sentencia SELECT se especifica
+		 mediante una expresión de texto, que se evalúa y planifica en cada
+		 entrada en el bucle FOR. Esto permite al programador elegir la velocidad
+		 de una consulta pre-planeada o la flexibilidad de una consulta
+		 dinámica, igual que con una sentencia EXECUTE.
+    </para>
+   </sect3>
+  </sect2>
+
+  <sect2 id="plpgsql-description-aborting-and-messages">
+   <title>Cancelando y mensajes</title>
+
+   <para>
+		Utilice la sentencia RAISE para lanzar mensajes al sistema de log de
+    <productname>Postgres</productname>.
+
+<synopsis>
+RAISE <replaceable class="parameter">nivel</replaceable> '<replaceable class="parameter">formato</replaceable>' <optional>, <replaceable class="parameter">identificador</replaceable> <optional>...</optional></optional>;
+</synopsis>
+
+		Dentro del formato, se usa <literal>%</literal> para representar los
+		identificadores separados por coma que se indican a continuación. Los
+		niveles posibles son DEBUG (suprimido silenciosamente en bases de datos
+		de producción), NOTICE (escrito en el log de la base de datos y reenviado
+		a la aplicación cliente) y EXCEPTION (escrito en el log de la base de datos
+		y aborta la transacción).
+   </para>
+
+   <para>
+<programlisting>
+RAISE NOTICE ''Número ID '' || clave || '' no encontrado!'';
+RAISE NOTICE ''Llamando a cs_create_job(%)'',v_job_id;
+</programlisting>
+		En este último ejemplo, v_job_id reemplazará al % de la cadena.
+   </para>
+
+   <para>
+<programlisting>
+RAISE EXCEPTION ''ID inexistente --> %'',id_usuario;
+</programlisting>
+		Esto cancelará la trasacción y escribirá en el log de la base de datos.
+   </para>
+  </sect2>   
+
+   <!-- **** PL/pgSQL exceptions **** -->
+
+   <sect2>
+    <title>Excepciones</title>
+
+    <para>
+     <productname>Postgres</productname> no tiene un modelo pequeño de
+		 gestión de errores. Cuando el analizador, el planificador/optimizador o
+		 el ejecutor devide que una sentencia no se puede procesar, se aborta
+		 la transacción completa y el sistema vuelve al bucle principal para
+		 obtener la siguiente query de la aplicación cliente.
+    </para>
+
+    <para>
+		 Es posible engancharse dentro del mecanismo de errores para enterarse
+		 cuando sucede un error. Pero actualmente es imposible decir qué fué
+		 realmente lo que causó la cancelación (error de entrada/salida, error de
+		 punto flotante, error de análisis). Y es posible que el servidor esté en
+		 un estado inconsistente en este punto, por lo que volver al ejecutor
+		 superior o seguir utilizando más comandos pueda corromper la base de 
+		 datos.
+    </para>
+
+    <para>
+		 Así, lo único que PL/pgSQL hace actualmente cuando encuentra una
+		 cancelación durante la ejecución de una función o un procedimiento
+		 disparado (trigger) es escribir algunos mensajes de log de nivel
+		 DEBUG diciendo en que función y donde (número de línea y tipo de 
+		 sentencia) sucedió.
+    </para>
+   </sect2>
+ </sect1>
+
+
+   <!-- **** PL/pgSQL trigger procedures **** -->
+
+ <sect1 id="plpgsql-trigger">
+  <title>Procedimientos disparados (triggers)</title>
+
+  <para>
+	 Se puede utilizar PL/pgSQL para definir procedimientos disparados. Se
+	 crean con el comando <command>CREATE FUNCTION</> como una función sin
+	 argumentos que devuelve un tipo <type>OPAQUE</>.
+  </para>
+
+  <para>
+	 Hay algunos detalles específicos de <productname>Postgres</productname>
+	 en funciones utilizadas como procedimientos disparados.
+  </para>
+
+  <para>
+	 En primer lugar tienen algunas variables especiales creadas 
+	 automáticamente en la sección de declaración del bloque de más alto nivel.
+	 Estas variables son:
+   <variablelist>
+    <varlistentry>
+     <term><varname>NEW</varname></term>
+     <listitem>
+      <para>
+       Tipo de datos <type>RECORD</type>; variable que mantiene la nueva fila
+			 en operaciones de INSERT/UPDATE en triggers a nivel de fila.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><varname>OLD</varname></term>
+     <listitem>
+      <para>
+       Tipo de datos <type>RECORD</type>; variable que mantiene la antigua fila
+			 en operaciones UPDATE/DELETE en triggers a nivel de fila.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><varname>TG_NAME</varname></term>
+     <listitem>
+      <para>
+       Tipo de datos <type>name</type>; variable que contiene el nombre del
+			 trigger que está disparado actualmente.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><varname>TG_WHEN</varname></term>
+     <listitem>
+      <para>
+       Tipo de datos <type>text</type>; una cadena con <literal>BEFORE</>
+			 (antes) o <literal>AFTER</> (después) dependiendo de la definición
+			 del trigger.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><varname>TG_LEVEL</varname></term>
+     <listitem>
+      <para>
+       Tipo de datos <type>text</type>; una cadena con <literal>ROW</literal>
+			 (fila) o <literal>STATEMENT</literal> (sentencia) dependiendo de la 
+			 definición del trigger.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><varname>TG_OP</varname></term>
+     <listitem>
+      <para>
+       Tipo de datos <type>text</type>; una cadena con
+              <literal>INSERT</literal>, <literal>UPDATE</literal> 
+              or <literal>DELETE</literal> dependiendo de la operación con
+							la que se ha disparado actualmente el trigger.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><varname>TG_RELID</varname></term>
+     <listitem>
+      <para>
+       Tipo de datos <type>oid</type>; el ID de objeto de la tabla que causó 
+			 la invocación del trigger.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><varname>TG_RELNAME</varname></term>
+     <listitem>
+      <para>
+       Tipo de datos <type>name</type>; el nombre de la tabla que causó la
+			 invocación del trigger.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><varname>TG_NARGS</varname></term>
+     <listitem>
+      <para>
+       Tipo de datos <type>integer</type>; el número de argumentos que se
+			 le pasan al trigger en la sentencia <command>CREATE TRIGGER</command>.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><varname>TG_ARGV[]</varname></term>
+     <listitem>
+      <para>
+       Tipo de datos array of <type>text</type>; los argumentos de la
+			 sentencia <command>CREATE TRIGGER</command>. El índice se cuenta
+			 desde 0 y se puede proporcionar como una expresión. Los índices
+			 inválidos (&lt; 0 o &gt;= tg_nargs) devuelven un valor NULL.
+      </para>
+     </listitem>
+    </varlistentry>
+   </variablelist>
+  </para>
+
+   <para>
+		En segundo lugar deben devolver un NULL o un registro/fila que 
+		contenga exactamente la estructura de la tabla para la que fué
+		disparado el trigger. Los triggers disparados AFTER (después) deberían
+		devolver siempre un valor NULL sin efecto. Los triggers disparados BEFORE
+		(antes) indican al gestor de triggers que se cancela la operación para la
+		fila actual cuando se devuelve NULL. En caso contrario, el registro/fila
+		devuelto reemplaza a la fila insertada/actualizada en la operación. Es
+		posible reemplazar valores individuales directamente en NEW y devolver
+		eso o construir un registro/fila completo para devolver.
+   </para>
+
+   <example>
+    <title>Ejemplo de procedimiento disparado en PL/pgSQL</title>
+
+    <para>
+		 Este trigger asegura que, cada vez que se inserta o actualiza una fila
+		 en la tabla, el usuario y la hora actual son grabadas en la fila. Y se
+		 asegura de que se proporciona un nombre de empleado y que el salario
+		 es un valor positivo.
+
+<programlisting>
+CREATE TABLE emp (
+    nombre_empleado text,
+    salario integer,
+    ult_fecha timestamp,
+    ult_usuario text
+);
+
+CREATE FUNCTION emp_stamp () RETURNS OPAQUE AS '
+    BEGIN
+        -- Asegura que se proporciona un nombre de empleado y un salario
+        IF NEW.nombre_empleado ISNULL THEN
+            RAISE EXCEPTION ''nombre_empleado no puede ser nulo'';
+        END IF;
+        IF NEW.salario ISNULL THEN
+            RAISE EXCEPTION ''% no puede tener salario nulo'', NEW.nombre_empleado;
+        END IF;
+
+        -- ¿Quién trabajará para nosotros si debe pagar por ello?
+        IF NEW.salario < 0 THEN
+            RAISE EXCEPTION ''% no puede tener salario negativo'', NEW.nombre_empleado;
+        END IF;
+
+        -- Recordar quien cambió los datos
+        NEW.ult_fecha := ''now'';
+        NEW.ult_usuario := current_user;
+        RETURN NEW;
+    END;
+' LANGUAGE 'plpgsql';
+
+CREATE TRIGGER emp_stamp BEFORE INSERT OR UPDATE ON emp
+    FOR EACH ROW EXECUTE PROCEDURE emp_stamp();
+</programlisting>
+    </para>
+   </example>
+  </sect1>
+
+  <!-- **** PL/pgSQL Examples **** -->
+
+  <sect1 id="plpgsql-examples">
+   <title>Ejemplos</title>
+
+   <para>
+		Aquí se presentan ejemplos para demostrar lo fácil que es escribir
+		funcionea en PL/pgSQL. Para ver ejemplos más complejos el programador
+		puede mirar el test de regresión para PL/pgSQL.
+   </para>
+
+   <para>
+		Un detalle complicado al escribir funciones en PL/pgSQL es el mantemiento
+		de las comillas simples. El texto de la función en
+    <command>CREATE FUNCTION</command> debe ser una cadena literal. Las
+		comillas simples dentro de una cadena literal deben ser o escritas dos
+		veces o "escapadas" con una contrabarra (\). Aún estamos buscando una
+		alternativa elegante. En los ejemplos a continuación se utiliza el 
+		reescribir las comillas simples. Cualquier solución para esto en
+		versiones posteriores será compatible hacia adelante.
+   </para>
+
+   <para>
+		Para una explicación detallada y ejemplos de como "escapar" las
+		comillas simples en diferentes situaciones, vea
+    <xref linkend="plpgsql-quote">.
+   </para>
+
+   <example>
+    <title>Una función simple en Pl/pgSQL para incrementar un entero</title>
+
+    <para>
+		 Esta función recibe un <type>entero</> y lo incrementa en 1, 
+		 devolviendo el valor incrementado.
+    </para>
+
+<programlisting>
+CREATE FUNCTION suma_uno (integer) RETURNS integer AS '
+    BEGIN
+        RETURN $1 + 1;
+    END;
+' LANGUAGE 'plpgsql';
+</programlisting>
+   </example>
+
+   <example>
+    <title>Una función simple en PL/pgSQL para concatenar texto</title>
+
+    <para>
+     Esta función recibe dos parámetros <type>text</type> y devuelve el
+		 resultado de concatenarlos.
+    </para>
+
+<programlisting>
+CREATE FUNCTION concat_texto (text, text) RETURNS text AS '
+    BEGIN
+        RETURN $1 || $2;
+    END;
+' LANGUAGE 'plpgsql';
+</programlisting>
+   </example>
+
+   <example>
+    <title>Una función PL/pgSQL sobre tipo compuesto</title>
+
+    <para>
+		 En este ejemplo, tomaremos EMP (una tabla) y un 
+     <type>integer</type> como argumentos para nuestra función, que
+		 devuelve un <type>boolean</type>. Si el campo "salario" de la tabla EMP
+		 es nulo, devolvemos "f". En caso contrario comparamos ese campo con el
+		 entero pasado a la función y devolvemos el resultado booleano de la
+		 comparación.
+    </para>
+
+<programlisting>
+CREATE FUNCTION c_overpaid (EMP, integer) RETURNS boolean AS '
+    DECLARE
+        emprec ALIAS FOR $1;
+        sallim ALIAS FOR $2;
+    BEGIN
+        IF emprec.salario ISNULL THEN
+            RETURN ''f'';
+        END IF;
+        RETURN emprec.salario > sallim;
+    END;
+' LANGUAGE 'plpgsql';
+</programlisting>
+   </example>
+  </sect1>
+
+  <!-- **** Porting from Oracle PL/SQL **** -->
+
+ <sect1 id="plpgsql-porting">
+
+  <sect1info>
+   <date>
+    February 2001
+   </date>
+   <author>
+    <firstname>Roberto</firstname>
+    <surname>Mello</surname>
+    <affiliation>
+     <address>
+      <email>rmello@fslc.usu.edu</email>
+     </address>
+    </affiliation>
+   </author>
+
+   <legalnotice>
+    <para>
+     Except for portions of this document quoted from other sources,
+     this document is licensed under the BSD License.
+    </para>
+   </legalnotice>
+  </sect1info> 
+
+  <title>Importando desde Oracle PL/SQL</title>
+
+  <note>
+   <title>Author</title>
+   <para>
+    Roberto Mello (<email>rmello@fslc.usu.edu</email>)
+   </para>
+  </note>
+
+  <para>
+	 Esta sección explica las diferencias entre los lenguajes Oracle PL/SQL y 
+	 PostgreSQL PL/pgSQL con la intención de ayudar a los desarrolladores a
+	 migrar las aplicaciones desde Oracle a PostgreSQL. La mayoría del
+	 código de aquí es del 
+   <ulink url="http://www.arsdigita.com/asj/clickstream">módulo Clickstream
+   </ulink> de 
+   <ulink url="http://www.arsdigita.com">ArsDigita</ulink>.
+  </para>
+
+  <para>
+	 PL/pgSQL es similar a PL/SQL en muchos aspectos. Está estructurado en
+	 bloques, es lenguaje imperativo (todas las variables han de ser
+	 declaradas). PL/SQL tiene muchos más elementos que su equivalente
+	 PostgreSQL, pero PL/pgSQL aporta mucha funcionalidad y está siendo
+	 mejorado constantemente.
+  </para>
+
+  <sect2>
+   <title>Principales diferencias</title>
+
+   <para>
+		Algunas cosas a tener en cuenta cuando se porta desde Oracle a PostgreSQL:
+
+    <itemizedlist>
+     <listitem>
+      <para>
+			 No hay parámetros por defecto en PostgreSQL.
+      </para>
+     </listitem>
+
+     <listitem>
+      <para>
+			 Se pueden sobrecargar funciones en PostgreSQL. Esto se utiliza
+			 frecuentemente para paliar la carencia de parámetros por defecto.
+      </para>
+     </listitem>
+
+     <listitem>
+      <para>
+			 Las asignaciones, bucles y condicionales son similares.
+      </para>
+     </listitem>
+
+     <listitem>
+      <para>
+			 No se necesitan cursores en PostgreSQL, simplemente se coloca la
+			 consulta en la sentencia FOR (vea el ejemplo más abajo)
+      </para>
+     </listitem>
+
+     <listitem>
+      <para>
+       En PostgreSQL se <emphasis>necesita</emphasis> "escapar" las comillas
+			 simples. Vea <xref linkend="plpgsql-quote">.
+      </para>
+     </listitem>
+    </itemizedlist>
+   </para>
+
+   <sect3 id="plpgsql-quote">
+    <title>Escapando las comillas simples</title>
+
+    <para>
+		 En PostgreSQL se necesita "escapar" las comillas simples dentro de la
+		 definición de la función. Esto puede producir código bastante confuso 
+		 a veces, especialmente si se está escribiendo una función que genera
+		 otras funciones, como en
+     <xref linkend="plpgsql-porting-nastyquote">.  
+		 Algo a tener en cuenta cuando se escapan montones de comillas simples 
+		 es que, excepto para las comillas de inicio y fin, todas las demás
+		 deben estar en una cantidad par.
+    </para>
+
+    <para>
+     <xref linkend="plpgsql-quoting-table"> proporciona ayuda para este 
+		 problema.
+    </para>
+
+    <table id="plpgsql-quoting-table">
+     <title>Tabla para escapar comillas simples</title>
+
+     <tgroup cols="4">
+      <thead>
+       <row>
+        <entry>Número de comillas</entry>
+        <entry>Uso</entry>
+        <entry>Ejemplo</entry>
+        <entry>Resultado</entry>
+       </row>
+      </thead>
+
+      <tbody>
+       <row>
+        <entry>1</entry>
+        <entry>Para iniciar/terminar el cuerpo de las funciones</entry>
+        <entry><programlisting>
+CREATE FUNCTION foo() RETURNS INTEGER AS '...'
+LANGUAGE 'plpgsql';
+</programlisting></entry>
+        <entry>como está</entry>
+       </row>
+
+       <row>
+        <entry>2</entry>
+        <entry>En asignaciones, SELECTs, para delimitar cadenas, etc</entry>
+        <entry><programlisting>
+a_output := ''Blah'';
+SELECT * FROM users WHERE f_name=''foobar'';
+</programlisting></entry>
+        <entry><literal>SELECT * FROM users WHERE f_name='foobar';</literal></entry>
+       </row>
+
+       <row>
+        <entry>4</entry>
+        <entry>
+				 Cuando se necesitan dos comillas simples en la cadena resultado
+				 sin terminar esa cadena.
+        </entry>
+        <entry><programlisting>
+a_output := a_output || '' AND name 
+    LIKE ''''foobar'''' AND ...''
+</programlisting></entry>
+        <entry><literal>AND name LIKE 'foobar' AND ...</literal></entry>
+       </row>
+
+       <row>
+        <entry>6</entry>
+        <entry>
+				 Cuando se quieren comillas dobles en la cadena resultado
+         <emphasis>y</emphasis> terminar esa cadena.
+        </entry>
+        <entry><programlisting>
+a_output := a_output || '' AND name 
+    LIKE ''''foobar''''''
+</programlisting></entry>
+        <entry>
+         <literal>AND name LIKE 'foobar'</literal>
+        </entry>
+       </row>
+
+       <row>
+        <entry>10</entry>
+        <entry>
+				 Cuando se quieren dos comillas simples en la cadena resultado
+				 (lo que lleva 8 comillas) y terminar esa cadena (2 más). 
+				 Probablemente esto sólo se necesita si se usa una función para
+				 generar otras funciones (como en
+         <xref linkend="plpgsql-porting-nastyquote">).
+        </entry>
+        <entry><programlisting>
+a_output := a_output || '' if v_'' || 
+    referrer_keys.kind || '' like '''''''''' 
+    || referrer_keys.key_string || '''''''''' 
+    then return ''''''  || referrer_keys.referrer_type 
+    || ''''''; end if;''; 
+</programlisting></entry>
+        <entry>
+         <literal>if v_<...> like ''<...>'' then return ''<...>''; end if;</literal>
+        </entry>
+       </row>
+      </tbody>
+     </tgroup>
+    </table>
+   </sect3>
+  </sect2>  
+
+  <sect2 id="plpgsql-porting-functions">
+   <title>
+		Portando funciones
+   </title>
+
+   <example>
+    <title>
+		 Una función simple
+    </title>
+
+    <para>
+		 Aquí hay una función de Oracle:
+<programlisting>
+CREATE OR REPLACE FUNCTION cs_fmt_browser_version(v_name IN varchar, v_version IN varchar)
+RETURN varchar IS
+BEGIN
+    IF v_version IS NULL THEN
+        RETURN v_name;
+    END IF;
+    RETURN v_name || '/' || v_version;
+END;
+/
+SHOW ERRORS;
+</programlisting>
+    </para>
+
+    <para>
+		 Recorramos esta función y veamos las diferencias con PL/pgSQL:
+
+     <itemizedlist>
+      <listitem>
+       <para>
+        No se permite la claúsula <literal>OR REPLACE</literal> (o reemplaza).
+				Se debería borrar explícitamente la función antes de crearla para 
+				obtener este resultado.
+       </para>
+      </listitem>
+
+      <listitem>
+       <para>
+        <productname>PostgreSQL</productname> no tiene parámetros con nombre.
+				Se debe crear un alias para ellos explícitamente en la función.
+       </para>
+      </listitem>
+
+      <listitem>
+       <para>
+        Oracle puede tener parámetros <literal>IN</literal>, 
+				<literal>OUT</literal>, e <literal>INOUT</literal>.
+        El <literal>INOUT</literal>, por ejemplo, significa que el parámetro
+				recibirá un valor y devolverá otro. PostgreSQL sólo tiene parámetros
+        <quote>IN</quote> y las funciones pueden devolver un único valor.
+       </para>
+      </listitem>
+
+      <listitem>
+       <para>
+        La palabra clave <literal>RETURN</literal> en el prototipo de la
+				función (no en el cuerpo) se convierte en 
+        <literal>RETURNS</literal> en PostgreSQL.
+       </para>
+      </listitem>
+
+      <listitem>
+       <para>
+				En PostgreSQL las funciones se crean utilizando comillas simples
+				como delimitadores, por lo que se deben escapar las comillas dentro
+				de las funciones (lo que puede ser bastante molesto a veces; vea
+				<xref linkend="plpgsql-quote">).
+       </para>
+      </listitem>
+
+      <listitem>
+       <para>
+        El comando <literal>/show errors</literal> no existe en
+        PostgreSQL.
+       </para>
+      </listitem>
+     </itemizedlist>
+    </para>
+
+    <para>
+		 Ahora veamos como sería esta función una vez portada a 
+     PostgreSQL:
+
+<programlisting>
+DROP FUNCTION cs_fmt_browser_version(varchar, varchar);
+CREATE FUNCTION cs_fmt_browser_version(varchar, varchar)
+RETURNS varchar AS '
+DECLARE
+    v_name ALIAS FOR $1;
+    v_version ALIAS FOR $2;
+BEGIN
+    IF v_version IS NULL THEN
+        return v_name;
+    END IF;
+    RETURN v_name || ''/'' || v_version;
+END;
+' LANGUAGE 'plpgsql';
+</programlisting>
+    </para>
+   </example>
+ 
+   <example id="plpgsql-porting-nastyquote">
+    <title>
+		 Una función que crea otra función
+    </title>
+
+    <para>
+		 El siguiente procedure coge filas de una sentencia 
+     <literal>SELECT</literal> y construye una gran function con los
+		 resultados en sentencias <literal>IF</literal>, para conseguir mayor
+		 rendimiento. Observe particularmente la diferencia en los cursores,
+		 bucles <literal>FOR</>, y la necesidad de escapar comillas simples
+		 en PostgreSQL.
+
+<programlisting>
+create or replace procedure cs_update_referrer_type_proc is 
+    cursor referrer_keys is 
+        select * from cs_referrer_keys 
+        order by try_order;
+
+    a_output varchar(4000); 
+begin 
+    a_output := 'create or replace function cs_find_referrer_type(v_host IN varchar, v_domain IN varchar, 
+v_url IN varchar) return varchar is begin'; 
+
+    for referrer_key in referrer_keys loop 
+        a_output := a_output || ' if v_' || referrer_key.kind || ' like ''' || 
+referrer_key.key_string || ''' then return ''' || referrer_key.referrer_type || 
+'''; end if;'; 
+    end loop; 
+
+    a_output := a_output || ' return null; end;'; 
+    execute immediate a_output; 
+end; 
+/ 
+show errors
+</programlisting>
+    </para>
+
+    <para>
+     Así es como se escribiría esta función en PostgreSQL:
+
+<programlisting>
+CREATE FUNCTION cs_update_referrer_type_proc() RETURNS integer AS '
+DECLARE
+    referrer_keys RECORD;  -- Declara un registro genérico para usar con FOR
+    a_output varchar(4000);
+BEGIN 
+    a_output := ''CREATE FUNCTION cs_find_referrer_type(varchar,varchar,varchar) 
+                  RETURNS varchar AS '''' 
+                     DECLARE 
+                         v_host ALIAS FOR $1; 
+                         v_domain ALIAS FOR $2; 
+                         v_url ALIAS FOR $3; ''; 
+
+    -- 
+    -- Nosotros recorremos el resultado de la consulta en un bucle FOR
+    -- usando la construcción FOR &lt;record&gt;.
+    --
+
+    FOR referrer_keys IN select * from cs_referrer_keys order by try_order LOOP
+        a_output := a_output || '' if v_'' || referrer_keys.kind || '' like '''''''''' 
+                 || referrer_keys.key_string || '''''''''' then return '''''' 
+                 || referrer_keys.referrer_type || ''''''; end if;''; 
+    END LOOP; 
+  
+    a_output := a_output || '' return null; end; '''' language ''''plpgsql'''';''; 
+ 
+    -- Esto funciona porque no estamos sustituyendo variables  
+    -- En caso contrario fallaría. Vea PERFORM como alternativa para ejecutar  
+		-- funciones.
+    
+    EXECUTE a_output; 
+end; 
+' LANGUAGE 'plpgsql';
+</programlisting>
+    </para>
+   </example>
+ 
+   <example>
+    <title>
+		 Un procedure con mucha manipulación de cadenas y parámetros 
+		 OUT (de salida).
+    </title>
+
+    <para>
+		 El siguiente procedure de Oracle PL/SQL se utiliza para analizar una
+		 URL y devolver varios elementos (servidor, camino y consulta). Es un
+		 procedure porque en las funciones de PL/pgSQL sólo se puede devolver
+		 un valor (vea <xref linkend="plpgsql-porting-procedures">). Una forma
+		 de solucionarlo en PostgreSQL es dividir el procedimiento en en tres
+		 funciones diferente: una para devolver el servidor, otra el camino y
+		 otra la consulta.
+    </para>
+
+<programlisting>
+create or replace procedure cs_parse_url(
+    v_url IN varchar,
+    v_host OUT varchar,  -- Esto será devuelto
+    v_path OUT varchar,  -- Esto también
+    v_query OUT varchar) -- Y esto
+is
+    a_pos1 integer;
+    a_pos2 integer;
+begin
+    v_host := NULL;
+    v_path := NULL;
+    v_query := NULL;
+    a_pos1 := instr(v_url, '//'); -- Postgres no tiene la función instr
+
+    if a_pos1 = 0 then
+        return;
+    end if;
+    a_pos2 := instr(v_url, '/', a_pos1 + 2);
+    if a_pos2 = 0 then
+        v_host := substr(v_url, a_pos1 + 2);
+        v_path := '/';
+        return;
+    end if;
+
+    v_host := substr(v_url, a_pos1 + 2, a_pos2 - a_pos1 - 2);
+    a_pos1 := instr(v_url, '?', a_pos2 + 1);
+
+    if a_pos1 = 0 then
+        v_path := substr(v_url, a_pos2);
+        return;
+    end if;
+
+    v_path := substr(v_url, a_pos2, a_pos1 - a_pos2);
+    v_query := substr(v_url, a_pos1 + 1);
+end;
+/
+show errors;
+</programlisting>
+
+    <para>
+		 Así podría ser traducido a PostgreSQL:
+
+<programlisting>
+drop function cs_parse_url_host(varchar); 
+create function cs_parse_url_host(varchar) returns varchar as ' 
+declare 
+    v_url ALIAS FOR $1; 
+    v_host varchar; 
+    v_path varchar; 
+    a_pos1 integer; 
+    a_pos2 integer; 
+    a_pos3 integer; 
+begin 
+    v_host := NULL; 
+    a_pos1 := instr(v_url,''//''); 
+
+    if a_pos1 = 0 then 
+        return '''';  -- Devuelve blanco
+    end if; 
+
+    a_pos2 := instr(v_url,''/'',a_pos1 + 2); 
+    if a_pos2 = 0 then 
+        v_host := substr(v_url, a_pos1 + 2); 
+        v_path := ''/''; 
+        return v_host; 
+    end if; 
+
+    v_host := substr(v_url, a_pos1 + 2, a_pos2 - a_pos1 - 2 ); 
+    return v_host; 
+end; 
+' language 'plpgsql';
+</programlisting>
+    </para>
+   </example>
+
+   <note>
+    <para>
+     PostgreSQL no tiene una función <function>instr</function>, pero lo
+		 puedes solucionar usando una combinación de otras funciones. Yo me he
+		 cansado de hacerlo y he creado mis propias funciones
+     <function>instr</function> que se comportan exactamente como las de
+		 Oracle. Vea <xref linkend="plpgsql-porting-appendix"> para el código.
+    </para>
+   </note>
+  </sect2>
+
+  <sect2 id="plpgsql-porting-procedures">
+   <title>
+    Procedures
+   </title>
+
+   <para>
+		Los procedures de Oracle dan un poco más de flexibilidad al desarrollador
+		porque no se necesita devolver nada explícitamente, sino que puede
+		hacerse a través de parámetros OUT o INOUT.
+   </para>
+
+   <para>
+    Un ejemplo:
+
+<programlisting>
+create or replace procedure cs_create_job(v_job_id in integer)
+is
+    a_running_job_count integer;
+    pragma autonomous_transaction;<co id="co.plpgsql-porting-pragma">
+begin
+    lock table cs_jobs in exclusive mode;<co id="co.plpgsql-porting-locktable">
+
+    select count(*) into a_running_job_count from cs_jobs
+    where end_stamp is null;
+
+    if a_running_job_count > 0 then
+        commit; -- free lock<co id="co.plpgsql-porting-commit">
+        raise_application_error(-20000, 'Imposible crear una nueva tarea: se está ejecutando una tarea actualmente.');
+    end if;
+
+    delete from cs_active_job;
+    insert into cs_active_job(job_id) values(v_job_id);
+
+    begin
+        insert into cs_jobs(job_id, start_stamp) values(v_job_id, sysdate);
+        exception when dup_val_on_index then null; -- no importa si ya existe<co id="co.plpgsql-porting-exception">
+    end;
+    commit;
+end;
+/
+show errors
+</programlisting>
+   </para>
+
+   <para>
+		Procesos como este pueden ser fácilmente convertidos a funciones 
+		PostgreSQL que devuelven un <type>INTEGER</type>. Este proceso en
+		particular es interesante porque puede enseñarnos algunas cosas:
+    <calloutlist>
+     <callout arearefs="co.plpgsql-porting-pragma">
+      <para>
+       No hay sentencia <literal>pragma</literal> en PostgreSQL.
+      </para>
+     </callout>
+
+     <callout arearefs="co.plpgsql-porting-locktable">
+      <para>
+       Si hacemos <literal>LOCK TABLE</literal> en PL/pgSQL, el bloqueo
+			 no será liberado hasta que se finalice la transacción que lo llamó.
+      </para>
+     </callout>
+
+     <callout arearefs="co.plpgsql-porting-commit">
+      <para>
+			 No puede haber transacciones en los procesos PL/pgSQL. La función
+			 entera (y todas las funciones llamadas desde ella) se ejecutan en
+			 una transacción y PostgreSQL anula los resultados si algo falla. Por
+			 tanto sólo se permite una sentencia <literal>BEGIN</literal>.
+      </para>
+     </callout>
+
+     <callout arearefs="co.plpgsql-porting-exception">
+      <para>
+			 La sentencia <literal>EXCEPTION WHEN</literal> ha de ser reemplazada
+			 por una sentencia <literal>IF</literal>.
+      </para>
+     </callout>
+    </calloutlist>
+   </para>
+
+   <para>
+		Ahora veamos la forma de transformar este proceso a PL/pgSQL:
+
+<programlisting>
+drop function cs_create_job(integer);
+create function cs_create_job(integer) returns integer as ' declare
+    v_job_id alias for $1;
+    a_running_job_count integer;
+    a_num integer;
+    -- pragma autonomous_transaction;
+begin
+    lock table cs_jobs in exclusive mode;
+    select count(*) into a_running_job_count from cs_jobs where end_stamp is null;
+
+    if a_running_job_count > 0 then
+        -- commit; -- free lock
+        raise exception ''Imposible crear una nueva tarea: se está ejecutando una actualmente.'';
+    end if;
+
+    delete from cs_active_job;
+    insert into cs_active_job(job_id) values(v_job_id);
+
+    SELECT count(*) into a_num FROM cs_jobs WHERE job_id=v_job_id;
+    IF NOT FOUND THEN  -- Si la última consulta no encuentra nada
+        -- Esta tarea no está en la tabla, por lo que la insertamos.
+        insert into cs_jobs(job_id, start_stamp) values(v_job_id, sysdate());
+        return 1;
+    ELSE
+        raise NOTICE ''Tarea ya corriendo.'';<co id="co.plpgsql-porting-raise">
+    END IF;
+
+    return 0;
+end;
+' language 'plpgsql';
+</programlisting>
+
+    <calloutlist>
+     <callout arearefs="co.plpgsql-porting-raise">
+      <para>
+       Observe como puede lanzar avisos (o errores) en PL/pgSQL.
+      </para>
+     </callout>
+    </calloutlist>
+   </para>
+  </sect2>
+
+  <sect2 id="plpgsql-porting-packages">
+   <title>
+    Packages (paquetes)
+   </title>
+
+   <note>
+    <para>
+		 No he utilizado demasiado los paquetes, por lo que si encuentra
+		 errores aquí, por favor hágamelo saber.
+    </para>
+   </note>
+
+   <para>
+		Los packages (paquetes) son una forma que proporciona Oracle para
+		encapsular sentencias y funciones de PL/SQL en una entidad, como las
+		clases de Java, en la que se definen métodos y objetos. Se puede 
+		acceder a esos métodos y objetos con la notación de punto (<quote>.
+		</quote>). Aquí hay un ejemplo de paquete Oracle de ACS 4 (El
+    <ulink url="http://www.arsdigita.com/doc/">Sistema de Comunidad de
+		ArsDigita</ulink>):
+
+<programlisting>
+create or replace package body acs
+as
+  function add_user (
+    user_id     in users.user_id%TYPE default null,
+    object_type     in acs_objects.object_type%TYPE
+               default 'user',
+    creation_date   in acs_objects.creation_date%TYPE
+               default sysdate,
+    creation_user   in acs_objects.creation_user%TYPE
+               default null,
+    creation_ip     in acs_objects.creation_ip%TYPE default null,
+  ...
+  ) return users.user_id%TYPE
+  is
+    v_user_id       users.user_id%TYPE;
+    v_rel_id        membership_rels.rel_id%TYPE;
+  begin
+    v_user_id := acs_user.new (user_id, object_type, creation_date,
+                creation_user, creation_ip, email,
+    ...
+    return v_user_id;
+  end;
+end acs;
+/
+show errors
+</programlisting>
+   </para>
+
+   <para>
+		Adaptamos esto para PotgreSQL creando los diferentes objetos del
+		paquete Oracle como funciones con un sistema de nombrado estándar.
+		Hemos de prestar atención a otros detalles, como la carencia de 
+		parámetros por defecto en las funciones de PostgreSQL. El paquete
+		anterior podría transformarse en algo como esto:
+<programlisting>
+CREATE FUNCTION acs__add_user(integer,integer,varchar,datetime,integer,integer,...)
+RETURNS integer AS '
+DECLARE
+    user_id ALIAS FOR $1;
+    object_type ALIAS FOR $2;
+    creation_date ALIAS FOR $3;
+    creation_user ALIAS FOR $4;
+    creation_ip ALIAS FOR $5;
+    ...
+    v_user_id users.user_id%TYPE;
+    v_rel_id membership_rels.rel_id%TYPE;
+BEGIN
+    v_user_id := acs_user__new(user_id,object_type,creation_date,creation_user,creation_ip, ...);
+    ...
+
+    return v_user_id;
+END;
+' LANGUAGE 'plpgsql';
+</programlisting>
+   </para>
+  </sect2>
+
+  <sect2 id="plpgsql-porting-other">
+   <title>
+		Otras cuestiones a tener en cuenta
+   </title>
+
+   <sect3>
+    <title>EXECUTE</title>
+
+    <para>
+     La versión PostgreSQL de <literal>EXECUTE</literal> funciona bien, pero
+		 ha de recordarse usar
+     <function>quote_literal(TEXT)</function> y
+     <function>quote_string(TEXT)</function> como se describe en <xref
+     linkend="plpgsql-statements-executing-dyn-queries">.  Construcciones del
+		 tipo de 
+     <literal>EXECUTE ''SELECT * from $1'';</literal> no funcionarán a menos que
+		 se usen estas funciones.
+    </para>
+   </sect3>
+
+   <sect3 id="plpgsql-porting-optimization">
+    <title>Optimizando las funciones PL/pgSQL</title>
+
+    <para>
+		 PostgreSQL proporciona dos modificadores en la creación de funciones para
+		 optimizar la ejecución: : <literal>iscachable</literal> (la función 
+		 siempre devuelve el mismo resultado si se dan los mismos argumentos) y
+     <literal>isstrict</literal> (la función devuelve NULL si alguno de sus 
+		 argumento es NULL). Consulte la referencia de<command>CREATE
+     FUNCTION</command> para más detalles.
+    </para>
+
+    <para>
+		 Para utilizar estos atributos de optimización, ha de usar el
+		 modificador <literal>WITH</literal> en la sentencia
+		 <command>CREATE FUNCTION</command>.  Ejemplo: <programlisting>
+CREATE FUNCTION foo(...) RETURNS integer AS '
+...
+' LANGUAGE 'plpgsql'
+WITH (isstrict, iscachable);
+</programlisting>
+    </para>
+   </sect3>
+  </sect2>
+
+  <sect2 id="plpgsql-porting-appendix">
+   <title>
+    Apéndice
+   </title>
+
+   <sect3>
+    <title>
+     Mi código para las funciones <function>instr</function>
+    </title>
+
+    <comment>
+     Esta función podría ser integrada en el núcleo
+    </comment>
+
+<programlisting>
+--
+-- Funciones instr equivalentes a las de Oracle
+-- Sintaxis: instr(cadena1,cadena2,[n],[m]) donde [] indica parámetros
+--           opcionales
+-- 
+-- Busca en cadena1 empezando en el carácter [n] y devuelve la posición
+-- de la ocurrencia número [m] de cadena2. Si [n] es negativo, busca 
+-- hacia atrás desde el final de la cadena. Si no se indica [n] se 
+-- asume 1 (la búsqueda empieza en el primer carácter).
+-- Si no se indica [m] se asume 1 (la búsqueda se detiene en la primera
+-- ocurrencia).
+--
+-- by Roberto Mello (rmello@fslc.usu.edu)
+-- modified by Robert Gaszewski (graszew@poland.com)
+-- Licensed under the GPL v2 or later.
+--
+
+DROP FUNCTION instr(varchar,varchar);
+CREATE FUNCTION instr(varchar,varchar) RETURNS integer AS '
+DECLARE
+    pos integer;
+BEGIN
+    pos:= instr($1,$2,1);
+    RETURN pos;
+END;
+' language 'plpgsql';
+
+
+DROP FUNCTION instr(varchar,varchar,integer);
+CREATE FUNCTION instr(varchar,varchar,integer) RETURNS integer AS '
+DECLARE
+    string ALIAS FOR $1;
+    string_to_search ALIAS FOR $2;
+    beg_index ALIAS FOR $3;
+    pos integer NOT NULL DEFAULT 0;
+    temp_str varchar;
+    beg integer;
+    length integer;
+    ss_length integer;
+BEGIN
+    IF beg_index > 0 THEN
+
+       temp_str := substring(string FROM beg_index);
+       pos := position(string_to_search IN temp_str);
+
+       IF pos = 0 THEN
+	         RETURN 0;
+	     ELSE
+	         RETURN pos + beg_index - 1;
+	     END IF;
+    ELSE
+       ss_length := char_length(string_to_search);
+       length := char_length(string);
+       beg := length + beg_index - ss_length + 2;
+
+       WHILE beg > 0 LOOP
+
+           temp_str := substring(string FROM beg FOR ss_length);
+	         pos := position(string_to_search IN temp_str);
+
+	         IF pos > 0 THEN
+		           RETURN beg;
+	         END IF;
+
+	         beg := beg - 1;
+       END LOOP;
+       RETURN 0;
+    END IF;
+END;
+' language 'plpgsql';
+
+--
+-- Written by Robert Gaszewski (graszew@poland.com)
+-- Licensed under the GPL v2 or later.
+--
+DROP FUNCTION instr(varchar,varchar,integer,integer);
+CREATE FUNCTION instr(varchar,varchar,integer,integer) RETURNS integer AS '
+DECLARE
+    string ALIAS FOR $1;
+    string_to_search ALIAS FOR $2;
+    beg_index ALIAS FOR $3;
+    occur_index ALIAS FOR $4;
+    pos integer NOT NULL DEFAULT 0;
+    occur_number integer NOT NULL DEFAULT 0;
+    temp_str varchar;
+    beg integer;
+    i integer;
+    length integer;
+    ss_length integer;
+BEGIN
+    IF beg_index > 0 THEN
+        beg := beg_index;
+        temp_str := substring(string FROM beg_index);
+
+        FOR i IN 1..occur_index LOOP
+            pos := position(string_to_search IN temp_str);
+
+            IF i = 1 THEN
+                beg := beg + pos - 1;
+            ELSE
+                beg := beg + pos;
+            END IF;
+
+            temp_str := substring(string FROM beg + 1);
+        END LOOP;
+
+        IF pos = 0 THEN
+            RETURN 0;
+        ELSE
+            RETURN beg;
+        END IF;
+    ELSE
+        ss_length := char_length(string_to_search);
+        length := char_length(string);
+        beg := length + beg_index - ss_length + 2;
+
+        WHILE beg > 0 LOOP
+            temp_str := substring(string FROM beg FOR ss_length);
+            pos := position(string_to_search IN temp_str);
+
+            IF pos > 0 THEN
+                occur_number := occur_number + 1;
+
+                IF occur_number = occur_index THEN
+                    RETURN beg;
+                END IF;
+            END IF;
+
+            beg := beg - 1;
+        END LOOP;
+
+        RETURN 0;
+    END IF;
+END;
+' language 'plpgsql';
+</programlisting>
+   </sect3>
+  </sect2>
+  
+ </sect1>
+
+</chapter>
+
+<!-- Keep this comment at the end of the file
+Local variables:
+mode:sgml
+sgml-omittag:nil
+sgml-shorttag:t
+sgml-minimize-attributes:nil
+sgml-always-quote-attributes:t
+sgml-indent-step:1
+sgml-indent-data:t
+sgml-parent-document:nil
+sgml-default-dtd-file:"./reference.ced"
+sgml-exposed-tags:nil
+sgml-local-catalogs:("/usr/lib/sgml/catalog")
+sgml-local-ecat-files:nil
+End:
+-->

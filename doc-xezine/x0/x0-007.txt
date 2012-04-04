@@ -1,0 +1,953 @@
+
+-=|=======================[ x-eZine #0 / Art. 008 ]=======================|=-
+-=|============================[  Netfilter  ]============================|=-
+-=|===================[ By Raciel <raciel@x0und.net> ]====================|=-
+
+        Introducción
+	~~~~~~~~~~~~~
+	Buenas a todos, en  este  articulo  voy  a  intentar explicar todo lo
+que creo importante conocer  sobre  netfilter  y  espero que os quede claro y
+os sirva  tanto  para  dar  el  conocimiento  de  lo  que  es  netfilter, que 
+estructuras va a  utilizar,  alguna  api  util a la hora de programar y bueno
+como se pasan los paquetes del  area  del  usuario  al  area  del kernel y el
+completo entendimiento del manejo de dichos paquetes. 
+
+	Luego, aparte de esto  si  teneis que hacer cualquier tipo de critica
+o comentario acerca del  articulo  podeis  mandarme  un mail o encontrarme en
+la red de openprojects  en  #x-ezine.  Bueno  lo  dicho,  tan solo que espero 
+que os guste y os sea de buen  uso,  posiblemente intente hacer otro articulo
+a continuacion de este  en  el  que  hablaré  posiblemente de algo de routing 
+avanzado como puede ser iproute2 pero bueno eso ya se verá, ahora pasaré a la
+chicha del articulo en la que haré una pequeña introduccion sobre netfilter.
+
+	Que es Netfilter?
+	~~~~~~~~~~~~~~~~~
+	Netfilter es un sistema de filtrado de paquetes que se encuentra den-
+tro del kernel fuera de la  interfaz  normal  de  sockets  de  Berkeley y fue 
+completamente implementado sobre 2.4, se puede decir q es una infraestructura
+que va a encargarse del  filtrado  de  paquetes  y NAT a través de diferentes
+"hooks" o ganchos.Viene definido segun cada protocolo, por ahora se encuentra 
+en ipv4, ipv6 y DECnet -protocolos  actualmente  implementados  en netfilter- 
+y dependiendo de su protocolo pos  definirá  una  serie  de "hooks" o ganchos 
+q van implementados en la pila del  protocolo, así dependiendo de cada gancho
+entonces se podra realizar el adecuado tratamiento del paquete. 
+
+	Netfilter está formado por tres partes:
+
+	* Una serie d ganchos establecidos por el protocolo, un ejemplo sería
+	  ipv4 que establece 5  ganchos  que  luego  estudiaremos que estarán
+	  definidos en distintos transcursos del viaje del paquete.
+
+	* Estructuras del kernel  que  se  van  a  encargar de escuchar a los 
+	  diferentes ganchos de cada protocolo d manera que cuando el paquete
+	  atraviesa netfilter lo  comprobará  y  realizará  unas determinadas
+	  operaciones dependiendo del gancho por  el que este pase y los hará
+	  disponer en una cola para devolver al area de usuario.
+
+	* Posteriormente, una vez que  se  dispone de la cola de paquetes, se
+	  envia al area de usuario y se podrá hacer la manipulación perminen-
+	  te, examinandolo, modificando o volviendolo a mandar.
+
+	Una vez ya recibido el paquete netfilter lo hará disponer en una cola
+de paquetes en la que posteriormente  serán  tratados. Más adelante explicare
+mas detenidamente como lo hace  el  kernel  internamente  ahora explicare las
+diferentes politicas de filtrado de paquetes que son las dos siguientes la de
+aceptar todo por defecto y luego ir cerrando  los puertos segun te convenga o
+bien adoptar la politica más segura, que  es la de cerrar todos los puertos y
+abrir unicamente los de  uso  particular,  en  este  caso debido a que muchos
+programas usan puertos aleatorios, se  suelen  dejar  cerrados unicamente los
+puertos de uso comun ,los inferiores  a  1024, y dejar abiertos los publicos,
+pero bueno eso ya es a gusto de cada uno.
+
+	Empezare comentando como  funcionaba  en  kernel  2.2 cuando se usaba 
+ipchains para saber como funcionaba  todo  esto. Una cosa importante es saber
+que las politicas de filtrado dinamicas no pertenecen al kernel. En el kernel
+2.2 se introdujo una manera de hacer pasar los paquetes al espacio de usuario
+mediante netlink, pero la reinyeccion de paquetes era mu lenta, por lo que se
+empezo a pensar en otra forma de hacer que fuese algo más rapida, bueno en lo
+referido a memoria despues de este "kitkat" seguire contando 
+
+	Un poco de historia de netfilter.
+	~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+	Siempre me ha gustado el  tema  de la historia, por eso unicamente en 
+esta parte indicaré quienes fueron los creadores d ipchains y quien es el que
+se dedica de la parte de mantenimiento de  netfilter tanto en kernel 2.4 como 
+en el kernel 2.5. El concepto de netfilter  y la mayoria de su implementacion
+lo creo Rusty Russel, que es un kernel hacker, coautor d ipchains que a pesar
+de haber hablado con Alan Cox y d pensar que no era algo factible luego en un 
+futuro, Alan Cox le convencio de  que  era  un buen comienzo y convencido por 
+este siguio su trabajo y  además  de  introducir  el  concepto de netfilter y 
+crear ipchains a partir de ipfwadm  es  el mantenedor del firewall del Kernel
+de Linux y el que sigue más de cerca  el  desarrollo de netfilter e iptables. 
+A pesar de esto, no está solo, cuenta  con  otros importantes desarrolladores
+como  Marc Boucher y James Morris, aunque tambien hay q citar la colaboracion
+de otro tipo de personal a lo largo  de  netfilter ,pero estos son los que se
+dedican ahora mismo del mantenimiento de netfilter en el kernel de linux.
+
+	Otro de los grandes desarrolladores  ademas de Rusty Russel es Harald
+Welte, es otro de los miembros del grupo d netfilter, principal contribuyente
+de iptables2 en el que hace constar la nueva  contribucion dada en esta nueva
+implementacion de iptables en la que se usa nfnetlink (netfilter netlink) una
+nueva mejora sobre la  anterior  rfnetlink  para  pasar paquetes del area del
+kernel al area de usuario y principalmente hace uso de una nueva libreria que
+luego posteriormente comentare que  es  libipt  una  API que nos permitira un
+manejo mucho mas facil debido a su simplicidad  y una mejor configuracion del
+firewall por parte de iptables.
+
+	Porque el uso de Netfilter?.
+	~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+	Netfilter fue totalmente incorporado en kernel 2.4 y supone una serie
+de mejoras bastante interesantes q lo diferencian del tratamiento de paquetes 
+hecho en el kernel 2.0 y 2.2.A continuacion notaré algunos aspectos negativos
+de kernel 2.0 y 2.2 :
+	
+	1. Paso de paquetes al area de usuario.
+	- No hay establecida  una  estructura  para  poder  pasar paquetes al 
+espacio de usuario, quizás direis que no,  que existía netlink introducido en
+el kernel 2.2 y si q se podían pasar  paquetes desde area de kernel a usuario
+pero se basaba en la reinyeccion de paquetes que obligaba a sucesivas compro-
+baciones de sanidad del  paquete  y  por  lo  tanto resultaba bastante lento.
+Además reinyectar un paquete que venía desde  una interfaz no era aún posible
+luego veremos que esto si es posible en netfilter.
+
+	- La programacion del kernel  se hace demasiado tediosa, en netfilter
+cuenta con una mejor implementacion luego a la hora d programar será un punto
+a favor.
+	- Las politicas de filtrado dinamicas no pertenecen al kernel.
+	
+	2. Montar un proxy transparente se hace muy dificil.
+	
+	3. No es posible crear reglas  de filtrado de paquetes independientes
+a la interfaz.
+	
+	4. Existían  incompatibilidades  entre  el enrutado de los paquetes y
+el filtrado de los paquetes, teniendo  que atravesar los paquetes redirigidos
+las tres cadenas de todos modos en vez de una unica y no había manera d saber
+si estas cadenas podían evitarse.
+
+	Estas caracteristicas  han  sido  las  más  importantes que han hecho 
+cambiar la estructura del  filtrado  de  paquetes  en un kernel 2.4 y a causa
+de estas muchos han sido las changes de 2.2 a 2.4.
+	
+	Tratamiento de los paquetes a traves de netfilter.
+	~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+	Ahora explicare como se gestionan los paquetes a traves de netfilter,
+para ello explicare como  llegan  los  paquetes y la utilizacion de los hooks
+Para eso el siguiente diagrama nos  será  de bastante utilidad y me permitirá
+una fácil explicación según ipv4:
+
+
+	--->[1]--->[ROUTE]--->[3]--->[4]--->
+                      |            ^
+                      |            |
+                      |         [ROUTE]
+    	              v            |
+        	     [2]          [5]
+                      |            ^
+             	      |            |
+            	      v            |
+
+	Esta dibujo muestra la  llegada  de  un paquete a nuestro sistema. El 
+paquete entra por la  izquierda  como  podemos  ver, es sometido a un control 
+de sanidad (no esta truncada, la  suma  de  control  de Ip es correcta ...) y
+son pasados al gancho NF_IP_PRE_ROUTING [1].
+	
+	Luego entra en el proceso de enrutamiento que decide si el paquete va
+destinado a otra interfaz o a un  proceso  local. Este proceso puede rechazar
+paquetes que no pueda enrutar.
+
+	A continuacion, si está dirigido a otra interfaz, se pasará al gancho
+NF_IP_FORWARD [3] y si está destinado a la propia máquina se pasará al gancho
+NF_IP_LOCAL_IN [2]. Despues el paquete pasa por un proceso final en el que se
+pasa al gancho NF_IP_POST_ROUTING.
+
+	Si los paquetes han sido  creados  localmente se le llamará al gancho
+NF_IP_LOCAL_OUT que ocurre antes de haberse enrutado el paquete.
+		
+	Para el tratamiento de  los  paquetes  se  van a diseñar una serie de 
+modulos que van a  escuchar  a  estos  ganchos  que  se  van a encargar de la 
+manipulacion del paquete.
+
+	NF_ACCEPT : Continua el recorrido normalmente.
+	  NF_DROP : Rechaza el paquete.
+	NF_STOLEN : Me hago cargo del recorrido por lo que no continua el
+	            recorrido.
+	 NF_QUEUE : Se hace disponer el paquete en una cola que sera tratada
+	            desde el espacio de usuario.
+	NF_REPEAT : Vuelve a llamar de nuevo a ese gancho.
+
+Sobre este sistema  de  manipulacion  de   paquetes  surgio  IP  Tables sobre
+netfilter. Es un descendiente directo de  ipchains ( que vino de ipfwadm, que
+vino de ipfw de BSD) con varias extensiones  o modulos. Para ello los modulos
+del kernel pueden registrar una tabla  nueva (filtrado de paquetes -filter- ,
+traduccion de direcciones de Direcciones de Red -nat- y la tabla de manipula-
+cion antes del enrutamiento -mangle- )  e  indicar  una serie de reglas sobre
+esos paquetes. 
+	
+	La tabla filter se va a encargar del filtrado d los paquetes para eso
+se tendrá que fijar en dos  ganchos  especificos  que serán el NF_IP_LOCAL_IN
+(entrada) , NF_IP_FORWARD (desvio) y NF_IP_LOCAL_OUT (salida).
+
+	La tabla nat va a usar tres ganchos : NF_IP_PRE_ROUTING y NF_IP_POST_
+ROUTING para las alteraciones de origen  y  destino y para alterar el destino
+de los paquetes se utiliza el gancho NF_IP_LOCAL_OUT.
+	
+	¿Como programar un modulo netfilter con hooks? 
+	~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+	Para empezar tienes que decidir  que  protocolo  deseas hookear, para
+ello netfilter divide  cada  protocolo  en  una  serie de ganchos, en el caso
+de ipv4 ya los habeis visto  y  son  los  cinco  anteriormente comentados, en
+el caso de tratarse con DECnet añade  un  par  más. Como antes vimos, el Hook
+NF_IP_PRE_ROUTING puede observar  todos  los  paquetes entrantes, para su uso
+unicamente tendríamos que registrarlo  con  la funcion nf_register_hook() que
+nos devolvera un 0 si se ha  podido  registrar  ese hook o un numero negativo
+en caso de error. Además de poder registrar un gancho, se van a poder definir
+una serie de operaciones sobre ese gancho que viene definido en la estructura
+nf_hook_ops. Un ejemplo seria este:
+
+	static struct nf_hook_ops operations = 
+		{ { NULL, NULL }, operation_hook, 
+		PF_INET, NF_IP_LOCAL_OUT,
+		NF_IP_PRI_FILTER-1};
+	
+	El primer elemento en la estructura es una lista doblemente enlazada,
+que se usa internamente. La segunda es la funcion a la que vamos a llamar, en
+este caso operation_hook. Lo  siguiente  es  el  tipo  de protocolo que es el
+PF_INET, el punto donde regis tramos el  hook NF_IP_LOCAL_OUT para los paque-
+tes generados localmente y lo siguiente la prioridad (justo antes dl filtrado
+del paquete)
+	
+	Una vez definidas las operaciones  solo nos falta definir esa funcion
+que realizará las operaciones sobre el  hook que hayamos indicado en el campo
+cuarto de la struct nf_hook_ops. En este  ejemplo, será una cosa muy sencilla
+mirará unicamente el paquete que llega y si es más grande de un tamaño deter-
+minado pos lo descartamos.
+
+	static unsigned int operation_hook(unsigned int hook, 
+					struct sk_buff **skb,
+				  const struct net_device *indev, const
+				  struct net_device outdev, int (*okfn)
+				  (struct sk_buff *))
+	
+	/* lo primero es ajustar el puntero al comienzo del payload del
+	paquete, que es el puntero al comienzo de la cabecera ip mas el
+	tamaño de esa cabecera en bytes */
+	
+	unsigned char *data = (void *) skb->nh.iph + skb->nh.iph->ihl*4;
+
+	skb|= NFC_UNKNOWN;
+	switch  ((skb->len) {
+		case 100:
+			printk("x-ezine: Cambiamos paquete\n"; 
+			data[99]++; /* Aumentamos el tamaño del paquete */
+			skb->nfcache |= NFC_ALTERED; /* Modificamos nfcache */
+			return NF_ACCEPT; /* Aceptamos el paquete */
+		case 200:
+			printk("x-ezine: Rechazamos paquete\n";
+			return NF_DROP;
+		default: 
+			return NF_ACCEPT;
+	}
+
+	Como vemos es bastante sencillo, la funcion coge cinco parametros que:
+	1. El gancho en el que registramos la funcion en este caso NF_IP_LOCAL
+	_OUT.
+	2. Un puntero a skb que representa al paquete.
+	3. Un puntero al dispositivo de entrada que es puesto NULL por el 
+	gancho NF_IP_LOCAL_OUT.
+	4. Un puntero al dispositivo de salida que es el dispositvo por el que 
+	sale el paquete del gancho NF_IP_LOCAL_OUT
+	5. El quinto argumento es un puntero a una funcion que sera llamada
+	si todos los ganchos son correctos, suele estar definida en los modulos
+	de netfilter pero no se la suele llamar directamente.
+	
+	Ya visto la funcion unicamente  nos queda insertar los modulos, y eso
+lo podemos hacer bien por init_module()  y cleanup_module() y registrando los
+hooks o bien usando __init y __exit definidos en la cabecera init.h
+
+	Nos quedaría esto:
+
+		static init __init init(){
+			return nf_register_hook(&operations);
+		}
+
+		static void __exit exit(){
+			nf_unregister_hook(&operations);
+		}
+
+module_init(init);
+module_exit(exit);
+	
+	Bueno por lo demás espero que lo  entendais correctamente. Ahora solo 
+bastaria probarlo, para ello insertamos el módulo y vemos si para por ejemplo
+un ping con cierto tamaño de  paquete  que  es lo que haría y veriamos que en
+caso de 100 lo trunca, en 200 lo rechaza  y el resto pos los acepta, para eso
+mirar tambien los logs generados en /var/messages por el printk o dmesg.
+
+	para ello : ping -c1 -stamaño host
+		
+	Bueno unicamente que la cabecera donde está definida los hooks d ipv4
+es en netfilter_ipv4.h, y bueno que necesitaremos tanto de init.h, sk_buff.h,
+module.h , config.h y ip.h. Luego  otra  cosa que me gustaría comentar es que
+al igual que lo hemos aceptado o  rechazado  podriamos haber hecho cualquiera
+de las operaciones explicadas cuando he hablado de los hooks , podriamos per-
+fectamente haberlas hecho disponer  en  una cola con NF_QUEUE, haber aceptado
+NF_ACCEPT, haberlas rechazado NF_DROP,  en  fin cualquiera de las operaciones
+definidas arriba, incluso volver a llamar al mismo gancho con NF_REPEAT. Otra
+cosa es q todo esto es tratado en area de kernel, por lo que no podemos hacer
+uso en area d usuario a no ser que usemos la libipq diseñada por James Morris
+para el tratamiento de las colas en el area de usuario.
+
+	Programacion en iptables.
+	~~~~~~~~~~~~~~~~~~~~~~~~~
+	Antes de empezar con  todo  el  rollo  de  las  estructuras  y  demás
+explicare porque se decidio el nombre de iptables, unicamente fue por la idea
+de meter varias reglas d memoria como si se tratase d una tabla, se introduce 
+informacion para indicar por donde comieza el recorrido a traves d diferentes
+ganchos q dependerán del protocolo  que estemos usando como antes hemos dicho
+ipv4 establece los cinco ganchos explicados antes.
+
+	Una vez que ya  sabeis  que  se  mete  en  memoria  me imagino que os
+preguntareis como se mete en memoria desde el area de usuario y como se puede
+modificar ese contenido, eso se hace utilizando getsockopt() y setsockopt().
+
+	Ahora empezaré con las  estructuras  que son comunes tanto en espacio
+de usuario como en  espacio  de  kernel  aunque  algunos  campos  van a estar 
+restringidos en el area de usuario. Otra cosa a tener en cuenta es q iptables
+no entra dentro de ningun gancho de  netfilter,  este va a usar otros modulos
+que le van a administrar los paquetes  apropiados, estos modulos forman parte
+de los fuentes de netfilter que  posteriormente veremos. Para poder llegarnos
+a hacernos nuestros modulos es  indispensable  saber  como se programan LKM's
+para eso hay un articulo muy bueno llamado LKM_hacking que me sirvio de mucho
+para aprender o sino el libro  de  Alessandro  Rubinni  de  Linux Programming
+Devices 2nd Edition actualmente liberado quizás os sea de bastante utilidad.
+
+	La primera estructura va a ser la regla que será lo que posteriormen-
+te nos encarguemos de meter en  memoria  a  través  de las funciones ya antes
+mencionadas que esta formada por tres estructuras:
+
+1. Una estructura struct ipt_entry .
+
+2. Cero o mas estructuras struct  ipt_entry_match,  cada una con una cantidad
+   variable de datos (0 o más) dentro de ella. Se corresponde a la coinciden-
+   ciao match de la regla.
+   
+3. Una estructura 'struct ipt_entry_target' con una cantidad variable d datos
+   dentro de ella que corresponde  al  objetivo  de la regla, es decir lo que
+   vamos a realizar sobre  el  paquete  (en  iptables  -j DROP sería un claro
+   ejemplo de objetivo).
+
+	Estas estructuras  son  de  tamaño  variable  para  permitir una alta 
+flexibilidad a las extensiones  especialmente porque cada objetivo (target) o
+concordancia (match) puede llevar una cantidad de datos arbitrario. La verdad 
+que no parece ser adecuado que se use un tamaño arbitrario para eso se usa la 
+macro IPT_ALIGN() que es la que  realizará  un redondeo de forma que no ocupe 
+excesivamente y nos  aseguraremos  de  que  'ipt_entry' (entrada de una regla
+en la tabla), 'ipt_entry_match'  (para  la concordancia) y 'ipt_entry_target'
+(para el tamaño del objetivo) tengan el tamaño conveniente.
+
+- Una estructura struct ipt_entry esta formado por los siguientes campos:
+
+1. Una estructura ipt_ip que contiene la cabecera ip con la que tiene que
+   concordar la nueva entrada en la tabla.
+   
+2. Un campo de bits nf_cache que muestra las partes del paquete que ha
+   examinado esta regla.
+   
+3. Un campo *target_offset* que indica el desplazamiento del principio de
+   esta regla donde comienza el objetivo de la regla (la estructura
+   ipt_entry_target).
+   
+4. Un campo next_offset que indica el tamaño total de la regla indicando 
+   la concordancia y el objetivo (match y target).
+   
+5. Un campo comefrom que se utiliza para saber el recorrido del paquete.
+
+6. Un campo struct ipt_counters
+
+
+	Libreria libiptc.
+	~~~~~~~~~~~~~~~~~
+	Libiptc es una  biblioteca  que  va  a  usar  iptables  para listar y 
+manipular las reglas de los  paquetes  y  va  a necesitar privilegios de root
+para poder hacer uso de ella.  Iptables  no  es  más  que una tabla de reglas
+definidas en una serie de cadenas  y  a  través  de  esta  biblioteca se va a 
+permitir el manejo de esta. Para  poder  empezar  a  leer de la tabla se va a
+llamar a la funcion iptc_init() y se va  a  poder  manipular a través de tres
+funciones que son:
+
+	iptc_insert_entry() - Inserta una nueva regla al principio de la tabla
+	iptc_replace_entry() - Sustituye una entrada en la tabla.
+	iptc_append_entry() - Agrega al final de la tabla una nueva regla.
+	iptc_delete_entry() - Elimina una entrada de la tabla.
+	iptc_flush_entries() - Vacia todas las reglas.
+	iptc_zero_entries() - Pone todas las reglas a cero.
+	iptc_create_chain() - Crea una nueva cadena en la tabla.
+	iptc_delete_chain() - Borra una cadena de la tabla.
+	iptc_set_policy() - Fija una politica sobre la cadena (DROP, REJECT ..)
+	iptc_commit() - Sirve para guardar los cambios, hasta que no se llama
+	a esta funcion no quedan reflejados los cambios en la tabla.
+
+Luego además de estas funciones hay otras funciones que pueden resultar de
+gran ayuda como son:
+
+	iptc_first_chain() - Devuelve el primer nombre de cadena de la tabla
+	iptc_next_chain() - Devuelve el siguiente nombre de cadena de la tabla
+	iptc_builtin() - Devuelve true si el nombre de la cadena dada es una
+	cadena montada.
+	iptc_first_rule() - Devuelve el puntero a la primera regla del nombre
+	de cadena dada.
+	iptc_next_rule() - Devuelve puntero a la siguiente regla de la cadena
+	dada.
+	iptc_get_target() - Obtiene el objetivo de una regla dada. Si es un
+	salto a otra cadena se devuelve el nombre de la cadena. Si es un 
+	veredicto (p.e: DROP) se devuelve su nombre. Y sino tiene objetivo 
+	entonces se devuelve la cadena vacia (NULL)
+	
+En todas estas reglas en caso de no encontrarse primera regla, siguiente regla
+primera cadena ... se devolverá la cadena vacia NULL.
+
+
+- Qué son los socket buffer (skb's)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+	Los socket buffers no  son  nada  más que unos buffers que utiliza el 
+kernel d linux para el manejo d paquetes. Para explicarlo más detalladamente,
+digamos que cuando llega un paquete  a  nuestro ordenador sigue un proceso el 
+cual es, recibe el paquete a través d la tarjeta de red, lo pone en el skbuff
+y este lo pasará a la  pila  del  protocolo  correspondiente,  digamos que es 
+como una cola de mensajeria d paquetes que va a ir pasando al area del kernel
+y este va a llevar la gestion de dichos paquetes.
+
+	- Estructura skb:
+	La estructura de un socket buffer se encuentra en <linux/skbuff.h> y 
+está formada por:
+	
+     struct sk_buff {        /* These two members must be first. */
+	 struct sk_buff  * next;                 /* Next buffer in list
+	 struct sk_buff  * prev; /* Previous
+         struct sk_buff_head * list;             /* List we
+	 struct sock     *sk;                    /* Socket we
+	 struct timeval  stamp;      
+	 struct net_device *dev;  
+	 union {
+	       struct tcphdr   *th;
+	       struct udphdr   *uh;
+	       struct icmphdr  *icmph;
+	       struct igmphdr  *igmph;
+	       struct iphdr    *ipiph;
+	       struct spxhdr*spxh;
+	       unsigned char   *raw;
+	       } h;
+	 /* Network layer header */
+         union {
+	       struct iphdr    *iph;
+	       struct ipv6hdr  *ipv6h;
+	       struct arphdr   *arph;
+	       struct ipxhdr   *ipxh;
+	       unsigned char   *raw;
+	       } nh;
+         union {
+	       struct ethhdr   *ethernet;
+               unsigned char   *raw;
+	       } mac;
+	 struct  dst_entry *dst;
+	 char            cb[48];
+	 unsigned int    len;
+	 unsigned int    data_len;
+	 unsigned int    csum;
+	 unsigned char   __unused, cloned, pkt_type, ip_summed;
+	 __u32           priority;
+	 atomic_t        users; 
+	 unsigned short  protocol;  
+	 unsigned short  security; 
+	 unsigned int    truesize;
+         unsigned char   *head; 
+	 unsigned char   *data;
+	 unsigned char   *tail;
+	 unsigned char   *end;
+	 void            (*destructor)(struct sk_buff *);
+
+	-------------- terminar de pastear código --------------
+
+	Bueno aquí teneis enterita la estructura sk_buff, ahora iré explicando
+cada uno de los campos :
+
+	next : es el siguiente skb en la lista
+	prev : es el anterior skb en la lista
+	list : lista en la que nos encontramos.
+	sk : es el socket que estamos utilizando
+	stamp : valor tiempo en el que nos llego
+	dev : dispositivo que nosotros estamos dejando
+	rx_dev : desde el dispositivo que nos llegó
+	h : cabecera de la capa de transporte (tcp, udp, icmp, igmp, spx, raw)
+	nh : cabecera de la capa de red (ip, ipv6, arp, ipx, raw)
+	mac : cabecera del nivel de enlace
+	dst
+	cb : buffer de control
+	len : longitud del dato
+	csum : checksum
+	used 
+	is_clone : es una copia sk_buff
+	cloned : la cabecera se puede copiar
+	pkt_type : el tipo de paquete
+	ip_summed
+	priority : prioridad del paquete dentro de la cola de paquetes
+	protocol : protocolo del paquete
+	security : nivel de seguridad del paquete
+	truesize : verdadero tamaño del skb.
+	head : puntero al principio del buffer
+	data : puntero al principio del dato.
+	tail : puntero al final del dato.
+	end : final del puntero
+	destructor : destructor de la funcion 
+	nfmark
+	nfcache : info de la cache interna referente a netfilter
+	nfct : conexion asociada al socket
+	
+---------- Sniffer de ejemplo con skb's ----------
+              (Final doc: sniffer.c)
+
+	Como podeis ver en el sniffer es bastante facil de entender, la unica
+parte tediosa es la de ajustar  los punteros según el tipo de paquete que nos
+llegue. Si se trata de un paquete tcp veamos como se ajustan los punteros:
+
+	1. Tendremos que ajustar un puntero al principio de la cabecera
+	tcp, para ello lo unico que tendremos que hacer es sumarle al 
+	principio del dato la cabecera ip en bytes.
+	
+	2. Luego ajustaremos el puntero al comienzo del dato util, denominado
+	"payload", para ello unicamente bastara sumarle la cabecera tcp
+	correspondiente y estaremos al comienzo del payload.
+	
+	3. La longitud del dato es el paquete total menos las cabecera tcp
+	y la cabecera ip, ahora unicamente nos falta llevarlo a la practica
+	como hemos podido ver en el sniffer.
+
+	En caso de tratarse  de  un  paquete  icmp o udp unicamente tendremos
+que sumarle el tamaño de las cabeceras que  se  lo decimos haciendo un sizeof
+de la estructura  de  lo  que  es  la  icmphdr  y  la udphdr. Luego otra cosa 
+unicamente a saber es que doff va a tratarse de la cabecera tcp ("data offset
+") y cuando lo multiplicamos por 4 es unicamente porque viene en grupos de 32
+bits y de esa forma sacamos su tamaño en bytes.
+	
+	Como se establece una comunicación?
+	~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+	En este apartado hablaremos del método three-way hand-shake que es el
+que se utiliza para establecer una comunicación entre dos máquinas. Para ello
+el protocolo TCP va a usar  una  serie  de  flags  que va a hacer posible una
+negociacion de la conexion, en el que  entre  una  comunicacion entre cliente
+servidor, el cliente mandará un primer mensaje (SYN) al servidor, el servidor
+le responderá al cliente con una respuesta  (SYN/ACK) y finalmente el cliente
+realizará la confirmacion (ACK).La verdad que no tiene más misterio que esto,
+pero este método  puede  ser  util  para  el  filtrado  de paquetes para ello  
+unicamente nos tenemos que fijar q ciertos  flags del protocolo tcp no tienen
+sentido en determinado estados para  ello  cuando recibamos un paquete con un
+flag fin o rst pos no tiene sentido dejarlo pasar, pero bueno eso ya lo vimos
+en el ejemplo de skb's como filtramos rst y fin.
+
+	Los estados de los que cuenta el flag tcp son los siguientes:
+
+	1. SYN FLAG: Toma su nombre del flag tcp Synchronize que es el que
+	se encarga de la sincronización entre dos hosts.
+
+	18:02:47.540000 10.0.0.2.1061 > 161.58.243.241.80: S [tcp sum ok]
+	2024485176:2024485176(0) win 5840 <mss 1460,sackOK,timestamp 62577060
+	0,nop,wscale 0> (DF) (ttl 64, id 59548, len 60)
+
+	 0x0000  4500  003c  e89c  4000  4006  b2f1  0a00  0002
+	 E..<..@.@.......
+	
+	   IP Layer -
+
+	      45 - IP Version / Longitud de la cabecera (IPv4, 5)
+	      00 003c - Longitud (60)
+	      e89c - Identidad del Fragmento (59548)
+	      40 - Flags IP (Sin fragmentar, Ultimo fragmento)
+	      00 - Desplazamiento dentro del fragmento (0)
+	      40 - Tiempo de Vida (64)
+	      06 - Tipo del Protocolo IP (06/TCP)
+	      b2f1 - Checksum IP (45809)
+	      0a00 0002 - Direccion IP origen (10.0.0.2)
+	      a13a f3f1 - Direccion IP destino (161.52.243.241)
+      
+          Capa TCP
+
+	0x0010              0425  0050  78ab  3138  0000  0000  .:...%.Px.18....
+	0x0020  a002  16d0  0652  0000  0204  05b4  0402  080a  .....R..........
+	0x0030  03ba  d9a4  0000  0000  0103  0300              ............
+        0425 - Puerto Origen (1061)
+        0050 - Puerto Destino (80)
+        78ab 3138 - Numero de Secuencia (2024485176)
+        0000 0000 - Numero de Reconocimiento (0)
+	a - Logitud de la Cabecera 10
+        0 - Reservado
+
+        02 - Bits de control, Flag TCP (SYN)
+	      
+	      Existen 6 bits de control. Si el bit está puesto a 1 significa
+	      que está activado el flag. Los bits son los siguientes:
+
+		Flag
+		Urgent      Acknowledgement  Push  Reset  Syn  Fin
+		Valor Hx         20           10     8     4    2   
+
+	16d0 - Tamaño Ventana (5840)
+	0652 - Checksum (1618)
+	0000 - Puntero al dato urgente.
+        
+	Opciones TCP
+        0204 - Opciones (Tipo 2, Longitud 4 - Máximo tamaño de segmento)
+        Esta opción permite enviar con el máximo tamaño de segmento que el
+	receptor pueda recibir. 
+        05b4 - Tamaño máximo del segmento (1460)
+        0402 - Opciones (Tipo 4, Longitud 2 - ACK)
+        080a - Opciones (Kind 8, Length 10 - Timestamp) 
+        03ba d9a4 - Timestamp (62577060) 
+        0000 0000 0103 - Opciones (Clase 1, Longitud 3 - Ninguna operación) 
+        0300 - Opciones (Tipo 3, Longitud 0 - Tamaño Ventana 0) (See RFC 1072)
+
+       SYN/ACK
+
+	 Una vez ya establecida  la  comunicacion  entre los dos hosts, en la 
+	 segunda parte lo que hace  three-way  handshake es dar una respuesta
+	 por parte del servidor  al  cliente.  El mensaje que el server envia
+	 contiene un reconocimiento (ACK de aknowledgement) de la llegada del
+	 mensaje original, y sus propios numeros de sincronizacion.
+
+	18:02:47.630000 161.58.243.241.80 > 10.0.0.2.1061: S [tcp sum ok]
+	1426552139:1426552139(0) ack 2024485177 win 17520 <mss 1460> (DF)
+	(ttl 42,id 35144, len 44)
+
+	0x0000  4500  002c  8948  4000  2a06  2856  a13a  f3f1  E..,.H@.*.(V.:..
+	0x0010  0a00  0002  0050  0425  5507  754b  78ab  3139  .....P.%U.uKx.19
+	0x0020  6012  4470  3bcc  0000  0204  05b4              `.Dp;.......
+
+	IP Layer -
+        45 - Version IP / Longitud Cabecera (IPv4, 5)
+        00 002c - Longitud (44)
+        8948 - Identificador del fragmento (35144)
+        40 - Flags IP (Sin fragmentar, Ultimos fragmento)
+	00 - Desplazamiento en el paquete (0)
+        2a - Tiempo de vida (42)
+        06 - Tipo de protocolo (06/TCP)
+        2856 - Cheksum IP (10326)
+        a13a f3f1 - Direccion IP Origen (161.52.243.241)
+        0a00 0002 - Dirección IP Destino (10.0.0.2)
+        
+	Capa TCP -
+        0050 - Puerto Origen (80)
+        0425 - Puerto Destino (1061)
+        5507 754b - Número de secuencia (1426552139)
+        78ab 3139 - Número de Reconocimiento (2024485177)
+
+        6 - Longitud de la Cabecera 6
+        0 - Reservado
+        12 - Bits de Control, Flags TCP (SYN, ACK)
+        4470 - Tamaño de la Ventana (17520)
+        3bcc - Checksum (15308)
+        0000 - Puntero a URG
+   
+   TCP Options -
+      0204 - Opciones (Tipo 2, Longitud 4 - Tamaño máximo de segmento)
+
+      05b4 - Tamaño Máximo del Segmento (1460)
+
+     ACK -
+
+       Finalmente, el cliente reconoce l a  secuencia de números del servidor.
+       Esto marca el final del three-way handshake. La conexion TCP está ahora
+       abierta, y la información  puede  ser  transmitida  por las respectivas
+       aplicaciones.
+       
+       18:02:47.630000 10.0.0.2.1061 > 161.58.243.241.80: . [tcp sum ok]
+       2024485177:2024485177(0) ack 1426552140 win 5840 (DF) (ttl 64, id 59549,
+       len 40)
+       0x0000  4500  0028  e89d  4000  4006  b304  0a00  0002  E..(..@.@.......
+       0x0010  a13a  f3f1  0425  0050  78ab  3139  5507  754c  .:...%.Px.19U.uL
+       0x0020  5010  16d0  8129  0000  0000  0000  0000        P....).......
+
+    Capa IP -
+       45 - Version IP / Longitud Cabecera (IPv4, 5)
+       00 0028 - Longitud (40)
+       e89d - Identificador del Fragmento (59549)
+       40 - Flags IP (Sin fragmentar, Ultimo fragmento)
+       00 - Desplazamiento en el Fragmento (0)
+       40 - Tiempo de Vida (64)
+       06 - Tipo de Protocolo IP (06/TCP)
+       b304 - Checksum IP (45828)
+       0a00 0002 - Dirección IP Origen (10.0.0.2)
+       a13a f3f1 - Dirección IP Destino (161.52.243.241)
+    Capa TCP -
+       0425 - Puerto Origen (1061)
+       0050 - Puerto Destino (80)
+       78ab 3139 - Número de Secuencia (2024485177)
+       5507 754c - Número de Reconocimiento (1426552140)
+
+
+       5 - Longitud de la Cabecera 5
+       0 - Reservado
+
+       10 - Bits de Control, Flag TCP (ACK)
+       16d0 - Tamaño Ventana  (5840)
+       8129 - Checksum (33065)
+       0000 - Puntero a dato Urgente
+       
+       Opciones TCP  -
+    
+       0000 0000 0000 - Opciones (Relleno del paquete)
+				
+				
+				Iptables.
+				~~~~~~~~~
+			
+	Cadenas y reglas.
+	~~~~~~~~~~~~~~~~~
+ 	El kernel comienza con tres listas d reglas en la tabla de "filtros". 
+Estas cadenas se  llaman  cadenas  cortafuegos  o  simplemente "cadenas" y se
+dnominan INPUT, OUTPUT y FORWARD (entrada, salida y reenvio respectivamente).
+Una de las utilidades fundamentales  de  iptables es la modificacion de estas
+tres cadenas de reglas. Para  mayor  aclaración  una  cadena  es una lista de
+reglas, en la que cada  regla  especifica  una norma, sería a groso modo como
+decir "si el paquete se parece a esto, haz esto otro". Si la primera regla no
+se ajusta al paquete entonces se consulta  la siguiente regla en la lista. Al
+final, sino hay más reglas  que  consultar,  el nucleo mira la politica de la
+cadena para decidir que hacer. En un sistema  en el q la seguridad sea lo que
+se busque se usará la politica  de  rechazo  de paquetes que suele ser la más
+segura (DROP) sino se podría utilizar la de aceptar todo por defecto (ACCEPT).
+
+	Ahora a continuacion veremos que pasa cuando llega a nuestro firewall 
+un paquete:
+	1. Lo primero que hara el  kernel  es  mirar  a  quien va dirigido el 
+	   paquete, es decir se encargara de mirar el enroutado del paquete.
+	   
+	2. Si está destinado a  esa  misma  máquina,  el  paquete entra en la 
+	   cadena INPUT. Si en la  cadena INPUT no hay nada que se lo impida,
+	   el pakete llegara al proceso que lo este esperando aunque nosotros
+	   posteriormente veremos que a traves d la modificacion de una serie
+	   de reglas en la cadena INPUT este  paquete sera tratado conforme a
+	   estas reglas pero para el caso  el  paquete será introducido en la
+	   cadena INPUT.
+	   
+	3. Si no viene destinado al ordenador  en el cual está el firewall, y
+	   el kernel no tiene activado  el  encaminamiento  de paquetes, o no
+	   sabe como encaminarlo, el paquete sera descartado. Si el encamina-
+	   miento esta activado, y el paquete  va dirigido a otro interfaz de
+	   red (en caso que lo tengamos), el  paquete irá directo a la cadena
+	   reenviar (FORWARD). Si el paquete  es aceptado, será enviado hacia
+	   fuera. Cuando me refiero a  encaminamiento es lo mismo que enruta-
+	   miento, de todos modos para  poder  hacer uso de este es necesario
+	   que haya soporte en el kernel.
+	   
+	4. Finalmente un programa que  se  ejecuta en la maquina puede enviar 
+	   paquetes a la red. Estos  paquetes  pasan  por la cadena de salida
+	   (OUTPUT) de forma inmediata; si son aceptados, entonces el paquete
+	   continua hacia afuera, dirigido  a  la interfaz a la que estuviera
+	   destinado. Luego se verá el tratamiento de las interfazes a traves
+	   de la reglas, en este caso al tratarse de una cadena OUTPUT unica-
+	   mente se podría hacer uso  de  out-interface (-o) como por ejemplo
+	   eth0.
+
+	Antes de poder usar iptables, tanto en sus funciones de firewall como
+de gestor de NAT, debemos  tener  activadas  las opciones CONFIG_IP_ADVANCED_
+ROUTER, CONFIG_IP_ROUTE_NAT  y  CONFIG_IP_NF_TABLES,  además  del conveniente
+soporte para iptables en el kernel  referido tanto a modulos, reglas... poli-
+ticas que luego quieras usar posteriormente.
+
+	Sintaxis Básica.
+	~~~~~~~~~~~~~~~~
+	Bueno, después de todo el  rollo  de  antes  ahora toca como poner en
+funcionamiento todo lo dicho antes. Empezaremos  con  la  sintaxis basica del 
+comando iptables para la modificacion de las cadenas: 
+1. Crear nueva cadena : -N
+2. Borrar una cadena vacia : -X
+3. Cambiar la politica de una cadena de uso interno : -P
+4. Listar las reglas de una cadena : -L
+5. Vaciar de reglas una cadena : -F
+6. Poner a 0 los contadores de paquetes y bytes de todas las reglas de una
+cadena : -Z
+Ahora la sintaxis basica de iptables para la modificacion de reglas:
+1. Añadir una nueva regla a una cadena : -A
+2. Insertar una nueva regla en alguna posicion de la cadena : -I
+3. Mover una regla a otra posicion dentro de una cadena : -R
+4. Borrar una regla de un sitio en particular de una cadena : -D
+5. Borrar la primera regla que coincida con los parametros dados en una cadena 
+(-D)
+
+Empezaremos con una regla  generica  en  la que podremos observar la sintaxis 
+completa de iptables. Para  ello  usaremos  varias  opciones  de iptables que 
+explicaremos más adelante y una  serie  de  variables  que se pueden entender
+sin apenas explicacion para poder hacer lo mas posible generico este ejemplo.
+El ejemplo sería :
+
+iptables -A $cadena -p $protocolo -s $ip_de_origen --sport $puerto_de_origen
+-d $ip_de_destino --dport $puerto_de_destino -i $interfaz_de_entrada -o 
+$interfaz_de_salida -j $accion
+
+Para borrar la cadena que acabamos de añadir podemos hacer :
+
+iptables -D 1
+
+o
+
+iptables -D $cadena -p $protocolo -s $ip_de_origen [bla bla]
+
+Con la primera forma de  eliminar  la  regla,  decimos a iptables que elimine
+la regla que esta en la primera  posicion, ya que se supone que es la primera
+regla que añadimos en el sistema. Con la segunda opcion le decimos a iptables
+que elimine la regla que tenga  los  parametros  que hemos especificado. Otra
+forma sería utilizar iptables -F pero vaciariamos todas las reglas, sería una
+forma de inutilizar iptables totalmente por si acaso hemos tenido un problema
+de cualquier tipo.
+
+	Parámetros.
+	~~~~~~~~~~~
+	Como podeis observar, en la regla  que hemos insertado hemos usado el
+parametro -p $protocolo para  especificar  el protocolo, el parametro -s para
+especificar la fuente del paquete y el  parametro -d para especificar el des-
+tino. A continuacion, describo todos los paquetes q podemos pasar a iptables.
+
+Especificar IP de origen y/o de destino : el origen lo especificamos con -s
+o --source y el destino con -d o --destination. La ip se suele indicar de 
+varias maneras: 
+ - Indicando el nombre completo (raciel.dyndns.org)
+ - Indicando la IP (193.35.46.76)
+ - Indicando un grupo de IP (209.10.41.0/255.255.255.255 o 209.10.41.0/0)
+ Si escribimos una ! antes de la IP estaremos indicando todo excepto .. 
+ (ej -s !127.0.0.1 así le estamos diciendo todo lo que NO venga de 127.0.0.1)
+ Tambien tenemos que tener en cuenta que 0/0 significa cualquier ip.
+
+ iptables -A OUTPUT -s 0/0 -d ! raciel.dyndns.org -j ACCEPT
+
+ Dejamos salir todos los paquetes que no vayan a raciel.dyndns.org 
+
+Especificar el protocolo : El protocolo lo indicaremos con -p o -protocol. 
+Podemos especificar TCP, UDP e ICMP (este parametro ignora mayusculas/minus
+culas, con lo cual tcp o TCP es lo mismo).
+
+iptables -A INPUT -p icmp -s 0/0 -d 192.163.32.45 -j DROP
+
+Denegamos la entrada de paquetes ICMP que tengan como destino esa ip.
+
+Especificar el dispositivo : Al  contrario  que  ipchains,  iptables tiene la 
+capacidad de distinguir entre  dispositivo  de  entrada (-i o --in-interface)
+y dispositivo de salida (-o o out-interface).  No  podremos usar el parametro
+-o en la cadena INPUT ni  el  parametro  -i  en  la  cadena OUTPUT (la cadena
+FORWARD si que admite los dos parametros
+
+iptables -A FORWARD -p tcp -s 0/0 -d 0/0 -dport 0:1024 -i ppp0 -o eth1 -j DROP
+
+Denegamos todos los paquetes que vengan por ppp0 y vayan hacia eth1 y que
+tengan como los puertos destino del 0-1024
+
+Especificar fragmentos de paquetes : En  ocasiones cuando el paquete es dema-
+siado largo como para transmitirlo de una sola vez, es necesario dividirlo en 
+fragmentos, y enviarlos como si se tratasen  de  multiples paquetes. Esto nos
+trae el siguiente problema: el primer fragmento viene con la cabecera comple-
+ta (IP + TCP, UDP e ICMP) y el  firewall  puede  examinarlo, pero el resto de
+los fragmentos solo vienen con una parte d la cabecera del paquete (con la IP
+pero sin la parte de los protocolos),  por  lo  tanto  no podemos filtrar los
+fragmentos segun el protocolo pues es  imposible determinarlo (al menos hasta
+la fecha).Esto es un problema debido al protocolo tcp no a una implementacion
+de iptables, para ello se puede  recurrir  al  uso de conn_traq o reensamblar
+los paquetes usando los datos IP pero como regla no nos sirve.
+
+
+	Despedida
+	~~~~~~~~~
+	Bueno esto es todo, espero que os haya gustado el articulo y haya ser
+vido de algo, en un próximo articulo intentaré entrar en más detalle en cier-
+tos temas, no os penseis que la cosa se ha quedado aquí. Ya sólo un saludillo
+a todos los que me esteis leyendo, nos vemos, hasta pronto :)
+
+
+------------------------------- sniffer.c -------------------------------------
+
+/* CODER : Raciel <Raciel@x0und.net>
+ *
+ * COMPILACION : gcc -c -O3 sniffer.c
+ *
+ * USO: debian 2.2.19-pre7
+ * 	debian 2.4.17
+ *
+ * Sniffer que se encarga de monitorizar las tramas tcp que lleguen a nuestro
+ * sistema.
+ */
+
+#define __KERNEL__
+#define MODULE
+
+#include <linux/config.h>
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/version.h>
+
+#include <linux/init.h>
+#include <linux/netdevice.h>   			
+#include <linux/skbuff.h>
+#include <linux/ip.h>
+#include <linux/tcp.h>
+
+
+MODULE_PARM(dev,"s");  
+
+struct sk_buff *skb;
+struct device *dv;
+struct packet_type *pt;
+
+void sniffer_tcp (struct sk_buff *skb);
+
+int pkt_func(struct sk_buff *skb,struct device *dv,struct packet_type *pt){
+
+	/* ajuste de punteros */
+	skb->h.raw = skb->nh.raw + skb->nh.iph->ihl*4; 
+	/* puntero al comienzo del paquete tcp es igual al comienzo del comienzo
+	del paquete ip + la longitud de la cabecera tcp en bytes */
+	skb->data = skb->h.raw + (skb->h.th->doff << 2);
+	/* puntero al comienzo del dato del paquete, es decir al comienzo
+	del dato útil (payload) = la cabecera ip + tcp en bytes */
+	skb->len -= skb->nh.iph->ihl*4 + (skb->h.th->doff << 2);
+	/* longitud del payload */
+	
+	switch (skb->pkt_type) {   /* según el tipo de paquete */
+		case PACKET_HOST:     /* nuestro paquete */
+			kfree_skb(skb);
+			break;
+		default : printk ("Descartando...\n");
+			  break;
+	}
+	
+switch (skb->nh.iph->protocol) {
+	case 6: sniffer_tcp(skb);
+		break;
+	default : printk ("Solo queremos saber la info de los paquetes tcp\n");
+}
+
+kfree_skb(skb);
+return (1);
+}
+
+void sniffer_tcp(struct sk_buff *skb) {
+  printk("TCP origen  : %X\n", skb->h.th->source);
+  printk("TCP destino : %X\n", skb->h.th->dest);
+  printk("TCP seq     : %X\n", skb->h.th->seq);
+  printk("TCP ack_seq : %X\n", skb->h.th->ack_seq);
+ }
+
+int __init sniffer_init(){
+	 pt->type=htons(ETH_P_ALL);  
+	 (int *)pt->func=pkt_func(skb,dv,pt);  
+	 dev_add_pack(pt);
+	 return 0;
+}
+
+void __exit sniffer_exit(){
+	dev_remove_pack(pt);
+}
+
+module_init(init);
+module_exit(clean);
+
+-------------------------------------------------------------------------------
+
+----[ Raciel <Raciel@x0und.net ]

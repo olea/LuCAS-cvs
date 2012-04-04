@@ -1,0 +1,552 @@
+ <chapter id="mvcc">
+  <title>Multi-Version Concurrency Control (Control de la Concurrencia Multi Versión)</title>
+
+  <abstract>
+   <para>
+    Multi-Version Concurrency Control
+    (MVCC)
+    es una técnica avanzada para mejorar las prestaciones de una base de datos
+    en un entorno multiusuario.
+    <ulink url="mailto:vadim@krs.ru">Vadim Mikheev</ulink> ha proporcionado
+    la implementación para <productname>Postgres</productname>.
+   </para>
+  </abstract>
+
+  <sect1>
+   <title>Introducción</title>
+
+   <para>
+    A diferencia de la mayoría de otros sistemas de bases de datos que usan bloqueos para el control
+    de concurrencia, <productname>Postgres</productname>
+    mantiene la consistencia de los datos un modelo multiversión.
+    Esto significa que mientras se consulta una base de datis, cada transacción ve
+    una imagen de los datos (una <firstterm>versión de la base de datos</firstterm>)
+    como si fuera tiempo
+    atrás, sin tener en cuenta el estado actual de los datos que hay por debajo.
+    Esto evita que la transacción vea datos inconsistentes que pueden ser
+    causados por la actualización de otra transacción concurrente en la misma fila
+    de datos, proporcionando <firstterm>aislamiento transaccional</firstterm>
+    para cada sesión de la base de datos.
+   </para>
+
+   <para>
+    La principal diferencia entre multiversión y el modelo de bloqueo es que
+    en los bloqueos MVCC derivados de una consulta (lectura) de datos no entran en conflicto
+    con los bloqueos derivados de la escritura de datos y de este modo la lectura nunca bloquea
+    la escritura y la escritura nunca bloquea la lectura.
+   </para>
+  </sect1>
+
+  <sect1>
+   <title>Aislamiento transaccional</title>
+
+   <para>
+    El estándar <acronym>ANSI</acronym>/<acronym>ISO</acronym> <acronym>SQL</acronym>
+    define cuatro niveles de aislamiento transaccional
+    en función de tres hechos que deben ser tenidos en cuenta
+    entre transacciones concurrentes.
+    Estos hechos no deseados son:
+
+    <variablelist>
+     <varlistentry>
+      <term>
+       lecturas "sucias"
+      </term>
+     <listitem>
+      <para>
+	Una transacción lee datos escritos por una transacción no esperada, no cursada.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       lecturas no repetibles
+      </term>
+     <listitem>
+      <para>
+	Una transacción vuelve a leer datos que previamente había leído y encuentra que han sido
+	modificados por una transacción cursada.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       lectura "fantasma"
+      </term>
+     <listitem>
+      <para>
+	Una transacción vuelve a ejecutar una consulta, devolviendo un conjuto de filas que satisfacen
+	una condición de búsqueda y encuentra que otras filas que satisfacen la condición
+	han sido insertadas por otra transacción cursada.
+       </para>
+      </listitem>
+     </varlistentry>
+    </variablelist>
+   </para>
+
+   <para>
+    Los cuatro niveles de aislamiento y sus correspondientes acciones se describen más abajo.
+
+    <table tocentry="1">
+     <title>Niveles de aislamiento de <productname>Postgres</productname> </title>
+     <titleabbrev>Niveles de aislamiento</titleabbrev>
+     <tgroup cols="4">
+      <thead>
+       <row>
+	<entry>
+	</entry>
+	<entry>
+	 Lectura "sucia"
+	</entry>
+	<entry>
+	 Lectura no repetible
+	</entry>
+	<entry>
+	 Lectura "fantasma"
+	</entry>
+       </row>
+      </thead>
+      <tbody>
+       <row>
+	<entry>
+	 Lectura no cursada
+	</entry>
+	<entry>
+	 Posible
+	</entry>
+	<entry>
+	 Posible
+	</entry>
+	<entry>
+	 Posible
+	</entry>
+       </row>
+
+       <row>
+	<entry>
+	 Lectura cursada
+	</entry>
+	<entry>
+	 No posible
+	</entry>
+	<entry>
+	 Posible
+	</entry>
+	<entry>
+	 Posible
+	</entry>
+       </row>
+
+       <row>
+	<entry>
+	 Lectura repetible
+	</entry>
+	<entry>
+	 No posible
+	</entry>
+	<entry>
+	 No posible
+	</entry>
+	<entry>
+	 Posible
+	</entry>
+       </row>
+
+       <row>
+	<entry>
+	 Serializable
+	</entry>
+	<entry>
+	 No posible
+	</entry>
+	<entry>
+	 No posible
+	</entry>
+	<entry>
+	 No posible
+	</entry>
+       </row>
+      </tbody>
+     </tgroup>
+    </table>
+
+    <productname>Postgres</productname>
+    ofrece lectura cursada y niveles de aislamiento serializables.
+   </para>
+  </sect1>
+
+  <sect1>
+   <title>Nivel de lectura cursada</title>
+
+   <para>
+    <firstterm>Lectura cursada</firstterm>
+    es el nivel de aislamiento por defecto en <productname>Postgres</productname>.
+    Cuando una transacción se ejecuta en este nivel, la consulta sólo ve
+    datos cursados antes de que la consulta comenzara y nunca ve ni datos "sucios" ni
+    los cambios en transacciones concurrentes cursados durante la ejecución de la consulta.
+   </para>
+
+   <para>
+    Si una fila devuelta por una consulta mientras se ejecuta una
+    declaración <command>UPDATE</command>
+    (o <command>DELETE</command>,
+    o <command>SELECT FOR UPDATE</command>)
+    está siendo actualizada por una
+    transacción concurrente no cursada, entonces la segunda transacción
+    que intente actualizar esta fila esperará a que la otra transacción se curse
+    o pare. En caso de que pare, la transacción que espera
+    puede proceder a cambiar la fila. En caso de que se curse (y si la fila
+    todavía existe, por ejemplo, no ha sido borrada por la otra transacción), la
+    consulta será reejecutada para esta fila y se comprobará que la nueva fila
+    satisface la condición de búsqueda de la consulta. Si la nueva versión de la fila
+    satisface la condición, será actualizada (o borrada, o marcada para ser actualizada).
+   </para>
+
+   <para>
+    Tenga en cuenta que los resultados de la ejecución de <command>SELECT</command>
+    o <command>INSERT</command> (con una consulta)
+    no se verán afectados por transacciones concurrentes.
+   </para>
+  </sect1>
+
+  <sect1>
+   <title>Nivel de aislamiento serializable</title>
+
+   <para>
+    La <firstterm>serailización</firstterm> proporciona el nivel más alto de aislamiento transaccional.
+    Cuando una transacción está en el nivel serializable,
+    la consulta sólo ve los datos
+    cursados antes de que la transacción comience y nunca ve ni datos sucios
+    ni los cambios de transacciones concurrentes cursados durante la ejecución
+    de la transacción. Por lo tanto, este nivel emula la ejecución de transacciones en serie,
+    como si las transacciones fueran ejecutadas un detrás de otra, en serie,
+    en lugar de concurrentemente.
+   </para>
+
+   <para>
+    Si una fila devuelta por una consulta durante la ejecución de una declaración
+    <command>UPDATE</command>
+    (o <command>DELETE</command>, o <command>SELECT FOR UPDATE</command>)
+    está siendo actualizada por una
+    transacción concurrente no cursada, la segunda transacción
+    que trata de actualizar esta fila esperará a que la otra transacción se
+    curse o pare. En caso de que pare, la transacción que espera
+    puede proceder a cambiar la fila. En el caso de una transacción concurrente
+    se curse, una transacción serializable será parada con el
+    mensaje
+
+    <programlisting>
+ERROR:  Can't serialize access due to concurrent update
+    </programlisting>
+
+    porque una transacción serializable no puede modificar filas cambiadas por
+    otras transacciones después de que la transacción serializable haya empezado.
+   </para>
+
+   <note>
+    <para>
+     Tenga en cuenta que los resultados de la ejecución de <command>SELECT</command>
+     o <command>INSERT</command> (con una consulta)
+     no se verán afectados por transacciones concurrentes.
+    </para>
+   </note>
+  </sect1>
+
+  <sect1>
+   <title>Bloqueos y tablas</title>
+
+   <para>
+    <productname>Postgres</productname>
+    ofrece varios modos de bloqueo para controlar el acceso
+    concurrente a los datos en tablas. Algunos de estos modos de bloqueo los adquiere
+    <productname>Postgres</productname>
+    automáticamente antes de la ejecución de una declaración, mientras que otros son
+    proporcionados para ser usados por las aplicaciones. Todos los modos de bloqueo (excepto para
+    AccessShareLock) adquiridos en un transacción se mantienen hasta la duración
+    de la transacción.
+   </para>
+
+   <para>
+    Además de bloqueos, también se usa compartición en exclusiva para
+    controlar acessos de lectura/escritura a las páginas de tablas en un buffer compartido.
+    Este método se pone en marcha inmediatamente después de que un tuplo es traído o actualizado.
+   </para>
+
+   <sect2>
+    <title>Bloqueos a nivel de tabla</title>
+
+    <para>
+     <variablelist>
+      <varlistentry>
+       <term>
+	AccessShareLock
+       </term>
+       <listitem>
+	<para>
+	 Un modo de bloqueo adquirido automáticamente sobre tablas que están siendo
+	 consultadas. <productname>Postgres</productname>
+	 libera estos bloqueos después de que se
+	 haya ejecutado una declaración.
+	</para>
+
+	<para>
+	 Conflictos con AccessExclusiveLock.
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>
+	RowShareLock
+       </term>
+       <listitem>
+	<para>
+	 Adquirido por <command>SELECT FOR UPDATE</command>
+	 y <command>LOCK TABLE</command>
+	 para declaraciones <option>IN ROW SHARE MODE</option>.
+	</para>
+
+	<para>
+	 Entra en conflictos con los modos ExclusiveLock y AccessExclusiveLock.
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>
+	RowExclusiveLock
+       </term>
+       <listitem>
+	<para>
+	 Lo adquieren <command>UPDATE</command>, <command>DELETE</command>,
+	 <command>INSERT</command> y <command>LOCK TABLE</command>
+	 para declaraciones <option>IN ROW EXCLUSIVE MODE</option>.
+	</para>
+
+	<para>
+	 Choca con los modos ShareLock, ShareRowExclusiveLock, ExclusiveLock y
+	 AccessExclusiveLock.
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>
+	ShareLock
+       </term>
+       <listitem>
+	<para>
+	 Lo adquieren <command>CREATE INDEX</command>
+	 y <command>LOCK TABLE</command>
+	 para declaraciones <option>IN SHARE MODE</option>.
+	</para>
+
+	<para>
+	 Está en conflicto con los modos RowExclusiveLock, ShareRowExclusiveLock,
+	 ExclusiveLock y AccessExclusiveLock.
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>
+	ShareRowExclusiveLock
+       </term>
+       <listitem>
+	<para>
+	 Lo toma <command>LOCK TABLE</command> para declaraciones
+	 <option>IN SHARE ROW EXCLUSIVE MODE</option>.
+	</para>
+
+	<para>
+	 Está en conflicto con los modos RowExclusiveLock, ShareLock, ShareRowExclusiveLock,
+	 ExclusiveLock y AccessExclusiveLock.
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>
+	ExclusiveLock
+       </term>
+       <listitem>
+	<para>
+	 Lo toma <command>LOCK TABLE</command>
+         para declaraciones <option>IN EXCLUSIVE MODE</option>.
+	</para>
+
+	<para>
+	 Entra en conflicto con los modos RowShareLock, RowExclusiveLock, ShareLock,
+	 ShareRowExclusiveLock, ExclusiveLock y AccessExclusiveLock.
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>
+	AccessExclusiveLock
+       </term>
+       <listitem>
+	<para>
+	 Lo toman <command>ALTER TABLE</command>,
+	 <command>DROP TABLE</command>,
+	 <command>VACUUM</command> y <command>LOCK TABLE</command>.
+	</para>
+
+	<para>
+	 Choca con RowShareLock, RowExclusiveLock, ShareLock,
+	 ShareRowExclusiveLock, ExclusiveLock y AccessExclusiveLock.
+
+	 <note>
+	  <para>
+	   Sólo AccessExclusiveLock bloquea la declaración <command>SELECT</command> (sin
+	   <option>FOR UPDATE</option>).
+	  </para>
+	 </note>
+	</para>
+       </listitem>
+      </varlistentry>
+     </variablelist>
+    </para>
+   </sect2>
+
+   <sect2>
+    <title>Bloqueos a nivel de fila</title>
+
+    <para>
+     Este tipo de bloqueos se producen cuando campos
+     internos de una fila son actualizados (o borrados o marcados para ser actualizados).
+     <productname>Postgres</productname>
+     no retiene en memoria ninguna información sobre filas modificadas y de este
+     modo no tiene límites para el número de filas bloqueadas sin incremento de bloqueo.
+    </para>
+
+    <para>
+     Sin embargo, tenga en cuenta que <command>SELECT FOR UPDATE</command> modificará
+     las filas seleccionadas marcándolas, de tal modo que se escribirán en el disco.
+    </para>
+
+    <para>
+     Los bloqueos a nivel de fila no afecta a los datos consultados. Estos son usados para bloquear
+     escrituras <emphasis>a la misma fila</emphasis> únicamente.
+    </para>
+   </sect2>
+  </sect1>
+
+  <sect1>
+   <title>Bloqueo e índices</title>
+
+   <para>
+    Aunque <productname>Postgres</productname>
+    proporciona desbloqueo para lectura/escritura de datos en tablas,
+    no ocurre así para cada método de acceso al índice
+    implementado en
+    en <productname>Postgres</productname>.
+   </para>
+
+   <para>
+    Los diferentes tipos de índices son manejados de la siguiente manera:
+
+    <variablelist>
+     <varlistentry>
+      <term>
+       Indices GiST y R-Tree
+      </term>
+      <listitem>
+       <para>
+	Nivel de bloqueo de índice del tipo Compartición/exclusividad para acceso lectura/escritura.
+	El bloqueo tiene lugar después de que la declaración se haya ejecutado.
+       </para>
+      </listitem>
+     </varlistentry>
+      <varlistentry>
+      <term>
+       Indices hash
+      </term>
+      <listitem>
+       <para>
+	Se usa el bloqueo a nivel de página para acceso lectura/escritura.
+	El bloqueo tiene lugar después de que la página haya sido procesada.
+       </para>
+
+       <para>
+	Los bloqueos a nivel de página producen mejor concurrencia que los bloqueos a nivel de índice
+	pero pueden provocar "puntos muertos".
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       Btree
+      </term>
+      <listitem>
+       <para>
+	Se usan bloqueos a nivel de página de compartición/exclusividad en los accesos
+	de lectura/escritura. Los bloqueos se llevan a cabo inmediatamente después de que el
+	tuplo índice sea insertado o buscado.
+       </para>
+
+       <para>
+	Los índices Btree proporciona la más alta concurrencia sin provocar
+	"estados muertos".
+       </para>
+      </listitem>
+     </varlistentry>
+    </variablelist>
+   </para>
+  </sect1>
+
+  <sect1>
+   <title>Chequeos de consistencia de datos en el nivel de aplicación</title>
+
+   <para>
+    Ya que las lecturas en <productname>Postgres</productname>
+    no bloquean los datos, sin tener en cuenta
+    el nivel de aislamiento de la transacción, los datos leídos por una transacción pueden ser
+    sobreescritos por otra. En otras palabras, si una fila es devuelta por
+    <command>SELECT</command> esto no significa que esta fila realmente
+    exista en el momento en que se devolvió (un tiempo después de que la declaración o la
+    transacción comenzaran, por ejemplo) ni
+    que la fila esté protegida de borrados o actualizaciones por
+    la transacción concurrente antes de que ésta se lleve a cabo o se pare.
+   </para>
+
+   <para>
+    Para asegurarse de la existencia de una fila y protegerla contra
+    actualizaciones concurrentes, debería usar <command>SELECT FOR UPDATE</command> o
+    una declaración de tipo <command>LOCK TABLE</command> más apropiada.
+    Esto debe tenerse en cuenta cuando desde otros entornos se estén portando aplicaciones
+    hacia <productname>Postgres</productname> utilizando el modo serializable.
+
+    <note>
+     <para>
+      Antes de la versión 6.5 <productname>Postgres</productname>
+      usaba bloqueos de lectura, así que la consideración
+      anterior es también válida cuando
+      actualice a 6.5 (o superior) desde versiones anteriores de
+      <productname>Postgres</productname>.
+     </para>
+    </note>
+   </para>
+  </sect1>
+ </chapter>
+
+<!-- Keep this comment at the end of the file
+Local variables:
+mode: sgml
+sgml-omittag:nil
+sgml-shorttag:t
+sgml-minimize-attributes:nil
+sgml-always-quote-attributes:t
+sgml-indent-step:1
+sgml-indent-data:t
+sgml-parent-document:nil
+sgml-default-dtd-file:"./reference.ced"
+sgml-exposed-tags:nil
+sgml-local-catalogs:"/usr/lib/sgml/catalog"
+sgml-local-ecat-files:nil
+End:
+-->

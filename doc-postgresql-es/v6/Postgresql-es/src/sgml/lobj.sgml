@@ -1,0 +1,556 @@
+ <chapter id="largeObjects">
+  <title id="largeObjects-title">Objetos Grandes</title>
+
+  <para>
+   En <productname>Postgres</productname>,
+   los valores de los datos se almacenan en tuplas y
+   las tuplas individuales no pueden abarcar varias páginas
+   de datos. Como el tamaño de una página de datos es de
+   8192 bytes, el límite máximo del tamaño de un valor de
+   un dato es relativamente pequeño. Para soportar el
+   almacenamiento de valores atómicos más grandes,
+   <productname>Postgres</productname> proporciona una
+   interfaz para objetos grandes. Esta interfaz proporciona
+   un acceso orientado a archivos para aquellos datos del
+   usuario que han sido declarados como de tipo grande.
+   Esta sección describe la implementación y las interfaces
+   del lenguaje de consulta y programación para los
+   datos de objetos grandes en 
+   <productname>Postgres</productname>.
+  </para>
+
+  <sect1>
+   <title>Nota Histórica</title>
+
+   <para>
+    Originalmente, <productname>Postgres 4.2</productname>
+    soportaba tres implementaciones estándar de objetos
+    grandes: como archivos externos a <productname>Postgres</productname>,
+    como archivos externos controlados por <productname>Postgres</productname>,
+    y como datos almacenados dentro de la base de datos
+    <productname>Postgres</productname>. Esto causaba gran confusión entre
+    los usuarios. Como resultado, sólo se soportan objetos grandes como datos
+    almacenados dentro de la base de datos <productname>Postgres</productname>
+    en <productname>PostgreSQL</productname>. Aún cuando es más lento el
+    acceso, proporciona una integridad de datos más estricta.
+    Por razones históricas, a este esquema de almacenamiento se lo denomina
+    Objetos grandes invertidos. (Utilizaremos en esta sección los términos objetos
+    grandes invertidos y objetos grandes en forma alternada refiriéndonos
+    a la misma cosa.)
+   </para>
+  </sect1>
+
+  <sect1>
+   <title>Características de la Implementación</title>
+
+   <para>
+    La implementación de objetos grandes invertidos separa
+    los objetos grandes en "trozos" y almacena los trozos en
+    tuplas de la base de datos. Un índice B-tree garantiza
+    búsquedas rápidas del número de trozo correcto cuando se
+    realizan accesos de lectura y escritura aleatorios.
+   </para>
+  </sect1>
+
+  <sect1>
+   <title>Interfaces</title>
+
+   <para>
+    Las herramientas que <productname>Postgres</productname>
+    proporciona para acceder a los objetos grandes, tanto en
+    el backend como parte de funciones definidas por el
+    usuario como en el frontend como parte de una aplicación
+    que utiliza la interfaz, se describen más abajo. Para
+    los usuarios familiarizados con
+    <productname>Postgres 4.2</productname>,
+    <productname>PostgreSQL</productname> tiene un nuevo
+    conjunto de funciones que proporcionan una interfaz más
+    coherente.
+
+    <note>
+     <para>
+      Toda manipulación de objetos grandes <emphasis>debe</emphasis>
+      ocurrir dentro de una transacción SQL. Este requerimiento
+      es obligatorio a partir de Postgres v6.5, a pesar que en
+      versiones anteriores era un requerimiento implícito, e
+      ignorarlo resultará en un comportamiento impredecible.
+     </para>
+    </note>
+   </para>
+
+   <para>
+    La interfaz de objetos grandes en <productname>Postgres</productname>
+    está diseñada en forma parecida a la interfaz del sistema de archivos de
+    <acronym>Unix</acronym>, con funciones análogas como
+    <function>open(2)</function>,  <function>read(2)</function>,
+    <function>write(2)</function>,
+    <function>lseek(2)</function>, etc. Las funciones de usuario llaman
+    a estas rutinas para obtener sólo los datos de interés de un objeto
+    grande. Por ejemplo, si existe un tipo de objeto grande llamado
+    foto_sorpresa que almacena fotografías de caras, entonces puede definirse
+    una función llamada barba sobre los datos de foto_sorpresa. Barba puede
+    mirar el tercio inferior de una fotografía, y determinar el color de
+    la barba que aparece, si es que hubiera. El contenido total del objeto
+    grande no necesita ser puesto en un búfer, ni siquiera examinado por la
+    función barba.
+    Los objetos grandes pueden ser accedidos desde funciones <acronym>C</acronym>
+    cargadas dinámicamente o programas clientes de bases de datos enlazados con
+    la librería. <productname>Postgres</productname> proporciona un conjunto de
+    rutinas que soportan la apertura, lectura, escritura, cierre y posicionamiento
+    en objetos grandes.
+   </para>
+
+   <sect2>
+    <title>Creando un Objeto Grande</title>
+
+    <para>
+     La rutina
+<synopsis>
+Oid lo_creat(PGconn *<replaceable class="parameter">conexion</replaceable>, int <replaceable class="parameter">modo</replaceable>)
+</synopsis>
+     crea un nuevo objeto grande.
+     <replaceable class="parameter">modo</replaceable> es una máscara de bits
+     que describe distintos atributos del nuevo objeto. Las constantes simbólicas
+     listadas aquí se encuentran definidas en
+     <filename>$<envar>PGROOT</envar>/src/backend/libpq/libpq-fs.h</filename>.
+     El tipo de acceso (lectura, escritura, o ambos) se controla efectuando una
+     operación OR entre los bits <acronym>INV_READ</acronym> (lectura) e
+     <acronym>INV_WRITE</acronym> (escritura). Si el objeto grande debe archivarse
+     -- es decir, si versiones históricas del mismo deben moverse periódicamente a
+     una tabla de archivo especial -- entonces el bit <acronym>INV_ARCHIVE</acronym>
+     debe utilizarse. Los dieciséis bits de orden bajo de la máscara constituyen el
+     número de manejador de almacenamiento donde debe residir el objeto grande.
+     Para otros sitios que no sean Berkeley, estos bits deberán estar siempre en
+     cero.
+     Los comandos indicados más abajo crean un objeto grande (invertido):
+     <programlisting>
+inv_oid = lo_creat(INV_READ|INV_WRITE|INV_ARCHIVE);
+     </programlisting>
+    </para>
+   </sect2>
+
+   <sect2>
+    <title>Importando un Objeto Grande</title>
+
+    <para>
+     Para importar un archivo de <acronym>UNIX</acronym> como un objeto grande,
+     puede llamar a la función
+<synopsis>
+Oid lo_import(PGconn *<replaceable class="parameter">conexion</replaceable>, const char *<replaceable class="parameter">nombre_de_archivo</replaceable>)
+</synopsis>
+    <replaceable class="parameter">nombre_de_archivo</replaceable> 
+     especifica la ruta y el nombre del archivo <acronym>Unix</acronym>
+     que será importado como objeto grande.
+    </para>
+   </sect2>
+
+   <sect2>
+    <title>Exportando un Objeto Grande</title>
+
+    <para>
+     Para exportar un objeto grande dentro de un archivo
+     de <acronym>UNIX</acronym>, puede llamar a la función
+<synopsis>
+int lo_export(PGconn *<replaceable class="parameter">conexion</replaceable>, Oid <replaceable class="parameter">lobjId</replaceable>, const char *<replaceable class="parameter">nombre_de_archivo</replaceable>)
+</synopsis>
+     El argumento <replaceable class="parameter">lobjId</replaceable>
+     especifica el Oid del objeto grande a exportar y el argumento
+     <replaceable class="parameter">nombre_de_archivo</replaceable>
+     indica la ruta y nombre del archivo <acronym>UNIX</acronym>.
+    </para>
+   </sect2>
+
+   <sect2>
+    <title>Abriendo un Objeto Grande Existente</title>
+
+    <para>
+     Para abrir un objeto grande existente, llame a la función
+<synopsis>
+int lo_open(PGconn *<replaceable class="parameter">conexion</replaceable>, Oid <replaceable class="parameter">lobjId</replaceable>, int <replaceable class="parameter">modo</replaceable>)
+</synopsis>
+     El argumento <replaceable class="parameter">lobjId</replaceable>
+     especifica el Oid del objeto grande que se abrirá. Los bits de
+     <replaceable class="parameter">modo</replaceable> controlan si
+     el objeto se abre para lectura (<acronym>INV_READ</acronym>),
+     escritura o ambos.
+     Un objeto grande no puede abrirse antes de crearse.
+     <function>lo_open</function> devuelve un descriptor de objeto grande para
+     su uso posterior en <function>lo_read</function>, <function>lo_write</function>,
+     <function>lo_lseek</function>, <function>lo_tell</function>, y
+     <function>lo_close</function>.
+</para>
+</sect2>
+
+<sect2>
+<title>Escribiendo Datos en un Objeto Grande</title>
+
+<para>
+     La rutina
+<programlisting>
+int lo_write(PGconn *<replaceable class="parameter">conexion</replaceable>, int <replaceable class="parameter">fd</replaceable>, const char *<replaceable class="parameter">buf</replaceable>, size_t <replaceable class="parameter">largo</replaceable>)
+</programlisting>
+     escribe <replaceable class="parameter">largo</replaceable> bytes desde
+     <replaceable class="parameter">buf</replaceable> al objeto grande
+     <replaceable class="parameter">fd</replaceable>. El argumento
+     <replaceable class="parameter">fd</replaceable> debió ser previamente
+     devuelto por una llamada a <function>lo_open</function>.
+     Devuelve el número de bytes escritos efectivamente. En caso de error, el
+     valor de retorno es negativo.
+</para>
+</sect2>
+
+<sect2>
+<title>Leyendo Datos desde un Objeto Grande</title>
+
+<para>
+     La rutina
+<programlisting>
+int lo_read(PGconn *<replaceable class="parameter">conexion</replaceable>, int <replaceable class="parameter">fd</replaceable>, char *<replaceable class="parameter">buf</replaceable>, size_t <replaceable class="parameter">largo</replaceable>)
+</programlisting>
+     lee <replaceable class="parameter">largo</replaceable> bytes desde
+     el objeto grande <replaceable class="parameter">fd</replaceable> a
+     <replaceable class="parameter">buf</replaceable>. El argumento
+     <replaceable class="parameter">fd</replaceable> debió ser previamente
+     devuelto por una llamada a <function>lo_open</function>.
+     Devuelve el número de bytes leídos efectivamente. En caso de error, el
+     valor de retorno es negativo.
+</para>
+</sect2>
+
+<sect2>
+<title>Posicionándose en un Objeto Grande</title>
+
+<para>
+     Para cambiar la ubicación actual de lectura o escritura en
+     un objeto grande, utilice la función
+<programlisting>
+int lo_lseek(PGconn *<replaceable class="parameter">conexion</replaceable>, int <replaceable class="parameter">fd</replaceable>, int <replaceable class="parameter">desplazamiento</replaceable>, int <replaceable class="parameter">desde_donde</replaceable>)
+</programlisting>
+     Esta rutina mueve el puntero de posición actual para el
+     objeto grande descripto por
+     <replaceable class="parameter">fd</replaceable> a la nueva
+     ubicación especificada por el
+     <replaceable class="parameter">desplazamiento</replaceable>.
+     Los valores válidos para
+     <replaceable class="parameter">desde_donde</replaceable> son
+     <acronym>SEEK_SET</acronym>, <acronym>SEEK_CUR</acronym>, y
+     <acronym>SEEK_END</acronym>.
+</para>
+</sect2>
+
+<sect2>
+<title>Cerrando un Descriptor de Objeto Grande</title>
+
+<para>
+     Un objeto grande puede cerrarse llamando a
+<programlisting>
+int lo_close(PGconn *<replaceable class="parameter">conexion</replaceable>, int <replaceable class="parameter">fd</replaceable>)
+</programlisting>
+     donde <replaceable class="parameter">fd</replaceable> es un
+     descriptor de objeto grande devuelto por
+     <function>lo_open</function>. Si hay éxito, <function>lo_close</function>
+      devuelve cero.  Si hay un error, el valor devuelto es negativo.
+</para>
+</sect2>
+</sect1>
+
+<sect1>
+<title>Funciones registradas Incorporadas</title>
+
+<para>
+     Existen dos funciones registradas incorporadas, <acronym>lo_import</acronym>
+     y <acronym>lo_export</acronym> que son convenientes para el uso en consultas
+     <acronym>SQL</acronym>.
+     Aquí hay un ejemplo de su uso
+<programlisting>
+CREATE TABLE imagen (
+    nombre            text,
+    contenido         oid
+);
+
+INSERT INTO imagen (nombre, contenido)
+    VALUES ('imagen hermosa', lo_import('/etc/motd'));
+
+SELECT lo_export(imagen.contenido, "/tmp/motd") from imagen
+    WHERE nombre = 'imagen hermosa';
+</programlisting>
+</para>
+</sect1>
+
+<sect1>
+<title>Accediendo a Objetos Grandes desde LIBPQ</title>
+
+<para>
+     Debajo se encuentra un programa de ejemplo que muestra cómo
+     puede utilizarse la interfaz de objetos grandes de LIBPQ.
+     Partes del programa están comentadas pero se dejan en la
+     fuente para el beneficio de los lectores. Este programa
+     puede encontrarse en
+<filename>
+../src/test/examples
+</filename>
+     Las aplicaciones que utilicen la interfaz de objetos grandes
+     en LIBPQ deben incluir el archivo de cabecera libpq/libpq-fs.h
+     y enlazarse con la librería libpq.
+</para>
+</sect1>
+
+<sect1>
+<title>Programa de Ejemplo</title>
+
+<para>
+<programlisting>
+/*--------------------------------------------------------------
+          *
+          * testlo.c--
+          *    prueba utilizando objetos grandes con libpq
+          *
+          * Copyright (c) 1994, Regents of the University of California
+          *
+          *
+          * IDENTIFICATION
+          *    /usr/local/devel/pglite/cvs/src/doc/manual.me,v 1.16 1995/09/01 23:55:00 jolly Exp
+          *
+          *--------------------------------------------------------------
+          */
+         #include &lt;stdio.h&gt;
+         #include "libpq-fe.h"
+         #include "libpq/libpq-fs.h"
+
+         #define BUFSIZE          1024
+
+         /*
+          * importFile *    importar el archivo "filename" en la base de datos como el objeto grande "lobjOid"
+          *
+          */
+         Oid importFile(PGconn *conn, char *filename)
+         {
+             Oid lobjId;
+             int lobj_fd;
+             char buf[BUFSIZE];
+             int nbytes, tmp;
+             int fd;
+
+             /*
+              * abrir el archivo a leer
+              */
+             fd = open(filename, O_RDONLY, 0666);
+             if (fd &lt; 0)  {   /* error */
+              fprintf(stderr, "no se pudo abrir el archivo unix %s\n", filename);
+             }
+
+             /*
+              * crear el objeto grande
+              */
+             lobjId = lo_creat(conn, INV_READ|INV_WRITE);
+             if (lobjId == 0) {
+              fprintf(stderr, "no se pudo crear el objeto grande\n");
+             }
+
+             lobj_fd = lo_open(conn, lobjId, INV_WRITE);
+             /*
+              * Leer desde el archivo Unix y escribir al archivo invertido
+              */
+             while ((nbytes = read(fd, buf, BUFSIZE)) &gt; 0) {
+              tmp = lo_write(conn, lobj_fd, buf, nbytes);
+              if (tmp &lt; nbytes) {
+                  fprintf(stderr, "error al escribir el objeto grande\n");
+              }
+             }
+
+             (void) close(fd);
+             (void) lo_close(conn, lobj_fd);
+
+             return lobjId;
+         }
+
+         void pickout(PGconn *conn, Oid lobjId, int start, int len)
+         {
+             int lobj_fd;
+             char* buf;
+             int nbytes;
+             int nread;
+
+             lobj_fd = lo_open(conn, lobjId, INV_READ);
+             if (lobj_fd &lt; 0) {
+              fprintf(stderr,"no se pudo abrir el objeto grande %d\n",
+                   lobjId);
+             }
+
+             lo_lseek(conn, lobj_fd, start, SEEK_SET);
+             buf = malloc(len+1);
+
+             nread = 0;
+             while (len - nread &gt; 0) {
+              nbytes = lo_read(conn, lobj_fd, buf, len - nread);
+              buf[nbytes] = ' ';
+              fprintf(stderr,"&gt;&gt;&gt; %s", buf);
+              nread += nbytes;
+             }
+             fprintf(stderr,"\n");
+             lo_close(conn, lobj_fd);
+         }
+
+         void overwrite(PGconn *conn, Oid lobjId, int start, int len)
+         {
+             int lobj_fd;
+             char* buf;
+             int nbytes;
+             int nwritten;
+             int i;
+
+             lobj_fd = lo_open(conn, lobjId, INV_READ);
+             if (lobj_fd &lt; 0) {
+              fprintf(stderr,"no se pudo abrir el objeto grande %d\n",
+                   lobjId);
+             }
+
+             lo_lseek(conn, lobj_fd, start, SEEK_SET);
+             buf = malloc(len+1);
+
+             for (i=0;i&lt;len;i++)
+              buf[i] = 'X';
+             buf[i] = ' ';
+
+             nwritten = 0;
+             while (len - nwritten &gt; 0) {
+              nbytes = lo_write(conn, lobj_fd, buf + nwritten, len - nwritten);
+              nwritten += nbytes;
+             }
+             fprintf(stderr,"\n");
+             lo_close(conn, lobj_fd);
+         }
+
+         /*
+          * exportFile *    exportar el objeto grande "lobjOid" al archivo "filename"
+          *
+          */
+         void exportFile(PGconn *conn, Oid lobjId, char *filename)
+         {
+             int lobj_fd;
+             char buf[BUFSIZE];
+             int nbytes, tmp;
+             int fd;
+
+             /*
+              * create an inversion "object"
+              */
+             lobj_fd = lo_open(conn, lobjId, INV_READ);
+             if (lobj_fd &lt; 0) {
+              fprintf(stderr,"no se pudo abrir el objeto grande %d\n",
+                   lobjId);
+             }
+
+             /*
+              * open the file to be written to
+              */
+             fd = open(filename, O_CREAT|O_WRONLY, 0666);
+             if (fd &lt; 0)  {   /* error */
+              fprintf(stderr, "no se pudo abrir el archivo unix %s\n",
+                   filename);
+             }
+
+             /*
+              * leer desde el archivo invertido y escribir al archivo Unix
+              */
+             while ((nbytes = lo_read(conn, lobj_fd, buf, BUFSIZE)) &gt; 0) {
+              tmp = write(fd, buf, nbytes);
+                 if (tmp &lt; nbytes) {
+                  fprintf(stderr,"error al escribir %s\n",
+                       filename);
+              }
+             }
+
+             (void) lo_close(conn, lobj_fd);
+             (void) close(fd);
+
+             return;
+         }
+
+         void
+         exit_nicely(PGconn* conn)
+         {
+           PQfinish(conn);
+           exit(1);
+         }
+
+         int
+         main(int argc, char **argv)
+         {
+             char *in_filename, *out_filename;
+             char *database;
+             Oid lobjOid;
+             PGconn *conn;
+             PGresult *res;
+
+             if (argc != 4) {
+              fprintf(stderr, "Utilización: %s database_name in_filename out_filename\n",
+                   argv[0]);
+              exit(1);
+             }
+
+             database = argv[1];
+             in_filename = argv[2];
+             out_filename = argv[3];
+
+             /*
+              * set up the connection
+              */
+             conn = PQsetdb(NULL, NULL, NULL, NULL, database);
+
+             /* check to see that the backend connection was successfully made */
+             if (PQstatus(conn) == CONNECTION_BAD) {
+              fprintf(stderr,"Falló la conexión con la base de datos '%s'.\n", database);
+              fprintf(stderr,"%s",PQerrorMessage(conn));
+              exit_nicely(conn);
+             }
+
+             res = PQexec(conn, "begin");
+             PQclear(res);
+
+             printf("importando archivo %s\n", in_filename);
+         /*  lobjOid = importFile(conn, in_filename); */
+             lobjOid = lo_import(conn, in_filename);
+         /*
+             printf("como objeto grande %d.\n", lobjOid);
+
+             printf("extrayendo los bytes 1000-2000 del objeto grande\n");
+             pickout(conn, lobjOid, 1000, 1000);
+
+             printf("sobreescribiendo los bytes 1000-2000 del objeto grande con X's\n");
+             overwrite(conn, lobjOid, 1000, 1000);
+         */
+
+             printf("exportando el objeto grande al archivo %s\n", out_filename);
+         /*    exportFile(conn, lobjOid, out_filename); */
+             lo_export(conn, lobjOid,out_filename);
+
+             res = PQexec(conn, "end");
+             PQclear(res);
+             PQfinish(conn);
+             exit(0);
+         }
+</programlisting>
+</para>
+
+</sect1>
+</chapter>
+
+<!-- Keep this comment at the end of the file
+Local variables:
+mode: sgml
+sgml-omittag:nil
+sgml-shorttag:t
+sgml-minimize-attributes:nil
+sgml-always-quote-attributes:t
+sgml-indent-step:1
+sgml-indent-data:t
+sgml-parent-document:nil
+sgml-default-dtd-file:"./reference.ced"
+sgml-exposed-tags:nil
+sgml-local-catalogs:"/usr/lib/sgml/catalog"
+sgml-local-ecat-files:nil
+End:
+-->
+
+

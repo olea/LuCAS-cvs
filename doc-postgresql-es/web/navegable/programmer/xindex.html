@@ -1,0 +1,1305 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<HTML
+><HEAD
+><TITLE
+>Utilización de las Extensiones en los Índices</TITLE
+><META
+NAME="GENERATOR"
+CONTENT="Modular DocBook HTML Stylesheet Version 1.59"><LINK
+REL="HOME"
+TITLE="Guia del Programador de PostgreSQL"
+HREF="programmer.html"><LINK
+REL="PREVIOUS"
+TITLE="Reglas frente triggers"
+HREF="x1201.html"><LINK
+REL="NEXT"
+TITLE="GiST Indices"
+HREF="gist.html"></HEAD
+><BODY
+CLASS="CHAPTER"
+BGCOLOR="#FFFFFF"
+TEXT="#000000"
+LINK="#0000FF"
+VLINK="#840084"
+ALINK="#0000FF"
+><DIV
+CLASS="NAVHEADER"
+><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TH
+COLSPAN="3"
+ALIGN="center"
+>Guia del Programador de PostgreSQL</TH
+></TR
+><TR
+><TD
+WIDTH="10%"
+ALIGN="left"
+VALIGN="bottom"
+><A
+HREF="x1201.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="80%"
+ALIGN="center"
+VALIGN="bottom"
+></TD
+><TD
+WIDTH="10%"
+ALIGN="right"
+VALIGN="bottom"
+><A
+HREF="gist.html"
+>Siguiente</A
+></TD
+></TR
+></TABLE
+><HR
+ALIGN="LEFT"
+WIDTH="100%"></DIV
+><DIV
+CLASS="CHAPTER"
+><H1
+><A
+NAME="XINDEX"
+>Utilización de las Extensiones en los Índices</A
+></H1
+><P
+> 
+   Los procedimientos descritos hasta aquí le permiten definir un nuevo tipo, 
+   nuevas funciones y nuevos operadores. Sin embargo, todavía no podemos 
+   definir un índice secundario (tal como un <SPAN
+CLASS="ACRONYM"
+>B-tree</SPAN
+>, 
+   <SPAN
+CLASS="ACRONYM"
+>R-tree</SPAN
+> o método de acceso hash) sobre un nuevo tipo o 
+   sus operadores. 
+  </P
+><P
+> 
+   Mírese nuevamente 
+   <A
+HREF="x294.html#EXTEND-CATALOGS"
+><I
+><I
+>El principal sistema de catalogo de <I
+>Postgres</I
+></I
+><I
+></I
+></I
+></A
+>. 
+   La mitad derecha muestra los catálogos que debemos modificar para poder 
+   indicar a <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> cómo utilizar un tipo 
+   definido por el usuario y/u operadores definidos por el usuario con un 
+   índice (es decir, 
+   <TT
+CLASS="FILENAME"
+>pg_am, pg_amop, pg_amproc, pg_operator</TT
+> y 
+   <TT
+CLASS="FILENAME"
+>pg_opclass</TT
+>). 
+   Desafortunadamente, no existe un comando simple para hacer esto. 
+   Demostraremos cómo modificar estos catálogos a través de un ejemplo 
+   ejecutable: una nueva clase de operador para el método de acceso 
+   <SPAN
+CLASS="ACRONYM"
+>B-tree</SPAN
+> que almacene y ordene números complejos en orden 
+   ascendente de valor absoluto. 
+  </P
+><P
+> 
+   La clase <TT
+CLASS="FILENAME"
+>pg_am</TT
+> contiene una instancia para cada médodo 
+   de acceso definido por el usuario. El soporte de acceso a la memoria (heap) 
+   está integrado en <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+>, pero todos los demás 
+   métodos de acceso están descritos aquí. El esquema es 
+ 
+   <DIV
+CLASS="TABLE"
+><A
+NAME="AEN1239"
+></A
+><P
+><B
+>Tabla 1. Esquema de un Índice</B
+></P
+><TABLE
+BORDER="1"
+BGCOLOR="#E0E0E0"
+CELLSPACING="0"
+CELLPADDING="4"
+CLASS="CALSTABLE"
+><THEAD
+><TR
+><TH
+ALIGN="LEFT"
+VALIGN="TOP"
+>Atributo</TH
+><TH
+ALIGN="LEFT"
+VALIGN="TOP"
+>Descripción</TH
+></TR
+></THEAD
+><TBODY
+><TR
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+>amname</TD
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+>nombre del método de acceso</TD
+></TR
+><TR
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+>amowner</TD
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+>identificador de objeto del propietario de esta instancia en 
+        pg_user</TD
+></TR
+><TR
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+>amstrategies</TD
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+>número de estrategias para este método de acceso 
+        (véase más abajo)</TD
+></TR
+><TR
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+>amsupport</TD
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+>número de rutinas de soporte para este método de acceso (véase 
+        más abajo)</TD
+></TR
+><TR
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+>amorderstrategy</TD
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+>cero si el índice no ofrece secuencia de ordenamiento, sino el 
+        número de estrategia del operador de estrategia que describe la 
+        secuencia de ordenamiento</TD
+></TR
+><TR
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+>amgettuple</TD
+><TD
+>&nbsp;</TD
+></TR
+><TR
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+>aminsert</TD
+><TD
+>&nbsp;</TD
+></TR
+><TR
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+>...</TD
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+>indicadores de procedimiento para las rutinas de interfaz con 
+        el método de acceso. Por ejemplo, aquí aparecen identificadores 
+        regproc para abrir, cerrar y obtener instancias desde el método de 
+        acceso</TD
+></TR
+></TBODY
+></TABLE
+></DIV
+> 
+  </P
+><P
+> 
+   El identificador de objeto (<SPAN
+CLASS="ACRONYM"
+>object ID</SPAN
+>) de la 
+   instancia en <TT
+CLASS="FILENAME"
+>pg_am</TT
+> se utiliza como una clave 
+   foránea en multitud de otras clases. No es necesario que Ud. agregue 
+   una nueva instancia en esta clase; lo que debe interesarle es el 
+   identificador de objeto (<SPAN
+CLASS="ACRONYM"
+>object ID</SPAN
+>) de la 
+   instancia del método de acceso que quiere extender: 
+
+   <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>SELECT oid FROM pg_am WHERE amname = 'btree';
+
+         +----+
+         |oid |
+         +----+
+         |403 |
+         +----+
+   </PRE
+></TD
+></TR
+></TABLE
+>
+
+   Utilizaremos ese comando <B
+CLASS="COMMAND"
+>SELECT</B
+> en una cláusula 
+   <B
+CLASS="COMMAND"
+>WHERE</B
+> posterior. 
+  </P
+><P
+>   El atributo <TT
+CLASS="FILENAME"
+>amstrategies</TT
+> tiene como finalidad 
+   estandarizar comparaciones entre tipos de datos. Por ejemplo, los 
+   <SPAN
+CLASS="ACRONYM"
+>B-tree</SPAN
+>s imponen un ordenamiento estricto en las 
+   claves, de menor a mayor. Como <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> 
+   permite al usuario definir operadores, no puede, a través del nombre 
+   del operador (por ej., "&#62;" or "&#60;"), identificar qué tipo de 
+   comparación es. De hecho, algunos métodos de acceso no imponen ningún 
+   ordenamiento. Por ejemplo, los <SPAN
+CLASS="ACRONYM"
+>R-tree</SPAN
+>s expresan 
+   una relación de inclusión en un rectángulo, mientras que una estructura 
+   de datos de tipo hash expresa únicamente similaridad de bits basada en 
+   el valor de una función hash. <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> 
+   necesita alguna forma consistente para interpretar los requisitos en 
+   sus consultas, identificando el operador y decidiendo si se puede 
+   utilizar un índice existente. Esto implica que 
+   <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> necesita conocer, por ejemplo, que 
+   los operadores "&#60;=" y "&#62;" particionan un <SPAN
+CLASS="ACRONYM"
+>B-tree</SPAN
+>. 
+   <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> utiliza estrategias para expresar 
+   esas relaciones entre los operadores y las formas en que pueden 
+   utilizarse al recorrer los índices. 
+  </P
+><P
+> 
+   Definir un nuevo conjunto de estrategias está más allá del alcance de 
+   esta exposición, pero explicaremos cómo funcionan las estrategias 
+   <SPAN
+CLASS="ACRONYM"
+>B-tree</SPAN
+> porque necesitará conocerlas para agregar una 
+   nueva clase de operador. En la clase <TT
+CLASS="FILENAME"
+>pg_am</TT
+>, el 
+   atributo amstrategies es el número de estrategias definidas para este 
+   método de acceso. Para los <SPAN
+CLASS="ACRONYM"
+>B-tree</SPAN
+>s, este número es
+   5. Estas estrategias corresponden a 
+ 
+   <DIV
+CLASS="TABLE"
+><A
+NAME="AEN1290"
+></A
+><P
+><B
+>Tabla 2. Estrategias B-tree</B
+></P
+><TABLE
+BORDER="1"
+BGCOLOR="#E0E0E0"
+CELLSPACING="0"
+CELLPADDING="4"
+CLASS="CALSTABLE"
+><THEAD
+><TR
+><TH
+ALIGN="LEFT"
+VALIGN="TOP"
+>Operación</TH
+><TH
+ALIGN="LEFT"
+VALIGN="TOP"
+>Índice</TH
+></TR
+></THEAD
+><TBODY
+><TR
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+>menor que</TD
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+>1</TD
+></TR
+><TR
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+>menor que o igual a</TD
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+>2</TD
+></TR
+><TR
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+>igual</TD
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+>3</TD
+></TR
+><TR
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+>mayor que o igual a</TD
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+>4</TD
+></TR
+><TR
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+>mayor que</TD
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+>5</TD
+></TR
+></TBODY
+></TABLE
+></DIV
+> 
+  </P
+><P
+> 
+   La idea es que será necesario agregar procedimientos correspondientes a 
+   las comparaciones mencionadas arriba a la tabla 
+   <TT
+CLASS="FILENAME"
+>pg_amop</TT
+> (véase más abajo). 
+   El código de método de acceso puede utilizar estos números de estrategia, 
+   sin tener en cuenta el tipo de datos, para resolver cómo particionar el 
+   <SPAN
+CLASS="ACRONYM"
+>B-tree</SPAN
+>, calcular la selectividad, etcétera. No se 
+   preocupe aún acerca de los detalles para agregar procedimientos; sólo 
+   comprenda que debe existir un conjunto de procedimientos para 
+   <TT
+CLASS="FILENAME"
+>int2, int4, oid,</TT
+> y todos los demás tipos de datos 
+   donde puede operar un <SPAN
+CLASS="ACRONYM"
+>B-tree</SPAN
+>. 
+  </P
+><P
+> 
+   Algunas veces, las estrategias no proporcionan la información suficiente 
+   para resolver la forma de utilizar un índice. Algunos métodos de acceso 
+   requieren otras rutinas de soporte para poder funcionar. Por ejemplo, el 
+   método de acceso <SPAN
+CLASS="ACRONYM"
+>B-tree</SPAN
+> debe ser capaz de comparar 
+   dos claves y determinar si una es mayor que, igual a, o menor que la 
+   otra. De manera análoga, el método de acceso <SPAN
+CLASS="ACRONYM"
+>R-tree</SPAN
+> 
+   debe ser capaz de calcular intersecciones, uniones, y tamaños de 
+   rectángulos. Estas operaciones no corresponden a requisitos del 
+   usuario en las consultas SQL; son rutinas administrativas utilizadas por 
+   los métodos de acceso, internamente. 
+  </P
+><P
+> 
+   Para manejar diversas rutinas de soporte consistentemente entre todos 
+   los métodos de acceso de <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+>, 
+   <TT
+CLASS="FILENAME"
+>pg_am</TT
+> incluye un atributo llamado 
+   <TT
+CLASS="FILENAME"
+>amsupport</TT
+>. Este atributo almacena el número de 
+   rutinas de soporte utilizadas por un método de acceso. Para los 
+   <SPAN
+CLASS="ACRONYM"
+>B-tree</SPAN
+>s, este número es uno -- la rutina que toma dos 
+   claves y devuelve -1, 0, o +1, dependiendo si la primer clave es menor 
+   que, igual a, o mayor que la segunda. 
+ 
+   <DIV
+CLASS="NOTE"
+><P
+></P
+><TABLE
+CLASS="NOTE"
+WIDTH="100%"
+BORDER="0"
+><TR
+><TD
+WIDTH="25"
+ALIGN="CENTER"
+VALIGN="TOP"
+><IMG
+SRC="./stylesheet-images/note.gif"
+HSPACE="5"
+ALT="Nota"></TD
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+><P
+>     En términos estrictos, esta rutina puede devolver un número negativo 
+     (&#60; 0), 0, o un valor positivo distinto de cero (&#62; 0). 
+    </P
+></TD
+></TR
+></TABLE
+></DIV
+> 
+  </P
+><P
+> 
+   La entrada <TT
+CLASS="FILENAME"
+>amstrategies</TT
+> en pg_am sólo indica el 
+   número de estrategias definidas para el método de acceso en cuestión. 
+   Los procedimientos para menor que, menor que o igual a, etcétera no 
+   aparecen en <TT
+CLASS="FILENAME"
+>pg_am</TT
+>.  De manera similar, 
+   <TT
+CLASS="FILENAME"
+>amsupport</TT
+> es solamente el número de rutinas de
+   soporte que requiere el método de acceso. Las rutinas reales están 
+   listadas en otro lado. 
+  </P
+><P
+> 
+   Además, la entrada <TT
+CLASS="FILENAME"
+>amorderstrategy</TT
+> indica si el 
+   método de acceso soporta o no un recorrido ordenado. Cero significa que 
+   no; si lo hace, <TT
+CLASS="FILENAME"
+>amorderstrategy</TT
+> es el número de 
+   la rutina de estrategia que corresponde al operador de ordenamiento. 
+   Por ejemplo, btree tiene <TT
+CLASS="FILENAME"
+>amorderstrategy</TT
+> = 1 que 
+   corresponde al número de estrategia de "menor que". 
+  </P
+><P
+> 
+   La próxima clase de interés es pg_opclass. Esta clase tiene como única 
+   finalidad asociar un nombre y tipo por defecto con un oid. En pg_amop 
+   cada clase de operador <SPAN
+CLASS="ACRONYM"
+>B-tree</SPAN
+> tiene un conjunto de 
+   procedimientos, de uno a cinco, descritos más arriba. Algunas clases de 
+   operadores (opclasses) son <TT
+CLASS="FILENAME"
+>int2_ops,int4_ops, y 
+   oid_ops</TT
+>. Es necesario que Ud. agregue una instancia con su
+   nombre de clase de operador (por ejemplo, 
+   <TT
+CLASS="FILENAME"
+>complex_abs_ops</TT
+>) a <TT
+CLASS="FILENAME"
+>pg_opclass</TT
+>. 
+   El <TT
+CLASS="FILENAME"
+>oid</TT
+> de esta instancia es una clave foránea en 
+   otras clases.
+
+   <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>INSERT INTO pg_opclass (opcname, opcdeftype)
+    SELECT 'complex_abs_ops', oid FROM pg_type WHERE typname = 'complex_abs';
+
+SELECT oid, opcname, opcdeftype
+    FROM pg_opclass
+    WHERE opcname = 'complex_abs_ops';
+
+         +------+-----------------+------------+
+         |oid   | opcname         | opcdeftype |
+         +------+-----------------+------------+
+         |17314 | complex_abs_ops |      29058 |
+         +------+-----------------+------------+
+   </PRE
+></TD
+></TR
+></TABLE
+>
+
+   ¡Nótese que el oid para su instancia de <TT
+CLASS="FILENAME"
+>pg_opclass</TT
+> 
+   será diferente! No se preocupe por esto.  Obtendremos este número del 
+   sistema después igual que acabamos de hacerlo con el oid del tipo aquí. 
+  </P
+><P
+>   De esta manera ahora tenemos un método de acceso y una clase de operador. 
+   Aún necesitamos un conjunto de operadores; el procedimiento para definir 
+   operadores fue discutido antes en este manual. Para la clase de operador 
+   complex_abs_ops en Btrees, los operadores que necesitamos son:
+
+   <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>        valor absoluto menor que (absolute value less-than)
+        valor absoluto menor que o igual a (absolute value less-than-or-equal)
+        valor absoluto igual (absolute value equal)
+        valor absoluto mayor que o igual a (absolute value greater-than-or-equal)
+        valor absoluto mayor que (absolute value greater-than)
+   </PRE
+></TD
+></TR
+></TABLE
+>
+  </P
+><P
+>   Supongamos que el código que implementa las funciones definidas está 
+   almacenado en el archivo <TT
+CLASS="FILENAME"
+>PGROOT/src/tutorial/complex.c</TT
+>
+  </P
+><P
+>   Parte del código será parecido a este: (nótese que solamente mostraremos el
+   operador de igualdad en el resto de los ejemplos. Los otros cuatro operadores 
+   son muy similares. Refiérase a <TT
+CLASS="FILENAME"
+>complex.c</TT
+>o 
+   <TT
+CLASS="FILENAME"
+>complex.source</TT
+> para más detalles.)
+
+   <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>#define Mag(c) ((c)-&#62;x*(c)-&#62;x + (c)-&#62;y*(c)-&#62;y)
+
+         bool
+         complex_abs_eq(Complex *a, Complex *b)
+         {
+             double amag = Mag(a), bmag = Mag(b);
+             return (amag==bmag);
+         }
+   </PRE
+></TD
+></TR
+></TABLE
+>
+  </P
+><P
+>   Hay un par de cosas importantes que suceden arriba. 
+  </P
+><P
+>   Primero, nótese que se están definiendo operadores menor que, menor que o 
+   igual a, igual, mayor que o igual a, y mayor que para 
+   <TT
+CLASS="FILENAME"
+>int4</TT
+>. Todos estos operadores ya están definidos para 
+   <TT
+CLASS="FILENAME"
+>int4</TT
+> bajo los nombres &#60;, &#60;=, =, &#62;=,
+   and &#62;. Los nuevos operadores, por supuesto, se comportan de manera 
+   distinta. Para garantizar que <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> usa 
+   estos nuevos operadores en vez de los anteriores, es necesario que sean 
+   nombrados distinto que ellos. Este es un punto clave: Ud. puede sobrecargar 
+   operadores en <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+>, pero sólo si el operador 
+   no ha sido definido aún para los tipos de los argumentos. Es decir, si Ud. 
+   tiene &#60; definido para (int4, int4), no puede definirlo nuevamente. 
+   <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> no comprueba esto cuando define un 
+   nuevo operador, así es que debe ser cuidadoso. Para evitar este problema, 
+   se utilizarán nombres dispares para los operadores. Si hace esto mal, los 
+   métodos de acceso seguramente fallen cuando intente hacer recorridos. 
+  </P
+><P
+>   El otro punto importante es que todas las funciones de operador devuelven 
+   valores lógicos (Boolean). Los métodos de acceso cuentan con este hecho. 
+   (Por otro lado, las funciones de soporte devuelven cualquier cosa que el 
+   método de acceso particular espera -- en este caso, un entero con signo.) 
+   La rutina final en el archivo es la "rutina de soporte" mencionada cuando 
+   tratábamos el atributo amsupport de la clase <TT
+CLASS="FILENAME"
+>pg_am</TT
+>. 
+   Utilizaremos esto más adelante. Por ahora, ignórelo. 
+  </P
+><P
+>   <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>CREATE FUNCTION complex_abs_eq(complex_abs, complex_abs)
+              RETURNS bool
+              AS 'PGROOT/tutorial/obj/complex.so'
+              LANGUAGE 'c';
+   </PRE
+></TD
+></TR
+></TABLE
+>
+  </P
+><P
+>   Ahora defina los operadores que los utilizarán. Como se hizo notar, los 
+   nombres de operadores deben ser únicos entre todos los operadores que 
+   toman dos operandos <TT
+CLASS="FILENAME"
+>int4</TT
+>. Para ver si los nombres de 
+   operadores listados más arriba ya han sido ocupados, podemos hacer una 
+   consulta sobre <TT
+CLASS="FILENAME"
+>pg_operator</TT
+>:
+
+   <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    /*
+     * esta consulta utiliza el operador de expresión regular (~)
+     * para encontrar nombres de operadores de tres caracteres que terminen 
+     * con el carácter &#38;
+     */
+    SELECT *
+     FROM pg_operator
+     WHERE oprname ~ '^..&#38;$'::text;
+   </PRE
+></TD
+></TR
+></TABLE
+>
+
+  </P
+><P
+>   para ver si su nombre ya ha sido ocupado para los tipos que Ud. quiere. 
+   Las cosas importantes aquí son los procedimientos (que son las funciones 
+   <SPAN
+CLASS="ACRONYM"
+>C</SPAN
+>definidas más arriba) y las funciones de 
+   restricción y de selectividad de unión. Ud. debería utilizar solamente 
+   las que se usan abajo -- nótese que hay distintas funciones para los 
+   casos menor que, igual, y mayor que. Éstas deben proporcionarse, o el 
+   método de acceso fallará cuando intente utilizar el operador. Debería 
+   copiar los nombres para las funciones de restricción y de unión, pero 
+   utilice los nombres de procedimiento que definió en el último paso. 
+
+   <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>CREATE OPERATOR = (
+     leftarg = complex_abs, rightarg = complex_abs,
+     procedure = complex_abs_eq,
+     restrict = eqsel, join = eqjoinsel
+         )
+   </PRE
+></TD
+></TR
+></TABLE
+>
+  </P
+><P
+>   Téngase en cuenta que se definen cinco operadores correspondientes a 
+   menor, menor o igual, igual, mayor, y mayor o igual. 
+  </P
+><P
+>   Ya casi hemos terminado. La última cosa que necesitamos hacer es 
+   actualizar la tabla <TT
+CLASS="FILENAME"
+>pg_amop</TT
+>. Para hacer esto, 
+   necesitamos los siguientes atributos: 
+
+   <DIV
+CLASS="TABLE"
+><A
+NAME="AEN1374"
+></A
+><P
+><B
+>Tabla 3. Esquema de <TT
+CLASS="FILENAME"
+>pg_amproc</TT
+></B
+></P
+><TABLE
+BORDER="1"
+BGCOLOR="#E0E0E0"
+CELLSPACING="0"
+CELLPADDING="4"
+CLASS="CALSTABLE"
+><THEAD
+><TR
+><TH
+ALIGN="LEFT"
+VALIGN="TOP"
+>Atributo</TH
+><TH
+ALIGN="LEFT"
+VALIGN="TOP"
+>Descripción</TH
+></TR
+></THEAD
+><TBODY
+><TR
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+>amopid</TD
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+>el <TT
+CLASS="FILENAME"
+>oid</TT
+> de la instancia de
+        <TT
+CLASS="FILENAME"
+>pg_am</TT
+> para B-tree (== 403, véase 
+        arriba)</TD
+></TR
+><TR
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+>amopclaid</TD
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+>el <TT
+CLASS="FILENAME"
+>oid</TT
+> de la instancia de 
+	<TT
+CLASS="FILENAME"
+>pg_opclass</TT
+> para 
+        <TT
+CLASS="FILENAME"
+>complex_abs_ops</TT
+>(== lo que obtuvo en vez 
+        de <TT
+CLASS="FILENAME"
+>17314</TT
+>, véase arriba)</TD
+></TR
+><TR
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+>amopopr</TD
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+>los <TT
+CLASS="FILENAME"
+>oid</TT
+>s de los operadores para la 
+        clase de operador (opclass) (que obtendremos dentro de un 
+        minuto)</TD
+></TR
+></TBODY
+></TABLE
+></DIV
+>
+  </P
+><P
+>   Entonces necesitamos los <TT
+CLASS="FILENAME"
+>oid</TT
+>s de los operadores 
+   que acabamos de definir. Buscaremos los nombres de todos los 
+   operadores que toman dos argumentos de tipo 
+   <TT
+CLASS="FILENAME"
+>complex</TT
+>, y así sacaremos los nuestros:
+ 
+   <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    SELECT o.oid AS opoid, o.oprname
+     INTO TABLE complex_ops_tmp
+     FROM pg_operator o, pg_type t
+     WHERE o.oprleft = t.oid and o.oprright = t.oid
+      and t.typname = 'complex_abs';
+
+         +------+---------+
+         |oid   | oprname |
+         +------+---------+
+         |17321 | &#60;    |
+         +------+---------+
+         |17322 | &#60;=   |
+         +------+---------+
+         |17323 |  =      |
+         +------+---------+
+         |17324 | &#62;=   |
+         +------+---------+
+         |17325 | &#62;    |
+         +------+---------+
+   </PRE
+></TD
+></TR
+></TABLE
+>
+
+   (De nuevo, algunos de sus números de <TT
+CLASS="FILENAME"
+>oid</TT
+> serán 
+   seguramente diferentes.) Los operadores en los que estamos interesados 
+   son los que tienen <TT
+CLASS="FILENAME"
+>oid</TT
+>s 17321 hasta 17325. Los 
+   valores que Ud. obtendrá serán probablemente distintos, y debe 
+   sustituirlos abajo por estos valores. Haremos esto con una sentencia 
+   SELECT. 
+  </P
+><P
+>   Ahora estamos listos para actualizar <TT
+CLASS="FILENAME"
+>pg_amop</TT
+> con 
+   nuestra nueva clase de operador. La cosa más importante en toda esta 
+   explicación es que los operadores están ordenados desde menor que 
+   hasta mayor que, en <TT
+CLASS="FILENAME"
+>pg_amop</TT
+>. Agregamos las 
+   instancias necesarias:
+
+   <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    INSERT INTO pg_amop (amopid, amopclaid, amopopr, amopstrategy)
+        SELECT am.oid, opcl.oid, c.opoid, 1
+        FROM pg_am am, pg_opclass opcl, complex_abs_ops_tmp c
+        WHERE amname = 'btree' AND
+            opcname = 'complex_abs_ops' AND
+            c.oprname = '&#60;';
+   </PRE
+></TD
+></TR
+></TABLE
+>
+
+   Ahora haga lo mismo con los otros operadores sustituyendo el "1" en la 
+   tercera línea de arriba y el "&#60;" en la última línea. Nótese el orden: 
+   "menor que" es 1, "menor que o igual a" es 2, "igual" es 3, "mayor que 
+   o igual a" es 4, y "mayor que" es 5. 
+  </P
+><P
+>   El próximo paso es registrar la "rutina de soporte" previamente descrita 
+   en la explicación de <TT
+CLASS="FILENAME"
+>pg_am</TT
+>. El 
+   <TT
+CLASS="FILENAME"
+>oid</TT
+> de esta rutina de soporte está almacenada en la 
+   clase <TT
+CLASS="FILENAME"
+>pg_amproc</TT
+>, cuya clave está compuesta por el 
+   <TT
+CLASS="FILENAME"
+>oid</TT
+> del método de acceso y el 
+   <TT
+CLASS="FILENAME"
+>oid</TT
+> de la clase de operador. 
+   Primero, necesitamos registrar la función en 
+   <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> (recuerde que pusimos el código 
+   <SPAN
+CLASS="ACRONYM"
+>C</SPAN
+> que implementa esta rutina al final del archivo en 
+   el cual implementamos las rutinas del operador): 
+
+   <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    CREATE FUNCTION complex_abs_cmp(complex, complex)
+     RETURNS int4
+     AS 'PGROOT/tutorial/obj/complex.so'
+     LANGUAGE 'c';
+
+    SELECT oid, proname FROM pg_proc
+     WHERE proname = 'complex_abs_cmp';
+
+         +------+-----------------+
+         |oid   | proname         |
+         +------+-----------------+
+         |17328 | complex_abs_cmp |
+         +------+-----------------+
+   </PRE
+></TD
+></TR
+></TABLE
+>
+
+   (De nuevo, su número de <TT
+CLASS="FILENAME"
+>oid</TT
+> será probablemente 
+   distinto y debe sustituirlo abajo por el valor que vea.) 
+   Podemos agregar la nueva instancia de la siguiente manera: 
+
+   <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    INSERT INTO pg_amproc (amid, amopclaid, amproc, amprocnum)
+        SELECT a.oid, b.oid, c.oid, 1
+            FROM pg_am a, pg_opclass b, pg_proc c
+            WHERE a.amname = 'btree' AND
+                b.opcname = 'complex_abs_ops' AND
+                c.proname = 'complex_abs_cmp';
+   </PRE
+></TD
+></TR
+></TABLE
+>
+  </P
+><P
+>   Ahora necesitamos agregar una estrategia de hash para permitir que 
+   el tipo sea indexado. Hacemos esto utilizando otro tipo en pg_am pero 
+   reutilizamos los mismos operadores.
+
+   <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    INSERT INTO pg_amop (amopid, amopclaid, amopopr, amopstrategy)
+        SELECT am.oid, opcl.oid, c.opoid, 1
+        FROM pg_am am, pg_opclass opcl, complex_abs_ops_tmp c
+        WHERE amname = 'hash' AND
+            opcname = 'complex_abs_ops' AND
+            c.oprname = '=';
+   </PRE
+></TD
+></TR
+></TABLE
+>
+  </P
+><P
+>   Para utilizar este índice en una cláusula WHERE, necesitamos modificar 
+   la clase <TT
+CLASS="FILENAME"
+>pg_operator</TT
+> de la siguiente manera.
+
+   <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    UPDATE pg_operator
+        SET oprrest = 'eqsel'::regproc, oprjoin = 'eqjoinsel'
+        WHERE oprname = '=' AND
+            oprleft = oprright AND
+            oprleft = (SELECT oid FROM pg_type WHERE typname = 'complex_abs');
+    
+    UPDATE pg_operator
+        SET oprrest = 'neqsel'::regproc, oprjoin = 'neqjoinsel'
+        WHERE oprname = '<TT
+CLASS="FILENAME"
+>' AND
+            oprleft = oprright AND
+            oprleft = (SELECT oid FROM pg_type WHERE typname = 'complex_abs');
+    
+    UPDATE pg_operator
+        SET oprrest = 'neqsel'::regproc, oprjoin = 'neqjoinsel'
+        WHERE oprname = '<TT
+CLASS="FILENAME"
+>' AND
+            oprleft = oprright AND
+            oprleft = (SELECT oid FROM pg_type WHERE typname = 'complex_abs');
+    
+    UPDATE pg_operator
+        SET oprrest = 'scalarltsel'::regproc, oprjoin = 'scalarltjoinsel'
+        WHERE oprname = '&#60;' AND 
+            oprleft = oprright AND
+            oprleft = (SELECT oid FROM pg_type WHERE typname = 'complex_abs');
+    
+    UPDATE pg_operator
+        SET oprrest = 'scalarltsel'::regproc, oprjoin = 'scalarltjoinsel'
+        WHERE oprname = '&#60;=' AND
+            oprleft = oprright AND
+            oprleft = (SELECT oid FROM pg_type WHERE typname = 'complex_abs');
+    
+    UPDATE pg_operator
+        SET oprrest = 'scalargtsel'::regproc, oprjoin = 'scalargtjoinsel'
+        WHERE oprname = '&#62;' AND
+            oprleft = oprright AND
+            oprleft = (SELECT oid FROM pg_type WHERE typname = 'complex_abs');
+    
+    UPDATE pg_operator
+        SET oprrest = 'scalargtsel'::regproc, oprjoin = 'scalargtjoinsel'
+        WHERE oprname = '&#62;=' AND
+            oprleft = oprright AND
+            oprleft = (SELECT oid FROM pg_type WHERE typname = 'complex_abs');</TT
+></TT
+>
+   </PRE
+></TD
+></TR
+></TABLE
+> 
+  </P
+><P
+>   Y por último (¡por fin!) registramos una descripción de este tipo. 
+
+   <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    INSERT INTO pg_description (objoid, description) 
+    SELECT oid, 'Two part G/L account'
+	    FROM pg_type WHERE typname = 'complex_abs';
+   </PRE
+></TD
+></TR
+></TABLE
+> 
+  </P
+></DIV
+><DIV
+CLASS="NAVFOOTER"
+><HR
+ALIGN="LEFT"
+WIDTH="100%"><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+><A
+HREF="x1201.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="programmer.html"
+>Inicio</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+><A
+HREF="gist.html"
+>Siguiente</A
+></TD
+></TR
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+>Reglas frente triggers</TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+>&nbsp;</TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+>GiST Indices</TD
+></TR
+></TABLE
+></DIV
+></BODY
+></HTML
+>

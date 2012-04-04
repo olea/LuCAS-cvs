@@ -1,0 +1,185 @@
+.\" Copyright (c) 1999 Andries Brouwer (aeb@cwi.nl), 1 Nov 1999
+.\"
+.\" Permission is granted to make and distribute verbatim copies of this
+.\" manual provided the copyright notice and this permission notice are
+.\" preserved on all copies.
+.\"
+.\" Permission is granted to copy and distribute modified versions of this
+.\" manual under the conditions for verbatim copying, provided that the
+.\" entire resulting derived work is distributed under the terms of a
+.\" permission notice identical to this one
+.\" 
+.\" Since the Linux kernel and libraries are constantly changing, this
+.\" manual page may be incorrect or out-of-date.  The author(s) assume no
+.\" responsibility for errors or omissions, or for damages resulting from
+.\" the use of the information contained herein.  The author(s) may not
+.\" have taken the same level of care in the production of this manual,
+.\" which is licensed free of charge, as they might when working
+.\" professionally.
+.\" 
+.\" Formatted or processed versions of this manual, if unaccompanied by
+.\" the source, must acknowledge the copyright and authors of this work.
+.\"
+.\" 1999-11-10: Merged text taken from the page contributed by
+.\" Reed H. Petty (rhp@draper.net)
+.\"
+.\" Translated on Sun Aug  6 2000 by Juan Piernas <piernas@ditec.um.es>
+.\"
+.TH VFORK 2 "1 noviembre 1999" "Linux 2.2.0" "Manual del Programador de Linux"
+.SH NOMBRE
+vfork \- crea un proceso hijo y bloquea al padre
+.SH SINOPSIS
+.B #include <unistd.h>
+.sp
+.B pid_t vfork(void);
+.SH "DESCRIPCIÓN ESTÁNDAR"
+(Según XPG4 / SUSv2 / borrador POSIX.)
+La función
+.IR vfork ()
+tiene el mismo efecto que
+.IR fork (),
+pero el comportamiento es indefinido si el proceso creado por
+.IR vfork ()
+o bien modifica cualquier otro dato que no sea una variable de tipo pid_t
+usada para almacenar el valor devuelto por
+.IR vfork (),
+o bien regresa de la función en la que se llamó a
+.IR vfork ()
+o bien llama a cualquier otra función antes de llamar con éxito a
+.IR _exit ()
+o a una de las funciones de la familia
+.IR exec .
+.SH ERRORES
+.TP
+.B EAGAIN
+Demasiados procesos. Inténtelo de nuevo.
+.TP
+.B ENOMEM
+No hay espacio de intercambio suficiente para el nuevo proceso.
+.SH "DESCRIPCIÓN DE LINUX"
+.BR vfork ,
+como
+.BR fork (2),
+crea un proceso hijo del proceso invocador. Para más detalles, valor
+devuelto y errores, vea
+.BR fork (2).
+.PP
+.B vfork()
+es un caso especial de
+.BR clone (2).
+Se usa para crear procesos nuevos sin copiar las tablas de páginas del
+proceso padre. Puede ser útil en aplicaciones sensibles al rendimiento donde
+se creará un hijo que a continuación realizará inmediatamete una llamada
+.IR execve() .
+.PP
+.B vfork()
+se diferencia de fork en que se suspende al padre hasta que el hijo hace una
+llamada
+.BR execve (2)
+o
+.BR _exit (2).
+El hijo comparte con su padre toda la memoria, incluyendo la pila, hasta que
+el hijo invoca a
+.IR execve() .
+El hijo no debe regresar de la función actual o llamar a
+.IR exit() ,
+pero puede llamar a
+.IR _exit() .
+.PP
+Los manejadores de señal se heredan pero no se comparten. Las señales
+destinadas al padre llegan después de que el hijo lo libere.
+.SH "DESCRIPCIÓN HISTÓRICA"
+En Linux
+.IR fork ()
+se implementa usando páginas de "copia en escritura", por lo que la única
+penalización en la que incurre
+.IR fork ()
+es el tiempo y memoria necesarios para duplicar las tablas de páginas del
+padre y crear una estructura de tarea para el hijo.
+Sin embargo, en los malos tiempos, un
+.IR fork()
+requería hacer una copia completa del espacio de datos del invocador, a
+menudo de forma inútil ya que, usualmente, se realizaba inmediatamente
+después una llamada
+.IR exec ().
+Por tanto, para una mayor eficiencia, BSD introdujo la llamada al sistema
+.B vfork
+que no copiaba totalmente el espacio de direcciones del proceso padre, sino
+que tomaba prestados la memoria del padre y su hilo de ejecución hasta que se
+producía una llamada a
+.IR execve ()
+o un fin de ejecución. El proceso padre se suspendía mientras el hijo usaba
+sus recursos.
+El uso de vfork era delicado (por ejemplo, el no modificar datos en el
+proceso padre dependía de saber qué variables se mantenían en un registro).
+.SH FALLOS
+Es bastante desafortunado que Linux haya revivido este espectro del pasado.
+La página de manual de BSD establece:
+"Esta llamada al sistema se eliminará cuando se implementen mecanismos del
+sistema adecuados para compartición. Los usuarios no deberían confiar en la
+semántica de compartición de memoria de
+.I vfork
+ya que, en ese momento, será igual a
+.IR fork .\c
+"
+
+Formalmente hablando, la descripción estándar dada antes no permite usar
+.IR vfork ()
+ya que un
+.IR exec
+posterior podría fallar y lo que a continuación ocurra es indefinido.
+
+Los detalles del manejo de señales son oscuros y difieren entre sistemas. La
+página de manual de BSD dice:
+"Para evitar una posible situación de abrazo mortal, a aquellos procesos
+hijos que se encuentran a mitad de una llamada
+.I vfork
+nunca se les envía una señal SIGTTOU o SIGTTIN. En su lugar, se permiten la
+salida o las
+.IR ioctl s,
+y los intentos de entrada dan lugar a una indicación de "fin de fichero"."
+
+Actualmente (Linux 2.3.25),
+.BR strace (1)
+no puede seguir un
+.IR vfork()
+y necesita un parche del núcleo.
+.SH HISTORIA
+La llamada al sistema
+.IR vfork ()
+apareció en 3.0BSD.
+.\" In the release notes for BSD 4.2 Sam Leffler wrote: `vfork: Is still
+.\" present, but definitely on its way out'.
+En BSD 4.4 se hizo sinónima de
+.IR fork (),
+pero NetBSD la introdujo de nuevo,
+.IR http://www.netbsd.org/Documentation/kernel/vfork.html .
+En Linux ha sido equivalente a
+.IR fork ()
+hasta la versión 2.2.0-pre6 más o menos. Desde la versión 2.2.0-pre9 (en i386,
+algo más tarde en otras arquitecturas) es una llamada al sistema
+independiente. El soporte para esta llamada se añadió en la versión 2.0.112
+de glibc.
+.SH "CONFORME A"
+La llamada
+.B vfork
+se puede parecer un poco a las llamadas con el mismo nombre en otro sistema
+operativo. Los requisitos sobre
+.B vfork
+impuestos por los estándares son más débiles que aquellos impuestos sobre
+.BR fork ,
+por lo que una implementación el la que las dos sean sinónimas es correcta.
+En particular, el programador no puede confiar en que el padre se quede
+bloqueado hasta una llamada a
+.I execve()
+o
+.I _exit()
+y no puede confiar en ningún comportamiento específico en relación a la
+memoria compartida.
+.\" w.r.t. shared memory. with relation to?
+.\" In AIXv3.1 vfork is equivalent to fork.
+.SH "VÉASE TAMBIÉN"
+.BR clone (2),
+.BR execve (2),
+.BR fork (2),
+.BR wait (2)

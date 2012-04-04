@@ -1,0 +1,212 @@
+.\" Translated Mon Jun 25 13:05:33 1996 by Diego Novillo (diego@cs.ualberta.ca)
+.\" Translation fixed on Mon Apr 27 18:22:37 CEST 1998 by Gerardo
+.\" Aburruzaga García <gerardo.aburruzaga@uca.es>
+.\"
+.TH EXPORTS 5 "6 Enero 1996" "" "Administración del Sistema Linux"
+.UC 5
+.SH NOMBRE
+exports \- Sistemas de ficheros NFS a exportar
+.SH SINOPSIS
+.B /etc/exports
+.SH DESCRIPCIÓN
+El fichero
+.I /etc/exports
+sirve como la lista de control de acceso para sistemas de ficheros que pueden
+ser exportados a clientes NFS.  Lo utilizan el duende de montaje
+.BR mountd (8)
+y el duende servidor de ficheros NFS
+.BR nfsd (8).
+.PP
+El formato del fichero es similar al fichero 
+.I exports
+del SunOS con la excepción de que se permiten varias opciones adicionales.
+Cada línea contiene un punto de montaje y una lista de máquinas o nombres
+de grupo de red a las que se les permite montar el sistema de ficheros
+en ese punto.  A continuación del nombre de la máquina se puede poner entre
+paréntesis una lista opcional de parámetros de montaje.  Las líneas en
+blanco no son tenidas en cuenta, y el símbolo # se puede utilizar para poner
+comentarios de una línea.
+.PP
+.SS Opciones Generales 
+.TP
+.IR secure "\*d"
+Esta opción requiere que los pedidos se originen en un puerto de internet
+menor que IPPORT_RESERVED (1024). Esta opción esta habilitada por omisión.
+Para deshabilitarla se debe especificar
+.IR insecure .
+.TP
+.IR ro
+Sólo permitir pedidos de lectura exclusiva en este volumen NFS. Por omisión,
+también se permiten pedidos de escritura, lo cual se puede hacer explícito
+usando la opción
+.IR rw ".
+.TP
+.IR link_relative
+Convierte enlaces simbólicos absolutos (donde los
+contenidos del enlace empiezan con una barra) en enlaces relativos,
+añadiendo la cantidad necesaria de ../'s al frente del nombre para llegar
+desde el directorio que contiene el enlace a la raíz en el servidor.  Esta
+opción tiene implicaciones sutiles, y quizá cuestionables, cuando la
+jerarquía de ficheros no está montada en su raíz.
+.TP
+.IR link_absolute
+Deja los enlaces simbólicos como están. Esta es la operación por omisión.
+.SS Correspondencia de ID de Usuarios
+.PP
+El control de acceso a ficheros de 
+.I nfsd
+en la máquina servidora se basa en el uid (identificador de usuario) y gid
+(identificador de grupo) proporcionado en cada pedido RPC de NFS.  Como los
+usuarios suponen que pueden acceder a sus ficheros de la misma forma que en
+un sistema de ficheros normal,  la máquina cliente y la máquina servidora
+deberían utilizar los mismos uids y gids.  Sin embargo, esto no siempre
+ocurre y no siempre es conveniente.
+.PP
+Muy a menudo, no es conveniente que el usuario root en la máquina cliente
+sea también tratado como root en los accesos a los ficheros en el servidor
+NFS. Por lo tanto, el uid 0 se suele hacer corresponder a un id diferente: el uid
+.I nobody
+o anónimo.  Este modo de operación (llamado `root squashing') es el modo
+por omisión, y se puede deshabilitar utilizando la opción
+.IR no_root_squash .
+.PP
+Al comienzo del programa,
+.I nfsd
+intenta obtener el uid y gid anónimo buscando el usuario
+.I nobody
+en el fichero de cuentas passwd. Si no lo encuentra, utiliza un uid y un gid
+igual a -2 (65534). Estos valores se pueden cambiar utilizando las opciones
+.IR anonuid " y " anongid .
+.PP
+Además de esto,
+.I nfsd
+también permite especificar cualquier uid y gid para ser trasladados al
+usuario nobody.  Finalmente, también se pueden trasladar todos los pedidos de
+usuarios al uid anónimo utilizando la opción
+.IR all_squash .
+.PP 
+Para facilitar el trabajo en aquellas instalaciones donde las uids son
+diferentes entre distintas máquinas,
+.I nfsd
+permite trasladar dinámicamente uids del servidor a uids del cliente y
+viceversa.
+Para habilitar esta traducción se utiliza la opción
+.I map_daemon , 
+la cual utiliza el protocolo RPC UGID. Para que esto funcione, el duende de
+traslados
+.BR ugidd (8)
+debe ser ejecutado en la máquina cliente.
+.PP
+La siguiente es la lista completa de opciones de traslado:
+.TP
+.IR root_squash
+Traslada pedidos del uid/gid 0 al uid/gid anonymous. Nótese que esto no se
+aplica a otros uids que pueden ser igualmente sensibles, como el usuario
+.IR bin .
+.TP
+.IR no_root_squash
+Deshabilita la opción de `root squashing'. Esta opción es particularmente
+útil para clientes sin discos.
+.TP
+.IR squash_uids " y " squash_gids
+Esta opción especifica una lista de uids o gids que se deberían
+trasladar al usuario anonymous. La siguiente es una lista válida de ids:
+.IP
+squash_uids=0-15,20,25-50
+.IP
+En general, la lista es mucho mas simple, por ejemplo:
+.IP
+squash_uids=0-100
+.IP
+.TP
+.IR all_squash
+Traslada todos los uids y gids al usuario anónimo. Útil para exportar con NFS
+directorios FTP públicos, directorios de spool para noticias, etc.  La
+opción contraria es
+.IR no_all_squash ,
+la cual está habilitada por omisión.
+.TP
+.IR map_daemon
+Esta opción habilita el traslado de uids y gids dinámico. Cada uid en un
+pedido NFS se traduce a su equivalente uid del servidor, y cada uid en una
+respuesta NFS se traduce a su equivalente uid del cliente. Para usar esta
+opción, el duende
+.BR rpc.ugidd (8)
+debe ejecutarse en la máquina cliente. Las opciones por omisión son
+.IR map_identity ,
+la cuál deja todos los uids como están. Esté o no el traslado dinámico
+habilitado, el sistema utilizará las opciones normales de squash.
+.TP
+.IR anonuid " y " anongid
+Estas opciones establecen en forma explícita las uid y gid de la cuenta
+anónima. Esta opción es útil para clientes PC/NFS, donde todos los pedidos
+parecen provenir de un solo usuario. Por ejemplo, la línea de exportación
+para 
+.I /home/pepe
+en la sección de ejemplo de más abajo, mapea todos los pedidos al uid 150
+(que supuestamente pertenece al usuario pepe).
+.IP
+.nf
+.fi
+.SH EJEMPLO
+.PP
+.nf
+.ta +3i
+# fichero de ejemplo /etc/exports
+/               master(rw) trusty(rw,no_root_squash)
+/projects       proj*.local.domain(rw)
+/usr            *.local.domain(ro) @trusted(rw)
+/home/pepe       pc001(rw,all_squash,anonuid=150,anongid=100)
+/pub            (ro,insecure,all_squash)
+.fi
+.PP
+La primera línea exporta el sistema de ficheros completo a las máquinas
+master y trusty. Además de permitir acceso de escritura, deshabilita el
+traslado de uids para la máquina trusty.
+La segunda y la tercer entradas muestran ejemplos de comodines en nombres
+de máquinas y grupos de red (la entrada `@trusted'). La cuarta línea
+muestra la entrada para el cliente PC/NFS presentada anteriormente. La
+última línea exporta el directorio público FTP a todas las máquinas del
+mundo, y los pedidos serán ejecutados usando la cuenta nobody. La opción
+.I insecure 
+también permite clientes con implementaciones NFS que no utilizan un puerto
+reservado para NFS.
+.SH ADVERTENCIAS
+Contrariamente a otras implementaciones del servidor NFS, este
+.B nfsd
+permite exportar directorios y sus respectivos subdirectorios a la misma
+máquina, por ejemplo
+.IR /usr " y " /usr/X11R6 .
+En este caso, se utilizan las opciones de montaje para la entrada mas
+específica. Por ejemplo, cuando un usuario en una máquina cliente acceda
+a un fichero en 
+.IR /usr/X11R6 ,
+se usarán las opciones de montaje de
+.I /usr/X11R6 .
+Este mismo criterio se utiliza cuando la entrada es un comodín o un grupo
+de red.
+.SH FICHEROS
+.TP
+.I /etc/exports
+Fichero de configuración para
+.BR nfsd (8).
+.TP
+.I /etc/passwd
+El fichero de cuentas.
+.PP
+.SH DIAGNÓSTICOS
+Errores de sintaxis en el fichero de configuración se registran usando
+.BR syslogd (8)
+con nivel NOTICE de un DAEMON cuando
+.BR nfsd (8)
+o
+.BR mountd (8)
+comienzan. Las máquinas desconocidas también se registran al comienzo. Como
+named(8) no suele reconocer todas las máquinas al arrancar el sistema, a
+medida que se van encontrando máquinas, éstas se registran utilizando los
+mismos parámetros para syslogd(8).
+.SH "VÉASE TAMBIÉN"
+.BR mountd (8),
+.BR nfsd (8),
+.BR nfs (5),
+.BR passwd (5).

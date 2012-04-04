@@ -1,0 +1,377 @@
+Introducción	Notas sobre Controladores Modulares y el Núcleo de Sonido
+Wade Hampton 
+6/30/1999
+
+Propósito:  
+=========
+Este documento contiene algunas notas general sobre los controladores
+modulares de sonido y su configuración, así como los módulos de soporte
+sound.o, soundlow.o y soundcore.o.
+
+Nota, algo de esto será probablemente añadido al Sound-HOWTO!
+
+
+Copiando:
+========
+nada
+
+
+Historial:
+=========
+0.1.0  11/20/1998  Primera versión, borrador
+1.0.0  11/1998     Cambios de Alan Cox, incorporación en 2.2.0
+                   como /usr/src/linux/Documentation/sound/Introduction
+1.1.0  6/30/1999   Segunda versión, añadidas notas sobre la realización de
+		   controladores,
+                   añadida información sobre múltiples tarjetas de sonido de
+		   características similares,
+                   añadida más información de diagnóstico,
+		   añadida información sobre OSS y ALSA.
+
+Controladores modulares de sonido:
+=================================
+
+Gracias al GRAN trabajo de Alan Cox (alan@lxorguk.ukuu.org.uk),
+
+[Y Oleg Drokin, Thomas Sailer, Andrew Veliath y más de unos cuantos 
+  - sin mencionar el código original de Hannu que estaba tan bien diseñado
+    como para poder resistir este recorte] (Alan)
+
+El núcleo estándar de linux soporta controladores modulares de sonido.
+De los comentarios de Alan en linux/drivers/sound/README.FIRST:
+
+  Los parches para el controlador modular de sonido fueron pagados por Red Hat
+  Software (www.redhat.com). El controlador de sonido es pues una versión
+  modificada del código de Hannu. Por favor, tenga en mente los foros adecuados
+  para reportar fallos.
+
+Los controladores modulares de sonido pueden ser cargados con insmod o
+modprobe. Para soportar todos los módulos de sonido, hay tres módulos generales
+de soporte que se deben cargar antes:
+ 
+   soundcore.o:   Manejador de alto nivel para el sistema de sonido,
+                  provee un conjunto de funciones para el registro de
+		  dispositivos por tipo.
+
+   soundlow.o:    Controladores de Bajo-Nivel que no son parte del
+                  OSS/Lite (Sistema de Sonido Abierto), incluyendo SB32/AWE
+                  sintetizador, etc.
+
+   sound.o:       funciones comunes de sonidos requeridas por todos los
+		  módulos.
+
+Para módulos de sonido específicos (p.e., sb.o para la SoundBlaster), 
+lea la documentación de ese módulo para determinar que opciones están
+disponibles, por ejemplo IRQ, dirección E/S, DMA.
+
+Atención, las opciones para diferentes tarjetas a veces usan nombres diferentes
+para la misma o similar característica (dma1= en contraposición a dma16=). Como
+último recurso inspeccione el código (busque MODULE_PARM)
+
+Notas:
+
+1.  Hay un nuevo controlador de sonido OpenSource llamado ALSA que actualmente 
+    está bajo desarrollo: http://www.alsa-project.org/
+    No lo he probado ni estoy al tanto de su estado, pero actualmente
+    está bajo desarrollo.
+
+2.  El controlador comercial OSS puede ser obtenido desde su sitio:
+    http://www.opensound.com.  Puede ser usado para tarjetas que no están
+    soportadas por el controlador del núcleo, o puede ser usado en otros
+    sistemas operativos.
+
+3.  El demonio de sonido de enlightenment puede ser usado para tocar varios
+    sonidos a la vez en una misma tarjeta, eliminando algunos de los 
+    requerimientos para sistemas con múltiples tarjetas. Para más información 
+    vea: http://www.tux.org/~ricdude/EsounD.html   
+    
+    El programa "esd" puede ser usado con el programa real-player y con
+    reproductores de mpeg como mpg123 y x11amp.
+    
+
+
+Compilando los módulos:
+======================
+
+Este documento no da detalles completos sobre como compilar el núcleo, etc.
+Las notas de abajo se aplican sólo a hacer los módulos de sonido del núcleo.
+Si esto crea conflictos con los README del núcleo, los README tienen
+preferencia.
+
+1.  Para hacer los módulos de sonido del núcleo, cambie de directorio a su
+    directorio /usr/src/linux (típicamente) y escriba make config, make
+    menuconfig, o make xconfig (para empezar la herramienta de configuración de
+    línea de comandos, dialog, o basada en x)
+
+2.  Seleccione la opción de Sonido y aparecerá un diálogo.  
+
+3.  Seleccione M (módulo) en "Sound card support".
+
+4.  Seleccione su controlador(es) de sonido como módulo.  Para ProAudio, Sound
+    Blaster, etc., seleccione M (módulo) en "OSS sound modules".
+    [gracias a marvin stodolsky <stodolsk@erols.com>]
+
+5.  Compile el núcleo (p.e., make dep ; make bzImage), e instálelo.
+
+6.  Compile los módulos e instálelos (make modules; make modules_install).
+
+
+
+INSMOD:
+=======
+
+Si carga con insmod, los módulos comunes tendrán que ser cargados en el
+orden descrito más abajo ANTES de cargar cualquier otro módulo de sonido. Los
+módulos específicos de cada tarjeta podrán ser cargados despues (la mayoría
+necesitan parámetros). Por ejemplo, yo uso los siguientes a través de un script
+de shell para cargar mi SoundBlaster:
+
+SB_BASE=0x240
+SB_IRQ=9
+SB_DMA=3
+SB_DMA2=5
+SB_MPU=0x300
+#
+echo Comenzando el sonido
+/sbin/insmod soundcore
+/sbin/insmod soundlow
+/sbin/insmod sound  
+#
+echo Comenzando la sound blaster....
+/sbin/insmod uart401
+/sbin/insmod sb io=$SB_BASE irq=$SB_IRQ dma=$SB_DMA dma16=$SB_DMA2 mpu_io=$SB_MP
+
+Cuando uso el sonido como módulo, normalmente pongo estos comandos en un 
+fichero tal que así /root/soundon.sh
+
+
+MODPROBE:
+=========
+
+Si carga con modprobe, los módulos comunes son cargados automáticamente
+cuando modprobe lo pida. Por ejemplo mi /etc/conf.modules contiene:
+
+alias sound sb 
+options sb io=0x240 irq=9 dma=3 dma16=5 mpu_io=0x300
+
+Todo lo que necesita para cargar el módulo es:
+
+	/sbin/modprobe sb
+
+
+Estado del Sonido:
+=================
+
+El estado del sonido puede ser leído/comprobado con:
+	cat /proc/sound
+	cat /dev/sndstat
+        cat (anyfile).au >/dev/audio
+
+El estado de los módulos y su jerarquía de dependencias puede ser comprobado
+con: 
+	/sbin/lsmod
+
+/sbin/lsmod debe ser algo como lo siguiente:
+	sb                     26280   0 
+	uart401                 5640   0  [sb]
+	sound                  57112   0  [sb uart401]
+	soundlow                 208   0  [sound]
+	soundcore               1968   8  [sb sound]
+
+
+Quitando el Sonido: 
+================== 
+
+El sonido se puede quitar usando el comando /sbin/rmmod en el orden inverso al
+que se cargaron los módulos. Nota, si un programa tiene un dispositivo de
+sonido abierto (p.e., xmixer), el módulo (y los módulos de los que depende) no
+podrán ser descargados.
+
+Por ejemplo, yo uso lo siguiente para quitar mi SoundBlaster (rmmod en el óden
+inverso al que cargué mis módulos):
+
+/sbin/rmmod sb
+/sbin/rmmod uart401
+/sbin/rmmod sound
+/sbin/rmmod soundlow
+/sbin/rmmod soundcore
+
+Cuando uso el sonido como módulo, normalmente pongo estos comandos en un script
+tal que así /root/soundoff.sh.
+
+
+Quitando el sonido para usarlo con OSS: 
+====================================== 
+
+Si realmente se encuentra atascado o tiene una tarjeta que el
+núcleo no soporta, puede obtener un controlador comercial de
+http://www.opensound.com.  Antes de cargar el controlador de
+sonido comercial, debe hacer lo siguiente:
+
+1.  borrar los controladores de sonido (detallado arriba)
+2.  borrar los módulos de sonido de /etc/conf.modules
+3.  mover los módulos de sonido de /lib/modules/<kernel>/misc
+    (por ejemplo, yo hago un directorio  /lib/modules/<kernel>/misc/tmp
+    y copio los módulos de sonido a ese directorio).
+
+
+Múltiples Tarjetas de Sonido:
+============================
+
+Los controladores de sonido soportan múltiples tarjetas de sonido y hay algunas
+aplicaciones como multitrack que lo soportan.
+Normalmente, necesita dos tarjetas de sonido de diferentes tipos. Note, que se
+usan más interrupciones y canales DMA y que a veces la configuración puede ser
+una pesadilla. He oído reportes acerca de 3-4 tarjetas de sonido (Normalmente
+yo uso 2).
+
+En mi máquina tengo dos tarjetas de sonido (cs4232 y Soundblaster Vibra
+16).  Al cargar el sonido como módulos, puedo controlar cual es el primer
+dispositivo de sonido (/dev/dsp, /dev/audio, /dev/mixer) y cual es el segundo.
+Normalmente, el cs4232 (Dell sound en la placa madre) sería el primero, pero yo
+prefiero la SoundBlaster. Todo lo que tengo que hacer es cargar el controlador
+que yo quiera como /dev/dsp el primero (en mi caso "sb") y despues cargar el
+otro (en mi caso "cs4232"). 
+
+
+Si tiene dos tarjetas del mismo tipo que están puenteadas de diferente forma o
+tiene diferentes revisiones de PnP, puede que funcione cargando el módulo dos
+veces. Por ejemplo yo tengo una SoundBlaster vibra 16 y una vieja SoundBlaster
+16 (con puentes). Para cargar el módulo dos veces debe hacer lo siguiente:
+
+1.  Copiar el módulo de sonido a un nombre nuevo.  Por ejemplo
+    sb.o puede ser copiado (o enlazado simbólicamente) a sb1.o 
+    para la segunda SoundBlaster.   
+
+2.  Hacer una segunda entrada en /etc/conf.modules, por ejemplo,
+    sound1 o sb1.  Esta segunda entrada se dee referir a los nuevos
+    nombres de módulos, por ejmemplo sb1, y debe incluir los
+    I/O, etc. para la segunda tarjeta.
+
+3.  Actualice su soundon.sh script, etc.
+
+Atención:  Nunca he sido capaz de hacer funcionar dos tarjetas de sonido PnP
+del mismo tipo al mismo tiempo. He intentado esto varias veces con las tarjetas
+SounBlaster Vibra 16. OSS ha indicado que es un problema de PnP... Si alguien
+tiene algo de suerte haciendo esto, por favor mándeme un correo electrónico.
+Las tarjetas PCI no deben tener este problema.
+Desde la publicación original, he recibido un par de correos electrónicos de 
+gente que lo ha logrado!
+
+
+Problemas de Sonido:
+===================
+
+Primero RTFM (incluyendo la sección de solución de problemas en el Sound-HOWTO)
+
+1)  Si está teniendo problemas cargando los módulos(por
+    ejemplo, si tiene conflictos con otros dispositivos) intente
+    lo siguiente:
+
+  A)  Si tiene Win95 o NT en el mismo ordenador, 
+      escriba que direcciones, IRQ, y canales DMA
+      está usando en el mismo hardware.  Probablemente 
+      pueda usar estas direcciones, IRQs, y canales DMA.
+      Realmente debería intentar esto ANTES de intentar
+      hacer funcionar el sonido!
+  
+  B)  Compruebe (cat) /proc/interrupts, /proc/ioports,
+      y /proc/dma.  ¿Está intentando usar una dirección,
+      IRQ o canal DMA que está usando otro dispositivo?
+  
+  C)  Compruebe (cat) /proc/sys/pnp (si existe. Quizás
+      necesite un parche del kernel para tener este dispositivo).
+  
+  D)  Inspeccione su fichero /var/log/messages. A menudo
+      indicará que IRQ o puerto E/S no se puede obtener.
+  
+  E)  Intente con otra IRQ.  Note que puede usar las PnP
+      tools para mover la tarjeta a otra posición. 
+      A veces esta es la única manera y es más o menos de
+      ensayo y error.
+
+2)  Si obtiene un ruido como de motor (el mismo sonido o parte
+    del sonido repetido), probablemente tenga un conflicto de IRQ
+    o DMA. Mueva la tarjeta a otra IRQ o DMA. Esto me ha pasado
+    a mí cuando reproducía ficheros grandes teniendo un conflicto
+    de IRQ.
+
+3.  Si obtiene caidas o pausas cuando reproduce sonido a altas
+    frecuencias, por ejemplo usando mpg123 o x11amp/xmms, puede
+    que tenga una CPU lenta y tenga que usar opciones para 
+    reproducir los ficheros a la mitad de velocidad. Por ejemplo
+    puede usar las opciones -2 o -4 de mpg123. Tambien le puede
+    pasar intentando reproducir ficheros mpeg desde un CD-ROM
+    (Mi Toshiba T8000 PII/366 a veces tiene este problema).
+
+4.  Si obtiene un mensaje de error "cannot access device" 
+    sus ficheros /dev/dsp etc. puede tener permisos de root,
+    modo 600. Puede usar el comando:
+      chmod 666 /dev/dsp /dev/mixer /dev/audio
+
+5.  Si obtiene un mensaje de error "device busy", otro programa
+    tiene el dispositivo de sonido abierto. Por ejemplo, si usa
+    el Demonio de Sonido de Enlightenment "esd", este programa
+    tiene el dispositivo abierto. Si usa "esd", por favor LEA
+    la documentación de ESD. Por ejemplo, puede usar
+    esddsp <programa> para reproducir sonidos a través de un
+    programa que no soporte esd.
+
+6)  Pida ayuda en la lista de correo de sonido o mande un correo electrónico
+    al autor/mantenedor del controlador de sonido.
+
+7)  Active la depuración en drivers/sound/sound_config.h (DEB, DDB, MDB).
+
+
+Configurando el Sonido:
+======================
+
+Hay varias formas de configurar el sonido:
+
+1)  Está codificado en el kernel en tiempo de compilación (no se aplica
+    cuando se usan módulos de sonido). Esta era la forma ANTIGUA.
+
+2)  En la línea de comandos usando insmod o en un script bash,
+    con llamadas de líneas de comandos para cargar el sonido.
+
+3)  En /etc/conf.modules cuando se use modprobe.
+
+4)  A través del programa de Red Hat /usr/sbin/sndconfig (modo texto).
+
+5)  A través del programa de OSS soundconf (con la versión comercial del driver
+    OSS).
+
+Y estoy seguro de que hay otras formas.
+
+¿Alguien quiere escribir un módulo para linuxconf para la configuración del
+sonido?
+
+
+Para Más Información (RTFM):
+===========================
+1)  Información sobre módulos del núcleo:  linux/Documentation/modules.txt
+    y las páginas del manual de insmod y modprobe.
+
+2)  Información sobre PnP, LEA las páginas de isapnp.
+
+3)  Sound-HOWTO y Sound-Playing-HOWTO.
+
+4)  Página web de OSS en http://www.opensound.com.
+
+5)  Todos los ficheros en linux/Documentation/sound.
+
+6)  Los comentarios y código en linux/drivers/sound.
+
+7)  La documentación de sndconfig y rhsound de Red Hat.
+
+8)  La lista de correo Linux-sound:  sound-list@redhat.com.
+
+9)  Documentación de Enlightenment (para información sobre esd)
+    http://www.tux.org/~ricdude/EsounD.html.
+
+10) Página web de ALSA:  http://www.alsa-project.org/
+
+
+Información de Contacto:
+=======================
+Wade Hampton:  (whampton@staffnet.com)

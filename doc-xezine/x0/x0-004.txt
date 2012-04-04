@@ -1,0 +1,256 @@
+
+-=|=======================[ x-eZine #0 / Art. 004 ]=======================|=-
+-=|=====[ Direccionamiento y gestion de memoria en kernels 2.2 (I) ]======|=-
+-=|===================[ By Raciel <raciel@x0und.net> ]====================|=-
+
+
+	Direccionamiento y gestión de la memoria en kernel 2.2 (I)
+	~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Introducción : 
+~~~~~~~~~~~~~~
+
+	El direccionamiento de  la  memoria  es tratado a través del HW, aqui 
+unicamente veremos  como  se  realiza  el  acceso a memoria en el caso de una
+arquitectura 80x86. En este articulo trataré unicamente como hace el acceso a
+memoria, pero en un  proximo  articulo  intentaré  explicar  como gestiona la
+memoria principal el kernel y la gestion  de  la memoria virtual en un kernel
+2.2. Aqui lo unico que veremos es algo de segmentacion y paginacion y veremos
+cual de estas dos  decide  adoptar  Linux  que es el caso de la "segmentacion 
+paginada". 
+
+
+¿Como se accede a memoria?	
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+	En el modelo 80x86  existen  tres  tipos  de  direcciones que son los 
+siguientes:
+	
+	* Direccion logica: Es la que muchos de nosotros ya conocemos, unica-
+mentese refiere a que nosotros a la hora de tener un proceso en memoria lo va
+a dividir en segmentos. Esta  direccion  logica  consiste en un segmento y un 
+desplazamiento que  indica  la  posicion  desplazada  en el segmento desde el 
+comienzo del segmento a la  direccion  a  la  que  nosotros queremos acceder. 
+El segmento al que hacemos  referencia  se le llama identificador de segmento
+y está formado por un campo de 16 bits denominado Selector de segmento, mien-
+tras que el desplazamiento es un campo de 32 bits.
+
+
+	Para hacer referencia a  los  selectores de segmento de una forma más
+comoda el procesador lo que va a hacer es utilizar una serie de registros que
+se van a encargar de manejar  estos  selectores de segmentos. Estos registros 
+son cs, ss, ds, es, fs y gs y en cada uno de ellos segun su proposito se va a
+almacenar cierto contenido en este registro.
+
+	cs: (code segment) Es un registro que apunta al segmento que contiene
+las instruccion de nuestro programa.
+
+	Incluye tambien dos bytes en los  que especifica el privilegio de CPU
+actual (CPL) utiliza cuatro bits porque como ya sabreis existen cuatros modos
+0,1,2,3 en las que linux unicamente usa  los niveles 1 y 3 el primero para el
+area del kernel y la segunda para el area de usuario
+	
+	ss:(stack segment) Es el registro que apunta al segmento que contiene
+la pila de nuestro programa.
+	
+	ds: Este registro se usa para hacer referencial segmento que contiene 
+la informacion.
+
+	El resto de los registros son de proposito general.
+
+        - Direccion lineal: Se comprende de toda la memoria en la que permite
+direcciones de hasta un máximo de 4 gb,  con un rango en hexadecimal compren-
+dido entre 0x00000000 y 0xffffffff, de esta manera se mapeara la memoria desd
+las direcciones más altas a las más bajas.
+
+        - Direccion fisica: Se corresponde a la direccion fisica de la memoria
+y se representan por enteros sin signo de 32 bits.
+	
+	
+¿Como realiza las traduciones de diferentes tipos de direcciones?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 
+	Una vez ya tratadas los tipos  de  direcciones  nos queda ver como el
+procesador se  encarga  de  transformar  direcciones  logicas  a  direcciones 
+lineales y de estas a  fisicas.  En  el  caso de  traducir una  direccion una
+direccion logica a una lineal se hacen las siguientes operaciones.
+
+        Se examina el campo TI del selector  de segmento para saber que tabla
+de descriptores alamance el descriptor de segmento (GTDR O LTDR).
+
+	Ahora una vez que tenemos la direccion del Descriptor de Segmento que
+nos lo ha indicado el campo index del selector de segmento, se multiplica por
+8(tamaño del Descriptor de Segmento) y se añade el resultado al contenido del
+registro gtdr o ldtr.
+
+        Se le añade al campo base del descritor de Segmento el desplazamiento
+de la direccion logica y de esta manera tenemos la direccion lineal.
+				
+        Esta traduccion de direcciones la realiza de dos diferentes modos:
+
+Modo protegido o modo real.
+
+	El modo real ahora mismo unicamente lo usan los microprocsadores para 
+mantener compatibilidades entre  procesadores y para el arranque del sistema,
+asi que debemos de  tener  en  cuenta  que todo estos tipo de traducciones se
+realizan cuando el procesador se encuentra en modo protegido.
+	
+	
+¿Qué son los Descriptores de Segmentos?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+	Cada segmento esta  representado  por  un descriptor de Segmento de 8 
+bytes que contiene  las  caracteristicas  del segmento. Estos Descriptores de
+Segmentos (SD) son almacenados en la  GDT( Global Descriptor Table - Tabla de
+Descriptores Global) y la LDT (Local Descriptor Table - Tabla de descriptores
+Locales).
+
+	La GDT es una tabla global de descritores que hace referencia a todos 
+los descriptores de segmentos y es una tabla unica, sin embargo la LDT es una
+tabla que va a recoger los descriptores  de segmentos que va a usar cada pro-
+ceso y va a pertenecer a  dicho  proceso.  Al igual que a los descriptores de
+segmentos nosotros necesitaremos acceder  a estas tablas para acceder a estos
+segmentos, ¿pero esto como? La respuesta a esto nos las dan dos registros que
+contienen la direccion de memoria de tanto la GDT como la LDT y se correspon-
+den con el nombre de gdtr y ldtr respectivamente.
+
+	Cada descriptor de Segmento contiene los siguientes campos:
+	
+	Un campo base de 32 bits que  contiene la direccion linear del primer 
+byte del segmento.
+	
+
+	Un flag G que indica el  modo  de  representacion de los datos de los 
+segmentos, si esta activado se  encuentran  en  multipos de 4096 y en caso de 
+estar a 0 se expresa en bytes.
+	
+	Un campo de 20bits limite que marca la longitud del segmento en bytes
+	
+
+	Un flag S que que indica si  el  segmento se trata de un segmento que
+contiene estructuras de datos del  kernel  (a 0) o a 1 si se trata de un seg-
+mento de codigo o de datos.
+	
+       Un campo tipo de 4 bytes que indica el tipo de descriptor de segmento:
+
+	- Descriptor de segmento de codigo (CSD)
+
+	- Descriptor de segmento de datos (DSD)
+
+	- Descriptor al segmento de estado (TSSD - Task State Segment 
+	  Descriptor) : Se refiere al segmento TSS que es un segmento que se
+	  utiliza para guardar el contenido de los registros del procesador.
+ 
+	- Descriptor del decriptor  de  tabla  local  (LDTD Local Descriptor 
+	  Table Descriptor) que se refere  al  segmento que contiene un LDT. 
+
+	Luego a estos descriptores  se le  asocia  un nivel  de privilegios a 
+traves de un campo de 2 bits que se usa  para el acceso al segmento y depende
+del CPL en el caso de ser 0 que solo  es accesibe cuando el CPL es 0 es decir
+Modo Kernel, en el caso de ser DPL=3 es accesible para cualquier valor de CPL
+
+	Un flag S-P (Segment Present) que es puesto a 0 si no esta almacenado 
+	en memoria principal.
+	
+	Un flag adiccional llamado D o B  que  depende de si el segmento con-
+	tiene codigo o dato.
+	
+	Un campo reservado puesto a 0
+	
+	Un flag AVL que puede ser usado por el  SO pero es ignorado en linux.
+		
+		
+¿Segmentacion o Paginacion?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+	
+	Ya una vez vistos el tema de  las direcciones unicamente nos queda el
+tema de la segmentacion. La  segmentacion es llevada a traves del procesador,
+pero aprovechare para  comentar  la  forma  que  tiene  linux de gestionar la 
+memoria. Para ello Linux  tiene  dos  opciones  o usar la segmentacion o usar 
+la paginacion. La segmentacion  consiste  en  asignar  diferentes espacios de
+direcciones lineales a cada  proceso  mientras  que la paginacion lo que hace
+es mapear diferentes direcciones lineales en diferentes espacios de direccio-
+nes fisicas. Linux lo que va a  hacer  es adoptar la política que se venía ya
+usando de Unix que es  la  de  utilizar  segmentación  paginada. ¿Esto en que
+consiste? No es más  ni  menos  que  dividir  la  dirección  en un segmento y 
+desplazamiento. A causa de  esto,  lo  que  es la segmentación, se utilizaban 
+demasiados bytes para el  desplazamiento por lo que había un gran problema de
+fragmentación externa, por  eso  en  los  sistemas Unix se decide dividir ese 
+desplazamiento en una pagina y su desplazamiento dentro de la página. 
+
+¿Cómo realiza la paginación el HW?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+	El hardware lo que va  a  encargarse  es  de traducir las direcciones
+lineales anteriormente explicadas a  direcciones fisicas. Para ello va a com-
+probar si se puede acceder a esa  direccion lineal y en caso de que el acceso
+a memoria no sea válido va a generar un error de página o un "page fault".
+
+	Estas direcciones lineales están agrupadas en intervalos fijos llama-
+dos páginas, de forma que direcciones  contiguas de memoria serán mapeadas en
+direcciones fisicas contiguas. De  esta  forma,  lo que va a hacer es dividir
+toda la memoria en marcos de  paginas  o "page frames" y cada marco de página
+va a contener una pagina, de esta  forma  nosotros cuando vayamos a almacenar
+algo en memoria se almacenará en un marco de pagina.
+	
+	Para mapear estas direcciones  lineales a direcciones fisicas existen 
+una serie de tablas conocidas como  tablas  de paginas que son almacenadas en 
+memoria principal que deben de ser  adecuadamente inicializadas por el kernel
+antes de utilizar la paging unit  (unidad de paginacion)  que es la que lleva
+todas las traducciones de direcciones lineales a fisicas. 
+
+	En los modelos de Intel hay diferentes tipos de paginacion: Regular y
+extendida en las que en la primera va a  definir un tamaño de marco de pagina
+de 4 kbs y en la extendida va a manejar  tambien marcos de pagina de 4 mb, en
+el caso de linux cuando hable de gestion  de memoria veremos que va a usar un
+tamaño de 4kb. Luego otros tipos de paginacion que tambien hay son la pagina-
+cion de tres niveles que se  utiliza  en  arquitecturas de 64 bits como puede
+ser SPARC, PA-RISC, ALPHA, etcétera, en las que va a definir tamaños de marco
+de pagina de 8 o 16 kbs. 
+
+
+Paginación en linux
+~~~~~~~~~~~~~~~~~~~
+
+	La paginación en linux  adopta  una  paginacion de tres niveles, para
+poderse adaptar a las arquitecturas de  64  bits. Para ello va a definir tres
+tipos de tablas de paginas:
+
+	* Una tabla de páginas global
+	* Una tabla de paginas intermedia.
+	* Una tabla de paginas
+
+	De esta forma, la página global contiene la direccion de varias pági-
+nas intermedias de direcciones recogidas en otra tabla que estas van a conte-
+ner las direcciones a la tabla de  paginas  que apuntará a un marco de pagina
+en memoria. Una direccion lineal en linux la divide en cuatro partes:
+
+	Direccion global  Direccion Intermedia Tabla Desplazamiento
+
+	De esta forma, n linux cuando se quiere traducir una dirección lineal
+a una física va a indexar cada dirección  en cada tabla y se le va a sumar su
+desplazamiento y va a ir accediendo a  cada  una de estas tablas hasta llegar
+al marco de página correspondiente en  memoria. Además, se le va a asignar un
+espacio de direcciones a cada proceso  para que no existan problemas de dire-
+ccionamiento. De esta forma, si cada proceso tiene una dirección fisica no se
+intentará acceder simultaneamente a  una  misma  posición  de memoria para un
+proceso, es decir no va a existir  comparticion  de una misma zona de memoria
+para un proceso.
+
+	Ya lo unico de comentar, es que  esto  va referido a arquitecturas de
+64 bits, así que si nosotros  tratamos  de  aplicar el modelo de tres niveles 
+sobre una arquitectura x86, unicamente eliminará la tabla de paginas interme-
+dias de forma que contenga  0 bytes  y  no  tenga que indexarse a la tabla de
+direcciones intermedia sino  que  directamente  irá  a  la tabla de páginas y 
+posteriormente se accederá al marco de página adecuado.
+
+Despedida
+~~~~~~~~~
+
+	Bueno ya terminada de haber  visto  todo el tema del acceso a memoria
+ya sólo queda despedirme, y  saludar  a  la  gente  del  grupo de linux de mi 
+universidad por estar ahi  y  ayudar  en todo lo que ha podido, a la gente de
+#root de hispano, a la  gente  de  terra  (vosotros ya sabeis quienes sois) y 
+bueno en general a todos los lectores.  Tan solo espero que os haya gustado y
+os sea de utilidad. Nos vemos pronto. Hasta otra ;-)
+

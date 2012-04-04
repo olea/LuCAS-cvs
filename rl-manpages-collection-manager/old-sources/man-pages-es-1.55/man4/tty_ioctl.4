@@ -1,0 +1,446 @@
+.\" Copyright 2002 Walter Harms <walter.harms@informatik.uni-oldenburg.de>
+.\" and Andries Brouwer <aeb@cwi.nl>.
+.\" Distributed under GPL.
+.\"
+.\" Traducido por Juan Piernas <piernas en ditec.um.es> el 12-febrero-2005
+.\"
+.TH TTY_IOCTL 4 "29 diciembre 2002" "Linux" "Manual del Programador de Linux"
+.SH NOMBRE
+tty ioctl \- ioctls para terminales y líneas serie
+.SH SINOPSIS
+.sp
+.BR "#include <termios.h>" 
+.sp
+.BI "int ioctl(int " fd ", int " cmd ", ...);" 
+.sp
+.SH DESCRIPCIÓN
+La llamada
+.I ioctl()
+para terminales y puertos serie acepta muchas órdenes que se pasan
+como argumentos. La mayoría necesita un tercer argumento, de tipo
+variable, que aquí llamamos \fIargp\fP o \fIarg\fP.
+.LP
+El uso de
+.I ioctl
+hace que un programa no sea (trans)portable. Use la interfaz POSIX
+descrita en
+.BR termios (3)
+siempre que sea posible.
+
+.SS "Obtener y establecer los atributos de un terminal"
+.TP
+.BI "TCGETS	struct termios *" argp
+Equivalente a
+.IR "tcgetattr(fd, argp)" .
+.br
+Obtiene la configuración actual de un puerto serie.
+.TP
+.BI "TCSETS	const struct termios *" argp
+Equivalente a
+.IR "tcsetattr(fd, TCSANOW, argp)" .
+.br
+Establece la configuración actual de un puerto serie.
+.TP
+.BI "TCSETSW	const struct termios *" argp
+Equivalente a
+.IR "tcsetattr(fd, TCSADRAIN, argp)" .
+.br
+Permite vaciar el buffer de salida y establecer la configuración
+actual de un puerto serie.
+.TP
+.BI "TCSETSF	const struct termios *" argp
+Equivalente a
+.IR "tcsetattr(fd, TCSAFLUSH, argp)" .
+.br
+Permite vaciar el buffer de salida, descartar la entrada pendiente y
+establecer la configuración actual de un puerto serie.
+.LP
+Las siguientes cuatro ioctls son exactamente iguales a TCGETS, TCSETS,
+TCSETSW y TCSETSF, excepto en que toman un argumento
+.B "struct termio *"
+en lugar de un argumento
+.BR "struct termios *" .
+.TP
+.BI "TCGETA	struct termio *" argp
+.TP
+.BI "TCSETA	const struct termio *" argp
+.TP
+.BI "TCSETAW	const struct termio *" argp
+.TP
+.BI "TCSETAF	const struct termio *" argp
+
+.SS "Bloqueo de una estructura termios"
+La estructura termios de un tty se puede bloquear. El propio bloqueo
+es una estructura termios con bits o campos distintos de cero
+indicando un valor bloqueado.
+.TP
+.BI "TIOCGLCKTRMIOS	struct termios *" argp
+Obtiene el estado de bloqueo de la estructura termios del terminal.
+.TP
+.BI "TIOCSLCKTRMIOS	const struct termios *" argp
+Establece el estado de bloqueo de la estructura termios del
+terminal. Sólo el superusuario puede hacer esto.
+
+.SS "Obtener y establecer el tamaño de la ventana"
+Los tamaños de las ventanas se guardan en el núcleo pero éste no los
+usa (excepto en el caso de las consolas virtuales, donde el núcleo
+actualizará el tamaño de la ventana cuando el tamaño de la consola
+virtual cambie, por ejemplo, al cargar una nueva fuente).
+.TP
+.BI "TIOCGWINSZ	struct winsize *" argp
+Obtiene el tamaño de la ventana.
+.TP
+.BI "TIOCSWINSZ	const struct winsize *" argp
+Establece el tamaño de la ventana.
+.LP
+La estructura usada por estas ioctls se define como
+
+.nf
+struct winsize {
+        unsigned short ws_row;
+        unsigned short ws_col;
+        unsigned short ws_xpixel;   /* sin usar */
+        unsigned short ws_ypixel;   /* sin usar */
+};
+.fi
+
+Cuando el tamaño de la ventana cambia, se envía una señal SIGWINCH al
+grupo de procesos en primer plano.
+
+.SS "Envío de una pausa (break)"
+.TP
+.BI "TCSBRK	int " arg
+Equivalente a
+.IR "tcsendbreak(fd, arg)" .
+.br
+Si la termina usa una transmisión asíncrona serie de datos y si el
+argumento
+.I arg
+es cero, entonces envía una pausa (un flujo de bits a cero)
+con una duración de entre 0'25 y 0'5 segundos. Si el terminal no usa una
+transmisión asíncrona serie de datos, entonces o se envía una pausa o
+la función regresa sin hacer nada.
+Cuando
+.I arg
+no es cero, nadie sabe qué ocurrirá.
+
+(SVR4, UnixWare, Solaris y Linux tratan
+.I "tcsendbreak(fd,arg)"
+como
+.I "tcdrain(fd)"
+cuando el argumento
+.I arg
+es distinto de cero. SunOS trata
+.I arg
+como un multiplicador y envía
+.I arg
+veces un flujo de bits tan largo como el que se envía para un valor de
+.I arg
+igual a cero.
+DG-UX y AIX tratan a
+.I arg
+(cuando no es cero) como un intervalo de tiempo medido en
+milisegundos.
+HP-UX ignora
+.IR arg .)
+.TP
+.BI "TCSBRKP	int " arg
+Conocida como la "versión POSIX" de TCSBRK. Trata un
+.I arg
+distinto de cero como un intervalo de tiempo medido en décimas de
+segundo y no hace nada cuando el \fIdriver\fR no soporta pausas.
+.TP
+.BI "TIOCSBRK	void"
+Activa la pausa, es decir, empieza a enviar bits a cero.
+.TP
+.BI "TIOCCBRK	void"
+Desactiva la pausa, es decir, deja de enviar bits a cero.
+
+.SS "Control de flujo software"
+.TP
+.BI "TCXONC	int " arg
+Equivalente a
+.IR "tcflow(fd, arg)" .
+.br
+Vea
+.BR tcflow (3)
+para los valores de argumento TCOOFF, TCOON, TCIOFF y TCION.
+
+.SS "Escrutinio y vaciado de buffers"
+.TP
+.BI "FIONREAD	int *" argp
+Obtiene el número de bytes en el buffer de entrada.
+.TP
+.BI "TIOCINQ	int *" argp
+Igual que FIONREAD.
+.TP
+.BI "TIOCOUTQ	int *" argp
+Obtienen el número de bytes en el buffer de salida.
+.TP
+.BI "TCFLSH	int " arg
+Equivalente a
+.IR "tcflush(fd, arg)" .
+.br
+Vea
+.BR tcflush (3)
+para los valores de argumento TCIFLUSH, TCOFLUSH y TCIOFLUSH.
+
+.SS "Falsificación de la entrada"
+.TP
+.BI "TIOCSTI	const char *" argp
+Inserta el byte dado en la cola de entrada.
+
+.SS "Redirección de la salida de consola"
+.TP
+.BI "TIOCCONS	void"
+Redirecciona la salida que habría ido a
+.I /dev/console
+o
+.I /dev/tty0
+al tty dado. Si éste es un pty maestro, envía la salida a la parte
+esclava. Cualquier usuario puede hacer esto siempre que la salida no
+haya sido ya redireccionada. Si ya fue redireccionada, se devuelve el
+valor EBUSY, aunque el root puede detener la redirección usando esta
+ioctl con
+.I fd
+apuntando a
+.I /dev/console
+o
+.IR /dev/tty0 .
+
+.SS "tty controlador"
+.TP
+.BI "TIOCSCTTY	int " arg
+Convierte al tty dado en el tty controlador del proceso actual. El
+proceso actual debe ser un líder de sesión y no tener ya un tty
+controlador. Si este tty es ya el tty controlador de un grupo de
+sesión diferente entonces la llamada a ioctl falla con EPERM, a menos
+que el invocador sea el root y
+.I arg
+valga 1, en cuyo caso se `roba' el tty y todos los procesos que lo
+tenían como tty controlador lo pierden.
+.TP
+.BI TIOCNOTTY	void
+Si el tty dado fuera el tty controlador del proceso actual, se
+abandona este tty controlador. Si el proceso fuera el líder de sesión,
+entonces se envía SIGHUP y SIGCONT al grupo de procesos en primer
+plano y todos los procesos en la sesión actual pierden sus ttys
+controladores.
+
+.SS "(Número) identificador (ID) de grupo de procesos y sesión"
+.TP
+.BI "TIOCGPGRP	pid_t *" argp
+Cuando tiene éxito, equivale a
+.IR "*argp = tcgetpgrp(fd)" .
+.br
+Obtiene el ID del grupo de procesos en primer plano en este tty.
+.TP
+.BI "TIOCSPGRP	const pid_t *" argp
+Equivalente a
+.IR "tcsetpgrp(fd, *argp)" .
+.br
+Establece el ID del grupo de procesos en primer plano de este tty.
+.TP
+.BI "TIOCGSID	pid_t *" argp
+Obtiene el ID de sesión del tty dado. La llamada fallará con ENOTTY
+en el caso en el que el tty no sea un pty maestro ni nuestro tty
+controlador. Raro.
+
+.SS "Modo exclusivo"
+.TP
+.BI "TIOCEXCL	void"
+Coloca el tty en modo exclusivo.
+No se permiten más operaciones
+.BR open (2)
+sobre el terminal
+(éstas fallarán con EBUSY excepto para el root).
+.TP
+.BI "TIOCNXCL	void"
+Desactiva el modo exclusivo.
+
+.SS "Disciplina de línea"
+.TP
+.BI "TIOCGETD	int *" argp
+Obtiene la disciplina de línea del tty.
+.TP
+.BI "TIOCSETD	const int *" argp
+Establece la disciplina de línea del tty.
+
+.SS "Ioctls de los pseudo-tty"
+.TP
+.BI "TIOCPKT	const int *" argp
+Activa (cuando
+.RI * argp
+no es cero) o desactiva el modo de paquetes. Sólo se puede aplicar a
+la parte maestra de un pseudo-tty (y devolverá ENOTTY en otro caso).
+En el modo de paquetes, cada
+.BR read (2)
+posterior devolverá un paquete que contiene o bien un único byte de
+control distinto de cero o bien un único byte a 0 seguido de datos
+escritos en la parte esclava del pty. Si el primer byte no es
+TIOCPKT_DATA (0), entonces es un O-lógico de uno o más de los
+siguientes bits:
+
+.nf
+TIOCPKT_FLUSHREAD   La cola de lectura del terminal está vacía.
+TIOCPKT_FLUSHWRITE  La cola de escritura del terminal está vacía.
+TIOCPKT_STOP        Se para la salida del terminal.
+TIOCPKT_START       Se reinicia la salida del terminal.
+TIOCPKT_DOSTOP      t_stopc es `^S' y t_startc es `^Q'.
+TIOCPKT_NOSTOP      los caracteres de inicio y parada no son `^S/^Q'.
+.fi
+
+Mientras se use este modo, se puede detectar la presencia de
+datos de entrada en la parte maestra del pty mediante una llamada a
+.BR select (2).
+Dichos datos contienen información de estado de control para
+condiciones excepcionales.
+
+Este modo lo usan
+.BR rlogin (1)
+y
+.BR rlogind (8)
+para implementar un login remoto con un flujo controlado localmente
+mediante `^S/^Q' y un eco remoto.
+
+Las ioctls de BSD TIOCSTOP, TIOCSTART, TIOCUCNTL, TIOCREMOTE no se han
+implementado en Linux.
+
+.SS "Control del modem"
+.TP
+.BI "TIOCMGET	int *" argp
+Obtiene el estado de los bits del modem.
+.TP
+.BI "TIOCMSET	const int *" argp
+Configura el estado de los bits del modem.
+.TP
+.BI "TIOCMBIC	const int *" argp
+Borra los bits del modem que se indican.
+.TP
+.BI "TIOCMBIS	const int *" argp
+Activa los bits del modem que se indican.
+.LP
+Los bits usados para estas cuatro ioctls son:
+
+.nf
+TIOCM_LE        DSR (data set ready/line enable)
+TIOCM_DTR       DTR (data terminal ready)
+TIOCM_RTS       RTS (request to send)
+TIOCM_ST        TXD secundario (transmitir)
+TIOCM_SR        RXD secundario (recibir)
+TIOCM_CTS       CTS (clear to send)
+TIOCM_CAR       DCD (data carrier detect)
+TIOCM_CD         vea TIOCM_CAR
+TIOCM_RNG       RNG (ring)
+TIOCM_RI         vea TIOCM_RNG
+TIOCM_DSR       DSR (data set ready)
+.fi
+
+.SS "Marcar una línea como local"
+.TP
+.BI "TIOCGSOFTCAR	int *" argp
+("Get software carrier flag")
+Obtiene el estado de la bandera CLOCAL del campo c_cflag de la
+estructura termios.
+.TP
+.BI "TIOCSSOFTCAR	const int *" argp
+("Set software carrier flag")
+Activa la bandera CLOCAL de la estructura termios cuando
+.RI * argp
+es distinto de cero y la borra en caso contrario.
+.LP
+Si la bandera CLOCAL para una línea está apagada, la señal de
+detección de la portadora hardware (DCD) es significativa y una
+operación
+.BR open (2)
+sobre el tty correspondiente se bloqueará hasta que se produzca el
+aserto de DCD, a menos que se haya especificado la opción O_NONBLOCK.
+Si CLOCAL está activa, la línea se comporta como si DCD estuviera
+siempre activa. Normalmente, la bandera de la portadora software se
+enciende para los dispositivos locales y se apaga para las líneas con
+modems.
+
+.SS "Específico de Linux"
+Para la ioctl TIOCLINUX vea
+.BR console_ioctl (4).
+
+.SS "Depuración del núcleo"
+.sp
+.BR "#include <linux/tty.h>"
+.sp
+.TP
+.BI "TIOCTTYGSTRUCT	struct tty_struct *" argp
+Obtiene la tty_struct correspondiente a
+.IR fd .
+.\" 
+.\" .SS "Serial info"
+.\" .sp
+.\" .BR "#include <linux/serial.h>"
+.\" .sp
+.\" .TP
+.\" .BI "TIOCGSERIAL	struct serial_struct *" argp
+.\" Get serial info.
+.\" .TP
+.\" .BI "TIOCSSERIAL	const struct serial_struct *" argp
+.\" Set serial info.
+.\"
+.SH "VALOR DEVUELTO"
+La llamada al sistema
+.I ioctl()
+devuelve 0 en caso de éxito. En caso de error devuelve \-1 y asigna a
+.I errno
+un valor adecuado.
+
+.SH ERRORES
+.TP
+.B ENOIOCTLCMD
+Orden desconocida.
+.TP
+.B EINVAL
+Parámetro de orden inválido.
+.TP
+.B EPERM
+Permiso insuficiente.
+.TP
+.B ENOTTY
+.I fd
+inapropiado.
+.SH EJEMPLO
+Comprueba el estado de la línea DTR del puerto serie.
+
+.nf
+#include <termios.h>
+#include <fcntl.h>
+#include <sys/ioctl.h>
+
+main() {
+    int fd, serial;
+
+    fd = open("/dev/ttyS0", O_RDONLY);
+    ioctl(fd, TIOCMGET, &serial);
+    if (serial & TIOCM_DTR)
+        puts("TIOCM_DTR está apagado");
+    else
+        puts("TIOCM_DTR está encendido");
+    close(fd);
+}
+.fi
+
+.SH "VÉASE TAMBIÉN"
+.BR ioctl (2),
+.BR termios (3),
+.BR console_ioctl (4).
+
+.\" FIONBIO			const int *
+.\" FIONCLEX			void
+.\" FIOCLEX			void
+.\" FIOASYNC			const int *
+.\" from serial.c:
+.\" TIOCSERCONFIG		void
+.\" TIOCSERGWILD		int *
+.\" TIOCSERSWILD		const int *
+.\" TIOCSERGSTRUCT		struct async_struct *
+.\" TIOCSERGETLSR		int *
+.\" TIOCSERGETMULTI		struct serial_multiport_struct *
+.\" TIOCSERSETMULTI		const struct serial_multiport_struct *
+.\" TIOCGSERIAL, TIOCSSERIAL (see above)

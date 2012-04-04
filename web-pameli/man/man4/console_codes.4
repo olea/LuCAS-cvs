@@ -1,0 +1,558 @@
+'\" t
+.\" Copyright (c) 1996 Andries Brouwer <aeb@cwi.nl>, Mon Oct 31 22:13:04 1996
+.\"
+.\" This is free documentation; you can redistribute it and/or
+.\" modify it under the terms of the GNU General Public License as
+.\" published by the Free Software Foundation; either version 2 of
+.\" the License, or (at your option) any later version.
+.\"
+.\" This is combined from many sources.
+.\" For Linux, the definitive source is of course console.c.
+.\" About vt100-like escape sequences in general there are
+.\" the ISO 6429 and ISO 2022 norms, the descriptions of
+.\" an actual vt100, and the xterm docs (ctlseqs.ms).
+.\" Substantial portions of this text are derived from a write-up
+.\" by Eric S. Raymond <esr@thyrsus.com>.
+.\"
+.\" Tiny correction, aeb, 961107.
+.\"
+.\" Translated into Spanish Sun Mar 15 17:46:40 CET 1998 by Gerardo
+.\" Aburruzaga García <gerardo.aburruzaga@uca.es>
+.\"
+.TH CONSOLE_CODES 4 "31 octubre 1996" "Linux" "Manual del Programador de Linux"
+.SH NOMBRE
+console_codes \- secuencias de escape y control de la consola de Linux
+.SH DESCRIPCIÓN
+La consola de Linux implementa un vasto subconjunto de los controles
+de terminal de la VT102 y del estándar ECMA-48/ISO 6429/ANSI X3.64,
+más ciertas secuencias de modo privadas para cambiar la paleta de
+colores, asociaciones de conjuntos de caracteres, etc.
+En las descripciones tabulares de abajo, la 2ª columna da los
+mnemónicos ECMA-48 o DEC (éstos, prefijados por DEC) para la función dada.
+Las secuencias sin un mnemónico no son ni ECMA-48 ni VT102.
+.LP
+Después de haber hecho todo el procesamiento de salida normal, y de
+que un flujo de caracteres llega al controlador de consola para la
+impresión de verdad, la 1ª cosa que ocurre es una traducción del
+código empleado para el procesamiento al código empleado para la
+impresión. 
+.LP
+Si la consola está en el modo UTF-8, entonces los bytes que llegan se
+ensamblan 1º a los códigos de 16 b Unicode. Si no, cada byte se
+transforma según la tabla de asociaciones en curso (que lo traduce a
+un valor Unicode). Vea más abajo la sección CONJUNTOS DE CARACTERES
+para la discusión sobre esto.
+.LP
+En el caso normal, el valor Unicode se convierte a un índice de tipo
+de letra, y éste se almacena en memoria de vídeo, de forma que
+aparezca en la pantalla el grafo correspondiente (según se encuentra
+en la ROM de vídeo).
+Observe que el empleo de Unicode (y el diseño del hardware del PC) nos
+permite usar 512 grafos diferentes simultáneamente.
+.LP
+Si el valor actual Unicode es un carácter de control, o estamos
+actualmente procesando una secuencia de escape, el valor se tratará
+especialmente. En vez de convertirse a un índice de tipo y presentarse
+como un grafismo, puede lanzar un movimiento del cursor u otra función
+de control.
+Vea la sección CONTROLES DE LA CONSOLA DE LINUX abajo para la
+discusión sobre esto.
+.LP
+Generalmente no es una buena idea codificar directamente controles de
+terminal en programas. Linux tiene una base de datos
+.IR terminfo (5)
+de capacidades de terminales.
+En vez de emitir a mano secuencias de escape de la consola,
+Ud. debería casi siempre utilizar una biblioteca de pantalla que
+consultara terminfo o una utilidad, como
+.BR ncurses (3),
+.BR tput (1), 
+o
+.BR reset (1).
+
+.SH CONTROLES DE LA CONSOLA DE LINUX
+
+Esta sección describe todos los caracteres de control y secuencias de
+escape que llaman a funciones especiales (i.e., cualquier otra cosa
+distinta a escribir un grafo en la localización del cursor en curso)
+en la consola de Linux.
+.SS "Caracteres de control"
+Un carácter lo es de control si (antes de la transformación según la
+tabla de asociaciones) tiene uno de los 14 códigos 
+00 (NUL), 07 (BEL), 08 (BS), 09 (HT), 0a (LF), 0b (VT),
+0c (FF), 0d (CR), 0e (SO), 0f (SI), 18 (CAN), 1a (SUB),
+1b (ESC), 7f (DEL).
+Uno puede establecer un modo de `mostrar caracteres de control' (vea
+más abajo), y permitir que los códigos 07, 09, 0b, 18, 1a, 7f se
+muestren como grafos.
+Por otro lado, en modo UTF-8 todos los códigos 00-1f se miran como
+caracteres de control, sin importar ningún modo `mostrar caracteres de
+control'.
+
+Si tenemos un carácter de control, se actúa inmediatamente y luego se
+descarta (incluso en medio de una secuencia de escape)
+y la secuencia de escape continúa con el siguiente carácter.
+(Sin embargo, ESC empieza una nueva secuencia de escape, posiblemente
+abortando una anterior no acabada, y CAN y SUB abortan cualquier
+secuencia de escape).
+Los caracteres de control reconocidos son BEL, BS, HT, LF, VT, FF,
+CR, SO, SI, CAN, SUB, ESC, DEL, CSI. Hacen lo que uno esperaría:
+.HP
+BEL (0x07, ^G) pita;
+.HP
+BS (0x08, ^H) va un espacio atrás a la columna anterior (pero no pasa
+del principio de la línea);
+.HP
+HT (0x09, ^I) va a la siguiente parada de tabulación o al final de la
+línea si no hay antes una parada de tabulación;
+.HP
+LF (0x0A, ^J), VT (0x0B, ^K) y FF (0x0C, ^L) todos dan un salto de línea;
+.HP
+CR (0x0D, ^M) da un retorno de carro;
+.HP
+SO (0x0E, ^N) activa el conjunto de caracteres G1, y si está activado
+LF/NL (modo de nueva línea), también un retorno de carro;
+.HP
+SI (0x0F, ^O) activa el conjunto de carcteres G0;
+.HP
+CAN (0x18, ^X) y SUB (0x1A, ^Z) interrumpen secuencias de escape;
+.HP
+ESC (0x1B, ^[) empieza una secuencia de escape;
+.HP
+DEL (0x7F) no es tenido en cuenta;
+.HP
+CSI (0x9B) es equivalente a ESC [.
+.LP
+
+.SS "Secuencias de ESC, pero no CSI"
+.TS 
+l l l.
+ESC c	RIS	Inicio.
+ESC D	IND	Salto de línea.
+ESC E	NEL	Nueva línea.
+ESC H	HTS	Pone parada tab en esta columna.
+ESC M	RI	Salto de línea inverso.
+ESC Z	DECID	DEC identificación privada. El núcleo
+		devuelve la cadena ESC [ ? 6 c, diciendo
+		que es una VT102.
+ESC 7	DECSC	Salva el estado actual (cordenadas del cursor,
+		atributos, conjuntos de caracteres).
+ESC 8	DECRC	Restaura el estado salvado más reciente.
+ESC [	CSI	Introductor de secuencia de control
+ESC %		Empieza la secuencia de selección de conjunto de caracteres
+ESC % @		\0\0\0Selecciona el predeterminado (ISO 646 / ISO 8859-1)
+ESC % G		\0\0\0Selecciona UTF-8
+ESC % 8		\0\0\0Selecciona UTF-8 (obsoleto)
+ESC # 8	DECALN	DEC prueba de alineación en pantalla - la llena de E's.
+ESC (		Empieza secuencia de definición del conjunto G0
+ESC ( B		\0\0\0Selecciona predeterminado (asociación ISO 8859-1)
+ESC ( 0		\0\0\0Selecciona asociación de gráficos vt100
+ESC ( U		\0\0\0Selecciona ninguna asociación - derecho a la ROM
+ESC ( K		\0\0\0Selecciona asociación del usuario - la que se carga con
+		\0\0\0la utilidad \fBmapscrn\fP(8).
+ESC )		Empieza la secuencia de definición de G1
+		(seguido por uno de B, 0, U, K, como arriba).
+ESC >	DECPNM	Pone el teclado auxiliar en modo numérico
+ESC =	DECPAM	Pone el teclado auxiliar en modo aplicación
+ESC ]	OSC	(Debería ser: Orden del sistema operativo)
+		ESC ] P \fInrrggbb\fP: pone paleta, con parámetro 
+		dado en 7 dígitos hexadecimales tras la P final :-(.
+		Aquí \fIn\fP es el color (0-16), y \fIrrggbb\fP indica
+		los valores rojo/verde/azul (0-255). 
+		ESC ] R: restaura paleta
+.TE
+.SS "Secuencias ECMA-48 CSI"
+
+CSI (o ESC [) es seguido por una secuencia de parámetros,
+como mucho NPAR (16), que son los números decimales separados por
+punto y comas. Un parámetro vacío o ausente se toma como 0.
+La secuencia de parámetros puede ir precedida por un signo de interrogación.
+
+Sin embargo, tras CSI [ (o ESC [ [) se lee un carácter solo y esta
+secuencia entera no es tenida en cuenta. (La idea es no hacer caso de
+una tecla de función que se muestra.)
+
+La acción de una secuencia CSI se determina por su carácter final.
+
+.TS
+l l l.
+@	ICH	Insertar el Nº indicado de caracteres blancos
+A	CUU	Mover cursor arriba el Nº indicado de filas
+B	CUD	Mover cursor abajo el Nº indicado de filas
+C	CUF	Mover cursor a la derecha el Nº indicado de columnas
+D	CUB	Mover cursor a la izquierda el Nº indicado de columnas
+E	CNL	Mover cursor abajo el Nº indicado de filas, a la columna 1
+F	CPL	Mover cursor arriba el Nº indicado de filas, a la columna 1
+G	CHA	Mover cursor a la columna indicada en la fila actual
+H	CUP	Mover cursor a la fila y columna indicadas (origen en 1,1)
+J	ED	Borrar pantalla (p. o.: desde el cursor al final de la pantalla).
+		ESC [ 1 J: borrar desde el comienzo hasta el cursor.
+		ESC [ 2 J: borrar la pantalla entera.
+K	EL	Borrar línea (p.o.: desde el cursor al final de la línea).
+		ESC [ 1 K: borrar desde el comienzo de la línea al cursor
+		ESC [ 2 K: borrar la línea entera.
+L	IL	Insertar el Nº indicado de líneas en blanco
+M	DL	Borrar el Nº indicado de líneas
+P	DCH	Borrar el Nº indicado de caracteres en la línea actual
+X	ECH	Borrar el Nº indicado de caracteres en la línea actual
+a	HPR	Mover cursor a la derecha el Nº indicado de columnas
+c	DA	Reponder ESC [ ? 6 c: `Yo soy una VT102'.
+d	VPA	Mover cursor a la fila y columna indicadas
+e	VPR	Mover cursor abajo el Nº indicado de filas
+f	HVP	Mover cursor a la fila y columna indicadas
+g	TBC	Sin parámetro: quita parada TAB en la posición actual
+		ESC [ 3 g: borra todas las paradas de tabulación
+h	SM	Establece Modo (vea abajo).
+l	RM	Restablece Modo (vea abajo).
+m	SGR	Establece atributos (vea abajo).
+n	DSR	Informe de estado (vea abajo).
+q	DECLL	Establece los LEDs del teclado.
+		ESC [ 0 q: apaga todos los LEDs
+		ESC [ 1 q: pone LED Bloq. Despl.
+		ESC [ 2 q: pone LED Bloq. Num.
+		ESC [ 3 q: pone LED Bloq. Mayús.
+r	DECSTBM	Establece región de rodadura; los parámetros son la fila de arriba y abajo
+s	?	Salva la localización del cursor
+u	?	Restaura la localización del cursor.
+`	HPA	Mover cursor a la columna indicada en la fila indicada
+.TE
+.SS ECMA-48 Pone modo Gráfico
+
+La secuencia ECMA-48 SGR  ESC [ <parámetros> m establece los atributos
+de la pantalla.
+Se pueden poner varios atributos en la misma secuencia.
+.LP
+.TS
+l l.
+par	resultado
+0	restablece todos los atributos a sus valores predeterminados
+1	pone negrillas
+2	pone medio brillo (simulado con color en una pantalla a color)
+4	pone subrayado (simulado con color en una pantalla a color)
+	(los colores para simular disminución o subrayado se ponen con
+	ESC ] ...)
+5	pone intermitencia
+7	pone vídeo inverso
+10	restaura asociación seleccionada, indicador de control de
+	pantalla y cambia el indicador meta
+11	selecciona no asociación, pone indicador de control de
+	pantalla, restaura indicador de cambio meta
+12	selecciona no asociación, pone indicador de control de
+	pantalla, pone indicador de cambio meta (que hace que el bit
+	más alto de un byte cambie antes de que se haga la traducción
+	de la tabla de asociación.) 
+21	pone intensidad normal (esto no es compatible con ECMA-48)
+22	pone intensidad normal
+24	quita subrayado
+25	quita intermitencia
+27	quita vídeo inverso
+30	pone negro
+31	pone rojo
+32	pone verde
+33	pone marrón
+34	pone azul
+35	pone rosa
+36	pone celeste
+37	pone blanco
+38	pone subrayado, color predeterminado
+39	quita subrayado, pone color predeterminado
+40	pone negro de fondo
+41	pone rojo de fondo
+42	pone verde de fondo
+43	pone marrón de fondo
+44	pone azul de fondo
+45	pone rosa de fondo
+46	pone celeste de fondo
+47	pone blanco de fondo
+49	pone el color de fondo predeterminado
+.TE
+.SS Interruptores de Modo ECMA-48
+.TP
+ESC [ 3 h
+DECCRM (por omisión desactivado): Mostrar caracteres de control
+.TP
+ESC [ 4 h
+DECIM (por omisión desactivado): Poner modo de inserción
+.TP
+ESC [ 20 h
+LF/NL (por omisión desactivado): Automáticamente seguir a LF, VT o FF con CR.
+.LP
+.SS Órdenes de Informe de Estado ECMA-48
+.TP
+ESC [ 5 n
+Informe de estado de dispositivo (DSR): La respuesta es ESC [ 0 n (Terminal OK).
+.TP
+ESC [ 6 n
+Informe de posición de cursor (CPR): La respuesta es ESC [ \fIy\fP ; \fIx\fP R,
+donde \fIx,y\fP es la localización del cursor.
+
+.SS Secuencias de Modo Privado DEC (DECSET/DECRST).
+
+Éstas no se describen en ECMA-48. Listamos las secuencias de
+Establecer Modo; las de Reestablecer Modo se obtienen reemplazando la
+hache final por ele.
+.TP
+ESC [ ? 1 h
+DECCKM (por omisisón desactivado): Cuando está activado, las teclas de
+cursor envían un prefijo ESC O, en vez de ESC [.
+.TP
+ESC [ ? 3 h
+DECCOLM (por omisión desactivado = 80 columnas): interruptor de modo
+80/132 columnas.  En los fuentes del controlador se hace notar que
+esto solo no basta; alguna utilidad de usuario como
+.IR resizecons (8)
+tiene que cambiar los registros de hardware en la tarjeta de vídeo de
+consola. 
+.TP
+ESC [ ? 5 h
+DECSCNM (por omisión desactivado): Pone el modo de vídeo inverso
+.TP
+ESC [ ? 6 h
+DECOM (por omisión desactivado): Cuando está activado, el
+direccionamiento del cursor es relativo a la esquina superior
+izquierda de la región de rodadura.
+.TP
+ESC [ ? 7 h
+DECAWM (por omisión activado): Activa el paso automático de
+renglón. En este modo, un carácter gráfico emitido tras la columna 80
+(o la 132 si está activado DECCOLM) fuerza un cambio al principio de
+la siguiente línea.
+.TP
+ESC [ ? 8 h
+DECARM (por omisión activado): Activa la auto-repetición del teclado
+.TP
+ESC [ ? 9 h
+Informe de Ratón X10 (por omisión desactivado): Establece el modo de
+informe a 1 (o lo restaura a 0) \- vea abajo.
+.TP
+ESC [ ? 25 h
+DECCM (por omisión activado): Hace visible el cursor.
+.TP
+ESC [ ? 1000 h
+Informe de Ratón X11 (por omisión desactivado): Establece el modo de
+informe a 2 (o lo restaura a 0) \- vea abajo.
+
+.SS Secuencias Privadas de Consola de Linux CSI
+
+Las siguientes secuencias no son ni ECMA-48 ni VT102 nativas. Son
+nativas al controlador de consola de Linux. Los colores están en los
+parámetros SGR:
+0 = negro, 1 = rojo, 2 = verde, 3 = marrón, 4 = azul, 5 = rosa, 6 =
+celeste, 7 = blanco.
+
+.TS
+l l.
+ESC [ 1 ; \fIn\fP ]	Pone el color \fIn\fP como el de subrayado
+ESC [ 2 ; \fIn\fP ]	Pone el color \fIn\fP como el disminuido
+ESC [ 8 ]       	Hace al color actual el de los atributos predeterminados
+ESC [ 9 ; \fIn\fP ]	Pone el tiempo de espera del blanqueado de la terminal a \fIn\fP min.
+ESC [ 10 ; \fIn\fP ]	Establece la frecuencia del pito en Hz.
+ESC [ 11 ; \fIn\fP ]	Establece la duración del pitido en ms.
+ESC [ 12 ; \fIn\fP ]	Trae al frente la consola especificada.
+ESC [ 13 ]      	Quita el blanco de la pantalla.
+ESC [ 14 ; \fIn\fP ]   	Establece el intervalo de apagado VESA en min.
+.TE
+
+.SH "CONJUNTOS DE CARACTERES"
+
+El núcleo sabe de 4 traducciones de bytes a símbolos de la pantalla de
+la consola. Las cuatro tablas son: a) Latin1 -> PC,  b) gráficos VT100
+-> PC, c) PC -> PC, d) definida por el usuario.
+
+Hay dos conjuntos de caracteres, llamados G0 y G1, y uno de ellos es
+el actual. (Inicialmente G0.)
+
+Teclear ^N hace que G1 sea el actual, ^O hace a G0 el actual.
+
+Estas variables G0 y G1 apuntan a una tabla de traducción, y pueden
+ser cambiadas por el usuario. Inicialmente apuntan a las tablas a) y
+b) respectivamente.
+Las secuencias ESC ( B y ESC ( 0 y ESC ( U y ESC ( K causan que G0 apunte
+a la tabla a), b), c) y d) respectivamente. 
+Las secuencias ESC ) B y ESC ) 0 y ESC ) U y ESC ) K causan que G1 apunte
+a la tabla a), b), c) y d), respectivamente.
+
+La secuencia ESC c provoca una puesta a cero de la terminal, que es lo
+que uno quiere cuando la pantalla está liada. El otrora truco "echo
+^V^O" solamente hace G0 actual, pero no hay garantías de que G0 apunte
+a la tabla a). 
+En algunas distribuciones hay un programa
+.BR reset (1)
+que simplemente hace "echo ^[c".
+Si su entrada de terminfo para la consola es correcto (y tiene una
+entrada rs1=\\Ec), entonces "tput reset" también funcionará.
+
+La tabla de asociación definida por el usuario puede ponerse con
+.BR mapscrn (8).
+El resultado de la asociación es que si hay un símbolo c que se
+imprime, se envía a la memoria de vídeo el símbolo s = map[c]. El mapa
+de bits que corresponde a s se encuentra en la ROM de caracteres, y
+puede cambiarse mediante
+.BR setfont(8).
+
+.SH "PISTA DEL RATÓN"
+
+La facilidad de seguimiento de pista del ratón sirve para devolver
+informes de estado del ratón compatibles con xterm. Puesto que el
+controlador de consola no tiene forma de conocer el dispositivo ni
+tipo del ratón, estos informes se devuelven en el flujo de entrada de
+la consola sólo cuando del controlador de terminal virtual recibe un
+ioctl de actualización de ratón. Estos ioctls deben ser generados por
+una aplicación de usuario que haga uso del ratón como el duende \fBgpm(8)\fR.
+
+Los parámetros para todas las secuencias de escape de pista del ratón
+generadas por \fIxterm\fP codifican los parámetros numéricos en un
+simple carácter como \fIvalor\fP+040.  Por ejemplo, `!' es 1.  El
+sistema de coordenadas de la pantalla empieza en 1.
+
+El modo de compatibilidad X10 envía una secuencia de escape cuando se
+pulsa un botón codificando la localización y el botón del ratón
+pulsado. 
+Esto se activa enviando ESC [ ? 9 h y se desactiva con ESC [ ? 9 l.
+Cuando se pulsa un botón, \fIxterm\fP envía
+ESC [ M \fIbxy\fP (6 caracteres).  Aquí \fIb\fP es botón\-1,
+y \fIx\fP y \fIy\fP son las coordenadas x e y del ratón cuando se
+pulsó el botón.
+Esto es el mismo código que el núcleo también produce.
+
+El modo de pista normal (no implementado en Linux 2.0.24) envía una
+secuencia de escape cuando se pulas o se libera un botón. También se
+envía información de modificador. Se habilita enviando ESC [ ? 1000 h
+y se inhabilita con ESC [ 1000 l.  Cuando se pulas o libera un botón,
+\fIxterm\fPenvía ESC [ M \fIbxy\fP.  Los dos bits bajos de \fIb\fP
+codifican información del botón:
+0=MB1 pulsado, 1=MB2 pulsado, 2=MB3 pulsado, 3=liberar.  Los bits más
+altos codifican qué modificadores estaban pulsados cuando el botón se
+hubo presionado y se añaden juntos: 4=Mayúsculas, 8=Meta, 16=Control.
+De nuevo \fIx\fP e \fIy\fP son las coordenadas x e y del evento de
+ratón. La esquina superior izquierda es (1,1).
+
+.SH COMPARACIONES CON OTRAS TERMINALES
+
+Muchos tipos diferentes de terminal se describen, como la consola de
+Linux, como `compatibles VT100'. Aquí se discuten las diferencias
+entre la consola de Linux y las otras dos más importantes, la VT102 de
+DEC y la 
+.IR xterm (1).
+
+.SS Manejo de caracteres de control
+La vt102 también reconocía los siguientes caracteres de control:
+.HP
+NUL (0x00) no era tenido en cuenta;
+.HP
+ENQ (0x05) lanzaba un mensaje de reconocimiento;
+.HP
+DC1 (0x11, ^Q, XON) reanudaba la transmisión;
+.HP
+DC3 (0x13, ^S, XOFF) hacía que la vt100 no tuviera en cuenta (y parara
+la transmisión) ningún código excepto XOFF y XON.
+.LP
+El controlador de tty puede habilitar el procesamiento de DC1/DC3 al
+estilo de la VT100. 
+.LP
+El programa
+.I xterm
+(en modo vt100) reconoce los caracteres de control
+BEL, BS, HT, LF, VT, FF, CR, SO, SI, ESC.
+
+.SS Secuencias de Escape
+Secuncias de consola VT100 no implementadas en la consola de Linux:
+.LP
+.TS
+l l l.
+ESC N	SS2	Simple cambio 2. (Selecciona el conjunto de caracteres
+		G2 sólo para el sgute. carácter.) 
+ESC O	SS3	Simple cambio 3. (Selecciona el conjunto de caracteres
+		G3 sólo para el sgute. carácter.) 
+ESC P	DCS	Cadena de control de dispositivo (acabada por ESC \e)
+ESC X	SOS	Comienzo de cadena.
+ESC ^	PM	Mensaje de privacidad (acabado por ESC \e)
+ESC \e	ST	Terminador de caadena
+ESC * ...		Designa el conjunto de caracteres G2
+ESC + ...		Designa el conjunto de caracteres G3
+.TE
+
+El programa
+.I xterm
+(en modo vt100) reconoce ESC c, ESC # 8, ESC >, ESC =,
+ESC D, ESC E, ESC H, ESC M, ESC N, ESC O, ESC P ... ESC \,
+ESC Z (responde ESC [ ? 1 ; 2 c, `Yo soy una vt100 con opción de vídeo
+avanzado') y ESC ^ ... ESC \ con los mismos significados que los
+arriba indicados.
+Acepta ESC (, ESC ), ESC *,  ESC + seguidos por  0, A, B para
+el conjunto de caracteres especiales y líneas de dibujo de DEC, UK y
+US-ASCII, respectivamente.
+Acepta ESC ] para el establecimiento de ciertos recursos:
+.LP
+.TS
+l l.
+ESC ] 0 ; txt BEL	Pone nombre de icono y título de ventana como txt.
+ESC ] 1 ; txt BEL	Pone txt como nombre de icono.
+ESC ] 2 ; txt BEL	Pone txt como título de ventana.
+ESC ] 4 6 ; log BEL	Cambia el nombre del fichero de registro a log
+	(normalmente deshabilitado por una opción de tiempo de
+	compilación) 
+ESC ] 5 0 ; fn BEL	Pone fn como el tipo de letra.
+.TE
+
+Reconoce lo siguiente con un significado ligeramente modificado:
+.LP
+.TS
+l l l.
+ESC 7  DECSC	Salva el cursor
+ESC 8  DECRC	Restaura el cursor
+.TE
+
+También reconoce
+.LP
+.TS
+l l l.
+ESC F		Cursor a esquina inferior izda. de la pantalla (si
+		permitido por el recurso hpLowerleftBugCompat)
+ESC l		Bloqueo de memoria (por terminales HP).
+		Bloquea la memoria sobre el cursor.
+ESC m		Desbloqueo de memoria (por terminales HP).
+ESC n	LS2	Invoca el conjunto de caracteres G2.
+ESC o	LS3	Invoca el conjunto de caracteres G2.
+ESC |	LS3R	Invoca el conjunto de caracteres G3 como GR.
+		No tiene efecto visible en xterm.
+ESC }	LS2R	Invoca el conjunto de caracteres G2 como GR.
+		No tiene efecto visible en xterm.
+ESC ~	LS1R	Invoca el conjunto de caracteres G1 como GR.
+		No tiene efecto visible en xterm.
+.TE
+
+No reconoce ESC % ...
+
+.SS Secuencias CSI
+El programa
+.I xterm
+(en XFree86 3.1.2G) no reconoce los SGRs de modo invisible o
+parpadeo. Versiones originales X11R6 no reconocen los SGRs de
+establecimiento de colores. 
+Todas las otras secuencias CSI de ECMA-48 reconocidas por Linux
+también lo son por
+.IR xterm ,
+y viceversa.
+
+El programa
+.I xterm
+reconocerá todas las secuencias de Modo Privado de DEC listadas
+arriba, pero ninguna de las secuencias de modo privado de Linux.
+Para una discusión sobre las propias secuencias de modo privado de
+.IR xterm ,
+refiérase al documento
+.I Xterm Control Sequences
+por Edward Moy & Stephen Gildea, disponible con la distribución X-Window.
+
+.SH FALLOS
+
+En 2.0.23, CSI no funciona, y NUL es tenido en cuenta dentro de
+secuencias de escape.
+
+.SH "VÉASE TAMBIÉN"
+.BR console (4),
+.BR console_ioctl (4),
+.BR charsets (7)
+
+

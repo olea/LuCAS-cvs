@@ -1,0 +1,318 @@
+\chapter{CONFIGURACIÓN FIREWALL.}
+\minitoc
+\section{Introducción.}
+Un \emph{cortafuegos} en el mundillo de las redes de ordenadores e un dispositivo físico o lógico que protege
+una red privada del resto de la red (pública).
+\begin{itemize}
+\item Se toma un ordenador con capacidad de rutar (por ejemplo un PC con LINUX).
+\item Se le ponen dos interfaces (por ejemplo interfaces serie, o ethernet, o de paso de testigo con anillo
+(Token Ring), etc...).
+\item Se le deshabilita el reenvío de paquetes IP (IP forwarding).
+\item Se conecta una interfaz a la Internet.
+\item Se conecta la otra interfaz a la red que se quiere proteger.
+\end{itemize}
+Ahora hay dos redes distintas que comparten un ordenador. El ordenador que actua de cortafuegos, al que de ahora en adelante
+llamaremos "cortafuegos", puede comunicarse tanto con la red protegida como con la Internet. La red protegida
+no puede comunicarse con la Internet, y la Internet no puede comunicarse con la red protegida, dado que hemos
+deshabilitado el reenvío IP en el único ordenador que las conecta.
+
+Si se quiere llegar a la Internet desde la red protegida, hay que hacer primero un telnet al cortafuegos, y
+acceder a la Internet desde él. Del mismo modo, para acceder a la red protegida desde la Internet, se debe
+antes pasar por el cortafuegos.
+
+Este es un mecanismo de seguridad excelente contra ataques desde la Internet. Si alguien quiere atacar la red
+protegida, primero tiene que atravesar el contrafuegos. De estar manera el ataque se divide en dos pasos, y, por
+lo tanto, se dificulta. Si alguien quiere atacar la red protegida por métodos más comunes, como el bombardeo de emails,
+o el nefasto "Gusano de Internet", simplemente no podrá alcanzarla. Con esto se consigue una protección excelente.
+
+Un cortafuegos puede proteger una red de diversas formas. Puede proporcionar servicios de encubrimiento que
+nieguen o garanticen los accesos basados en: el nombre del usuario, el nombre del host, y el protocolo TCP/IP,
+etc. Un cortafuegos puede suministrar también una variedad de servicios que dejen paso a los usuarios autorizados
+(si se implementa un PROXY) mientras excluyen a los no autorizados. Al mismo tiempo, asegura que todas las
+comunicaciones entre la red e Internet dan la impresión de finalizar en el cortafuegos, si se usa NAT (Network
+Address Translation), evitando que el mundo externo pueda vislumbrar en modo alguno la estructura de la red.
+
+
+\section{Introducción al IPCHAINS.}
+Linux emph{ipchains} es una modificación de la codificación de Linux IPv4 firewalling y una modificación de
+\emph{ipfwadm}. Es necesaria para la administración del filtrado de paquetes de IP en las versiones 2.1.102 o
+posteriores.
+
+Ipchains es la herramienta que te permite administrar los recursos de tu red a nivel ip, permitiendo el
+tráfico de determinados paquetes y denegando el acceso a otros, permite cerrar puertos, redireccionarlos, esconderlos,
+etc. Es la herramienta necesaria para montar y administrar los cortafuegos.
+
+Ipchains se basa en una lista (cadena) de reglas que determinan el comportamiento y las decisiones a tomar sobre
+paquetes cuando alcanzan un interfaz de entrada o salida. Inicialmente siempre hay cadenas de reglas que son las básicas
+y sobre las que se construye todo lo demás. Estas son:
+\begin{itemize}
+\item Input
+\item Output
+\item Forward
+\end{itemize}
+Con ellas hacemos respectivamente alusión a los paquetes que entran, a los que salen, y a los que se enruta. Aparte
+de estas tres básicas se pueden definir otras por el usuario.
+
+Cada lista de reglas contiene, como se ha comentado anteriormente, las reglas, a las cuales se van consultando
+secuencialmente desde la primera a la última, cuando se encuentra una con la que coincide el paquete, se aplica.
+Si al final de todas las reglas no se ha encontrado ninguna, se adopta la política por defecto que recordemos tenía
+dos formas: aceptar o denegar.
+
+Los comandos para manipular las listas de reglas son (siempre en mayúsculas):
+\begin{itemize}
+\item\textit{N}: Crea una nueva cadena de reglas.
+\item\textit{X}: Borra una cadena de reglas que antes debe estar vacía.
+\item\textit{P}: Cambia la política de la cadena de reglas. Esta puede ser ACCEPT, DENY, REJECT y MASQ (ésta solo valida en forward).
+\item\textit{L}: Lista las reglas de la cadena de reglas.
+\item\textit{F}: Borra todas las reglas.
+\item\textit{Z}: Pone a cero todos los contadores de bytes en todas las reglas de la lista.
+\end{itemize}
+Los comandos para manipular las reglas que están dentro de la cadena:
+\begin{itemize}	
+\item\textit{A}: Añade una nueva regla a la cadena (la añade al final).
+\item\textit{I}: Inserta una regla en una posición indicada.
+\item\textit{R}: Reemplaza una regla.
+\item\textit{D}: Borra una regla.
+\end{itemize}
+
+Las reglas suelen seguir el formato de: \emph{ipchains -(ADIR) opciones -j (salto)}
+
+Donde:
+\begin{itemize}
+\item\emph{salto}: Si el paquete coincide con la susodicha regla se saltará a donde indique -j que puede ser
+aceptar, denegar, rejectar u otra cadena definida por el usuario. De todas formas no es imprescindible el -j.
+\item\emph{opciones}:
+\begin{itemize}
+\item\textbf{-s} fuente del paquete. Se puede expresar redes o IP, se sigue el formato: [red|ip]/mask. Si no se
+pone mask se usa por defecto la 32. Con 0/0 referenciamos a todo el mundo. también se
+pueden especificar los puertos, estos se especifican al final, tras la ip/mask y pueden ser un puerto solo o
+un rango que se expresa separando los puertos límites por un ``:''", para expresarlos se pueden usar números o
+el nombre (que se pueden encontrar en \emph{/etc/services}).
+\item\textbf{-d} igual que \textbf{-s} pero para destino.
+\item\textbf{-p} especifica el protocolo (TCP, UDP, ICMP). Se pueden poner también los números equivalentes. Con
+el protocolo ICMP, se puede especificar el tipo y código, se puede poner en \emph{-s} y \emph{-d} el nombre del
+paquete ICMP o si se prefiere el tipo en \emph{-s} y el código en \emph{-d}.
+\item\textbf{-i} especifica el interfaz por el que entra el paquete (en input) o sale (en output y forward). Se pueden
+especificar interfaces inexistentes. Se permite el uso del comodín ``+'' para designar un conjunto de interfaces.
+\item\textbf{-y} referencia a los paquetes SYN que son los que se usan para iniciar una conexión. Con ! hacemos
+referencia a los que no son para iniciar una conexión.
+\item\textbf{-f} la regla solo se aplicará al segundo y demás fragmentos de un paquete, no se permite especificar
+puertos.
+\item\textbf{-j} especifica el objetivo de la regla que puede ser: ACCEPT, REJECT y DENY (deniegan), MASQ
+(aplica masquerade a un paquete, solo válida en forward), REDIRECT (redirecciona a otro puerto o máquina,
+RETURN (aplica la política por defecto). Se puede especificar otra cadena de reglas definidas por el usuario con
+lo que se aplicarán las reglas de esa cadena y luego se volverá al original. Si no se especifica -j, la regla
+solo realizará una actualización de la cuenta, esto es, se pueden contar el número de paquetes que cumplen la
+regla sin tomar acción sobre ellos (también se cuentan cuando se usa -j).
+\item\textbf{-l} si un paquete coincide con la regla se registra en el syslog.
+\item\textbf{-v} en conjunción con -L aumenta la información ofrecida.
+\end{itemize}
+\end{itemize}
+\section{Configuración del firewall.}
+La configuración que se llevará a cabo permitirá la conexión desde el exterior al front-end a través del protocolo
+SSH, además se podrán conectar a la web de documentación a través del puerto 80.
+\begin{em}
+\begin{quote}
+\#!/bin/sh\newline
+\# firewall\newline
+\# probe: true\newline
+\# Source function library.\newline
+. /etc/rc.d/init.d/functions\newline
+\# Source networking configuration.\newline
+if [ ! -f /etc/sysconfig/network ]; then\newline
+    exit 0\newline
+fi\newline
+. /etc/sysconfig/network\newline
+\# Check that networking is up.\newline
+[ \${NETWORKING} = ``no'' ] \&\& exit 0\newline
+if [ ! -x /sbin/ipchains ]; then\newline
+exit 0\newline
+fi\newline
+\# See how we were called.\newline
+case ``\$1'' in\newline
+start)\newline
+\# Activacion de firewall\newline
+echo``===============================================''\newline
+echo``Activacion de las reglas del firewall para cluster.psa.es''\newline
+echo``===============================================''\newline
+\# Proteccion a nivel del nucleo\newline
+\# Activacion ip\_masq\newline
+echo 1 $>$ /proc/sys/net/ipv4/ip\_forward\newline
+\# Enable IP spoofing protection\newline
+for f in /proc/sys/net/ipv4/conf/*/rp\_filter; do\newline
+        echo 1 $>$ \$f\newline
+done\newline
+\# Enable TCP SYN Cookie Protection\newline
+echo 1 $>$ /proc/sys/net/ipv4/tcp\_syncookies\newline
+\# Enable always defragging Protection\newline
+echo 1 $>$ /proc/sys/net/ipv4/ip\_always\_defrag\newline
+\# Enable broadcast echo  Protection\newline
+echo 1 $>$ /proc/sys/net/ipv4/icmp\_echo\_ignore\_broadcasts\newline
+\# Enable bad error message  Protection\newline
+echo 1 $>$ /proc/sys/net/ipv4/icmp\_ignore\_bogus\_error\_responses\newline
+\# Disable ICMP Redirect Acceptance\newline
+for f in /proc/sys/net/ipv4/conf/*/accept\_redirects; do\newline
+       echo 0 $>$ \$f\newline
+done\newline
+\# Disable Source Routed Packets\newline
+for f in /proc/sys/net/ipv4/conf/*/accept\_source\_route; do\newline
+       echo 0 $>$ \$f\newline
+done\newline
+\# Log Spoofed Packets, Source Routed Packets, Redirect Packets\newline
+for f in /proc/sys/net/ipv4/conf/*/log\_martians; do\newline
+       echo 1 $>$ \$f\newline
+done\newline
+\# Inclusion de modulos de enmasqueramiento en el kernel\newline
+/sbin/modprobe ip\_masq\_ftp\newline
+/sbin/modprobe ip\_masq\_irc\newline
+/sbin/modprobe ip\_masq\_quake\newline
+/sbin/modprobe ip\_masq\_cuseeme\newline
+/sbin/modprobe ip\_masq\_raudio\newline
+/sbin/modprobe ip\_masq\_vdolive\newline
+\# Variables de configuracion del firewall\newline
+PATH=/sbin:\$PATH\newline
+export ppp0ADDR=ifconfig eth0 | grep inet addr | awk {print \$2} | sed -e s/.*:// /24"\newline
+export device=eth0\newline
+echo ``Utilizando la ip \$ppp0ADDR de la interfaz \$device''newline
+\# Reglas del firewall\newline
+\# Limpiamos reglas anteriores\newline
+ipchains -F\newline
+\# Set the default policy to deny\newline
+ipchains -P input ACCEPT\newline
+ipchains -P output ACCEPT\newline
+ipchains -P forward DENY\newline
+\# Anti-spoofing\newline
+\# Refuse packets claiming to be to the loopback interface\newline
+ipchains -A input -p all -j DENY -s 127.0.0.0/8 -i \${device} -l\newline
+\# Refuse packets claiming to be to a Class A private network\newline
+ipchains -A input -p all -j DENY -s 10.0.0.0/8 -i \${device} -l       \newline
+\# Refuse packets claiming to be to a Class B private network\newline
+ipchains -A input -p all -j DENY -s 172.16.0.0/12 -i \${device} -l\newline
+\# Refuse packets claiming to be to a Class C private network\newline
+ipchains -A input -p all -j DENY -s 192.168.0.0/16 -i \${device} -l\newline
+\# Refuse Class D multicast addresses\newline
+ipchains -A input -p all -j DENY -s 224.0.0.0/4 -i \${device} -l\newline
+\# Refuse Class E reserved IP addresses\newline
+ipchains -A input -p all -j DENY -s 240.0.0.0/5 -i \${device} -l\newline
+\# Refuse malformed broadcast packets\newline
+ipchains -A input -p all -j DENY -s 255.255.255.255 -i \${device} -l\newline
+ipchains -A input -p all -j DENY -d 0.0.0.0 -i \${device} -l\newline
+\# Refuse addresses defined as reserved by the IANA.\newline
+ipchains -A input -p all -j DENY -s 1.0.0.0/8 -i \${device} -l\newline
+ipchains -A input -p all -j DENY -s 2.0.0.0/8 -i \${device} -l\newline
+ipchains -A input -p all -j DENY -s 5.0.0.0/8 -i \${device} -l\newline
+ipchains -A input -p all -j DENY -s 7.0.0.0/8 -i \${device} -l\newline
+ipchains -A input -p all -j DENY -s 23.0.0.0/8 -i \${device} -l\newline
+ipchains -A input -p all -j DENY -s 27.0.0.0/8 -i \${device} -l\newline
+ipchains -A input -p all -j DENY -s 31.0.0.0/8 -i \${device} -l\newline
+ipchains -A input -p all -j DENY -s 37.0.0.0/8 -i \${device} -l\newline
+ipchains -A input -p all -j DENY -s 39.0.0.0/8 -i \${device} -l\newline
+ipchains -A input -p all -j DENY -s 41.0.0.0/8 -i \${device} -l\newline
+ipchains -A input -p all -j DENY -s 42.0.0.0/8 -i \${device} -l\newline
+ipchains -A input -p all -j DENY -s 58.0.0.0/7 -i \${device} -l\newline
+ipchains -A input -p all -j DENY -s 60.0.0.0/8 -i \${device} -l\newline
+ipchains -A input -p all -j DENY -s 65.0.0.0/8 -i \${device} -l\newline
+ipchains -A input -p all -j DENY -s 66.0.0.0/7 -i \${device} -l\newline
+ipchains -A input -p all -j DENY -s 68.0.0.0/6 -i \${device} -l\newline
+ipchains -A input -p all -j DENY -s 72.0.0.0/5 -i \${device} -l\newline
+ipchains -A input -p all -j DENY -s 80.0.0.0/4 -i \${device} -l\newline
+ipchains -A input -p all -j DENY -s 96.0.0.0/3 -i \${device} -l\newline
+ipchains -A input -p all -j DENY -s 112.0.0.0/3 -i \${device} -l\newline
+ipchains -A input -p all -j DENY -s 169.254.0.0/16 -i \${device} -l\newline
+ipchains -A input -p all -j DENY -s 192.0.0.0/24 -i \${device} -l\newline
+ipchains -A input -p all -j DENY -s 217.0.0.0/8 -i \${device} -l\newline
+ipchains -A input -p all -j DENY -s 218.0.0.0/7 -i \${device} -l\newline
+ipchains -A input -p all -j DENY -s 220.0.0.0/6 -i \${device} -l\newline
+ipchains -A input -p all -j DENY -s 248.0.0.0/5 -i \${device} -l\newline
+\# Rechazamos la conexion con nuestra ip interna\newline
+ipchains -A input -p all -j DENY -d 192.168.1.0/25 -i \${device} -l\newline
+\# ICMP\newline
+ipchains -A input -p icmp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} -l\newline
+\# SSH abierto\newline
+ipchains -A input -p tcp -j ACCEPT -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 22 -l\newline
+\# HTTP abierto\newline
+ipchains -A input -p tcp -j ACCEPT -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 80 -l\newline
+ipchains -A input -p udp -j ACCEPT -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 80 -l\newline
+\# Set uid de conexion\newline
+ipchains -A input -p tcp -y -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} -l\newline
+\# Bloqueo 1:21\newline
+ipchains -A input -p tcp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 1:21 -l\newline
+ipchains -A input -p udp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 1:21 -l\newline
+\# Bloqueo 23:79\newline
+ipchains -A input -p tcp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 23:79 -l\newline
+ipchains -A input -p udp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 23:79 -l\newline
+\# Bloqueo 81:1023\newline
+ipchains -A input -p tcp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 81:1023 -l\newline
+ipchains -A input -p udp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 81:1023 -l\newline
+\# Acepta ssh\newline
+ipchains -A input -p tcp -s 0/0 -d 0/0 22 -j ACCEPT\newline
+ipchains -A input -p udp -j ACCEPT -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 22 -l\newline
+\# Acepta http\newline
+ipchains -A input -p tcp -s 0/0 -d 0/0 80 -j ACCEPT\newline
+ipchains -A input -p udp -j ACCEPT -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 80 -l\newline
+\# Bloqueo de otros puertos\newline
+ipchains -A input -p tcp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 1109 -l\newline
+ipchains -A input -p tcp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 1243 -l\newline
+ipchains -A input -p tcp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 1524 -l\newline
+ipchains -A input -p tcp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 1600 -l\newline
+ipchains -A input -p udp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 2001 -l\newline
+ipchains -A input -p tcp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 2001 -l\newline
+ipchains -A input -p tcp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 2003 -l\newline
+ipchains -A input -p udp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 2049 -l\newline
+ipchains -A input -p tcp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 2049 -l\newline
+ipchains -A input -p tcp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 2105 -l\newline
+ipchains -A input -p udp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 3001 -l\newline
+ipchains -A input -p tcp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 3001 -l\newline
+ipchains -A input -p udp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 3128:3130 -l \newline
+ipchains -A input -p tcp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 3128:3130 -l\newline
+ipchains -A input -p udp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 3306 -l\newline
+ipchains -A input -p tcp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 3306 -l\newline
+ipchains -A input -p tcp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 4444 -l\newline
+ipchains -A input -p udp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 6000:6100 -l\newline
+ipchains -A input -p tcp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 6000:6100 -l\newline
+ipchains -A input -p udp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 6600:6800 -l\newline
+ipchains -A input -p tcp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 6600:6800 -l\newline
+ipchains -A input -p tcp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 7000 -l\newline
+\# Back Orifice\newline
+ipchains -A input -p udp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 31337 -l\newline
+ipchains -A input -p tcp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 31337  -l\newline
+\# NetBus\newline
+ipchains -A input -p udp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 12345:12346 -l\newline
+ipchains -A input -p tcp -j DENY -s 0.0.0.0/0 -i \${device} -d \${ppp0ADDR} 12345:12346 -l\newline
+\# Reglas de redireccionamiento\newline
+ipchains -A forward -p all -j MASQ -s 192.168.1.0/255.255.255.0 -d 0.0.0.0/0\newline
+;;\newline
+stop)\newline
+echo "Parando Servicios del Firewall: "\newline
+\# Borra todas las reglas por defecto\newline
+ipchains -F\newline
+\# Borra todas las chain definidas por el usuario para el filtrado\newline
+ipchains -X\newline
+\# Resetea los poltica por defecto de fitrado\newline
+ipchains -P input  ACCEPT\newline
+ipchains -P output ACCEPT\newline
+ipchains -P forward ACCEPT\newline
+;;\newline
+restart|reload)\newline
+\$0 stop\newline
+\$0 start\newline
+;;\newline
+*)\newline
+echo ``Uso: firewall {start|stop|restart|reload}''\newline
+exit 1\newline
+;;\newline
+esac\newline
+exit 0
+
+Este fichero únicamente podrá ser manipulado por el superusuario y ser localizado en directorio:
+\$$>$/etc/rc.d/init.d/
+\end{quote}
+\end{em}
+\section{Activación del firewall en el arranque}
+El firewall se activará al iniciarse nuestro sistema justo después de activarse o levantarse todos los servicios
+en el arranque. Para llevar a cabo eso editaremos el ficheros \emph{/etc/rc.d/rc.local} y al final de este se
+escribirá la siguiente línea:
+\begin{quote}
+\#activación de las reglas del firewall \newline
+/etc/rc.d/init.d/firewall start
+\end{quote}

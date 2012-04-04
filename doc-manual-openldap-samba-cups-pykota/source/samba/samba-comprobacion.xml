@@ -1,0 +1,859 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+
+<chapter id="samba-comprobacion">
+
+<chapterinfo>
+	<keywordset>
+		<keyword>Samba</keyword>
+		<keyword>LDAP</keyword>
+		<keyword>comprobación</keyword>
+		<keyword>funcionamiento</keyword>
+	</keywordset>
+</chapterinfo>
+
+<title>Comprobando que todo funciona</title>
+	
+<sect1 id="samba-comprobacion-funcionamiento-introduccion">
+	<title>Introducción</title>
+
+	<para>En esta sección se va a comprobar que todo lo que se ha realizado hasta ahora
+	funciona; esto significa añadir usuarios al directorio <acronym>LDAP</acronym> y comprobar
+	que tanto desde Samba como desde el propio sistema se puede hacer uso de dichos usuarios.</para>
+
+	<para>La administración de usuarios se va a realizar con el programa
+	<ulink url="http://lam.sourceforge.net/"><acronym>LDAP</acronym> Account Manager</ulink>.
+	El proceso de instalación se encuentra en el
+	<xref linkend="ldap-account-manager-instalacion-conf"/>.</para>
+
+	<para>Otro de los programas empleados en la administración de <acronym>LDAP</acronym>
+	es: <ulink url="http://phpldapadmin.sourceforge.net/">phpLDAPadmin</ulink>. El
+	<xref linkend="phpldapadmin-instalacion-conf"/> muestra la manera de instalarlo
+	y configurarlo.</para>
+
+	<para>Para finalizar, son necesarias las herramientas <emphasis>smbldap-tools</emphasis>,
+	ya que internamente Samba hace uso de ellas, como se ha definido en algunas partes
+	de su configuración (vea las secciones:
+	<xref linkend="samba-configuracion-samba-opciones-global-autentificacion"/>
+    y <xref linkend="samba-configuracion-samba-opciones-global-misc"/> para más detalles).
+	El <xref linkend="smbldap-tools"/> muestra el proceso de instalación y configuración
+	de este conjunto de herramientas.</para>
+
+	<important><para>Se recomienda seguir el siguiente orden de instalación de las
+	herramientas anteriormente expuestas: 1º <emphasis><acronym>LDAP</acronym> Account
+	Manager</emphasis>, 2º <emphasis>phpLDAPadmin</emphasis> y 3º
+	<emphasis>smbldap-tools</emphasis>.</para></important>
+</sect1>
+
+<sect1 id="samba-comprobacion-funcionamiento-conf">
+	<title>Verificación del archivo de configuración y reinicio de los demonios</title>
+
+	<para>En el capítulo <xref linkend="samba-configuracion-samba"/> se mostró la forma
+	de configurar un servidor Samba. El resultado de esa configuración ha sido
+	el archivo disponible en el <xref linkend="samba-smb.conf-completo"/>. En estos momentos,
+	sólo queda comprobar si dicho archivo está bien, para ello se hará uso del
+	programa <command>testparm</command>, como se muestra en el siguiente ejemplo:</para>
+
+	<example id="samba-comprobacion-funcionamiento-conf-testparm">
+		<title>Comprobando la nueva configuración (soporte <acronym>LDAP</acronym>)</title>
+	
+<screen><prompt>#</prompt> <userinput>/usr/bin/testparm</userinput>
+<computeroutput>Load smb config files from /etc/samba/smb.conf
+Processing section "[homes]"
+Processing section "[netlogon]"
+Processing section "[profiles]"
+Processing section "[printers]"
+Processing section "[print$]"
+Processing section "[tmp]"
+Processing section "[cdrom]"
+Loaded services file OK.
+Server role: ROLE_DOMAIN_PDC
+Press enter to see a dump of your service definitions
+
+</computeroutput><userinput>[ENTER]</userinput>
+<computeroutput><![CDATA[# Global parameters
+[global]
+        workgroup = GSRDOMAIN
+        server string = SAMBA-LDAP PDC server
+        obey pam restrictions = Yes
+        passdb backend = ldapsam:ldap://gsr.pt
+        guest account = guest
+        passwd program = /usr/sbin/smbldap-passwd -o %u
+        passwd chat = *Enter\snew\sUNIX\spassword:* %n\n *Retype\snew\sUNIX\spassword:* %n\n .
+        unix password sync = Yes
+        syslog = 0
+        log file = /var/log/samba/log.%m
+        max log size = 1000
+        name resolve order = lmhosts host wins bcast
+        socket options = TCP_NODELAY SO_RCVBUF=8192 SO_SNDBUF=8192
+        add user script = /usr/sbin/smbldap-useradd.pl -w %u
+        logon path = \\%L\profiles\%u
+        logon drive = H:
+        logon home = \\%L\%u\.profile
+        domain logons = Yes
+        os level = 80
+        preferred master = Yes
+        domain master = Yes
+        dns proxy = No
+        ldap admin dn = cn=admin,dc=gsr,dc=pt
+        ldap group suffix = ou=groups
+        ldap machine suffix = ou=machines
+        ldap suffix = dc=gsr,dc=pt
+        ldap user suffix = ou=people
+        panic action = /usr/share/samba/panic-action %d
+        idmap uid = 10000-20000
+        idmap gid = 10000-20000
+        template shell = /bin/bash
+        printer admin = @domainadmins
+
+[homes]
+        comment = Home Directories
+        read only = No
+        create mask = 0700
+        directory mask = 0700
+        browseable = No
+
+[netlogon]
+        comment = Network Logon Service
+        path = /home/samba/netlogon
+        write list = @domainadmins
+        guest ok = Yes
+        share modes = No
+
+[profiles]
+        comment = User's Profiles
+        path = /home/samba/profiles
+        read only = No
+        create mask = 0600
+        directory mask = 0700
+        guest ok = Yes
+        browseable = No
+
+[printers]
+        comment = All Printers
+        path = /tmp
+        printable = Yes
+        browseable = No
+
+[print$]
+        comment = Printer Drivers
+        path = /var/lib/samba/printers
+        write list = root, @domainadmins
+
+[tmp]
+        comment = Temporal
+        path = /tmp
+        read only = No
+
+[cdrom]
+        comment = Samba server's CD-ROM
+        path = /cdrom
+        guest ok = Yes
+        locking = No]]></computeroutput></screen>
+	</example>
+
+	<para>Una vez el archivo de configuración está listo y libre de posibles errores, el
+	servidor Samba ha de releer su configuración. La forma de hacer esto se muestra
+	en el <xref linkend="samba-comprobacion-funcionamiento-conf-releer-conf"/>.</para>
+
+	<example id="samba-comprobacion-funcionamiento-conf-releer-conf">
+		<title>Releyendo la configuración de Samba</title>
+	
+<screen><prompt>#</prompt> <userinput>/etc/init.d/samba reload</userinput>
+<computeroutput>Reloading /etc/samba/smb.conf (smbd only).</computeroutput></screen>
+	</example>
+
+	<para>Aunque con releer la configuración de Samba es suficiente para que tengan
+	efecto los cambios introducidos en el mismo, se van a reiniciar los demonios de
+	Samba y ver que muestran los archivos de log de los mismos. Esta última parte se muestra en
+	el <xref linkend="samba-comprobacion-funcionamiento-conf-reiniciar"/>.</para>
+
+	<example id="samba-comprobacion-funcionamiento-conf-reiniciar">
+		<title>Reinicio los demonios de Samba</title>
+	
+<screen><prompt>#</prompt> <userinput>/etc/init.d/samba restart</userinput>
+<computeroutput>Stopping Samba daemons: nmbd smbd.
+Starting Samba daemons: nmbd smbd.</computeroutput></screen>
+	</example>
+
+	<para>Tras el reinicio de los demonios de samba, se echa un vistazo en los archivos
+	de log siguientes: <filename>/var/log/samba/log.nmbd</filename> y
+	<filename>/var/log/samba/log.smbd</filename>. El resultado es el siguiente:</para>
+
+	<itemizedlist>
+		<listitem>
+			<para>Archivo <filename>/var/log/samba/log.nmbd</filename></para>
+
+<programlisting><![CDATA[[2004/10/03 13:15:26, 0] nmbd/nmbd.c:terminate(54)
+  Got SIGTERM: going down...
+[2004/10/03 13:15:30, 0] nmbd/nmbd.c:main(664)
+  Netbios nameserver version 3.0.7-Debian started.
+  Copyright Andrew Tridgell and the Samba Team 1994-2004
+[2004/10/03 13:15:30, 0] nmbd/nmbd_logonnames.c:add_logon_names(163)
+  add_domain_logon_names:
+  Attempting to become logon server for workgroup GSRDOMAIN on subnet 192.168.3.3
+[2004/10/03 13:15:30, 0] nmbd/nmbd_become_dmb.c:become_domain_master_browser_bcast(282)
+  become_domain_master_browser_bcast:
+  Attempting to become domain master browser on workgroup GSRDOMAIN on subnet 192.168.3.3
+[2004/10/03 13:15:30, 0] nmbd/nmbd_become_dmb.c:become_domain_master_browser_bcast(295)
+  become_domain_master_browser_bcast: querying subnet 192.168.3.3 for domain master browser
+  on workgroup GSRDOMAIN
+[2004/10/03 13:15:34, 0] nmbd/nmbd_logonnames.c:become_logon_server_success(124)
+  become_logon_server_success: Samba is now a logon server for workgroup GSRDOMAIN
+  on subnet 192.168.3.3
+[2004/10/03 13:15:38, 0] nmbd/nmbd_become_dmb.c:become_domain_master_stage2(113)
+  *****
+
+  Samba server TODOSCSI is now a domain master browser for workgroup GSRDOMAIN
+  on subnet 192.168.3.3
+
+  *****
+[2004/10/03 13:15:53, 0] nmbd/nmbd_become_lmb.c:become_local_master_stage2(396)
+  *****
+
+  Samba name server TODOSCSI is now a local master browser for workgroup GSRDOMAIN
+  on subnet 192.168.3.3
+
+  *****
+]]></programlisting>
+
+			<para>Se puede comprobar que Samba se ha convertido en un controlador de
+			dominio bajo al subred 192.168.3.3. El dominio que está administrando
+			es <emphasis>GSRDOMAIN</emphasis>.</para>
+		</listitem>
+		<listitem>
+			<para>Archivo <filename>/var/log/samba/log.smbd</filename></para>
+
+<programlisting id="samba-comprobacion-funcionamiento-conf-cups-rehusada" xreflabel="Samba no puede contactar con el servidor CUPS"><![CDATA[[2004/10/03 13:15:30, 0] smbd/server.c:main(760)
+  smbd version 3.0.7-Debian started.
+  Copyright Andrew Tridgell and the Samba Team 1992-2004
+[2004/10/03 13:15:30, 0] printing/print_cups.c:cups_printer_fn(119)
+  Unable to connect to CUPS server localhost - Conexión rehusada]]></programlisting>
+
+			<para>Como en estos momentos no se ha instalado el servidor de impresión
+			<acronym>CUPS</acronym>, Samba no puede contactar con él. Vea
+			la <xref linkend="cups-parte"/> dedicada a <acronym>CUPS</acronym>
+			para obtener más información sobre como instalarlo y configurarlo.</para>
+		</listitem>
+	</itemizedlist>
+</sect1>
+
+<sect1 id="samba-configuracion-samba-opciones-ldap-prueba-funcionamiento-adduser">
+	<title>Adición de un usuario al sistema</title>
+
+	<para>Como se ha comentado anteriormente, se va a emplear la herramienta
+	<emphasis><acronym>LDAP</acronym> Account Manager</emphasis> para la gestión
+	de usuarios. Las capturas de pantalla que se muestran a continuación
+	mostrarán los pasos que hay que seguir para añadir un usuario al sistema:</para>
+
+	<figure>
+		<title><acronym>URL</acronym> donde está instalado <acronym>LAM</acronym></title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/lam-configuracion1.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>Si se encuentra en un entorno de escritorio con <acronym>KDE</acronym>, teclee
+				<keycombo action='simul'><keycap>Alt</keycap><keycap>F2</keycap></keycombo>
+				e introduzca la dirección donde se encuentre instalado <acronym>LAM</acronym>.</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Aviso acerca del certificado del servidor web I</title>
+			<mediaobject>
+				<imageobject>
+					<imagedata fileref="./imagenes/lam-configuracion-certificado1.png" format="PNG"/>
+				</imageobject>
+			
+				<caption><para>Si ha configurado correctamente el servidor web, a la hora
+				de acceder a la aplicación <acronym>LAM</acronym> por el protocolo
+				<emphasis>http</emphasis>, <application>Apache</application> le tendría
+				que redireccionar a la misma dirección, pero bajo el protocolo
+				<emphasis>https</emphasis> (más información en:
+				<xref linkend="apache-creacion-certificados-introduccion"/> y
+				<xref linkend="ldap-account-manager-configuracion-apache"/>)</para>
+
+				<para>Esto es lo que ha ocurrido en esta pantalla, <application>Apache</application>
+				ha redirigido la petición realizada (http://gsr.pt/lam/) hacia el protocolo
+				<emphasis>https</emphasis>. Por este motivo, y debido a que la entidad
+				certificadora que se ha creado es desconocida, sale este aviso. Pulse sobre
+				el botón <emphasis>Detalles</emphasis> para obtener más información.</para></caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Información <acronym>SSL</acronym></title>
+			<mediaobject>
+				<imageobject>
+					<imagedata fileref="./imagenes/lam-configuracion-certificado2.png" format="PNG"/>
+				</imageobject>
+			
+				<caption><para>En esta pantalla se muestra la información del certificado y la
+				entidad certificadora que ha creado dicho certificado. Si se fija, aquí aparecerán
+				los datos tecleados en el <xref linkend="apache-creacion-certificados"/>. Pulse
+				sobre el botón <emphasis>Cerrar</emphasis> para continuar.</para></caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Aviso acerca del certificado del servidor web II</title>
+			<mediaobject>
+				<imageobject>
+					<imagedata fileref="./imagenes/lam-configuracion-certificado3.png" format="PNG"/>
+				</imageobject>
+			
+				<caption><para>Pulse ahora sobre el botón <emphasis>Continuar</emphasis> para
+				seguir con la carga de la página.</para></caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Período de aceptación del certificado</title>
+			<mediaobject>
+				<imageobject>
+					<imagedata fileref="./imagenes/lam-configuracion-certificado4.png" format="PNG"/>
+				</imageobject>
+			
+				<caption><para>Seleccione la opción deseada y pulse sobre ella.</para></caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Ingreso en <acronym>LAM</acronym></title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/lam-configuracion11.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>Si no está seleccionado, elija el perfil <emphasis>GSR</emphasis> y
+				pulse sobre: <emphasis>Change Profile</emphasis>. Una
+				vez seleccionado el perfil adecuado, se ha de teclear la clave del administrador
+				del directorio <acronym>LDAP</acronym> y pulsar sobre
+				<emphasis>Login</emphasis>.</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Edición de perfiles</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/lam-configuracion12.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>La sección predeterminada, tras el ingreso en la herramienta, es la
+				gestión de usuarios. Antes de añadir usuarios, se creará un nuevo
+				perfil de usuarios, personalizado para el sistema de ejemplo.
+				Para proceder a la edición de perfiles, se ha de pulsar sobre el
+				enlace <emphasis>Profile Editor</emphasis>.</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Edición de un perfil de usuario</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/lam-adduser1.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>En el cuadro de <emphasis>User Profiles</emphasis> se selecciona la opción
+				<emphasis>Create a new User Profile</emphasis> y se pulsa sobre el botón
+				<emphasis>Submit</emphasis>.</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Opciones de las cuentas (primera parte)</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/lam-adduser2.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>El cuadro destinado a las cuentas Unix (<emphasis>Unix account</emphasis>)
+				permite configurar una serie de opciones comunes a todos los usuarios, como
+				son:</para>
+
+				<itemizedlist mark="opencircle">
+					<listitem>
+						<para><emphasis>Primary group</emphasis>: selección del grupo
+						principal de los usuarios, por defecto será el grupo
+						<emphasis>domainusers</emphasis>.</para>
+					</listitem>
+					<listitem>
+						<para><emphasis>Additional groups</emphasis>: selección del grupo
+						o grupos adicionales para los usuarios, a mayores se seleccionará
+						el grupo <emphasis>domainguest</emphasis>.</para>
+					</listitem>
+					<listitem>
+						<para><emphasis>Home Directory</emphasis>: localización del
+						home de los usuarios. La ruta donde se establecerán los archivos
+						personales de cada usuario será:
+						<filename class="directory">/home/samba/users/$user</filename>,
+						donde la variable <emphasis>$user</emphasis> se sustituirá
+						por el nombre del usuario a la hora de su creación.</para>
+					</listitem>
+					<listitem>
+						<para><emphasis>Login shell</emphasis>: se establece la
+						shell <emphasis>bash</emphasis> como shell por defecto para los
+						usuarios.</para>
+					</listitem>
+					<listitem>
+						<para><emphasis>Account expires on</emphasis>: se establece la fecha
+						en la cual la cuenta va a caducar. Se ha fijado en el máximo disponible
+						por la aplicación.</para>
+					</listitem>
+				</itemizedlist>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Opciones de las cuentas (segunda parte)</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/lam-adduser3.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>En el cuadro destinado a las cuentas de Samba (<emphasis>Samba
+				account</emphasis>) especifique la ruta al directorio home
+				(<emphasis>\\todoscsi\$user</emphasis>) y la ruta al
+				directorio para los perfiles móviles de los usuarios
+				(<emphasis>\\todoscsi\profiles\$user</emphasis>). Al igual que
+				en las cuentas Unix, la variables <emphasis>$user</emphasis>
+				se sustituirá por el nombre del usuario a la hora de crear una nueva cuenta.</para>
+
+				<para>El campo <emphasis>Profile name</emphasis> se rellena con el
+				nombre del perfil que se quiere crear, en este caso:
+				<emphasis>GSR</emphasis>.</para>
+
+				<para>Para continuar, pulse sobre el botón <emphasis>Save</emphasis>.</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Perfil guardado</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/lam-adduser4.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>Esta pantalla informa de que el perfil <emphasis>GSR</emphasis> se ha
+				guardado correctamente.</para>
+				<para>Se pulsa sobre el enlace <emphasis>Users</emphasis> para proceder
+				a la adición de un nuevo usuario.</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Creación de un nuevo usuario</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/lam-configuracion12.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>Se pulsa sobre el botón: <emphasis>New user</emphasis> para comenzar el proceso
+				de creación de un nuevo usuario.</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Selección del perfil</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/lam-adduser5.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>Antes de comenzar a completar los campos con los datos del nuevo usuario,
+				se ha de seleccionar el perfil anteriormente creado, <emphasis>GSR</emphasis>.
+				Una vez seleccionado, se pulsa sobre el botón: <emphasis>Load Profile</emphasis>.
+				</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Datos generales</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/lam-adduser6.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>Con el perfil <emphasis>GSR</emphasis> cargado, sólo se han de completar
+				los campos: <emphasis>Username</emphasis> con el nombre que va a tener el usuario
+				en el sistema, <emphasis>First name</emphasis> con el nombre real del usuario,
+				<emphasis>Last name</emphasis> con el primer apellido del usuario y, opcionalmente,
+				el campo <emphasis>Gecos</emphasis> con una descripción del usuario.</para>
+
+				<para>Para continuar, se ha de pulsar sobre el botón <emphasis>Unix</emphasis>.</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Datos generales, completado automático de información</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/lam-adduser7.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>Antes de acceder a la información sobre Unix, la aplicación completa
+				automáticamente el campo <emphasis><acronym>UID</acronym> number</emphasis>
+				y sustituye las variables <emphasis>$group</emphasis> y
+				<emphasis>$user</emphasis> por sus valores reales en el campo
+				<emphasis>Home directory</emphasis>.</para>
+
+				<para>Pulsando en este momento, nuevamente, sobre el botón <emphasis>Unix</emphasis>
+				se accederá a la información sobre Unix para el usuario.</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+
+	<figure>
+		<title>Propiedades sobre Unix</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/lam-adduser8.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>En esta pantalla se completa la clave que tendrá el usuario,
+				campos <emphasis>Password</emphasis> y <emphasis>Repeat password</emphasis>.</para>
+
+				<para>Seguidamente pulse sobre el botón: <emphasis>Samba</emphasis>.</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Propiedades sobre Samba (primera parte)</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/lam-adduser9.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>En esta pantalla se completa el campo <emphasis>Display name</emphasis>,
+				de forma que ilustre quien es el usuario de la cuenta.</para>
+
+				<para>Una vez realizado esto, pulse sobre el botón
+				<emphasis>Personal</emphasis>.</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Propiedades sobre Samba (segunda parte)</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/lam-adduser10.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>Antes de acceder a la información personal, la aplicación
+                sustituye las variables <emphasis>$group</emphasis> y
+                <emphasis>$user</emphasis> por sus valores reales en los campos
+                <emphasis>Home path</emphasis> y <emphasis>Profile path</emphasis>.</para>
+
+				<para>Vuelva a pulsar sobre el botón <emphasis>Personal</emphasis>.</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Propiedades personales</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/lam-adduser11.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>En esta pantalla no se completa ningún campo, de todas formas es libre de
+				seleccionar aquellos campos que quiera completar.</para>
+
+				<para>Se pulsa sobre el botón <emphasis>Final</emphasis> para continuar.</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Creación del usuario</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/lam-adduser12.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>Para completar la creación del usuario, se ha de pulsar sobre el botón
+				<emphasis>Create Account</emphasis>.</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Usuario creado</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/lam-adduser13.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>Esta pantalla indica que el usuario se ha creado satisfactoriamente, se va
+				a comprobar accediendo a la lista de usuarios, para ello pulse sobre el
+				botón <emphasis>Back to user list</emphasis>.</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Lista de usuarios</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/lam-adduser14.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>Se puede comprobar en esta pantalla que el usuario <emphasis>gsruser</emphasis>
+				ya se encuentra en el directorio <acronym>LDAP</acronym>.</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+</sect1>
+
+<sect1 id="samba-configuracion-samba-opciones-ldap-prueba-funcionamiento-acceso-unix">
+	<title>Acceso con la nueva cuenta en un sistema Unix</title>
+
+	<para>A continuación se va a probar el acceso por <application>ssh</application>, con el nuevo
+	usuario, a una shell de Unix. Para ello se tecleará:</para>
+
+	<example id="samba-configuracion-samba-opciones-ldap-prueba-funcionamiento-acceso-unix-ejemplo1">
+		<title>Acceso a una shell Unix por <application>ssh</application></title>
+
+<screen><prompt>$</prompt> <userinput>/usr/bin/ssh -l gsruser gsr.pt</userinput>
+<computeroutput>password:</computeroutput> <userinput>[clave]</userinput>
+<computeroutput>Creating directory '/home/samba/users/gsruser'. <co id="co-pam_mkhomedir"/>
+Creating directory '/home/samba/users/gsruser/Maildir'.
+Creating directory '/home/samba/users/gsruser/Maildir/cur'.
+Creating directory '/home/samba/users/gsruser/Maildir/new'.
+Creating directory '/home/samba/users/gsruser/Maildir/tmp'.
+todoscsi-[gsruser]-13:39:04:~$</computeroutput></screen>
+
+		<calloutlist>
+			<callout arearefs="co-pam_mkhomedir">
+				<para>Gracias a la opción comentada en el
+				<xref linkend="openldap-autentificacion-usuarios-configuracion-pam-common-session-ejemplo2"/>,
+				al entrar por primera vez con la cuenta <emphasis>gsruser</emphasis> y no
+				tener creado el directorio <emphasis>home</emphasis> para este usuario,
+				el módulo <emphasis>pam_mkhomedir</emphasis> se encarga de crearlo, copiando
+				el contenido del directorio <filename class="directory">/etc/skel</filename>
+				al recién creado home.</para>
+			</callout>
+		</calloutlist>
+	</example>
+</sect1>
+
+<sect1 id="samba-configuracion-samba-opciones-ldap-prueba-funcionamiento-acceso-samba">
+	<title>Acceso con la nueva cuenta a Samba</title>
+
+	<para>Por último, se va a verificar el acceso a los recursos compartidos mediante Samba. Para
+	ello se va a utilizar la orden <command>smbclient</command> y el navegador
+	<application>Konqueror</application>, para ver dos formas de acceso a los recursos.</para>
+
+
+	<sect2 id="samba-configuracion-samba-opciones-ldap-prueba-funcionamiento-acceso-samba-smbclient">
+		<title>Uso de <command>smbclient</command></title>
+
+		<para><command>smbclient</command> es un cliente parecido al cliente <command>ftp</command>,
+		que permite el acceso a los recursos compartidos de un servidor mediante
+		<acronym>SMB</acronym>/<acronym>CIFS</acronym>.</para>
+
+		<para>En primer lugar se listarán los recursos que tiene compartido un determinado
+		servidor, para ello se ha de teclear:</para>
+
+		<example id="samba-configuracion-samba-opciones-ldap-prueba-funcionamiento-acceso-samba-smbclient-ex1">
+			<title>Mostrando los recursos compartidos con <command>smbclient</command></title>
+
+<screen><prompt>$</prompt> <userinput>/usr/bin/smbclient -L TODOSCSI --user=gsruser</userinput>
+<computeroutput>Password:</computeroutput> <userinput>[clave]</userinput>
+<computeroutput><![CDATA[Domain=[GSRDOMAIN] OS=[Unix] Server=[Samba 3.0.7-Debian]
+
+        Sharename       Type      Comment
+        ---------       ----      -------
+        netlogon        Disk      Network Logon Service
+        print$          Disk      Printer Drivers
+        tmp             Disk      Temporal
+        cdrom           Disk      Samba server's CD-ROM
+        IPC$            IPC       IPC Service (SAMBA-LDAP PDC server)
+        ADMIN$          IPC       IPC Service (SAMBA-LDAP PDC server)
+        gsruser         Disk      Home Directories
+Domain=[GSRDOMAIN] OS=[Unix] Server=[Samba 3.0.7-Debian]
+
+        Server               Comment
+        ---------            -------
+        TODOSCSI             SAMBA-LDAP PDC server
+
+        Workgroup            Master
+        ---------            -------
+        GSRDOMAIN            TODOSCSI]]></computeroutput></screen>
+		</example>
+
+		<para>El ejemplo anterior muestra los recursos compartidos que posee el servidor
+		<emphasis>TODOSCSI</emphasis>. A continuación se va a acceder a uno de estos recursos para
+		listar su contenido y realizar algunas operaciones dentro del mismo:</para>
+
+
+		<example id="samba-configuracion-samba-opciones-ldap-prueba-funcionamiento-acceso-samba-smbclient-ex2">
+			<title>Accediendo a un recurso compartido con <command>smbclient</command></title>
+
+<screen><prompt>$</prompt> <userinput>/bin/ls -la</userinput>
+<computeroutput>total 56
+drwxr-xr-x  3 gsruser domainusers  408 2004-10-09 13:38 .
+drwxr-sr-x  3 root    staff         72 2004-10-09 13:38 ..
+-rw-r--r--  1 gsruser domainusers 1363 2004-10-09 13:38 .bash_aliases
+-rw-r--r--  1 gsruser domainusers  337 2004-10-09 13:38 .bash_logout
+-rw-r--r--  1 gsruser domainusers  239 2004-10-09 13:38 .bash_profile
+-rw-r--r--  1 gsruser domainusers 6198 2004-10-09 13:38 .bashrc
+-rw-r--r--  1 gsruser domainusers   45 2004-10-09 13:38 .cvsrc
+-rw-r--r--  1 gsruser domainusers  618 2004-10-09 13:38 .dir_colors
+-rw-r--r--  1 gsruser domainusers  357 2004-10-09 13:38 .ldaprc
+drwxr-xr-x  5 gsruser domainusers  120 2004-10-09 13:38 Maildir
+-rw-r--r--  1 gsruser domainusers 4267 2004-10-09 13:38 .muttrc
+-rw-r--r--  1 gsruser domainusers  105 2004-10-09 13:38 .procmailrc
+-rw-r--r--  1 gsruser domainusers   87 2004-10-09 13:38 .screenrc
+-rw-r--r--  1 gsruser domainusers  287 2004-10-09 13:38 .tidyrc
+-rw-r--r--  1 gsruser domainusers 2686 2004-10-09 13:38 .vimrc</computeroutput>
+<prompt>$</prompt> <userinput>/usr/bin/smbclient  --user=gsruser //todoscsi/gsruser</userinput>
+<computeroutput>Password:</computeroutput> <userinput>[clave]</userinput>
+<computeroutput>Domain=[GSRDOMAIN] OS=[Unix] Server=[Samba 3.0.7-Debian]</computeroutput>
+<prompt>smb: \></prompt> <userinput>ls</userinput>
+<computeroutput>  .                                   D        0  Sat Oct  9 13:38:52 2004
+  ..                                  D        0  Sat Oct  9 13:38:52 2004
+  .bashrc                             H     6198  Sat Oct  9 13:38:52 2004
+  .ldaprc                             H      357  Sat Oct  9 13:38:52 2004
+  .bash_logout                        H      337  Sat Oct  9 13:38:52 2004
+  .muttrc                             H     4267  Sat Oct  9 13:38:52 2004
+  .dir_colors                         H      618  Sat Oct  9 13:38:52 2004
+  .tidyrc                             H      287  Sat Oct  9 13:38:52 2004
+  .procmailrc                         H      105  Sat Oct  9 13:38:52 2004
+  .bash_aliases                       H     1363  Sat Oct  9 13:38:52 2004
+  Maildir                             D        0  Sat Oct  9 13:38:52 2004
+  .cvsrc                              H       45  Sat Oct  9 13:38:52 2004
+  .vimrc                              H     2686  Sat Oct  9 13:38:52 2004
+  .screenrc                           H       87  Sat Oct  9 13:38:52 2004
+  .bash_profile                       H      239  Sat Oct  9 13:38:52 2004
+
+                43910 blocks of size 524288. 1201 blocks available</computeroutput>
+<prompt>smb: \></prompt> <userinput>mkdir directorio-de-ejemplo</userinput>
+<prompt>smb: \></prompt> <userinput>ls</userinput>
+<computeroutput>  .                                   D        0  Sat Oct  9 13:45:39 2004
+  ..                                  D        0  Sat Oct  9 13:38:52 2004
+  .bashrc                             H     6198  Sat Oct  9 13:38:52 2004
+  .ldaprc                             H      357  Sat Oct  9 13:38:52 2004
+  directorio-de-ejemplo               D        0  Sat Oct  9 13:45:39 2004
+  .bash_logout                        H      337  Sat Oct  9 13:38:52 2004
+  .muttrc                             H     4267  Sat Oct  9 13:38:52 2004
+  .dir_colors                         H      618  Sat Oct  9 13:38:52 2004
+  .tidyrc                             H      287  Sat Oct  9 13:38:52 2004
+  .procmailrc                         H      105  Sat Oct  9 13:38:52 2004
+  .bash_aliases                       H     1363  Sat Oct  9 13:38:52 2004
+  Maildir                             D        0  Sat Oct  9 13:38:52 2004
+  .cvsrc                              H       45  Sat Oct  9 13:38:52 2004
+  .vimrc                              H     2686  Sat Oct  9 13:38:52 2004
+  .screenrc                           H       87  Sat Oct  9 13:38:52 2004
+  .bash_profile                       H      239  Sat Oct  9 13:38:52 2004
+
+                43910 blocks of size 524288. 1201 blocks available</computeroutput>
+<prompt>smb: \></prompt> <userinput>exit</userinput>
+<prompt>~$</prompt> <userinput>/bin/ls -la</userinput>
+<computeroutput>total 56
+drwxr-xr-x    3 gsruser  domainusers      336 2004-06-01 12:27 ./
+drwxr-xr-x    3 root     root           72 2004-05-31 02:46 ../
+-rw-r--r--    1 gsruser  domainusers     1,4K 2004-05-31 02:46 .bash_aliases
+-rw-r--r--    1 gsruser  domainusers      337 2004-05-31 02:46 .bash_logout
+-rw-r--r--    1 gsruser  domainusers      239 2004-05-31 02:46 .bash_profile
+-rw-r--r--    1 gsruser  domainusers     6,3K 2004-05-31 02:46 .bashrc
+-rw-r--r--    1 gsruser  domainusers       45 2004-05-31 02:46 .cvsrc
+-rw-r--r--    1 gsruser  domainusers      618 2004-05-31 02:46 .dir_colors
+drwx------    2 gsruser  domainusers       48 2004-06-01 12:27 directorio-de-ejemplo/
+-rw-r--r--    1 gsruser  domainusers     4,3K 2004-05-31 02:46 .muttrc
+-rw-r--r--    1 gsruser  domainusers      287 2004-05-31 02:46 .tidyrc
+-rw-r--r--    1 gsruser  domainusers     2,7K 2004-05-31 02:46 .vimrc</computeroutput>
+<prompt>$</prompt> <userinput>/bin/rmdir -v directorio-de-ejemplo</userinput>
+<computeroutput>rmdir: borrando el directorio, directorio-de-ejemplo/</computeroutput></screen>
+		</example>
+	</sect2>
+
+	<sect2 id="samba-configuracion-samba-opciones-ldap-prueba-funcionamiento-acceso-samba-konqueror">
+		<title>Uso de <application>konqueror</application></title>
+
+		<para>En esta sección se verá la forma de acceso a los recursos compartidos mediante Samba
+		con <application>konqueror</application>. Las siguientes capturas de pantalla
+		muestran los pasos para conseguirlo:</para>
+
+		<figure>
+			<title>Dirección de acceso a los recursos de Samba</title>
+			<mediaobject>
+				<imageobject>
+					<imagedata fileref="./imagenes/samba-acceso1.png" format="PNG"/>
+				</imageobject>
+		
+				<caption>
+					<para>Konqueror permite el acceso a los recursos compartidos desde un servidor
+					samba; para ello hay que teclear direcciones del tipo:
+					<emphasis>smb://usuario@SERVIDOR-SAMBA/</emphasis>.</para>
+
+					<para>En este caso, se va a acceder al servidor <quote>TODOSCSI</quote> con
+					el usuario <quote>gsruser</quote>.</para>
+				</caption>
+			</mediaobject>
+		</figure>
+
+		<figure>
+			<title>Clave del usuario <emphasis>gsruser</emphasis></title>
+			<mediaobject>
+				<imageobject>
+					<imagedata fileref="./imagenes/samba-acceso2.png" format="PNG"/>
+				</imageobject>
+		
+				<caption>
+					<para>En esta pantalla se ha de teclear la clave para el usuario gsruser.</para>
+				</caption>
+			</mediaobject>
+		</figure>
+
+		<figure>
+			<title>Recursos compartidos</title>
+			<mediaobject>
+				<imageobject>
+					<imagedata fileref="./imagenes/samba-acceso3.png" format="PNG"/>
+				</imageobject>
+		
+				<caption>
+					<para>En esta pantalla se muestran los recursos compartidos. El directorio
+					<filename class="directory">gsruser</filename> se corresponde con el directorio
+					Home del usuario <emphasis>gsruser</emphasis>.</para>
+				</caption>
+			</mediaobject>
+		</figure>
+	</sect2>
+</sect1>
+ 
+</chapter>

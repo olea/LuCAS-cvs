@@ -1,0 +1,393 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<HTML
+><HEAD
+><TITLE
+>Extendiendo SQL: Tipos</TITLE
+><META
+NAME="GENERATOR"
+CONTENT="Modular DocBook HTML Stylesheet Version 1.59"><LINK
+REL="HOME"
+TITLE="PostgreSQL"
+HREF="postgres.html"><LINK
+REL="UP"
+TITLE="Guía del Programador"
+HREF="part-programmer.html"><LINK
+REL="PREVIOUS"
+TITLE="Sobrecarga de funciones"
+HREF="x17086.html"><LINK
+REL="NEXT"
+TITLE="Extenediendo SQL: Operadores"
+HREF="xoper.html"></HEAD
+><BODY
+CLASS="CHAPTER"
+BGCOLOR="#FFFFFF"
+TEXT="#000000"
+LINK="#0000FF"
+VLINK="#840084"
+ALINK="#0000FF"
+><DIV
+CLASS="NAVHEADER"
+><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TH
+COLSPAN="3"
+ALIGN="center"
+>PostgreSQL</TH
+></TR
+><TR
+><TD
+WIDTH="10%"
+ALIGN="left"
+VALIGN="bottom"
+><A
+HREF="x17086.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="80%"
+ALIGN="center"
+VALIGN="bottom"
+></TD
+><TD
+WIDTH="10%"
+ALIGN="right"
+VALIGN="bottom"
+><A
+HREF="xoper.html"
+>Siguiente</A
+></TD
+></TR
+></TABLE
+><HR
+ALIGN="LEFT"
+WIDTH="100%"></DIV
+><DIV
+CLASS="CHAPTER"
+><H1
+><A
+NAME="XTYPES"
+>Extendiendo <SPAN
+CLASS="ACRONYM"
+>SQL</SPAN
+>: Tipos</A
+></H1
+><P
+>     Como se mencionó anteriormente, hay dos clases de tipos
+     en <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+>: tipos base (definidos en un lenguaje de programación)
+     y tipos compuestos (instancias).
+     Los ejemplos en esta sección hasta los de índices de interfaz se pueden
+     encontrar en <TT
+CLASS="FILENAME"
+>complex.sql</TT
+> y <TT
+CLASS="FILENAME"
+>complex.c</TT
+>.  Los ejemplos compuestos
+     están en <TT
+CLASS="FILENAME"
+>funcs.sql</TT
+>.</P
+><DIV
+CLASS="SECT1"
+><H1
+CLASS="SECT1"
+><A
+NAME="AEN17110"
+>Tipos Definidos por el Usuario</A
+></H1
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN17112"
+>Funciones Necesarias para un Tipo Definido por el Usuario</A
+></H2
+><P
+>     Un tipo definido por el usuario debe tener siempre funciones de entrada
+     y salida. Estas funciones determinan cómo aparece el tipo
+     en las cadenas (para la entrada por el usuario y la salida para
+     el usuario) y cómo se organiza el tipo en memoria. La 
+     función de entrada toma una cadena de caracteres delimitada por null
+     como su entrada y devuelve la representación interna (en memoria)
+     del tipo. La función de salida toma la representación interna
+     del tipo y devuelve una cadena de caracteres delimitada por null.
+     Suponga que queremos definir un tipo complejo que representa
+     números complejos. Naturalmente, elegimos representar un
+     complejo en memoria como la siguiente estructura en <SPAN
+CLASS="ACRONYM"
+>C</SPAN
+>:      
+   
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>         typedef struct Complex {
+             double      x;
+             double      y;
+         } Complex;</PRE
+></TD
+></TR
+></TABLE
+>
+     y una cadena de la forma (x, y) como la representación externa
+     de la cadena.
+     Estas funciones normalmente no son difíciles de escribir, especialmente
+     la función de salida. Sin embargo, hay varios puntos a recordar:    
+
+<P
+></P
+><UL
+><LI
+><P
+>  Al definir su representación externa (cadena),
+            recuerde que al final debe escribir un
+            parser completo y robusto para esa representación
+            como su función de entrada!
+       
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="90%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>                Complex *
+                complex_in(char *str)
+                {
+                    double x, y;
+                    Complex *result;
+                    if (sscanf(str, " ( %lf , %lf )", &#38;x, &#38;y) != 2) {
+                        elog(WARN, "complex_in: error in parsing
+                        return NULL;
+                    }
+                    result = (Complex *)palloc(sizeof(Complex));
+                    result-&#62;x = x;
+                    result-&#62;y = y;
+                    return (result);
+                }</PRE
+></TD
+></TR
+></TABLE
+>
+
+            La función de salida puede ser sencillamente:
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="90%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>                char *
+                complex_out(Complex *complex)
+                {
+                    char *result;
+                    if (complex == NULL)
+                        return(NULL);
+                    result = (char *) palloc(60);
+                    sprintf(result, "(%g,%g)", complex-&#62;x, complex-&#62;y);
+                    return(result);
+                }</PRE
+></TD
+></TR
+></TABLE
+></P
+></LI
+><LI
+><P
+>  Debería intentar hacer las funciones de entrada y
+            salida inversas la una a la otra. Si no lo hace,
+            tendrá problemas serios cuando necesite
+            volcar sus datos en un fichero y después leerlos
+            (por ejemplo, en la base de datos de otra persona 
+            en otra computadora). Este es un problema particularmente
+            común cuando hay números en punto flotante de por medio.</P
+></LI
+></UL
+></P
+><P
+>     Para definir el tipo <SPAN
+CLASS="ACRONYM"
+>complejo</SPAN
+>, necesitamos crear las
+     dos funciones definidas por el usuario complex_in y complex_out
+     antes de crear el tipo:
+
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>         CREATE FUNCTION complex_in(opaque)
+            RETURNS complex
+            AS 'PGROOT/tutorial/obj/complex.so'
+            LANGUAGE 'c';
+
+         CREATE FUNCTION complex_out(opaque)
+            RETURNS opaque
+            AS 'PGROOT/tutorial/obj/complex.so'
+            LANGUAGE 'c';
+
+         CREATE TYPE complex (
+            internallength = 16,
+            input = complex_in,
+            output = complex_out
+         );</PRE
+></TD
+></TR
+></TABLE
+></P
+><P
+>     Como se discutió antes, <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> soporta totalmente vectores (o arrays) de 
+     tipos base. Además, <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> soporta vectores de
+     tipos definidos por el usuario también. Cuando usted define un tipo,
+     <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> automáticamente proporciona soporte para vectores de
+     ese tipo. Por razones históricas, el tipo vector tiene
+     el mismo nombre que el tipo definido por el usuario con el 
+     carácter subrayado _ antepuesto. 
+     Los tipos compuestos no necesitan ninguna función definida sobre
+     ellos, dado que el sistema ya comprende cómo son por dentro.</P
+></DIV
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN17131"
+>Objetos Grandes</A
+></H2
+><P
+>     Los tipos discutidos hasta este punto son todos objetos
+     "pequeños" -- esto es, son menores que 8KB en tamaño.
+<DIV
+CLASS="NOTE"
+><P
+></P
+><TABLE
+CLASS="NOTE"
+WIDTH="100%"
+BORDER="0"
+><TR
+><TD
+WIDTH="25"
+ALIGN="CENTER"
+VALIGN="TOP"
+><IMG
+SRC="./stylesheet-images/note.gif"
+HSPACE="5"
+ALT="Nota"></TD
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+><P
+> 1024 longwords == 8192 bytes.  De hecho, el tipo debe ser considerablemente menor que 8192 bytes,
+ dado que las páginas y tuplas de sobrecarga de <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+>
+ deben caber en esta limitación de 8KB también.
+ El valor real que cabe depende de la arquitectura de la máquina.</P
+></TD
+></TR
+></TABLE
+></DIV
+>
+     Si usted necesita un tipo más grande para algo como un sistema
+     de recuperación de documentos o para almacenar bitmaps, necesitará 
+     usar la interfaz de grandes objetos de <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+>.</P
+></DIV
+></DIV
+></DIV
+><DIV
+CLASS="NAVFOOTER"
+><HR
+ALIGN="LEFT"
+WIDTH="100%"><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+><A
+HREF="x17086.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="postgres.html"
+>Inicio</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+><A
+HREF="xoper.html"
+>Siguiente</A
+></TD
+></TR
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+>Sobrecarga de funciones</TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="part-programmer.html"
+>Subir</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+>Extenediendo <SPAN
+CLASS="ACRONYM"
+>SQL</SPAN
+>: Operadores</TD
+></TR
+></TABLE
+></DIV
+></BODY
+></HTML
+>

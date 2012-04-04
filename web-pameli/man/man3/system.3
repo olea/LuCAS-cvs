@@ -1,0 +1,149 @@
+.\" (c) 1993 by Thomas Koenig (ig25@rz.uni-karlsruhe.de)
+.\"
+.\" Permission is granted to make and distribute verbatim copies of this
+.\" manual provided the copyright notice and this permission notice are
+.\" preserved on all copies.
+.\"
+.\" Permission is granted to copy and distribute modified versions of this
+.\" manual under the conditions for verbatim copying, provided that the
+.\" entire resulting derived work is distributed under the terms of a
+.\" permission notice identical to this one
+.\" 
+.\" Since the Linux kernel and libraries are constantly changing, this
+.\" manual page may be incorrect or out-of-date.  The author(s) assume no
+.\" responsibility for errors or omissions, or for damages resulting from
+.\" the use of the information contained herein.  The author(s) may not
+.\" have taken the same level of care in the production of this manual,
+.\" which is licensed free of charge, as they might when working
+.\" professionally.
+.\" 
+.\" Formatted or processed versions of this manual, if unaccompanied by
+.\" the source, must acknowledge the copyright and authors of this work.
+.\" License.
+.\" Modified Sat Jul 24 17:51:15 1993 by Rik Faith (faith@cs.unc.edu)
+.\" Modified 11 May 1998 by Joseph S. Myers (jsm28@cam.ac.uk)
+.\" Translated into Spanish Thu Mar 12 15:34:37 CET 1998 by Gerardo
+.\" Aburruzaga García <gerardo.aburruzaga@uca.es>
+.\" Translation revised Wed Aug 19 1998 by Juan Piernas <piernas@ditec.um.es>
+.\"
+.TH SYSTEM 3  "11 Mayo 1998" "GNU" "Manual del Programador de Linux"
+.SH NOMBRE
+system \- ejecuta una orden del intérprete de comandos (shell)
+.SH SINOPSIS
+.nf
+.B #include <stdlib.h>
+.sp
+.BI "int system (const char * " "mandato" ");"
+.fi
+.SH DESCRIPCIÓN
+.B system()
+ejecuta una orden especificada en
+.I mandato
+llamando a
+.BR "/bin/sh -c"
+.IR mandato ,
+y regresa después de que la orden se haya terminado de ejecutar.
+Durante la ejecucion de la orden, se bloqueará
+.B SIGCHLD
+y no se hace caso de las señales
+.B SIGINT
+ni
+.BR SIGQUIT .
+.SH "VALOR DEVUELTO"
+El valor devuelto es 127 si la llamada a
+.B execve()
+para
+.B /bin/sh
+falla, \-1 si se produce otro error, y el código de salida de la
+orden en cualquier otro caso.
+.PP
+Si el valor de
+.I mandato
+es 
+.BR NULL ,
+.B system()
+devuelve un número distinto de cero si hay un intérprete de comandos
+disponible, y cero si no.
+.PP
+.B system()
+no afecta al estado de espera de cualquier otro proceso hijo.
+.SH "CONFORME A"
+C ANSI, POSIX.2, BSD 4.3
+.SH "FALLOS"
+.PP
+Es extremadamente desafortunado que la versión de
+.B system()
+en libc no haga caso de las interrupciones. Esto hace imposible
+interrumpir los programas que la llaman desde un bucle. 
+Lo cual significa que para tales propósitos uno no debería utilizar
+.B system()
+sino una versión privada, como la siguiente (aviso: ¡código no probado!):
+.br
+.nf
+
+int mi_system (const char *mandato) {
+    int pid, status;
+
+    if (mandato == 0)
+        return 1;   /* En UNIX/Linux siempre hay un shell */
+    pid = fork();
+    if (pid == -1)
+        return -1;
+    if (pid == 0) {
+        char *argv[4];
+        argv[0] = "sh";
+        argv[1] = "-c";
+        argv[2] = mandato;
+        argv[3] = 0;
+        execve("/bin/sh", argv, environ);
+        exit(127);
+    }
+    do {
+        if (waitpid(pid, &status, 0) == -1) {
+            if (errno != EINTR)
+                return -1;
+        } else
+            return status;
+    } while(1);
+}
+.fi
+.PP
+De hecho,
+.B system()
+no funcionará adecuadamente desde programas con privilegios suid o sgid en
+sistemas en los que
+.B /bin/sh
+sea la versión 2 de
+.BR bash ,
+ya que bash 2 omite los privilegios en el momento de ejecutarse. (Debian usa
+una versión modificada de bash que no hace esto cuando se invoca como
+.BR sh ).
+No llame a
+.B system()
+desde un programa con privilegios suid o sgid, porque pudiera ser que
+se emplearan valores extraños para algunas variables de entorno
+para comprometer la integridad del sistema.
+En su lugar emplee la familia de funciones
+.BR exec (3),
+salvo
+.BR execlp (3)
+o
+.BR execvp (3).
+.PP
+En realidad no se comprueba si el intérprete de comandos
+.B /bin/sh
+está disponible o no; en Linux siempre se supone que lo está. ISO C
+especifica la comprobación, pero POSIX.2 especifica que el valor devuelto
+siempre será no cero, ya que un sistema sin intérprete de comandos no es
+conforme, y esto es lo que se implementa.
+.PP
+Es posible que una orden del intérprete de comandos devuelva 127, así que ese
+código no es una indicación segura de que
+.B execve()
+haya fallado; compruebe el valor de
+.I errno
+para asegurarse.
+.SH "VÉASE TAMBIÉN"
+.BR sh (1),
+.BR signal (2),
+.BR exec (3)

@@ -1,0 +1,242 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+
+<!--Converted with jLaTeX2HTML 2002 (1.62) JA patch-1.4
+patched version by:  Kenshi Muto, Debian Project.
+LaTeX2HTML 2002 (1.62),
+original version by:  Nikos Drakos, CBLU, University of Leeds
+* revised and updated by:  Marcus Hennecke, Ross Moore, Herb Swan
+* with significant contributions from:
+  Jens Lippmann, Marek Rouchal, Martin Wilck and others -->
+<HTML>
+<HEAD>
+<TITLE>Reemplazando printk's</TITLE>
+<META NAME="description" CONTENT="Reemplazando printk's">
+<META NAME="keywords" CONTENT="progmodlinux">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=iso-8859-1">
+<META NAME="Generator" CONTENT="jLaTeX2HTML v2002 JA patch-1.4">
+<META HTTP-EQUIV="Content-Style-Type" CONTENT="text/css">
+
+<LINK REL="STYLESHEET" HREF="progmodlinux.css">
+
+<LINK REL="next" HREF="node23.html">
+<LINK REL="previous" HREF="node21.html">
+<LINK REL="up" HREF="progmodlinux.html">
+<LINK REL="next" HREF="node23.html">
+</HEAD>
+
+<BODY >
+<!--Navigation Panel-->
+<A NAME="tex2html754"
+  HREF="node23.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next"
+ SRC="file:/usr/share/latex2html/icons/next.png"></A> 
+<A NAME="tex2html748"
+  HREF="progmodlinux.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up"
+ SRC="file:/usr/share/latex2html/icons/up.png"></A> 
+<A NAME="tex2html742"
+  HREF="node21.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous"
+ SRC="file:/usr/share/latex2html/icons/prev.png"></A> 
+<A NAME="tex2html750"
+  HREF="node1.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents"
+ SRC="file:/usr/share/latex2html/icons/contents.png"></A> 
+<A NAME="tex2html752"
+  HREF="node35.html">
+<IMG WIDTH="43" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="index"
+ SRC="file:/usr/share/latex2html/icons/index.png"></A> 
+<BR>
+<B> Next:</B> <A NAME="tex2html755"
+  HREF="node23.html">Planificando Tareas</A>
+<B> Up:</B> <A NAME="tex2html749"
+  HREF="progmodlinux.html">Gu&#237;a de Programaci&#243;n de</A>
+<B> Previous:</B> <A NAME="tex2html743"
+  HREF="node21.html">Procesos Bloqueantes</A>
+ &nbsp <B>  <A NAME="tex2html751"
+  HREF="node1.html">Contents</A></B> 
+ &nbsp <B>  <A NAME="tex2html753"
+  HREF="node35.html">Index</A></B> 
+<BR>
+<BR>
+<!--End of Navigation Panel-->
+
+<H1><A NAME="SECTION001100000000000000000"></A><A NAME="printk"></A>
+<BR>
+Reemplazando printk's
+</H1><A NAME="677"></A><A NAME="678"></A>
+
+<P>
+Al principio (cap&#237;tulo&nbsp;<A HREF="node11.html#hello-world">1</A>), dije que X y la programaci&#243;n
+de m&#243;dulos del n&#250;cleo no se mezclaban. Esto es verdad mientras se est&#225;
+desarrollando el m&#243;dulo del n&#250;cleo, pero en el uso actual quieres ser
+capaz de enviar mensajes a cualquier tty<A NAME="tex2html263"
+  HREF="footnode.html#foot946"><SUP>9.1</SUP></A> el comando que
+viene del m&#243;dulo. Esto es importante para identificar errores despu&#233;s de
+que el m&#243;dulo del n&#250;cleo es liberado, porque ser&#225; usado por todos ellos.
+
+<P>
+La forma en la que esto se hace es usando <TT>current</TT>, un puntero a la
+actual tarea ejecut&#225;ndose, para obtener la estructura tty de la
+tarea actual. Entonces, miramos dentro de la estructura tty para encontrar
+un puntero a una funci&#243;n de escritura de cadenas de car&#225;cteres, la cual usamos
+para escribir una cadena de car&#225;cteres a la tty<A NAME="683"></A><A NAME="684"></A><A NAME="685"></A><A NAME="686"></A><A NAME="687"></A>.
+
+<P>
+ex
+
+<FONT SIZE="+1"><B>printk.c</B></FONT>
+<A NAME="692"></A><A NAME="693"></A><A NAME="694"></A>
+
+<P>
+<PRE>
+/* printk.c - envía salida textual al tty en el que estás
+ * ahora, sin importarle cuando es pasado
+ * a través de X11, telnet, etc. */
+
+
+/* Copyright (C) 1998 por Ori Pomerantz */
+
+
+/* Los ficheros de cabeceras necesarios */
+
+/* Estándar en los módulos del núcleo */
+#include &lt;linux/kernel.h&gt;   /* Estamos haciendo trabajo del núcleo */
+#include &lt;linux/module.h&gt;   /* Específicamente, un módulo */
+
+/* Distribuido con CONFIG_MODVERSIONS */
+#if CONFIG_MODVERSIONS==1
+#define MODVERSIONS
+#include &lt;linux/modversions.h&gt;
+#endif        
+
+/* Necesarios aquí */
+#include &lt;linux/sched.h&gt;    /* Para el actual */
+#include &lt;linux/tty.h&gt;      /* Para las declaraciones de tty */
+
+
+/* Imprime la cadena de caracteres al tty apropiado, el
+ * que usa la tarea actual */
+void print_string(char *str)
+{
+  struct tty_struct *my_tty;
+
+  /* La tty para la tarea actual */
+  my_tty = current-&gt;tty;
+
+  /* Si my_tty es NULL, significa que la actual tarea
+   * no tiene tty en la que puedas imprimir (esto es posible, por
+   * ejemplo, si es un demonio). En este caso, no hay nada
+   * que se pueda hacer. */
+  if (my_tty != NULL) { 
+
+    /* my_tty-&gt;driver es una estructura que mantiene las funciones
+     * de tty, una de las cuales (write) es usada para
+     * escribir cadenas de caracteres a la tty. Puede ser usada
+     * para coger una cadena de caracteres del segmento de memoria
+     * del usuario o del segmento de memoria del núcleo.
+     *
+     * El primer parámetro de la función es la tty en la que
+     * hay que escribir, porque la misma función puede
+     * ser normalmente usada para todas las ttys de un cierto
+     * tipo. El segundo parámetro controla cuando la función 
+     * recibe una cadena de caracteres de la memoria del núcleo
+     * (falsa, 0) o desde la memoria del usuario (verdad, distinto
+     * de cero). El tercer parámetro es un puntero a la cadena
+     * de caracteres, y el cuarto parámetro es la longitud de la
+     * cadena de caracteres.
+     */
+    (*(my_tty-&gt;driver).write)(
+        my_tty, /* La misma tty */
+        0, /* No cogemos la cadena de caracteres de la memoria de usuario */
+	str, /* Cadena de caracteres */
+	strlen(str));  /* Longitud */
+
+    /* Las ttys fueron originalmente dispositivos hardware, las
+     * cuales (usualmente) se adherían estrictamente al estándar
+     * ASCII. De acuerdo con ASCII, para mover una nueva linea
+     * necesitas dos caracteres, un retorno de carro y un salto
+     * de linea. En Unix, en cambio, el salto de linea ASCII
+     * es usado para ambos propósitos - por lo tanto no podemos
+     * usar \n, porque no tendrá un retorno de carro y la siguiente
+     * linea empezará en la columna siguiente
+     *                                        después del paso de linea.
+     *
+     * BTW, este es el motivo por el que el formato de un fichero de 
+     * texto es diferente entre Unix y Windows. En CP/M y sus derivados,
+     * tales como MS-DOS y Windows, el estándar ASCII fue estrictamente
+     * adherido, y entonces una nueva linea requiere un salto de linea
+     * y un retorno de carro.
+     */
+    (*(my_tty-&gt;driver).write)(
+      my_tty,  
+      0,
+      "\015\012",
+      2);
+  }
+}
+
+
+/* Inicialización y Limpieza del módulo ****************** */
+
+
+/* Inicializa el módulo - registra el fichero proc */
+int init_module()
+{
+  print_string("Módulo insertado");
+
+  return 0;
+}
+
+
+/* Limpieza - libera nuestro fichero de /proc */
+void cleanup_module()
+{
+  print_string("Módulo borrado");
+}
+</PRE>
+
+<P>
+<HR>
+<!--Navigation Panel-->
+<A NAME="tex2html754"
+  HREF="node23.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next"
+ SRC="file:/usr/share/latex2html/icons/next.png"></A> 
+<A NAME="tex2html748"
+  HREF="progmodlinux.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up"
+ SRC="file:/usr/share/latex2html/icons/up.png"></A> 
+<A NAME="tex2html742"
+  HREF="node21.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous"
+ SRC="file:/usr/share/latex2html/icons/prev.png"></A> 
+<A NAME="tex2html750"
+  HREF="node1.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents"
+ SRC="file:/usr/share/latex2html/icons/contents.png"></A> 
+<A NAME="tex2html752"
+  HREF="node35.html">
+<IMG WIDTH="43" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="index"
+ SRC="file:/usr/share/latex2html/icons/index.png"></A> 
+<BR>
+<B> Next:</B> <A NAME="tex2html755"
+  HREF="node23.html">Planificando Tareas</A>
+<B> Up:</B> <A NAME="tex2html749"
+  HREF="progmodlinux.html">Gu&#237;a de Programaci&#243;n de</A>
+<B> Previous:</B> <A NAME="tex2html743"
+  HREF="node21.html">Procesos Bloqueantes</A>
+ &nbsp <B>  <A NAME="tex2html751"
+  HREF="node1.html">Contents</A></B> 
+ &nbsp <B>  <A NAME="tex2html753"
+  HREF="node35.html">Index</A></B> 
+<!--End of Navigation Panel-->
+<ADDRESS>
+Ismael Olea
+2002-09-22
+</ADDRESS>
+</BODY>
+</HTML>

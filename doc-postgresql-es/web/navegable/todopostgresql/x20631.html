@@ -1,0 +1,692 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<HTML
+><HEAD
+><TITLE
+>Programas de Ejemplo</TITLE
+><META
+NAME="GENERATOR"
+CONTENT="Modular DocBook HTML Stylesheet Version 1.59"><LINK
+REL="HOME"
+TITLE="PostgreSQL"
+HREF="postgres.html"><LINK
+REL="UP"
+TITLE="libpq"
+HREF="libpq-chapter.html"><LINK
+REL="PREVIOUS"
+TITLE="Variables de Entorno"
+HREF="libpq-envars.html"><LINK
+REL="NEXT"
+TITLE="libpq C++ Binding"
+HREF="libpqplusplus.html"></HEAD
+><BODY
+CLASS="SECT1"
+BGCOLOR="#FFFFFF"
+TEXT="#000000"
+LINK="#0000FF"
+VLINK="#840084"
+ALINK="#0000FF"
+><DIV
+CLASS="NAVHEADER"
+><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TH
+COLSPAN="3"
+ALIGN="center"
+>PostgreSQL</TH
+></TR
+><TR
+><TD
+WIDTH="10%"
+ALIGN="left"
+VALIGN="bottom"
+><A
+HREF="libpq-envars.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="80%"
+ALIGN="center"
+VALIGN="bottom"
+>libpq</TD
+><TD
+WIDTH="10%"
+ALIGN="right"
+VALIGN="bottom"
+><A
+HREF="libpqplusplus.html"
+>Siguiente</A
+></TD
+></TR
+></TABLE
+><HR
+ALIGN="LEFT"
+WIDTH="100%"></DIV
+><DIV
+CLASS="SECT1"
+><H1
+CLASS="SECT1"
+><A
+NAME="AEN20631"
+>Programas de Ejemplo</A
+></H1
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN20633"
+>Programa de Ejemplo 1</A
+></H2
+><P
+><TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>/*
+ * testlibpq.c Test the C version of Libpq, the Postgres frontend
+ * library.
+ * testlibpq.c Probar la versión C de libpq, la librería para aplicaciones
+ * cliente de PostgreSQL
+ *
+ *
+ */
+#include &#60;stdio.h&#62;
+#include "libpq-fe.h"
+
+void
+exit_nicely(PGconn *conn)
+{
+    PQfinish(conn);
+    exit(1);
+}
+
+main()
+{
+    char       *pghost,
+               *pgport,
+               *pgoptions,
+               *pgtty;
+    char       *dbName;
+    int         nFields;
+    int         i,
+                j;
+
+    /* FILE *debug; */
+
+    PGconn     *conn;
+    PGresult   *res;
+
+    /*
+     * begin, by setting the parameters for a backend connection if the
+     * parameters are null, then the system will try to use reasonable
+     * defaults by looking up environment variables or, failing that,
+     * using hardwired constants
+     *
+     * Se empieza fijando los parámetros de una conexión al servidor. Si los
+     * parámetros son nulos, el sistema probará a utilizar valores de defecto
+     * razonables para buscar en las variables de entorno, y, si esto falla,
+     * utilizará constantes incluídas directamente en el código.
+     */
+    pghost = NULL;              /* host name of the backend server */
+                                /* nombre del ordenador servidor.   */
+    pgport = NULL;              /* port of the backend server */
+                                /* puerto asignado al servidor */
+    pgoptions = NULL;           /* special options to start up the backend
+                                 * server */
+                                /* opciones especiales para arrancar el servidor */
+    pgtty = NULL;               /* debugging tty for the backend server */
+                                /* tty (terminal) para depuración del servidor */
+    dbName = "template1";
+
+    /* make a connection to the database */
+    /* conectar con el servidor */
+    conn = PQsetdb(pghost, pgport, pgoptions, pgtty, dbName);
+
+    /*
+     * check to see that the backend connection was successfully made
+     * se comprueba si la conexión se ha realizado con éxito.
+     */
+    if (PQstatus(conn) == CONNECTION_BAD)
+    {
+        fprintf(stderr, "Connection to database '%s' failed.\n", dbName);
+        fprintf(stderr, "%s", PQerrorMessage(conn));
+        exit_nicely(conn);
+    }
+
+    /* debug = fopen("/tmp/trace.out","w"); */
+    /* PQtrace(conn, debug);  */
+
+    /* start a transaction block */
+    /* comienza un bloque de transacción */
+    res = PQexec(conn, "BEGIN");
+    if (!res || PQresultStatus(res) != PGRES_COMMAND_OK)
+    {
+        fprintf(stderr, "BEGIN command failed\n");
+        PQclear(res);
+        exit_nicely(conn);
+    }
+
+    /*
+     * should PQclear PGresult whenever it is no longer needed to avoid
+     * memory leaks
+     * se debería PQclear PGresult una vez que ya no es necesario, para impedir
+     * pérdidas de memoria.
+     */
+    PQclear(res);
+
+    /*
+     * fetch instances from the pg_database, the system catalog of
+     * databases
+     * se recogen las instancias a partir de pg_database, el catálogo de sistema de
+     * bases de datos
+     */
+    res = PQexec(conn, "DECLARE mycursor CURSOR FOR select * from pg_database");
+    if (!res || PQresultStatus(res) != PGRES_COMMAND_OK)
+    {
+        fprintf(stderr, "DECLARE CURSOR command failed\n");
+        PQclear(res);
+        exit_nicely(conn);
+    }
+    PQclear(res);
+    res = PQexec(conn, "FETCH ALL in mycursor");
+    if (!res || PQresultStatus(res) != PGRES_TUPLES_OK)
+    {
+        fprintf(stderr, "FETCH ALL command didn't return tuples properly\n");
+            /* no se han recogido tuplas de bases de datos */
+        PQclear(res);
+        exit_nicely(conn);
+    }
+
+    /* first, print out the attribute names */
+    /* primero, se imprimen los nombres de los atributos */
+    nFields = PQnfields(res);
+    for (i = 0; i &#60; nFields; i++)
+        printf("%-15s", PQfname(res, i));
+    printf("\n\n");
+
+    /* next, print out the instances */
+    /* a continuación, se imprimen las instancias */
+    for (i = 0; i &#60; PQntuples(res); i++)
+    {
+        for (j = 0; j &#60; nFields; j++)
+            printf("%-15s", PQgetvalue(res, i, j));
+        printf("\n");
+    }
+    PQclear(res);
+
+    /* close the cursor */
+    /* se cierra el cursor */
+    res = PQexec(conn, "CLOSE mycursor");
+    PQclear(res);
+
+    /* commit the transaction */
+    /* se asegura la transacción */
+    res = PQexec(conn, "COMMIT");
+    PQclear(res);
+
+    /* close the connection to the database and cleanup */
+    /* se cierra la conexión a la base de datos y se limpia */
+    PQfinish(conn);
+
+    /* fclose(debug); */
+}</PRE
+></TD
+></TR
+></TABLE
+></P
+></DIV
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN20637"
+>Programa de Ejemplo 2</A
+></H2
+><P
+><TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>/*
+ * testlibpq2.c
+ *  Test of the asynchronous notification interface
+ *      Se comprueba el interfaz de notificaciones asíncronas.
+ *
+ * Start this program, then from psql in another window do
+ *   NOTIFY TBL2;
+ *      Arranque este programa, y luego, desde psql en otra ventana ejecute
+ *          NOTIFY TBL2;
+ *
+ * Or, if you want to get fancy, try this:
+ * Populate a database with the following:
+ *      O, si quiere hacer algo más elegante, intente esto:
+ *      alimente una base de datos con lo siguiente:
+ *
+ *   CREATE TABLE TBL1 (i int4);
+ *
+ *   CREATE TABLE TBL2 (i int4);
+ *
+ *   CREATE RULE r1 AS ON INSERT TO TBL1 DO
+ *     (INSERT INTO TBL2 values (new.i); NOTIFY TBL2);
+ *
+ * and do
+ *      y haga
+ *
+ *   INSERT INTO TBL1 values (10);
+ *
+ */
+#include &#60;stdio.h&#62;
+#include "libpq-fe.h"
+
+void
+exit_nicely(PGconn *conn)
+{
+    PQfinish(conn);
+    exit(1);
+}
+
+main()
+{
+    char       *pghost,
+               *pgport,
+               *pgoptions,
+               *pgtty;
+    char       *dbName;
+    int         nFields;
+    int         i,
+                j;
+
+    PGconn     *conn;
+    PGresult   *res;
+    PGnotify   *notify;
+
+    /*
+     * begin, by setting the parameters for a backend connection if the
+     * parameters are null, then the system will try to use reasonable
+     * defaults by looking up environment variables or, failing that,
+     * using hardwired constants
+     *
+     * Se empieza fijando los parámetros de una conexión al servidor. Si los
+     * parámetros son nulos, el sistema probará a utilizar valores de defecto
+     * razonables para buscar en las variables de entorno, y, si esto falla,
+     * utilizará constantes incluídas directamente en el código.
+     */
+    pghost = NULL;              /* host name of the backend server */
+                                /* nombre del ordenador del servidor */
+    pgport = NULL;              /* port of the backend server */
+                                /* puerto asignado al servidor */
+    pgoptions = NULL;           /* special options to start up the backend
+                                 * server */
+                                /* opciones especiales para arrancar el servidor */
+    pgtty = NULL;               /* debugging tty for the backend server */
+                                /* tty (terminal) de depuración del servidor */
+    dbName = getenv("USER");    /* change this to the name of your test
+                                 * database */
+                                /* cambie esto para asignarlo al nombre de su 
+                                 * base de datos de prueba */
+
+    /* make a connection to the database */
+    /*    Se hace a conexión a la base de datos */
+    conn = PQsetdb(pghost, pgport, pgoptions, pgtty, dbName);
+
+    /*
+     * check to see that the backend connection was successfully made
+     *    Se comprueba si la conexión ha funcionado correctamente.
+     */
+    if (PQstatus(conn) == CONNECTION_BAD)
+    {
+        fprintf(stderr, "Connection to database '%s' failed.\n", dbName);
+        fprintf(stderr, "%s", PQerrorMessage(conn));
+        exit_nicely(conn);
+    }
+   
+    /* Se declara el interés en TBL2 */
+    res = PQexec(conn, "LISTEN TBL2");
+    if (!res || PQresultStatus(res) != PGRES_COMMAND_OK)
+    {
+        fprintf(stderr, "LISTEN command failed\n");
+        PQclear(res);
+        exit_nicely(conn);
+    }
+
+    /*
+     * should PQclear PGresult whenever it is no longer needed to avoid
+     * memory leaks
+     *     Se debería PQclear PGresult una vez que ya no es necesario, para 
+     *     impedir pérdidas de memoria.
+     */
+    PQclear(res);
+
+    while (1)
+    {
+
+        /*
+         * wait a little bit between checks; waiting with select()
+         * would be more efficient.
+         *     esperamos un poquito entre comprobaciónes; esperar con select()
+         *     sería más eficiente.
+         */
+        sleep(1);
+        /* collect any asynchronous backend messages */
+        /*       Se recoge asíncronamente cualquier mensaje del servidor */
+        PQconsumeInput(conn);
+        /* check for asynchronous notify messages */
+        /*       Se comprueban los mensajes de notificación asíncrona */
+        while ((notify = PQnotifies(conn)) != NULL)
+        {
+            fprintf(stderr,
+                 "ASYNC NOTIFY of '%s' from backend pid '%d' received\n",
+                    notify-&#62;relname, notify-&#62;be_pid);
+            free(notify);
+        }
+    }
+
+    /* close the connection to the database and cleanup */
+    /*      Se cierra la conexión con la base de datos y se límpia */
+    PQfinish(conn);
+
+}</PRE
+></TD
+></TR
+></TABLE
+></P
+></DIV
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN20641"
+>Programa de Ejemplo 3</A
+></H2
+><P
+><TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>/*
+ * testlibpq3.c Test the C version of Libpq, the Postgres frontend
+ * library. tests the binary cursor interface
+ *     Se comprueba el interfaz de cursores binarios.
+ *     
+ *
+ *
+ *
+ * populate a database by doing the following:
+ *     Alimente una base de datos con lo siguiente:
+ *
+ * CREATE TABLE test1 (i int4, d float4, p polygon);
+ *
+ * INSERT INTO test1 values (1, 3.567, '(3.0, 4.0, 1.0,
+ * 2.0)'::polygon);
+ *
+ * INSERT INTO test1 values (2, 89.05, '(4.0, 3.0, 2.0,
+ * 1.0)'::polygon);
+ *
+ * the expected output is:
+ *      La salida esperada es:
+ *
+ * tuple 0: got i = (4 bytes) 1, d = (4 bytes) 3.567000, p = (4
+ * bytes) 2 points   boundbox = (hi=3.000000/4.000000, lo =
+ * 1.000000,2.000000) tuple 1: got i = (4 bytes) 2, d = (4 bytes)
+ * 89.050003, p = (4 bytes) 2 points   boundbox =
+ * (hi=4.000000/3.000000, lo = 2.000000,1.000000)
+ *
+ *
+ */
+#include &#60;stdio.h&#62;
+#include "libpq-fe.h"
+#include "utils/geo-decls.h"    /* for the POLYGON type */
+                                /* para el tipo POLYGON */
+
+void
+exit_nicely(PGconn *conn)
+{
+    PQfinish(conn);
+    exit(1);
+}
+
+main()
+{
+    char       *pghost,
+               *pgport,
+               *pgoptions,
+               *pgtty;
+    char       *dbName;
+    int         nFields;
+    int         i,
+                j;
+    int         i_fnum,
+                d_fnum,
+                p_fnum;
+    PGconn     *conn;
+    PGresult   *res;
+
+    /*
+     * begin, by setting the parameters for a backend connection if the
+     * parameters are null, then the system will try to use reasonable
+     * defaults by looking up environment variables or, failing that,
+     * using hardwired constants
+     *
+     * Se empieza fijando los parámetros de una conexión al servidor. Si los
+     * parámetros son nulos, el sistema probará a utilizar valores de defecto
+     * razonables para buscar en las variables de entorno, y, si esto falla,
+     * utilizará constantes incluídas directamente en el código.
+     */
+    pghost = NULL;              /* host name of the backend server */
+                                /* nombre de ordenador del servidor */
+    pgport = NULL;              /* port of the backend server */
+                                /* puerto asignado al servidor. */
+    pgoptions = NULL;           /* special options to start up the backend
+                                 * server */
+                                /* opciones especiales para arrancar el servidor */
+    pgtty = NULL;               /* debugging tty for the backend server */
+                                /* tty (terminal)) para depurar el servidor */
+
+    dbName = getenv("USER");    /* change this to the name of your test
+                                 * database */
+                                /* cambie esto al nombre de su base de datos de 
+                                 * prueba */
+
+    /* make a connection to the database */
+    /*      Se hace la conexión a la base de datos */
+    conn = PQsetdb(pghost, pgport, pgoptions, pgtty, dbName);
+
+    /*
+     * check to see that the backend connection was successfully made
+     *      Se comprueba que la conexión se ha realizado correctamente
+     */
+    if (PQstatus(conn) == CONNECTION_BAD)
+    {
+        fprintf(stderr, "Connection to database '%s' failed.\n", dbName);
+        fprintf(stderr, "%s", PQerrorMessage(conn));
+        exit_nicely(conn);
+    }
+
+    /* start a transaction block */
+    res = PQexec(conn, "BEGIN");
+    if (!res || PQresultStatus(res) != PGRES_COMMAND_OK)
+    {
+        fprintf(stderr, "BEGIN command failed\n");
+        PQclear(res);
+        exit_nicely(conn);
+    }
+
+    /*
+     * should PQclear PGresult whenever it is no longer needed to avoid
+     * memory leaks
+     *       Se debería PQclear PGresult una vez que ya no es necesario, para
+     *       evitar pérdidas de memoria.
+     */
+    PQclear(res);
+
+    /*
+     * fetch instances from the pg_database, the system catalog of
+     * databases
+     *       se recogen las instancias de pg_database, el catálogo de sistema de
+     *       bases de datos.
+     */
+    res = PQexec(conn, "DECLARE mycursor BINARY CURSOR FOR select * from test1");
+    if (!res || PQresultStatus(res) != PGRES_COMMAND_OK)
+    {
+        fprintf(stderr, "DECLARE CURSOR command failed\n");
+        PQclear(res);
+        exit_nicely(conn);
+    }
+    PQclear(res);
+
+    res = PQexec(conn, "FETCH ALL in mycursor");
+    if (!res || PQresultStatus(res) != PGRES_TUPLES_OK)
+    {
+        fprintf(stderr, "FETCH ALL command didn't return tuples properly\n");
+                /* no se ha recogido ninguna base de datos */
+        PQclear(res);
+        exit_nicely(conn);
+    }
+
+    i_fnum = PQfnumber(res, "i");
+    d_fnum = PQfnumber(res, "d");
+    p_fnum = PQfnumber(res, "p");
+
+    for (i = 0; i &#60; 3; i++)
+    {
+        printf("type[%d] = %d, size[%d] = %d\n",
+               i, PQftype(res, i),
+               i, PQfsize(res, i));
+    }
+    for (i = 0; i &#60; PQntuples(res); i++)
+    {
+        int        *ival;
+        float      *dval;
+        int         plen;
+        POLYGON    *pval;
+
+        /* we hard-wire this to the 3 fields we know about */
+        /*      codificamos lo que sigue para los tres campos de los que 
+         *      algo                */
+        ival = (int *) PQgetvalue(res, i, i_fnum);
+        dval = (float *) PQgetvalue(res, i, d_fnum);
+        plen = PQgetlength(res, i, p_fnum);
+
+        /*
+         * plen doesn't include the length field so need to
+         * increment by VARHDSZ
+         *       plen no incluye el campo de longitud, por lo que necesitamos 
+         *       incrementar con VARHDSZ
+         */
+        pval = (POLYGON *) malloc(plen + VARHDRSZ);
+        pval-&#62;size = plen;
+        memmove((char *) &#38;pval-&#62;npts, PQgetvalue(res, i, p_fnum), plen);
+        printf("tuple %d: got\n", i);
+        printf(" i = (%d bytes) %d,\n",
+               PQgetlength(res, i, i_fnum), *ival);
+        printf(" d = (%d bytes) %f,\n",
+               PQgetlength(res, i, d_fnum), *dval);
+        printf(" p = (%d bytes) %d points \tboundbox = (hi=%f/%f, lo = %f,%f)\n",
+               PQgetlength(res, i, d_fnum),
+               pval-&#62;npts,
+               pval-&#62;boundbox.xh,
+               pval-&#62;boundbox.yh,
+               pval-&#62;boundbox.xl,
+               pval-&#62;boundbox.yl);
+    }
+    PQclear(res);
+
+    /* close the cursor */
+    /*      Se cierra el cursor   */
+    res = PQexec(conn, "CLOSE mycursor");
+    PQclear(res);
+
+    /* commit the transaction */
+    /*      Se asegura la transacción   */
+    res = PQexec(conn, "COMMIT");
+    PQclear(res);
+
+    /* close the connection to the database and cleanup */
+    /*      Se cierra la conexión a la base de datos y se limpia.   */
+    PQfinish(conn);
+
+}</PRE
+></TD
+></TR
+></TABLE
+></P
+></DIV
+></DIV
+><DIV
+CLASS="NAVFOOTER"
+><HR
+ALIGN="LEFT"
+WIDTH="100%"><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+><A
+HREF="libpq-envars.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="postgres.html"
+>Inicio</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+><A
+HREF="libpqplusplus.html"
+>Siguiente</A
+></TD
+></TR
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+>Variables de Entorno</TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="libpq-chapter.html"
+>Subir</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+>libpq C++ Binding</TD
+></TR
+></TABLE
+></DIV
+></BODY
+></HTML
+>

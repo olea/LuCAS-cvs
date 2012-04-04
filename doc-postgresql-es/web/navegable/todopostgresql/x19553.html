@@ -1,0 +1,827 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<HTML
+><HEAD
+><TITLE
+>PL/Tcl</TITLE
+><META
+NAME="GENERATOR"
+CONTENT="Modular DocBook HTML Stylesheet Version 1.59"><LINK
+REL="HOME"
+TITLE="PostgreSQL"
+HREF="postgres.html"><LINK
+REL="UP"
+TITLE="Lenguajes Procedurales"
+HREF="xplang.html"><LINK
+REL="PREVIOUS"
+TITLE="PL/pgSQL"
+HREF="x19283.html"><LINK
+REL="NEXT"
+TITLE="Interfaces"
+HREF="part-interfaces.html"></HEAD
+><BODY
+CLASS="SECT1"
+BGCOLOR="#FFFFFF"
+TEXT="#000000"
+LINK="#0000FF"
+VLINK="#840084"
+ALINK="#0000FF"
+><DIV
+CLASS="NAVHEADER"
+><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TH
+COLSPAN="3"
+ALIGN="center"
+>PostgreSQL</TH
+></TR
+><TR
+><TD
+WIDTH="10%"
+ALIGN="left"
+VALIGN="bottom"
+><A
+HREF="x19283.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="80%"
+ALIGN="center"
+VALIGN="bottom"
+>Lenguajes Procedurales</TD
+><TD
+WIDTH="10%"
+ALIGN="right"
+VALIGN="bottom"
+><A
+HREF="part-interfaces.html"
+>Siguiente</A
+></TD
+></TR
+></TABLE
+><HR
+ALIGN="LEFT"
+WIDTH="100%"></DIV
+><DIV
+CLASS="SECT1"
+><H1
+CLASS="SECT1"
+><A
+NAME="AEN19553"
+>PL/Tcl</A
+></H1
+><P
+>    PL/Tcl es un lenguaje procedural para el gestor de bases de datos <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> 
+    que permite el uso de Tcl para la creación de funciones y procedimientos desencadenados 
+    por eventos.</P
+><P
+>    Este paquete fue escrito originalmente por Jan Wieck.</P
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN19558"
+>Introducción</A
+></H2
+><P
+>    PL/Tcl ofrece la mayoría de las capacidades de que dispone el lenguaje C, excepto algunas 
+    restricciones.</P
+><P
+>    Las restricciones buenas son que todo se ejecuta en un buen interprete Tcl. Además del 
+    reducido juego de ordenes de Tcl, solo se disponen de unas pocas ordenes para acceder a 
+    bases de datos a través de SPI y para enviar mensajes mediante elog(). No hay forma de 
+    acceder a las interioridades del proceso de gestión de la base de datos, no de obtener 
+    acceso al nivel del sistema operativo, bajo los permisos del identificador de usuario de 
+    <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+>, como es posible en C. Así, cualquier usuario de bases 
+    de datos sin privilegios puede usar este lenguaje.</P
+><P
+>    La otra restricción, interna, es que los procedimientos Tcl no pueden usarse para crear 
+    funciones de entrada / salida para nuevos tipos de datos. </P
+><P
+>    Los objetos compartidos para el gestor de llamada PL/Tcl se construyen automáticamente y 
+    se instalan en el directorio de bibliotecas de <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+>, si el 
+    soporte de Tcl/Tk ha sido especificado durante la configuración, en el procedimiento de 
+    instalación.</P
+></DIV
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN19566"
+>Descripción</A
+></H2
+><DIV
+CLASS="SECT3"
+><H3
+CLASS="SECT3"
+><A
+NAME="AEN19568"
+>Funciones de <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> y nombres de procedimientos Tcl</A
+></H3
+><P
+>    En <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+>, un mismo nombre de función puede usarse para diferentes 
+    funciones, siempre que el numero de argumentos o sus tipos sean distintos. Esto puede ocasionar 
+    conflictos con los nombres de procedimientos Tcl. Para ofrecer la misma flexibilidad en PL/Tcl, los 
+    nombres de procedimientos Tcl internos contienen el identificador de objeto de la fila de procedimientos 
+    pg_proc como parte de sus nombres. Así, diferentes versiones (por el numero de argumentos) de una misma 
+    función de <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> pueden ser diferentes también para Tcl.</P
+></DIV
+><DIV
+CLASS="SECT3"
+><H3
+CLASS="SECT3"
+><A
+NAME="AEN19574"
+>Definiendo funciones en PL/Tcl</A
+></H3
+><P
+>    Para crear una función en el lenguaje PL/Tcl, se usa la sintaxis
+
+    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    CREATE FUNCTION <TT
+CLASS="REPLACEABLE"
+><I
+>funcname</I
+></TT
+>
+ <TT
+CLASS="REPLACEABLE"
+><I
+>argumen</I
+></TT
+>) RETURNS
+       <TT
+CLASS="REPLACEABLE"
+><I
+>returntype</I
+></TT
+> AS '
+        # PL/Tcl function body
+    ' LANGUAGE 'pltcl';
+    </PRE
+></TD
+></TR
+></TABLE
+>
+
+    Cuando se invoca esta función en una consulta, los argumentos se dan como variables $1 ... $n en 
+    el cuerpo del procedimiento Tcl. Así, una función de máximo que devuelva el mayor de dos valores 
+    int4 sería creada del siguiente modo:
+
+    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    CREATE FUNCTION tcl_max (int4, int4) RETURNS int4 AS '
+        if {$1 &#62; $2} {return $1}
+	return $2
+    ' LANGUAGE 'pltcl';
+    </PRE
+></TD
+></TR
+></TABLE
+>
+
+    Argumentos de tipo compuesto se pasan al procedimiento como matrices de Tcl. Los nombres de elementos 
+    en la matriz son los nombres de los atributos del tipo compuesto.
+    ¡Si un atributo de la fila actual tiene el valor NULL, no aparecerá en la matriz! He aquí un 
+    ejemplo que define la función overpaid_2 (que se encuentra en la antigua documentación de 
+    <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+>), escrita en PL/Tcl 
+
+    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    CREATE FUNCTION overpaid_2 (EMP) RETURNS bool AS '
+        if {200000.0 &#60; $1(salary)} {
+            return "t"
+        }
+        if {$1(age) &#60; 30 &#38;&#38; 100000.0 &#60; $1(salary)} {
+            return "t"
+        }
+        return "f"
+    ' LANGUAGE 'pltcl';
+    </PRE
+></TD
+></TR
+></TABLE
+></P
+></DIV
+><DIV
+CLASS="SECT3"
+><H3
+CLASS="SECT3"
+><A
+NAME="AEN19584"
+>Datos Globales en PL/Tcl</A
+></H3
+><P
+>    A veces (especialmente cuando se usan las funciones SPI que se describirán más adelante) 
+    es útil tener algunos datos globales que se mantengan entre dos llamadas al procedimiento.
+    Todos los procedimientos PL/Tcl ejecutados por un backend comparten el mismo interprete 
+    de Tcl.
+    Para ayudar a proteger a los procedimientos PL/Tcl de efectos secundarios, una matriz queda 
+    disponible para cada uno de los procedimientos a través de la orden 'upvar'. El nombre 
+    global de esa variable es el nombre interno asignado por el procedimiento, y el nombre 
+    local es GD.</P
+></DIV
+><DIV
+CLASS="SECT3"
+><H3
+CLASS="SECT3"
+><A
+NAME="AEN19587"
+>Procedimientos desencadenados en PL/Tcl</A
+></H3
+><P
+>    Los procedimientos desencadenados se definen en <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> como 
+    funciones sin argumento y que devuelven un tipo opaco. Y lo mismo en el lenguaje PL/Tcl.</P
+><P
+>    La información del gestor de procedimientos desencadenados se pasan al cuerpo del procedimiento 
+    en las siguientes variables:</P
+><P
+></P
+><DIV
+CLASS="VARIABLELIST"
+><DL
+><DT
+><TT
+CLASS="REPLACEABLE"
+><I
+>$TG_name</I
+></TT
+></DT
+><DD
+><P
+>    El nombre del procedimiento disparador se toma de la sentencia CREATE TRIGGER.</P
+></DD
+><DT
+><TT
+CLASS="REPLACEABLE"
+><I
+>$TG_relid</I
+></TT
+></DT
+><DD
+><P
+>    El ID de objeto de la tabla que provoca el desencadenamiento ha de ser invocado.</P
+></DD
+><DT
+><TT
+CLASS="REPLACEABLE"
+><I
+>$TG_relatts</I
+></TT
+></DT
+><DD
+><P
+>    Una lista Tcl de los nombres de campos de las tablas, precedida de un elemento de lista
+    vacío. Esto se hace para que al buscar un nombre de elemento en la lista con la orden de 
+    Tcl 'lsearch', se devuelva el  mismo numero positivo, comenzando por 1, en el que los campos 
+    están numerados en el catalogo de sistema 'pg_attribute'.</P
+></DD
+><DT
+><TT
+CLASS="REPLACEABLE"
+><I
+>$TG_when</I
+></TT
+></DT
+><DD
+><P
+>    La cadena BEFORE o AFTER, dependiendo del suceso de la llamada desencadenante.</P
+></DD
+><DT
+><TT
+CLASS="REPLACEABLE"
+><I
+>$TG_level</I
+></TT
+></DT
+><DD
+><P
+>    La cadena ROW o STATEMENT, dependiendo del suceso de la llamada desencadenante.</P
+></DD
+><DT
+><TT
+CLASS="REPLACEABLE"
+><I
+>$TG_op</I
+></TT
+></DT
+><DD
+><P
+>    La cadena INSERT, UPDATE o DELETE, dependiendo del suceso de la llamada desencadenante.</P
+></DD
+><DT
+><TT
+CLASS="REPLACEABLE"
+><I
+>$NEW</I
+></TT
+></DT
+><DD
+><P
+>    Una matriz que contiene los valores de la fila de la nueva tabla para acciones INSERT/UPDATE, 
+    o vacía para DELETE.</P
+></DD
+><DT
+><TT
+CLASS="REPLACEABLE"
+><I
+>$OLD</I
+></TT
+></DT
+><DD
+><P
+>    Una  matriz que contiene los valores de la fila de la vieja tabla para acciones UPDATE o 
+    DELETE, o vacía para INSERT.</P
+></DD
+><DT
+><TT
+CLASS="REPLACEABLE"
+><I
+>$GD</I
+></TT
+></DT
+><DD
+><P
+>    La matriz de datos de estado global, como se describa más adelante.</P
+></DD
+><DT
+><TT
+CLASS="REPLACEABLE"
+><I
+>$args</I
+></TT
+></DT
+><DD
+><P
+>    Una lista Tcl de los argumentos del procedimiento como se dan en la sentencia CREATE 
+    TRIGGER. Los argumentos son también accesibles como $1 ... $n en el cuerpo del procedimiento.</P
+></DD
+></DL
+></DIV
+><P
+>    EL valor devuelto por un procedimiento desencadenado es una de las cadenas OK o SKIP, o una 
+    lista devuelta por la orden Tcl 'array get'. Si el valor devuelto es OK, la operación normal 
+    que ha desencadenado el procedimiento (INSERT/UPDATE/DELETE) tendrá lugar. Obviamente, SKIP 
+    le dice al gestor de procesos desencadenados que suprima silenciosamente la operación. La 
+    lista de 'array get' le dice a PL/Tcl que devuelva una fila modificada al gestor de procedimientos 
+    desencadenados que será insertada en lugar de la dada en $NEW (solo para INSERT/UPDATE). No hay 
+    que decir que todo esto solo tiene sentido cuando el desencadenante es BEFORE y FOR EACH ROW.</P
+><P
+>    Ha aquí un pequeño ejemplo de procedimiento desencadenado que fuerza a un valor entero de 
+    una tabla a seguir la pista del numero de actualizaciones que se han realizado en esa fila.
+    Para cada nueva fila insertada, el valor es inicializado a 0, e incrementada en cada operación 
+    de actualización:
+
+    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    CREATE FUNCTION trigfunc_modcount() RETURNS OPAQUE AS '
+        switch $TG_op {
+            INSERT {
+                set NEW($1) 0
+            }
+            UPDATE {
+                set NEW($1) $OLD($1)
+                incr NEW($1)
+            }
+            default {
+                return OK
+            }
+        }
+        return [array get NEW]
+    ' LANGUAGE 'pltcl';
+
+    CREATE TABLE mytab (num int4, modcnt int4, desc text);
+
+    CREATE TRIGGER trig_mytab_modcount BEFORE INSERT OR UPDATE ON mytab
+        FOR EACH ROW EXECUTE PROCEDURE trigfunc_modcount('modcnt');
+    </PRE
+></TD
+></TR
+></TABLE
+>&#13;</P
+></DIV
+><DIV
+CLASS="SECT3"
+><H3
+CLASS="SECT3"
+><A
+NAME="AEN19646"
+>Acceso a bases de datos desde PL/Tcl</A
+></H3
+><P
+>    Las siguientes ordenes permiten acceder a una base de datos desde el interior de un 
+    procedimiento PL/Tcl:</P
+><P
+></P
+><DIV
+CLASS="VARIABLELIST"
+><DL
+><DT
+>elog <TT
+CLASS="REPLACEABLE"
+><I
+>level</I
+></TT
+> <TT
+CLASS="REPLACEABLE"
+><I
+>msg</I
+></TT
+></DT
+><DD
+><P
+>    Lanza un mensaje de registro. Los posibles niveles son NOTICE,  WARN, ERROR, FATAL, DEBUG 
+    y NOIND, como en la función 'elog()' de C.</P
+></DD
+><DT
+>quote <TT
+CLASS="REPLACEABLE"
+><I
+>string</I
+></TT
+></DT
+><DD
+><P
+>    Duplica todas las apariciones de una comilla o de la barra invertida. Debería usarse 
+    cuando las variables se usen en la cadena en la cadena de la consulta enviada a 
+    'spi_exec' o 'spi_prepara' (no en la lista de valores de 'spi_execp'). Consideremos 
+    una cadena de consulta como esta:
+
+    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="90%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    "SELECT '$val' AS ret"
+    </PRE
+></TD
+></TR
+></TABLE
+>
+
+    Donde la variable Tcl 'val' contiene "doesn't". Esto da lugar a la cadena de consulta
+    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="90%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    "SELECT 'doesn't' AS ret"
+    </PRE
+></TD
+></TR
+></TABLE
+>
+
+    que produce un error del analizador durante la ejecución de 'spi_exec' o 'spi_prepare'. 
+    Debería contener
+
+    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="90%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    "SELECT 'doesn''t' AS ret"
+    </PRE
+></TD
+></TR
+></TABLE
+>
+
+    y ha de escribirse de la siguiente manera
+
+    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="90%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    "SELECT '[ quote $val ]' AS ret"
+    </PRE
+></TD
+></TR
+></TABLE
+></P
+></DD
+><DT
+>spi_exec ?-count <TT
+CLASS="REPLACEABLE"
+><I
+>n</I
+></TT
+>? ?-array
+<TT
+CLASS="REPLACEABLE"
+><I
+>nam</I
+></TT
+>?<TT
+CLASS="REPLACEABLE"
+><I
+>que</I
+></TT
+> ?<TT
+CLASS="REPLACEABLE"
+><I
+>loop-body</I
+></TT
+>?</DT
+><DD
+><P
+>    Llama al analizador/planificador/optimizador/ejecutos de la consulta. El valor opcional 
+    -count la dice a 'spi_exec' el máximo numero de filas que han de ser procesadas por la 
+    consulta.    </P
+><P
+>    Si la consulta es una sentencia SELECT y se incluye el cuerpo del lazo opcional (un cuerpo 
+    de sentencias Tcl similar a una sentencia anticipada), se evalúa para cada fila seleccionada, 
+    y se comporta como se espera, tras continua/break. Los valores de los campos seleccionados 
+    se colocan en nombres de variables, como nombres de columnas. Así,
+
+    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="90%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    spi_exec "SELECT count(*) AS cnt FROM pg_proc"
+    </PRE
+></TD
+></TR
+></TABLE
+>
+
+    pondrá en la variable cnt el numero de filas en el catálogo de sistema 'pg_proc'. Si se 
+    incluye la opción -array, los valores de columna son almacenados en la matriz asociativa 
+    llamada 'name', indexada por el nombre de la columna, en lugar de en variables individuales.
+
+    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="90%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    spi_exec -array C "SELECT * FROM pg_class" {
+        elog DEBUG "have table $C(relname)"
+    }
+    </PRE
+></TD
+></TR
+></TABLE
+>
+
+    imprimirá un mensaje de registro DEBUG para cada una de las filas de pg_class. El valor 
+    devuelto por spi_exec es el numero de filas afectado por la consulta, y se encuentra en 
+    la variable global SPI_processed.</P
+></DD
+><DT
+>spi_prepare <TT
+CLASS="REPLACEABLE"
+><I
+>query</I
+></TT
+> <TT
+CLASS="REPLACEABLE"
+><I
+>typelist</I
+></TT
+></DT
+><DD
+><P
+>    Prepara Y GUARDA una consulta para una ejecución posterior. Es un poco distinto del caso de 
+    C, ya que en ese caso, la consulta prevista es automáticamente copiada en el contexto de 
+    memoria de mayor nivel. Por lo tanto, no actualmente ninguna forma de planificar una consulta 
+    sin guardarla.</P
+><P
+>    Si la consulta hace referencia a argumentos, los nombres de los tipos han de incluirse, 
+    en forma de lista Tcl. El valor devuelto por 'spi_prepare' es el identificador de la consulta 
+    que se usará en las siguientes llamadas a 'spi_execp'. Véase 'spi_execp' para un ejemplo.</P
+></DD
+><DT
+>spi_exec ?-count <TT
+CLASS="REPLACEABLE"
+><I
+>n</I
+></TT
+>? ?-array
+<TT
+CLASS="REPLACEABLE"
+><I
+>nam</I
+></TT
+>? ?-nulls<TT
+CLASS="REPLACEABLE"
+><I
+>es</I
+></TT
+><TT
+CLASS="REPLACEABLE"
+><I
+>qu</I
+></TT
+><TT
+CLASS="REPLACEABLE"
+><I
+>value</I
+></TT
+>? ?<TT
+CLASS="REPLACEABLE"
+><I
+>loop-body</I
+></TT
+>?</DT
+><DD
+><P
+>    Ejecuta una consulta preparada en 'spi_prepare' con sustitución de variables. El valor     opcional '-count' le dice a 'spi_execp' el máximo numero de filas que se procesarán en     la consulta.</P
+><P
+>    El valor opcional para '-nulls' es una cadena de espacios de longitud "n", que le indica a 
+    'spi_execp' qué valores son NULL. Si se indica, debe tener exactamente la longitud del 
+    numero de valores.</P
+><P
+>    El identificador de la consulta es el identificador devuelto por la llamada a 'spi_prepare'.</P
+><P
+>    Si se pasa una lista de tipos a 'spi_prepare', ha de pasarse una lista Tcl de exactamente 
+    la misma longitud a 'spi_execp' después de la consulta. Si la lista de tipos de 'spi_prepare' 
+    está vacía, este argumento puede omitirse.</P
+><P
+>    Si la consulta es una sentencia SELECT, lo que se ha descrito para 'spi_exec' ocurrirá para 
+    el cuerpo del bucle y las variables de los campos seleccionados.</P
+><P
+>    He aquí un ejemplo de una función PL/Tcl que usa una consulta planificada:
+
+    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="90%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    CREATE FUNCTION t1_count(int4, int4) RETURNS int4 AS '
+        if {![ info exists GD(plan) ]} {
+            # prepare the saved plan on the first call
+            set GD(plan) [ spi_prepare \\
+                    "SELECT count(*) AS cnt FROM t1 WHERE num &#62;= \\$1 AND num &#60;= \\$2" \\
+                    int4 ]
+        }
+        spi_execp -count 1 $GD(plan) [ list $1 $2 ]
+        return $cnt
+    ' LANGUAGE 'pltcl';
+    </PRE
+></TD
+></TR
+></TABLE
+>
+
+    Nótese que cada una de las barras invertidas que Tcl debe ver ha de ser doblada en la consulta que crea la función, dado que el analizador principal procesa estas barras en 
+    CREATE FUNCTION.
+    Dentro de la cadena de la consulta que se pasa a 'spi_prepare' debe haber un signo $ para marcar la posición del parámetro, y evitar que $1 sea sustituido por el valor dado en la primera llamada a la función.</P
+></DD
+><DT
+>Módulos y la orden 'desconocido'</DT
+><DD
+><P
+>    PL/Tcl tiene una característica especial para cosas que suceden raramente. Reconoce dos 
+    tablas "mágicas", 'pltcl_modules' y 'pltcl_modfuncs'. Si existen, el módulo 'desconocido' 
+    es cargado por el interprete, inmediatamente tras su creación. Cada vez que se invoca un 
+    procedimiento Tcl desconocido, el procedimiento 'desconocido' es comprobado, por si el 
+    procedimiento en cuestión está definido en uno de esos módulos. Si ocurre esto, el módulo 
+    es cargado cuando sea necesario. Para habilitar este comportamiento, el gestor de llamadas 
+    de PL/Tcl ha de ser compilado con la opción -DPLTCL_UNKNOWN_SUPPORT habilitado.</P
+><P
+>    Existen scripts de soporte para mantener esas tablas en el subdirectorio de módulos del 
+    código fuente de PL/Tcl, incluyendo el código fuente del módulo 'desconocido', que ha de 
+    ser instalado inicialmente.</P
+></DD
+></DL
+></DIV
+></DIV
+></DIV
+></DIV
+><DIV
+CLASS="NAVFOOTER"
+><HR
+ALIGN="LEFT"
+WIDTH="100%"><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+><A
+HREF="x19283.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="postgres.html"
+>Inicio</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+><A
+HREF="part-interfaces.html"
+>Siguiente</A
+></TD
+></TR
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+>PL/pgSQL</TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="xplang.html"
+>Subir</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+>Interfaces</TD
+></TR
+></TABLE
+></DIV
+></BODY
+></HTML
+>

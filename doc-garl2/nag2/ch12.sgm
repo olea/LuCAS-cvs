@@ -1,0 +1,1237 @@
+<!-- $Id: ch12.sgm,v 1.9 2002/10/19 00:24:41 pakojavi2000 Exp $ -->
+<!--
+Nota legal:
+
+   Linux Network Administration Guide, por Olaf Kirch et al.
+
+   La traducción al español se publica bajo la licencia GFDL,
+siendo texto de portada el siguiente:
+
+Linux Network Administrator's Guide
+by Olaf Kirch and Terry Dawson
+Copyright  (c) 1993 Olaf Kirch
+Copyright  (c) 2000 Terry Dawson
+Copyright on O'Reilly printed version (c) 2000 O'Reilly & Associates
+
+y siendo secciones invariantes, la sección de Agradecimientos,
+la sección titulada «La traducción al español», el apéndice C; así
+como esta nota.
+
+Capítulo traducido inicialmente por:
+
+Toni Pérez, toni_p@navegalia.com
+
+Retraducción por Francisco Javier Fernandez
+Corrección de errores por Francisco Javier Fernández
+Revisión 1 por Francisco Javier Fernadez
+-->
+<chapter id="X-087-2-appl"><title>Características Importantes<?lb>de Redes</title>
+
+<para>
+Después de establecer con éxito IP y el traductor de direcciones, 
+debe fijarse en los servicios que quiere suministrar a través de la red. 
+Este capítulo cubre la configuración de unas sencillas aplicaciones de red, 
+incluyendo el servidor<command>inetd</command> y los programas de la familia
+<command>rlogin</command>. También trataremos brevemente el interfaz de Llamada
+a Procedimiento Remoto (Remote Procedure Call), sobre el cuál servicios como 
+Network File System (NFS) y Network Information System (NIS) se basan. 
+Las configuraciones de NFS y NIS, sin embargo, som más complejas y están descritas 
+en otros capítulos, así como lo están tanto el correo electrónico y las noticias de red.
+</para>
+
+<para>
+Por supuesto, no queremos cubrir todas las aplicaciones de red en este libro. Si 
+quiere instalar alguna que no esté cubierta aquí, como <command>talk</command>,
+<command>gopher</command>, o <command>http</command>, por favor consulte las páginas del 
+manual del servidor para más detalles.
+</para>
+
+<sect1 id="X-087-2-appl.inetd"><title>El Super Servidor inetd </title>
+<indexterm id="chfe.inetd.svr" class="startofrange"><primary>inetd, super servidor</primary></indexterm>
+<indexterm><primary>servicios</primary><secondary>configuración</secondary></indexterm>
+<indexterm id="idx-servercommandinetd" class="startofrange"><primary>servidores</primary><secondary>inetd</secondary></indexterm>
+<indexterm><primary>configuración</primary><secondary>redes</secondary><tertiary>servicios</tertiary></indexterm>
+<indexterm><primary>demonios</primary></indexterm> 
+<indexterm><primary>Internet</primary><secondary>demonio</secondary></indexterm> 
+<para>
+Los programas que proporcionan servicios de aplicación a través de la red se llaman
+<emphasis>demonios</emphasis><footnote><para>daemons</para></footnote>. 
+Un demonio es un programa que abre un puerto, comúnmente un puerto de algún 
+servicio bien conocido, y espera conexiones entrantes en él. Si ocurre una, 
+el demonio crea un proceso hijo que acepta la conexión, mientras que el 
+proceso padre continúa escuchando más peticiones. Este mecanismo funciona 
+bien, pero tiene unas pocas desventajas; al menos una instancia de cada 
+posible servicio que se quiera proporcionar, debe estar activa en memoria 
+a todas horas. Además, la rutina software que hacen la escucha y la gestión 
+del puerto tiene que ser replicada en cada uno de los demonios de red.
+</para>
+
+<para>
+Para superar estas ineficiencias, muchas instalaciones Unix ejecutan un 
+demonio de red especial, el cual debe ser considerado como un &ldquo;super servidor.&rdquo; Este
+demonio crea sockets en nombre de cada uno de los servicios y escucha en todos ellos
+simultáneamente. Cuando una conexión entrante es recibida en cualquiera de esos sockets, 
+el super servidor acepta la conexión y replica el servicio especificado para ese puerto, 
+pasando el socket a gestionarse a través del proceso hijo. El servidor entonces, vuelve a la escucha.
+</para>
+
+<para>
+<indexterm id="idx-filenameinetdconf" class="startofrange"><primary>fichero inetd.conf </primary></indexterm>
+<indexterm><primary>chargen (servicio interno)</primary></indexterm>
+<indexterm><primary>daytime (servicio interno)</primary></indexterm> startup
+El super servidor más común se llama <command>inetd</command>, el Demonio de Internet<footnote><para>
+Internet Daemon en inglés, N. del T.</para></footnote>. Se inicia en tiempo de arranque del sistema 
+y toma la lista de servicios que ha de gestionar de un fichero de inicialización llamado 
+<filename>/etc/inetd.conf</filename>. Además de estos servidores, hay un número de servicios 
+triviales realizados por <command>inetd</command> llamados <emphasis>servicios 
+internos</emphasis>. Se incluyen <command>chargen</command>, el cuál simplemente genera una 
+cadena de caracteres, y <command>daytime</command>, el cuál devuelve la idea del sistema 
+de la hora del día.
+</para>
+
+<para>
+Una entrada en este fichero consiste en una sola línea compuesta de los siguientes campos:
+
+<screen>
+<replaceable>servicio</replaceable> <replaceable>tipo</replaceable> <replaceable>protocolo</replaceable> <replaceable>espera</replaceable> <replaceable>usuario</replaceable> <replaceable>servidor</replaceable> <replaceable>línea_de_órdenes</replaceable>
+</screen>
+</para>
+
+<para>
+Cada uno de los campos se describe en la siguiente lista:
+</para>
+
+<variablelist>
+<varlistentry><term><replaceable>servicio</replaceable></term>
+<listitem><para>
+Da el nombre del servicio. El nombre del servicio tiene que ser traducido a un número de puerto buscándolo en
+el fichero <filename>/etc/services</filename>. Este fichero se describirá más tarde en este capítulo, en la sección &ldquo;
+<xref linkend="X-087-2-appl.services">.&rdquo;
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><replaceable>tipo</replaceable></term>
+<listitem><para>
+Especifica la clase de socket, o un socket de flujo &ldquo;<systemitem role="keyword">stream</systemitem>&rdquo;
+(para protocolos orientados a la conexión) o un socket de datagrama 
+&ldquo;<systemitem role="keyword">dgram</systemitem>&rdquo; (para protocolos orientados a datagramas).
+Los servicios basados en TCP deberían entonces utilizar siempre sockets de flujo,
+<systemitem role="keyword">stream</systemitem>, mientras que servicios basados en UDP
+deberían utilizar sockets de datagramas, <systemitem role="keyword">dgram</systemitem>.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><replaceable>protocolo</replaceable></term>
+<listitem><para>
+Nombra el protocolo de transporte usado por el servicio. 
+Debe ser un nombre válido de protocolo que se encuentre en el fichero <filename>protocols</filename>, 
+expuesto más adelante.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><replaceable>espera</replaceable></term>
+<listitem><para>
+Esta opción se aplica sólo a sockets <systemitem role="keyword">dgram</systemitem>.
+Puede ser <systemitem role="keyword">wait</systemitem><footnote><para>espera</para></footnote> o
+<systemitem role="keyword">nowait</systemitem><footnote><para>no espera</para></footnote>. Si se especifica
+<systemitem role="keyword">wait</systemitem>,
+<command>inetd</command> ejecuta sólo un servidor para el puerto especificado. 
+El otro modo, continúa escuchando inmediatamente en el puerto después de ejecutar el servicio.
+</para>
+
+<para>
+Esto es usado para servidores &ldquo;de hilo único&rdquo;<footnote><para>single-threaded</para></footnote> que leen todos
+los datagramas entrantes hasta que no llegan más, y después terminan. Muchos servidores RPC
+son de este tipo y tienen que ser especificados como
+<systemitem role="keyword">wait</systemitem>. El tipo opuesto,
+&ldquo;multi-hilo&rdquo;, <footnote><para>multi-threaded</para></footnote>
+permite la ejecución concurrente de un número ilimitado de instancias. Estos servidores deben especificarse como 
+<systemitem role="keyword">nowait</systemitem>.
+</para>
+
+<para>
+Los sockets de flujo, &ldquo;<systemitem role="keyword">stream</systemitem>&rdquo;, deben usar siempre
+<systemitem role="keyword">nowait</systemitem>.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><replaceable>usuario</replaceable></term>
+<listitem><para>
+Esto es el identificador de registro del usuario<footnote><para>login ID</para></footnote> que 
+será propietario del procesos mientras se esté ejecutando.
+Éste será muchas veces el usuario 
+<systemitem role="userid">root</systemitem>, 
+pero algunos servicios pueden usar cuentas distintas. Es una buena
+idea aplicar el principio del mínimo privilegio aquí, lo que 
+significa que usted no debe ejecutar órdenes bajo cuentas 
+privilegiadas si el programa no requiere esto para su correcto 
+funcionamiento. Por ejemplo, el servidor de noticias NNTP 
+ejecutado como <systemitem role="userid">news</systemitem>, 
+mientras sirve noticias puede ser un  riesgo de seguridad 
+(como <command>tftp</command> o <command>finger</command>)
+que son muchas veces ejecutados como <systemitem role="userid">nobody</systemitem>.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><replaceable>servidor</replaceable></term>
+<listitem><para>
+Proporciona el camino completo del programa servidor a ser ejecutado. Los servicios internos 
+se marcan con la palabra clave
+<systemitem role="keyword">internal</systemitem>.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><replaceable>línea_de_órdenes</replaceable></term>
+<listitem><para>
+Esta es la línea de órdenes que se va a pasar al servidor. Comienza con el nombre del servidor a 
+ejecutar y puede incluir cualquier argumento que se le necesiten pasar. Si está  
+usando encapsulación TCP <footnote><para>TCP wrapper</para></footnote>, especificará el camino completo al servidor aquí.
+Si no, entonces especificará el nombre del servidor como quiera que aparezca en un listado de procesos. Hablaremos 
+acerca de encapsulación TCP brevemente.
+</para>
+
+<para>
+Este campo está vacío para los servicios internos.
+</para>
+</listitem>
+</varlistentry>
+</variablelist>
+
+<para>
+<indexterm><primary>seguridad</primary><secondary>servidores TCP</secondary></indexterm>
+<indexterm><primary>finger, demonio</primary></indexterm>
+Un ejemplo del fichero <filename>inetd.conf</filename> se expone en
+<xref linkend="X-087-2-appl.fig.inetd.conf">. El servicio <command>finger</command>
+está comentado así que no está disponible. Esto se hace a menudo por razones de seguridad, 
+porque puede ser usado por atacantes para obtener nombres y otros detalles 
+de los usuarios de su sistema.
+</para>
+
+<example id="X-087-2-appl.fig.inetd.conf">
+<title>Un ejemplo del fichero /etc/inetd.conf </title>
+<screen>
+# 
+# inetd services
+ftp      stream tcp nowait root  /usr/sbin/ftpd    in.ftpd -l
+telnet   stream tcp nowait root  /usr/sbin/telnetd in.telnetd -b/etc/issue
+#finger  stream tcp nowait bin   /usr/sbin/fingerd in.fingerd
+#tftp    dgram  udp wait  nobody /usr/sbin/tftpd   in.tftpd
+#tftp    dgram  udp wait  nobody /usr/sbin/tftpd   in.tftpd /boot/diskless
+#login   stream tcp nowait root  /usr/sbin/rlogind in.rlogind
+#shell   stream tcp nowait root  /usr/sbin/rshd    in.rshd
+#exec    stream tcp nowait root  /usr/sbin/rexecd  in.rexecd
+#
+#       inetd internal services
+#
+daytime  stream tcp nowait root internal
+daytime  dgram  udp nowait root internal
+time     stream tcp nowait root internal
+time     dgram  udp nowait root internal
+echo     stream tcp nowait root internal
+echo     dgram  udp nowait root internal
+discard  stream tcp nowait root internal
+discard  dgram  udp nowait root internal
+chargen  stream tcp nowait root internal
+chargen  dgram  udp nowait root internal
+</screen>
+</example>
+
+<para>
+<indexterm><primary>TFTP (Trivial File Transfer Protocol)</primary></indexterm>
+<indexterm><primary sortas="etc/passwd file">/etc/passwd, fichero</primary></indexterm> 
+El demonio <command>tftp</command> se muestra comentado también.
+<command>tftp</command> implementa el <emphasis>Trivial File Transfer
+Protocol</emphasis> (TFTP), el cual permite transferir cualquier fichero con permisos de lectura 
+globales desde su sistema sin verificación de contraseña.
+Esto es especialmente perjudicial para el fichero <filename>/etc/passwd</filename>, e incluso más cuando
+no usan claves &ldquo;shadow&rdquo;.
+</para>
+
+<para>
+TFTP se usa normalmente por clientes sin disco duro y por Terminales X para descargar 
+su código desde un servidor de arranque. 
+Si necesita ejecutar <command>tftpd</command> por esta razón, asegúrese de limitar su alcance a 
+aquellos directorios desde los cuáles los clientes obtendrán los ficheros; deberá añadir esos nombres 
+de directorio a la línea de órdenes de <command>tftpd</command>. Esto se muestra en la segunda 
+línea de <command>tftp</command> en el ejemplo.
+<indexterm class="endofrange" startref="idx-servercommandinetd">
+<indexterm class="endofrange" startref="chfe.inetd.svr"> 
+<indexterm class="endofrange" startref="idx-filenameinetdconf">
+</para>
+</sect1>
+
+<sect1 id="X-087-2-appl.tcpd"><title>La Facilidad de Control de Acceso tcpd </title>
+<indexterm><primary>seguridad</primary><secondary>servidores TCP</secondary></indexterm>
+<indexterm><primary>servicios</primary><secondary>restricción de acceso a </secondary></indexterm>
+<indexterm><primary>acceso</primary><secondary>restricción</secondary></indexterm>
+<indexterm><primary>restricción de acceso a los servicios</primary></indexterm>
+<indexterm><primary>wrapper, TCP</primary></indexterm>
+<indexterm><primary>encapsulado, TCP</primary></indexterm>
+<indexterm><primary>TCP (Transmission Control Protocol)</primary><secondary>wrapper, programa</secondary></indexterm>
+<indexterm><primary>TCP (Transmission Control Protocol)</primary><secondary>encapsulado, programa</secondary></indexterm>
+<indexterm id="idx-commandtcpdcommand-1" class="startofrange"><primary>demonio tcpd wrapper</primary></indexterm>
+<indexterm id="idx-servercommandtcpdcommand-1" class="startofrange"><primary>servidores</primary><secondary>demonio tcpd  encapsulado</secondary></indexterm>
+<indexterm><primary>demonios</primary><secondary>wrapping por tcpd</secondary></indexterm> 
+<indexterm><primary>demonios</primary><secondary>encapsulado por tcpd</secondary></indexterm> 
+
+<para>
+Debido a que abrir un computador al acceso de red implica muchos riesgos de seguridad,
+las aplicaciones están diseñadas para protegerse contra algunos tipos de ataques. 
+Algunas características de seguridad, sin embargo, pueden tener fallos (más drásticamente
+demostrados por el gusano de Internet  RTM, que explotaba un agujero en algunos programas,
+incluyendo  versiones antiguas del demonio de correo Sendmail), o no
+distinguen entre hosts seguros cuyas peticiones de un servicio particular deberán ser
+aceptadas y hosts inseguros cuyas peticiones deberán ser rechazadas. Ya hemos
+visto brevemente los servicios <command>finger</command> y <command>tftp</command>.
+Los administradores de red deberían querer limitar el acceso de estos servicios a
+&ldquo;hosts de confianza&rdquo; únicamente, lo que es imposible con la configuración usual, 
+por la que <command>inetd</command> ofrece este servicio o a todos los clientes o a ninguno.
+</para>
+
+<para>
+Una herramienta útil para gestionar el  acceso de hosts específicos es <command>tcpd</command>,
+a menudo llamado el demonio &ldquo;encapsulador <footnote><para>wrapper en inglés</para></footnote>.&rdquo;<footnote id="X-087-2-FNFE01"><para>
+escrito por Wietse Venema,
+<systemitem role="emailaddr">wietse@wzv.win.tue.nl</systemitem>.
+</para>
+</footnote>
+Para los servicios TCP quiera monitorizar o proteger, se invoca en vez del programa servidor. <command>tcpd</command> verifica
+si el host remoto tiene permitido usar ese servicio, y sólo si esto  tiene  éxito ejecutará el programa servidor real. 
+<command>tcpd</command> también deja registradas las peticiones en el demonio
+<command>syslog</command> . Nótese que no funciona para servicios basados en
+UDP.
+</para>
+
+<para>
+<indexterm><primary>finger, demonio</primary><secondary>encapsulado por tcpd</secondary></indexterm> 
+Por ejemplo, para encapsular el demonio <command>finger</command>,  debe cambiar 
+la correspondiente línea en  <filename>inetd.conf</filename> de esta forma:
+
+<screen>
+# demonio finger desencapsulado
+finger    stream tcp nowait bin    /usr/sbin/fingerd in.fingerd
+</screen>
+
+a esta:
+
+<screen>
+# demonio finger encapsulado
+finger  stream  tcp     nowait  root    /usr/sbin/tcpd   in.fingerd
+</screen>
+</para>
+
+<para>
+<indexterm><primary>syslog</primary></indexterm>
+Sin añadir ningún control de acceso, al cliente le parecerá 
+como la configuración usual de  <command>finger</command>, 
+excepto que todas las peticiones son registradas en la 
+facilidad <emphasis>auth</emphasis> de <command>syslog</command>.
+</para>
+
+<para>
+<indexterm><primary sortas="etc/hosts.allow file">/etc/hosts.allow file</primary></indexterm> 
+<indexterm><primary sortas="etc/hosts.deny file">/etc/hosts.deny file</primary></indexterm> 
+Dos ficheros llamados <filename>/etc/hosts.allow</filename> y
+<filename>/etc/hosts.deny</filename> implementan el control de acceso.
+Contienen entradas que permiten y deniegan acceso a ciertos servicios y hosts.
+Cuando <command>tcpd</command> gestiona una petición para un servicio como
+<command>finger</command> desde un host cliente llamado
+<systemitem role="sitename">biff.foobar.com</systemitem>, se busca en
+<filename>hosts.allow</filename> y <filename>hosts.deny</filename>
+(en este orden) una entrada que coincida tanto con el servicio como con el host cliente.
+Si se encuentra la entrada correspondiente en <filename>hosts.allow</filename>, 
+se autoriza el acceso y <command>tcpd</command> no consulta el fichero <filename>hosts.deny</filename>. 
+Si no se encuentra una coincidencia en el fichero <filename>hosts.allow</filename>, pero se encuentra 
+en el <filename>hosts.deny</filename>, la petición es rechazada cerrando la conexión. 
+La petición es aceptada si no hay correspondencias en ninguno de los ficheros.
+</para>
+
+<para>
+Las entradas en los ficheros de acceso tienen un aspecto como este:
+
+<screen>
+<replaceable>lista_de_servicios</replaceable>: <replaceable>lista_de_hosts</replaceable> [:<replaceable>órdenes_de_shell</replaceable>]
+</screen>
+</para>
+
+<para>
+<replaceable>lista_de_servicios</replaceable> es una lista de nombres de servicio de
+<filename>/etc/services</filename>, o la palabra clave
+<systemitem role="keyword">ALL</systemitem>. Para hacer coincidir a todos los servicios excepto 
+<command>finger</command> y <command>tftp</command>, se usa
+<systemitem role="keyword">ALL</systemitem>
+<systemitem role="keyword">EXCEPT</systemitem>
+<literal>finger, tftp</literal>.
+</para>
+
+<para>
+<replaceable>lista_de_hosts</replaceable> es una lista de nombres de hosts, direcciones IP,
+o las palabras clave <systemitem role="keyword">ALL</systemitem>,
+<systemitem role="keyword">LOCAL</systemitem>,
+<systemitem role="keyword">UNKNOWN</systemitem> o
+<systemitem role="keyword">PARANOID</systemitem>.
+<systemitem role="keyword">ALL</systemitem> coincide con cualquier host, mientras que
+<systemitem role="keyword">LOCAL</systemitem> coincide con nombres de host que no contienen un punto.<footnote id="X-087-2-FNFE02"><para>
+Habitualmente sólo los nombres de hosts locales obtenidos a través de búsquedas en  
+<filename>/etc/hosts</filename> no contienen puntos.
+</para>
+</footnote>
+
+<systemitem role="keyword">UNKNOWN</systemitem> coincide con cualquier host cuya búsqueda de nombre
+o dirección falle. <systemitem role="keyword">PARANOID</systemitem>
+coincide con cualquier host cuyo nombre de host no se resuelva de vuelta a su dirección IP.
+<footnote id="X-087-2-FNFE03"><para>
+Mientras este nombre sugiere una medida extrema, la palabra clave <systemitem role="keyword">PARANOID</systemitem> 
+es buena por omisión, y le protege contra hosts maliciosos que pretenden hacerse pasar por lo que no son.
+No todos los <command>tcpd</command> se proporcionan con la palabra clave
+<systemitem role="keyword">PARANOID</systemitem> compilada; si el suyo no la tiene, necesitará recompilar
+<command>tcpd</command> para usarla.
+</para>
+</footnote>
+
+Un nombre que empice por un punto hace coincidir todos los hosts cuyo dominio es igual a este 
+nombre. Por ejemplo, <systemitem role="sitename">.foobar.com</systemitem> coincide
+<systemitem role="sitename">biff.foobar.com</systemitem>, pero no
+<systemitem role="sitename">nurks.fredsville.com</systemitem>. Un patrón que 
+termine con un punto coincide con  cualquier host cuya dirección IP comience con el patrón proporcionado,
+así que <systemitem role="sitename">172.16.</systemitem> coincide con 
+<systemitem role="sitename">172.16.32.0</systemitem>, pero no con 
+<systemitem role="sitename">172.15.9.1</systemitem>. Un patrón de la forma
+<literal><replaceable>n.n.n.n</replaceable>/<replaceable>m.m.m.m</replaceable>
+</literal><emphasis></emphasis> es tratado como una dirección IP y la máscara de red, así que podemos
+especificar nuestro ejemplo anterior como
+<systemitem role="sitename">172.16.0.0/255.255.0.0</systemitem> en su lugar.
+Finalmente, cualquier patrón que empiece por el carácter &ldquo;/&rdquo; permite especificar
+un fichero que se presume que contiene una lista de nombres de host o patrones de direcciones IP, 
+con cualquiera de los cuáles se permite la coincidencia. Así que  un patrón que se parezca a
+<emphasis>/var/access/trustedhosts</emphasis> causaría que el demonio 
+<command>tcpd</command> lea este fichero, verificando si alguna de sus líneas
+coincide con el host que está conectándose.
+</para>
+
+<para>
+Para denegar acceso a los servicios <command>finger</command> y <command>tftp</command>
+a todos menos al los hosts locales, ponga lo siguiente en
+<filename>/etc/hosts.deny</filename> y deje vacío
+<filename>/etc/hosts.allow</filename>:
+
+<screen>
+in.tftpd, in.fingerd: ALL EXCEPT LOCAL, <replaceable>.su.dominio</replaceable>
+</screen>
+</para>
+
+<para>
+El campo opcional <replaceable>orden_de_shell</replaceable> puede contener una orden
+del intérprete de órdenes <footnote><para>shell</para></footnote> para ser invocada 
+cuando la entrada coincida. Esto es útil para establecer trampas que puedan exponer 
+a los atacantes potenciales. El siguiente ejemplo crea un fichero de registros 
+que lista al usuario y al host que se conecta, y si el host no es
+<emphasis role=bold>vlager.vbrew.com</emphasis> se concatenará la salida
+de un <command>finger</command> a ese host:
+
+<programlisting>
+in.ftpd: ALL EXCEPT LOCAL, .vbrew.com : \
+      echo "request from %d@%h:" >> /var/log/finger.log; \
+      if [ %h != "vlager.vbrew.com:" ]; then \ 
+          finger -l @%h >> /var/log/finger.log \
+      fi
+</programlisting>
+</para>
+
+<para>
+Los argumentos  <systemitem role="keyword">%h</systemitem> y
+<systemitem role="keyword">%d</systemitem> son expandidos por 
+<command>tcpd</command> como el nombre del host del cliente y el nombre del servicio,
+respectivamente. Por favor dirígase a la página de manual <filename>hosts_access(5)</filename>
+para más detalles.
+
+<indexterm class="endofrange" startref="idx-commandtcpdcommand-1">
+<indexterm class="endofrange" startref="idx-servercommandtcpdcommand-1">
+</para>
+</sect1>
+
+<sect1 id="X-087-2-appl.services"><title>Los Ficheros de Servicios Y Protocolos</title>
+<indexterm id="idx-filenameservicesfilename-1" class="startofrange"><primary>services fichero</primary></indexterm>
+<indexterm id="idx-filenameprotocolsfilename-1" class="startofrange"><primary>protocols fichero</primary></indexterm>
+<indexterm><primary>servicios</primary><secondary>bien-conocidos</secondary></indexterm>
+<indexterm><primary sortas="etc/services file">/etc/services fichero</primary></indexterm> 
+
+<para>
+Los números de puerto en los que ciertos servicios &ldquo;estándar&rdquo; se ofrecen
+se definen en el RFC Assigned Numbers. Para permitir a los programas servidores y clientes
+convertir nombres de servicio a estos números, al menos parte del listado se mantiene en cada host; 
+esto se almacena en un fichero llamado
+<filename>/etc/services</filename>.  Una entrada se crea del siguiente modo:
+
+<screen>
+<replaceable>servicio</replaceable> <replaceable>puerto</replaceable>/<replaceable>protocolo</replaceable>   [<replaceable>alias</replaceable>]
+</screen>
+</para>
+
+<para>
+Aquí, <replaceable>servicio</replaceable> especifica el nombre de servicio,
+<replaceable>puerto</replaceable> define el puerto en el que el servicio se ofrece
+y <replaceable>protocolo</replaceable> define qué protocolo de transporte se usa.
+Comúnmente, el último campo es o
+<replaceable>udp</replaceable> o
+<replaceable>tcp</replaceable>. Es posible que  un servicio sea ofrecido
+para más de un protocolo, así como ofrecer diferentes servicios en el mismo puerto
+mientras que los protocolos son diferentes. El campo
+<replaceable>alias</replaceable> le permite especificar nombres alternativos
+para el mismo servicio.
+</para>
+
+<para>
+Normalmente, usted no tiene que cambiar el fichero de servicios que viene junto
+con el software de red de su sistema GNU/Linux. Sin embargo, le damos
+un pequeño extracto de ese fichero en <xref linkend="X-087-2-etc.services">.
+</para>
+
+<example id="X-087-2-etc.services">
+<title>Un fichero /etc/services de ejemplo</title>
+<screen>
+# El fichero de servicios:
+#
+# servicios bien conocidos
+echo           7/tcp                 # Eco
+echo           7/udp                 #
+discard        9/tcp  sink null      # Descartar
+discard        9/udp  sink null      #
+daytime       13/tcp                 # Hora
+daytime       13/udp                 #
+chargen       19/tcp  ttytst source  # Generador de caracteres
+chargen       19/udp  ttytst source  #
+ftp-data      20/tcp                 # Protocolo FTP (Datos)
+ftp           21/tcp                 # Protocolo FTP (Control)
+telnet        23/tcp                 # Protocolo de Terminales Virtuales
+smtp          25/tcp                 # Protocolo de Correo SMTP
+nntp         119/tcp  readnews       # Protocolo de Noticias NNTP
+#
+# UNIX services
+exec         512/tcp                 # BSD rexecd
+biff         512/udp  comsat         # notificación de correo
+login        513/tcp                 # registro remoto (remote login)
+who          513/udp  whod           # who y uptime remotos
+shell        514/tcp  cmd            # órden remota, sin uso de contraseña
+syslog       514/udp                 # sistema remoto de registros del sistema
+printer      515/tcp  spooler        # colas de impresión remotas
+route        520/udp  router routed  # protocoo de información de encaminamiento
+</screen>
+</example>
+
+<para>
+<indexterm><primary>echo, servicio</primary></indexterm> 
+Fíjese que el servicio <command>echo</command> se ofrece en el puerto 7 para 
+TCP y UDP, y que el puerto 512 se usa para 2 servicios diferentes:
+ejecución remota (<command>rexec</command>) usando TCP,
+y el demonio <command>COMSAT</command>, el cual  notifica a los usuarios que tienen correo nuevo, sobre UDP
+(vea <command>xbiff(1x)</command>&thinsp;).
+</para>
+
+<para>
+<indexterm><primary sortas="etc/protocols file">/etc/protocols, fichero</primary></indexterm> 
+<indexterm><primary>números de protocolo</primary></indexterm>
+Como el fichero de servicios, la biblioteca de red necesita una manera de traducir
+nombres de protocolo&mdash;por ejemplo, esos usados en el fichero de servicios&mdash; a 
+los números de protocolo entendidos por la capa IP en otros hosts. Esto se hace
+mirando el nombre en el fichero <filename>/etc/protocols</filename>. Éste
+contiene una entrada por línea, cada una conteniendo el nombre del protocolo y el número asociado.
+Tener que tocar este fichero es incluso más inverosímil que hacerlo con
+<filename>/etc/services</filename>. Un ejemplo del fichero se proporciona en
+<xref linkend="X-087-2-etc.protocols">.
+</para>
+
+<example id="X-087-2-etc.protocols">
+<title>Un fichero /etc/protocols de ejemplo</title>
+<screen>
+#
+# Protocolos de Internet (IP)
+#
+ip      0       IP              # protocolo de internet, número de pseudo protocolo
+icmp    1       ICMP            # protocolo ICMP
+igmp    2       IGMP            # Protocolo IGMP
+tcp     6       TCP             # Protocolo de control de transmisión (TCP)
+udp     17      UDP             # Protocolo UDP
+raw     255     RAW             # Interfaz RAW IP 
+</screen>
+</example>
+<indexterm class="endofrange" startref="idx-filenameservicesfilename-1">
+<indexterm class="endofrange" startref="idx-filenameprotocolsfilename-1">
+</sect1>
+
+<sect1 id="X-087-2-appl.rpc"><title>Llamada a Procedimiento Remoto</title>
+<indexterm><primary>RPC (Remote Procedure Call)</primary></indexterm>
+<para>
+El mecanismo general para las aplicaciones cliente-servidor se proporciona por el 
+paquete <emphasis>Remote Procedure Call</emphasis> (RPC). RPC fue desarrollado por Sun
+Microsystems y es una colección de herramientas y funciones de biblioteca. Aplicaciones
+importantes construidas sobre RPC son NIS, Sistema de Información de Red<footnote><para>Network Information System</para></footnote>
+(descrito en <xref linkend="X-087-2-nis">), y NFS, Sistema de Ficheros de Red<footnote><para>Network File System</para></footnote> 
+(descrito en <xref linkend="X-087-2-nfs">), ambos se describen en este libro.
+</para>
+
+<para>
+<indexterm><primary>XDR (External Data Representation)</primary></indexterm>
+<INDEXTERM><PRIMARY>External Data Representation (XDR)</PRIMARY></INDEXTERM>
+<indexterm><primary>Representación De Datos Externa</primary></indexterm>
+Un servidor RPC consiste en una colección de procedimientos que un cliente 
+puede solicitar por el envío de una petición RPC al servidor junto con los 
+parámetros del procedimiento. El servidor invocará el procedimiento indicado 
+en nombre del cliente, entregando el valor de retorno, si hay alguno. Para 
+ser independiente de la máquina, todos los datos intercambiados entre el 
+cliente y el servidor se convierten al formato <emphasis>External Data Representation</emphasis>
+<footnote><para>Representación de Datos Externa</para></footnote>
+(XDR) por el emisor, y son reconvertidos a la representación local
+por el receptor. RPC confía en sockets estandard UDP y TCP para transportar
+los datos en formato XDR hacia el host remoto. Sun amablemente a puesto RPC en el
+dominio público; se describe en una serie de RFCs.
+</para>
+
+<para>
+A veces las mejoras en una aplicación RPC introducen cambios incompatibles 
+con la interfaz de llamada a procedimientos. Por supuesto, simplemente cambiando
+el servidor hará que no funcionen todas las aplicaciones que todavía esperen 
+el comportamiento original. Por lo tanto, los programas RPC tienen números de versión 
+asignados, casi siempre empezando por 1, y con cada nueva versión de la interfaz RPC, 
+este contador se incrementa.
+A menudo, un servidor puede ofrecer varias versiones simultáneamente; entonces los clientes 
+indican a través del número de versión en la petición que implementación del servicio quieren usar.
+</para>
+
+<para>
+<indexterm><primary>rpc, fichero</primary></indexterm>
+<indexterm><primary>RPC (Llamada a Procedimiento Remoto)</primary><secondary>número de programa</secondary></indexterm>
+La comunicación entre servidores RPC y clientes es un tanto peculiar. Un servidor
+RPC ofrece una o más colecciones de procedimientos; cada conjunto se llama un
+<emphasis>programa</emphasis> y es idenficado de forma única por un 
+<emphasis>número de programa</emphasis>. Una lista que relaciona nombres de servicio con números de programa
+se mantiene usualmente en <filename>/etc/rpc</filename>, un extracto del cual
+se ve en <xref linkend="X-087-2-rpc.fig">.
+</para>
+
+<example id="X-087-2-rpc.fig">
+<title>Una muestra de fichero /etc/rpc</title>
+<screen>
+#
+# /etc/rpc - servición miscaláneos basados en RPC
+#
+portmapper      100000  portmap sunrpc
+rstatd          100001  rstat rstat_svc rup perfmeter
+rusersd         100002  rusers
+nfs             100003  nfsprog
+ypserv          100004  ypprog
+mountd          100005  mount showmount
+ypbind          100007
+walld           100008  rwall shutdown
+yppasswdd       100009  yppasswd
+bootparam       100026
+ypupdated       100028  ypupdate
+</screen>
+</example>
+
+<para>
+En redes TCP/IP , los autores de RPC se enfrentan al problema del mapeo
+de números de programa con servicios genéricos de red. Diseñaron cada servidor para
+proveer ambos puertos TCP y UDP para cada programa y cada versión. Generalmente,
+las aplicaciones RPC usan UDP cuando envían datos, y vuelven a TCP sólo
+cuando los datos a transferir no caben en un solo datagrama UDP.
+</para>
+
+<para>
+<indexterm><primary>demonio portmapper</primary></indexterm>
+<indexterm><primary>RPC (Llamadas a Procediemtos Remotos)</primary><secondary>mapear puertos a programas</secondary></indexterm>
+Por supuesto, los programas cliente necesitan averiguar a qué puerto se refiere
+un número de programa. Usar un fichero de configuración para esto podría ser
+demasiado inflexible; debido a que las aplicaciones RPC no usan puertos reservados, no hay
+garantía de que un puerto originalmente usado por nuestra aplicación de base de datos,
+no haya sido tomado por cualquier otro proceso. Por lo tanto, las aplicaciones RPC
+toman cualquier puerto que puedan obtener y lo registran con un programa especial
+llamado el <emphasis>demonio portmapper</emphasis><footnote><para>mapeador de puertos</para></footnote>. 
+El mapeador de puertos actúa como un intermediario para todos los servidores RPC 
+ejecutándose en su máquina. Un cliente que desea contactar con un servicio con 
+un número de programa dado primero pregunta al mapeador de puertos en el
+host del servidor, el cuál devuelve el número de puerto TCP y UDP
+en donde el servicio puede ser alcanzado.
+</para>
+
+<para>
+<indexterm><primary>inetd super servidor</primary></indexterm>
+Este método introduce un solo punto de fallo, similar a como el demonio
+<command>inetd</command> hace para los servicios estándar de 
+Berkeley. Sin embargo, este caso es aún un poco peor porque
+cuando el mapeador de puertos muere, toda la información de 
+los puertos RPC se pierde; esto a menudo significa que debe 
+reiniciar todos los servidores RPC manualmente o reiniciar
+la máquina.
+</para>
+
+<para>
+<indexterm><primary>demonio rpc.portmap </primary></indexterm> 
+<indexterm><primary>demonio portmap </primary></indexterm> 
+En Linux, el mapeador de puertos se llama <filename>/sbin/portmap</filename>, o
+a veces <filename>/usr/sbin/rpc.portmap</filename>. Una vez que se cerciora de
+que se inicia desde sus guiones de inicio de red, el mapeador de puertos no 
+requiere ninguna configuración.
+</para>
+</sect1>
+
+<sect1 id="X-087-2-appl.remote"><title>Configurando el Registro y<?lb> Ejecución Remotos</title>
+<indexterm id="idx-configuringrcommands" class="startofrange"><primary>configurando</primary><secondary>registro y ejecución remotos</secondary></indexterm>
+<indexterm><primary>autentificación</primary><secondary>en hosts remotos</secondary></indexterm>
+<indexterm><primary>ejecución</primary><secondary>remota de órdenes</secondary></indexterm>
+<indexterm><primary>registro</primary><secondary>remoto seguro</secondary></indexterm>
+<indexterm><primary>registro</primary><secondary>remoto</secondary></indexterm>
+<indexterm><primary>acceso</primary><secondary>remoto a ficheros</secondary></indexterm>
+<para>
+Es a menudo muy útil ejecutar una orden en un host remoto y
+que la entrada o la salida de esa orden pueda leerse o escribirse a través de una conexión de red.
+</para>
+
+<para>
+<indexterm><primary>orden rlogin </primary></indexterm>
+<indexterm><primary>orden rcp </primary></indexterm>
+<indexterm><primary>orden rsh </primary></indexterm>
+<indexterm><primary>orden slogin </primary></indexterm>
+<indexterm><primary>orden scp </primary></indexterm>
+<indexterm><primary>orden ssh </primary></indexterm>
+Los programas tradicionales para ejecutar órdenes en hosts remotos son
+<command>rlogin</command>, <command>rsh</command> y <command>rcp</command>.
+Vimos un ejemplo de la orden <command>rlogin</command> en <xref linkend="X-087-2-intro"> 
+en la sección <xref linkend="X-087-2-intro.tcpip.intro">.&rdquo; 
+vimos brevemente cuestiones de seguridad
+asociadas con esto en <xref linkend="X-087-2-intro.security">&rdquo; y
+sugerimos <command>ssh</command> como alternativa.
+El paquete <command>ssh</command> proporciona unos reemplazos  llamados
+<command>slogin</command>, <command>ssh</command>, y <command>scp</command>.
+</para>
+
+<para>
+<indexterm><primary>contraseñas</primary><secondary> y registro remoto</secondary></indexterm>
+Cada una de estas órdenes genera un intérprete de órdenes en el host remoto y permite al usuario
+ejecutar órdenes. Por supuesto, el cliente necesita tener una cuenta en el
+host remoto donde la orden va a ser ejecutada. Así, todas estas órdenes
+usan un proceso de autentificación. Las órdenes <emphasis>r</emphasis> usan un simple
+intercambio de nombre de usuario y contraseña entre los hosts sin encriptación, de este modo cualquiera
+que esté escuchando puede fácilmente interceptar las contraseñas. El conjunto de órdenes <command>ssh</command>
+proporcionan un  nivel de seguridad más alto: usan una técnica 
+llamada <command>Criptografía de Clave Pública</command>, la cual proporciona autentificación y encriptación 
+entre los hosts para asegurar que tanto contraseñas como datos de la sesión sean interceptados por otros 
+hosts.
+</para>
+
+<para>
+<indexterm><primary>Redes de Área Local (LANs)</primary><secondary>registro remoto</secondary></indexterm>
+Es posible relajar la comprobación de la autentificación para ciertos usuarios 
+todavía más. Por ejemplo, si usted tiene que registrarse en otras máquinas de 
+su red frecuentemente, usted puede querer ser admitido sin tener que teclear 
+su contraseña cada vez. Esto era posible con las órdenes <emphasis>r</emphasis>, 
+pero las órdenes <command>ssh</command> le permiten hacer esto algo más sencillo. Esto 
+no es una gran idea porque significa que si una cuenta de una máquina
+es violada, se puede ganar el acceso a otras cuentas que el usuario ha configurado
+para registrarse sin password, pero esto es muy conveniente y la gente quiere usarlo.
+</para>
+
+<para>
+Hablemos acerca de quitar las órdenes <emphasis>r</emphasis> y usar
+<command>ssh</command> para trabajar en su lugar.
+</para>
+
+<sect2><title>Desactivando las Órdenes r</title>
+<para>
+Comencemos retirando las órdenes <command>r</command> si están instaladas.
+La forma más fácil de desactivar las órdenes  <command>r</command> antiguas es
+comentando (o borrando) sus entradas en el fichero
+<filename>/etc/inetd.conf</filename>. Las entradas relevantes se parecen a algo
+como esto:
+
+<screen>
+# Shell, login, exec y talk como protocolos BSD.
+shell    stream  tcp     nowait  root  /usr/sbin/tcpd /usr/sbin/in.rshd
+login    stream  tcp     nowait  root  /usr/sbin/tcpd /usr/sbin/in.rlogind
+exec     stream  tcp     nowait  root  /usr/sbin/tcpd /usr/sbin/in.rexecd
+</screen>
+
+Puede comentarlas anteponiendo el carácter <literal>#</literal> al principio 
+de cada línea, o borrando las líneas completamente. Recuerde, necesitará 
+reiniciar el demonio <command>inetd</command> para que este cambio tenga efecto. 
+Idealmente, debería retirar los mismos ejecutables también.
+</para>
+
+</sect2>
+
+<sect2><title>Instalando y Configurando ssh</title>
+<para>
+<INDEXTERM id="ssh.command.config" class=startofrange><PRIMARY>ssh, orden</PRIMARY><SECONDARY>configuración</SECONDARY></INDEXTERM>
+<INDEXTERM id="config.ssh.command" class=startofrange><PRIMARY>configuración</PRIMARY><SECONDARY>ssh, orden</SECONDARY></INDEXTERM>
+OpenSSH es una versión libre del conjunto de programas ssh; el porte para GNU/Linux se puede encontrar en
+<systemitem role="url">http://violet.ibs.com.au/openssh/</systemitem> y en
+muchas distribuciones modernas de GNU/Linux.<footnote id="X-087-2-FNFE04"><para>
+OpenSSH se desarrolló por el proyecto OpenBSD y representa un ejemplo de los beneficios del software libre.
+</para>
+</footnote>
+No explicaremos aquí la compilación; se incluyen buenas instrucciones en el código fuente. 
+Si usted puede instalarlo desde un paquete precompilado, es probablemente inteligente hacerlo así.
+</para>
+
+<para>
+Hay dos partes en una sesión <command>ssh</command>. Hay un cliente
+<command>ssh</command> que usted necesita configurar y ejecutar en el host local
+y un demonio <command>ssh</command> que debe ejecutarse en el host remoto.
+</para>
+
+<sect3><title>El Demonio ssh </title>
+<para>
+<INDEXTERM id="ssh.sshd.daemon" class=startofrange><PRIMARY>ssh, orden </PRIMARY><SECONDARY>demonio sshd</SECONDARY></INDEXTERM>
+<INDEXTERM id="sshd.daemon" class=startofrange><PRIMARY>demonio sshd</PRIMARY></INDEXTERM>
+El demonio <command>sshd</command> es el programa que escucha conexiones de red
+desde clientes <command>ssh</command>, gestiona la autentificación, y
+ejecuta las órdenes requeridas por el cliente. Hay un fichero de configuración principal llamado
+<filename>/etc/ssh/sshd_config</filename> y un fichero especial que contiene
+una clave usada por los procesos de autentificación y encriptación para representar la parte del host. 
+Cada host y cada cliente tienen su propia clave.
+</para>
+
+<para>
+<INDEXTERM><PRIMARY>utilidad ssh-keygen </PRIMARY></INDEXTERM>
+<INDEXTERM><PRIMARY SORTAS="etc/ssh/ssh_host_key file">fichero /etc/ssh/ssh_host_key </PRIMARY></INDEXTERM>
+<INDEXTERM><PRIMARY>claves host </PRIMARY></INDEXTERM>
+<INDEXTERM><PRIMARY>claves</PRIMARY><SECONDARY>host</SECONDARY></INDEXTERM>
+Una utilidad llamada <command>ssh-keygen</command> se proporciona para generar
+un clave aleatoria. Esto comúnmente se usa una vez en la instalación para
+generar la clave del host, la cual el administrador de sistema guarda
+en un fichero llamado <filename>/etc/ssh/ssh_host_key</filename>.  Las claves
+pueden ser de cualquier longitud de 512 bits o mayores. Por omisión,
+<command>ssh-keygen</command> genera claves de 1024 bits de longitud,
+y la mayoría de la gente usa lo predeterminado. Para generar una clave aleatoria, debe
+invocar la orden <command>ssh-keygen</command> así:
+
+<screen>
+# <userinput>ssh-keygen -f /etc/ssh/ssh_host_key</userinput>
+</screen>
+
+</para>
+
+<para>
+Se le pedirá que introduzaca una frase de paso. Sin embargo, las claves host no deben usar
+frase de paso, en este caso pulse la tecla return para dejarla en blanco. La salida del programa
+será algo así:
+
+<screen>
+Generating RSA keys:  ......oooooO...............................oooooO
+Key generation complete.
+Enter passphrase (empty for no passphrase): 
+Enter same passphrase again: 
+Your identification has been saved in /etc/ssh/ssh_host_key
+Your public key has been saved in /etc/ssh/ssh_host_key.pub
+The key fingerprint is:
+1024 3a:14:78:8e:5a:a3:6b:bc:b0:69:10:23:b7:d8:56:82 root@moria
+</screen>
+</para>
+
+<para>
+<INDEXTERM><PRIMARY>claves privadas</PRIMARY></INDEXTERM>
+<INDEXTERM><PRIMARY>claves públicas</PRIMARY></INDEXTERM>
+<INDEXTERM><PRIMARY>claves</PRIMARY><SECONDARY>privadas</SECONDARY></INDEXTERM>
+<INDEXTERM><PRIMARY>claves</PRIMARY><SECONDARY>públicas</SECONDARY></INDEXTERM>
+<INDEXTERM><PRIMARY SORTAS="etc/ssh/ssh_host_key.pub file">/etc/ssh/ssh_host_key.pub, fichero</PRIMARY></INDEXTERM>
+Puede encontrar al final que los dos ficheros han sido creados. El primero se
+llama la clave privada, el cual debe mantenerse en secreto y estará en
+<filename>/etc/ssh/ssh_host_key</filename>. El segundo se llama la clave pública
+y es el que puede compartir; estará en
+<filename>/etc/ssh/ssh_host_key.pub</filename>.
+</para>
+
+<para>
+Armados con las claves para la comunicación <command>ssh</command>,  necesita
+crear un fichero de configuración. las órdenes <command>ssh</command> son muy 
+potentes y el fichero de configuración
+puede contener muchas opciones. Expondremos un ejemplo sencillo para que 
+empiece; debe dirigirse a la documentación de <command>ssh</command> para activar otras
+características. El siguiente código muestra un fichero de configuración seguro y mínimo de
+<command>sshd</command> . El resto de las opciones de configuración
+se detallan en las páginas del manual de <command>sshd</command>&thinsp;(8) :
+</para>
+
+<screen>
+# /etc/ssh/sshd_config
+#
+
+# Las direcciones IP que escuchan conexiones entrantes. 0.0.0.0 significa todas las
+# direcciones locales
+ListenAddress 0.0.0.0
+
+# El puerto TCP que escucha conexiones entrantes. Por omisión el 22.
+Port 22
+
+# El nombre del fichero clave del host.
+HostKey /etc/ssh/ssh_host_key
+
+# La longitud de la clave en bits.
+ServerKeyBits 1024
+
+# ¿Debemos permitir registros (login) del root por ssh?
+PermitRootLogin no
+
+# ¿Debe el demonio ssh verificar que el directorio inicial (home) del usuario y los permisos de fichero
+# sean seguros antes de permitir el registro (login)?
+StrictModes yes
+
+# ¿Debemos permitir el método antiguo de autentificación  ~/.rhosts y /etc/hosts.equiv?
+RhostsAuthentication no
+# ¿Debemos permitir autenticación pura RSA?
+RSAAuthentication yes
+# ¿Debemos permitir autenticación por contraseña?
+PasswordAuthentication yes
+
+# ¿Debemos permitir /etc/hosts.equiv combinado con autentificación host por RSA?
+RhostsRSAAuthentication no
+# ¿Ignorar los ficheros ~/.rhosts?
+IgnoreRhosts yes
+<?troff .ne 7>
+# ¿Permitimos registros (logins) a cuentas con contraseñas vacías?
+PermitEmptyPasswords no
+</screen>
+
+<para>
+Es importante estar seguro de que los permisos de los ficheros de configuración
+son correctos para asegurar que se mantiene el sistema de seguridad. Use las siguientes
+órdenes:
+
+<screen>
+# <userinput>chown -R root:root /etc/ssh</userinput>
+# <userinput>chmod 755 /etc/ssh</userinput>
+# <userinput>chmod 600 /etc/ssh/ssh_host_key</userinput>
+# <userinput>chmod 644 /etc/ssh/ssh_host_key.pub</userinput>
+# <userinput>chmod 644 /etc/ssh/sshd_config</userinput>
+</screen>
+</para>
+
+<para>
+<?troff .hw simple>
+La etapa final de la administración del demonio <command>sshd</command> es
+ejecutarlo. Normalmente necesitará crear un fichero <filename>rc</filename>
+para ello o añadirlo a uno existente, de este modo se ejecutará automáticamente
+en el arranque. El demonio corre solo y no necesita ninguna entrada en el 
+fichero <filename>/etc/inetd.conf</filename> . El demonio debe correr como 
+usuario <literal>root</literal> . La sintaxis es simple:
+
+<screen>
+/usr/sbin/sshd
+</screen>
+
+El demonio <command>sshd</command> automáticamente se ejecutará
+en segundo plano. Ahora esta listo para aceptar conexiones <emphasis>ssh</emphasis>.
+</para>
+<INDEXTERM startref="ssh.sshd.daemon" class=endofrange>
+<INDEXTERM startref="sshd.daemon" class=endofrange>
+</sect3>
+
+<sect3><title>El cliente ssh</title>
+<para>
+<INDEXTERM id="ssh.ssh.clients" class=startofrange><PRIMARY>ssh, orden</PRIMARY><SECONDARY>clientes</SECONDARY></INDEXTERM>
+<indexterm><primary>slogin orden</primary></indexterm>
+<indexterm><primary>scp  orden</primary></indexterm>
+<INDEXTERM><PRIMARY SORTAS="etc/ssh/ssh_config file">/etc/ssh/ssh_config, fichero</PRIMARY></INDEXTERM>
+Existen variedad de programas clientes <command>ssh</command>:
+<command>slogin</command>, <command>scp</command> y <command>ssh</command>.
+Cada uno lee el mismo fichero de configuración, normalmente llamado
+<filename>/etc/ssh/ssh_config</filename>. Cada uno de ellos también lee ficheros de configuración
+desde el directorio <filename>.ssh</filename> en el directorio inicial (home) 
+del usuario que lo esté ejecutando. El más importante de estos ficheros es el
+<filename>.ssh/config</filename>, el cual puede contener opciones que sustituirán a las especificadas
+en el fichero <filename>/etc/ssh/ssh_config</filename>, el fichero
+<filename>.ssh/identity</filename>, el cual contiene la propia clave privada del usuario,
+y el correspondiente fichero <filename>.ssh/identity.pub</filename>,
+conteniendo la clave pública propia del usuario. Otros ficheros importantes son <filename>.ssh/known_hosts</filename> y
+<filename>.ssh/authorized_keys</filename>; hablaremos de ellos después en <xref linkend="X-087-2-features.ssh.using">.&rdquo; Primero, vamos a crear el 
+fichero de configuración global y el fichero de claves de usuario.
+</para>
+
+<para>
+El fichero <filename>/etc/ssh/ssh_config</filename> es muy similar al de configuración del servidor.
+Otra vez, tenemos muchas características que usted puede configurar, pero
+una configuración minima puede ser como la expuesta en
+<xref linkend="X-087-2-features.ssh.conf">. El resto de las opciones de configuración
+están detalladas en la página de manual <command>sshd(8)</command>. Puede añadir secciones que coincidan
+con hosts específicos o grupos de hosts. El parámetro a la declaración
+&ldquo;<literal>Host</literal>&rdquo; puede ser cualquiera de los nombres completos de un host
+o una especificación de carácter comodín, como hemos usado en nuestro ejemplo, para que coincidan todos los
+hosts. Podemos crear una entrada que usada, por ejemplo,
+<literal>Host *.vbrew.com</literal> haga coincidir cualquier host en el dominio
+<literal>vbrew.com</literal>.
+</para>
+
+<example id="X-087-2-features.ssh.conf">
+<title>Ejemplo De Fichero de Configuración del Cliente ssh</title>
+<screen>
+# /etc/ssh/ssh_config
+
+# Opciones predeterminads a usar cuando se conecte a un host remoto
+Host *
+  # ¿Comprimir los datos de sesión?
+  Compression yes
+  # .. usando qué nivel de compresión? (1 - rápida/escasa, 9 - lenta/mucha)
+  CompressionLevel 6
+
+  # ¿Usar  rsh si la conexión segura falla?
+  FallBackToRsh no
+
+  # ¿Debemos mandar mensajes para mantener la conexión (keep-alive)? Util si se usa enmascaramiento IP
+  KeepAlive yes
+
+  # ¿Intentar autentificación RSA?
+  RSAAuthentication yes
+  # ¿Intentar autentificación RSA en combinación con autentificación .rhosts?
+  RhostsRSAAuthentication yes
+</screen>
+</example>
+
+<para>
+<INDEXTERM><PRIMARY>utilidad ssh-keygen </PRIMARY></INDEXTERM>
+Mencionamos en la sección de configuración de servidor que cada host y cada usario tiene una clave. La clave de usuario se guarda en su
+fichero <filename>~/.ssh/indentity</filename> . Para generar la clave, se usa la misma orden
+<command>ssh-keygen</command> que usamos para generar la clave de 
+host, excepto que esta vez no necesita especificar el nombre del fichero 
+donde usted guarda la clave. <command>ssh-keygen</command> tiene predeterminada
+la localización correcta, pero le pregunta que introduzca un nombre de fichero
+en el caso que usted no quiera éste. Es útil algunas veces para  tener ficheros de identidad diferentes,
+así que <command>ssh</command> permite esto.
+Como antes, <command>ssh-keygen</command> le preguntará que introduzca una 
+frase de paso. Las frases de paso añaden otro nivel de seguridad y son una buena idea.
+Su frase de paso no será impresa en pantalla cuando usted la teclee.
+<warning><para>
+No hay forma de recuperar una frase de paso si la olvida. Cercióorese
+de que será algo que usted recordará, pero como toda contraseña, elija algo
+que no sea obvio, como nombres propios o su nombre. Para que una frase de paso sea efectiva,
+debe tener entre 10 y 30 caracteres de longitud
+y no debe ser prosa inglesa simple. Pruebe incluir algunos caracteres no usuales.
+Si usted pierde su frase de paso, deberá generar una clave nueva.
+</para></warning>
+<INDEXTERM><PRIMARY>claves privadas</PRIMARY></INDEXTERM>
+<INDEXTERM><PRIMARY>claves públicas</PRIMARY></INDEXTERM>
+<INDEXTERM><PRIMARY>claves</PRIMARY><SECONDARY>privadas</SECONDARY></INDEXTERM>
+<INDEXTERM><PRIMARY>claves</PRIMARY><SECONDARY>públicas</SECONDARY></INDEXTERM>
+Debería preguntar a cada uno de sus usuarios si han ejecutado la orden <command>ssh-keygen</command>
+para asegurarse de que sus ficheros de claves se han generado correctamente. El
+<command>ssh-keygen</command> creará sus directorios <filename>~/.ssh/</filename>
+para ellos con los permisos apropiados y creará su clave privada y pública 
+en <filename>.ssh/identity</filename> y
+<filename>.ssh/identity.pub</filename>, respectivamente. Un ejemplo de sesión se muestra aquí:
+
+<screen>
+$ <userinput>ssh-keygen</userinput>
+Generating RSA keys:  .......oooooO..............................
+Key generation complete.
+Enter file in which to save the key (/home/maggie/.ssh/identity): 
+Enter passphrase (empty for no passphrase): 
+Enter same passphrase again: 
+Your identification has been saved in /home/maggie/.ssh/identity.
+Your public key has been saved in /home/maggie/.ssh/identity.pub.
+The key fingerprint is:
+1024 85:49:53:f4:8a:d6:d9:05:d0:1f:23:c4:d7:2a:11:67 maggie@moria
+$
+</screen>
+</para>
+
+<para>
+Ahora <command>ssh</command> esta listo para ejecutarse.
+</para>
+<INDEXTERM startref="ssh.ssh.clients" class=endofrange>
+</sect3>
+
+<sect3 id="X-087-2-features.ssh.using"><title>Utilización de ssh</title>
+<para>
+<INDEXTERM id="ssh.command.running" class=startofrange><PRIMARY>orden ssh </PRIMARY><SECONDARY>ejecutando clientes</SECONDARY></INDEXTERM>
+Ahora tenemos la orden <command>ssh</command> y sus programas asociados
+instalados y listos para ejecutarse. Veamos rápidamente como se ejecutan.
+</para>
+
+<para>
+<indexterm><primary>orden slogin </primary></indexterm>
+<INDEXTERM><PRIMARY>huellas dactilares</PRIMARY></INDEXTERM>
+<INDEXTERM><PRIMARY>huella de la clave</PRIMARY></INDEXTERM>
+Primero, probaremos un registro (login) remoto a un host. Podemos usar el programa <command>slogin</command> de la misma forma que usamos el programa <command>rlogin</command> 
+en nuestro ejemplo anterior en el libro. La primera vez que esperamos conectarnos a un host, 
+el cliente <command>ssh</command> recuperará la clave
+publica del host y le preguntará si confirma esta identidad instándole 
+con una versión reducida de la clave pública llamada
+<command>huella dactilar</command><footnote><para>fingerprint</para></footnote>. 
+</para>
+
+<para>
+El administrador del host remoto le debería haber proporcinado previamente
+estas huellas dactilares, las cuáles usted debe añadir a su
+fichero <filename>.ssh/known_hosts</filename> . Si el administrador remoto
+no le ha dado las claves apropiadas, usted puede
+conectarse al host remoto, pero <command>ssh</command> le advertirá 
+que no tiene una clave y le pedirá que acepte una ofrecida por el host remoto.  
+Asumiendo que usted está seguro que nadie le engaña con
+DNS spoofing y que usted de hecho está hablando con el host correcto,
+conteste yes.  La clave se guarda automáticamente en su
+<filename>.ssh/known_hosts</filename> y no se le preguntará otra vez.
+Si, en un futuro intento de conexión, 
+la clave pública recuperada desde este host no coincide con la que hay guardada,
+se le advertirá, porque esto representa un agujero de seguridad potencial.
+</para>
+
+<para>
+La primera vez que conectamos con un host remoto veremos algo como esto:
+
+<screen>
+$ <userinput>slogin vchianti.vbrew.com</userinput>
+The authenticity of host 'vchianti.vbrew.com' can't be established.
+Key fingerprint is 1024 7b:d4:a8:28:c5:19:52:53:3a:fe:8d:95:dd:14:93:f5.
+Are you sure you want to continue connecting (yes/no)? <userinput>yes</userinput>
+Warning: Permanently added 'vchianti.vbrew.com,172.16.2.3' to the list of/
+    known hosts.
+maggie@vchianti.vbrew.com's password: 
+Last login: Tue Feb  1 23:28:58 2000 from vstout.vbrew.com
+$
+</screen>
+</para>
+<?troff .Nd 10>
+<para>
+Se le pedirá una clave, debe contestar con la clave de la cuenta remota,
+no con la local. Esta clave no tendrá eco por pantalla cuando la introduzca.
+</para>
+
+<para>
+Sin ningún argumento especial, <command>slogin</command> intentará utilizar el mismo
+identificador de usuario que en la máquina local. Puede cambiar esto
+usando el argumento <literal>-l</literal> , dando un nombre de registro alternativo
+en el host remoto. Esto que lo que hicimos en nuestro ejemplo anterior en el libro.
+</para>
+
+<para>
+<indexterm><primary>scp, orden</primary></indexterm>
+Podemos copiar ficheros hacia y desde un host remoto usando el programa <command>scp</command>.
+Su sintaxis es similar al convencional <command>cp</command>
+con la excepción que debe especificar un nombre de host antes del fichero, significando
+que el camino del fichero está en el host especificado. El siguiente ejemplo ilustra
+la sintaxis de <command>scp</command> copiando un fichero local llamado
+<filename>/tmp/fred</filename> al <filename>/home/maggie/</filename> del host remoto
+<emphasis role=bold>chianti.vbrew.com</emphasis>:
+
+<screen>
+$ <userinput>scp /tmp/fred vchianti.vbrew.com:/home/maggie/</userinput>
+maggie@vchianti.vbrew.com's password:
+fred                 100% |*****************************| 50165   00:01 ETA
+</screen>
+</para>
+
+<para>
+De nuevo, se le pedirá una clave. La orden <command>scp</command> 
+muestra el progreso de la copia por omisión. Puede copiar un fichero desde un host remoto 
+con la misma facilidad; simplemente especificando su nombre de host y ruta como origen
+y la ruta local como destino. También se puede copiar
+un fichero desde un host remoto a otro host remoto, pero habitualmente no necesitará hacer eso,
+porque todos los datos viajan a través de su host.
+</para>
+
+<para>
+Puede ejecutar órdenes en host remotos usando la orden
+<command>ssh</command>. De nuevo, su sintaxis es muy simple. Tengamos
+nuestro usuario <userinput>maggie</userinput> recuperando el directorio raíz del
+host remoto <emphasis role=bold>vchianti.vbrew.com</emphasis>.
+Ella hará algo como esto:
+
+<screen>
+$ <userinput>ssh vchianti.vbrew.com ls -CF /</userinput>
+maggie@vchianti.vbrew.com's password:
+bin/    console@  dos/     home/    lost+found/  pub@   tmp/  vmlinuz@
+boot/   dev/      etc/     initrd/  mnt/         root/  usr/  vmlinuz.old@
+cdrom/  disk/     floppy/  lib/     proc/        sbin/  var/
+</screen>
+</para>
+
+<para>
+Puede utilizar <command>ssh</command> con tuberías
+y entubar entradas/salidas de programas desde o hacia como cualquier otra orden,
+excepto que la entrada o la salida son dirigidas hacia o desde el host remoto
+mediante conexión <command>ssh</command>. Aquí tenemos un ejemplo de como puede
+utilizar esta característica en combinación con la orden <command>tar</command>
+para copiar un directorio entero con subdirectorios y ficheros desde un host remoto
+al host local:
+
+<screen>
+$ <userinput>ssh vchianti.vbrew.com "tar cf - /etc/" | tar xvf -</userinput>
+maggie@vchianti.vbrew.com's password:
+etc/GNUstep
+etc/Muttrc
+etc/Net
+etc/X11
+etc/adduser.conf
+..
+..
+</screen>
+</para>
+<?troff .Nd 7>
+<para>
+Hacemos notar que la orden se debe ejecutar con comillas para clarificar qué
+se está pasando como un argumento a la orden <command>ssh</command> y qué debe
+usar el intérprete de órdenes local. Esta orden ejecuta la orden <command>tar</command>
+en el host remoto para archivar el directorio <filename>/etc/</filename>
+y escribir en la salida estándar. Hemos entubado una instancia de la orden 
+<command>tar</command> ejecutando en nuestro host local en modo extracción leyendo desde la entrada estándar.
+</para>
+
+<para>
+<INDEXTERM><PRIMARY SORTAS="ssh/authorized_keys file">.ssh/authorized_keys, fichero</PRIMARY></INDEXTERM>
+De nuevo, se pide una clave. ¡Ahora puede ver por qué le animamos 
+a configurar <command>ssh</command> para 
+que no se le pida las claves todo el tiempo! Vamos ahora a configurar
+nuestro cliente local <command>ssh</command>  de modo que no nos pida la clave 
+cuando conectemos al host
+<systemitem role="hostname">vchianti.vbrew.com</systemitem>. Mencionamos antes 
+el fichero <filename>.ssh/authorized_keys</filename>; aquí es donde se va a usar.
+El fichero <filename>.ssh/authorized_keys</filename> contiene las
+claves <emphasis>públicas</emphasis> de cada cuenta de usuario remota que queremos
+registrar automáticamente. Puede establecer registros automáticos copiando el contenido
+del
+<filename>.ssh/identity.pub</filename> desde la cuenta <emphasis>remota</emphasis>
+en nuestro fichero local <filename>.ssh/authorized_keys</filename>. Es vital
+que los permisos de fichero de <filename>.ssh/authorized_keys</filename> 
+permitan sólo que usted pueda leer y escribir; cualquiera puede robar y usar las claves
+para registrarse en esas cuentas remotas. Para asegurar que los permisos sean correctos,
+cambie <filename>.ssh/authorized_keys</filename>, como sigue:
+
+<screen>
+$ <userinput>chmod 600 ~/.ssh/authorized_keys</userinput>
+</screen>
+</para>
+
+<para>
+Las claves públicas son una larga <emphasis>sencilla</emphasis> línea de
+texto plano. Si usa copiar y pegar para duplicar la clave en su fichero local, 
+asegúrese de borrar cualquier carácter de final de línea que se pueden haber 
+introducido de esta manera. El fichero <filename>.shh/uathorized_keys</filename>
+puede contener muchas de estas claves, cada una en una línea propia.
+</para>
+
+<para>
+<?troff .hw information>
+La suite de herramientas <command>ssh</command> es muy potente y tiene
+muchas otras características y opciones que pueden ser interesantes de explorar.
+Por favor consulte las páginas del manual y otros documentos que se proporcionan con los paquetes
+para más información.
+</para>
+
+</sect3>
+<INDEXTERM startref="ssh.command.config" class=endofrange>
+<INDEXTERM startref="config.ssh.command" class=endofrange>
+<INDEXTERM startref="ssh.command.running" class=endofrange>
+</sect2>
+
+<indexterm class="endofrange" startref="idx-configuringrcommands">
+
+</sect1>
+</chapter>
+
+
+

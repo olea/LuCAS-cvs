@@ -1,0 +1,251 @@
+.\" This man page is Copyright (C) 1998 Alan Cox.
+.\" Permission is granted to distribute possibly modified copies
+.\" of this page provided the header is included verbatim,
+.\" and in case of nontrivial modification author and date
+.\" of the modification is added to the header.
+.\" $Id: ddp.7,v 1.1.1.1 2001/11/25 17:34:52 carlos Exp $
+.\"
+.\" Translated on Fri Jul 2 1999 by Juan Piernas <piernas@ditec.um.es>
+.\"
+.TH DDP  7 "1 mayo 1999" "Página man de Linux" "Manual del Programador de Linux" 
+.SH NOMBRE
+ddp \- Implementanción de Linux del protocolo AppleTalk
+.SH SINOPSIS
+.B #include <sys/socket.h>
+.br
+.B #include <netatalk/at.h> 
+.sp
+.IB ddp_socket " = socket(PF_APPLETALK, SOCK_DGRAM, 0);"
+.br 
+.IB raw_socket " = socket(PF_APPLETALK, SOCK_RAW, " protocol ");"
+.SH DESCRIPCIÓN
+Linux implementa el protocolo Appletalk descrito en 
+.IR "Inside Appletalk" .
+Únicamente la capa DDP y el AARP se encuentran dentro del núcleo. Están
+diseñados para ser usados mediante las librerías
+.B netatalk
+del protocolo.
+Esta página documenta la interfaz para aquellos que desean o necesitan usar
+la capa DDP directamente.
+.PP
+La comunicación entre Appletalk y el programa de usuario funciona usando una
+interfaz de conectores compatible con BSD. Para más información sobre
+conectores, vea
+.BR socket (7). 
+.PP
+Un conector Appletalk se crea llamando a la función
+.BR socket (2) 
+y pasando
+.B PF_APPLETALK
+como familia del conector. Los tipos de conectores válidos
+son
+.B SOCK_DGRAM
+para abrir un conector
+.B ddp 
+o
+.B SOCK_RAW
+para abrir un conector
+.B raw
+(directo).
+.I protocol 
+es el protocolo Appletalk a ser recibido o enviado. Para
+.B SOCK_RAW 
+debe especificar
+.BR ATPROTO_DDP .
+.PP
+Los conectores directos sólo pueden ser abiertos por un proceso cuyo
+identificador de usuario efectivo sea 0 o por un proceso que posea la
+capacidad
+.BR CAP_NET_RAW . 
+.SH FORMATO DE LAS DIRECCIONES
+La dirección de un conector Appletalk se define como la combinación de un
+número de red, un número de nodo y un número de puerto.
+.PP
+.RS
+.nf
+.ta 4n 20n 32n
+struct at_addr {
+	u_short	s_net;
+	u_char	s_node;
+};
+
+struct sockaddr_atalk {
+	sa_family_t	sat_family;	/* familia de direcciones */
+	u_char	sat_port;	/* port */
+	struct at_addr	sat_addr;	/* red/nodo */
+};
+.ta
+.fi
+.RE 
+.PP
+A
+.I sat_family
+siempre se le asigna el valor
+.B AF_APPLETALK. 
+.I sat_port
+contiene el puerto. Los números de puerto por debajo de 129 se conocen como
+.B puertos reservados.
+Sólo los procesos con identificador de usuario efectivo 0 o con la capacidad
+.B CAP_NET_BIND_SERVICE 
+pueden enlazar estos conectores mediante
+.BR bind (2).
+.I sat_addr 
+es la dirección del anfitrión (host).
+El miembro
+.I net
+de 
+.B struct at_addr
+contiene la red del anfitrión expresada en el formato "orden de red" 
+de los bytes. El valor
+.B AT_ANYNET 
+es un comodín y también implica \(lqesta red.\(rq
+El miembro
+.I node
+de 
+.B struct at_addr
+contiene el número de nodo del anfitrión. El valor
+.B AT_ANYNODE 
+es un comodín y también implica \(lqeste nodo.\(rq El valor de
+.B ATADDR_BCAST 
+es la dirección de enlace de difusión local.
+.\" XXX esto no tiene sentido [johnl]
+.SH OPCIONES DE LOS CONECTORES
+No se soportan opciones de conector específicas del protocolo.
+.SH SYSCTLS
+IP soporta una interfaz sysctl para configurar algunos parámetros AppleTalk
+globales. Se puede acceder a las sysctls leyendo o escribiendo los ficheros
+del directorio
+.B /proc/sys/net/atalk
+o con la interfaz
+.BR sysctl (2).
+.TP
+.B aarp-expiry-time
+El intervalo de tiempo (en segundos) antes de que una entrada de la cache
+AARP expire.
+.TP
+.B aarp-resolve-time
+El intervalo de tiempo (en segundos) antes de que se resuelva una entrada de
+la cache AARP.
+.TP
+.B aarp-retransmit-limit
+El número de retransmisiones de una entrada AARP antes de que el nodo sea
+declarado muerto.
+.TP
+.B aarp-tick-time
+La frecuencia del cronómetro (en segundos) para el cronómetro que controla el
+AARP.
+.PP
+Los valores por defecto coinciden con la especificación y nunca debe ser
+necesario el cambiarlos.
+
+.SH IOCTLS
+Todas las ioctls descritas en
+.BR socket (7) 
+se aplican también a ddp.
+
+.\" XXX Añadir un capítulo sobre multidestino
+
+.SH NOTAS
+Tenga cuidado con la opción
+.B SO_BROADCAST
+(no es privilegiada en Linux). Es fácil sobrecargar la red sin darse cuenta
+enviando a la direcciones de difusión.
+.SH VERSIONES
+Appletalk está soportado a partir de la versión 2.0 de Linux. La interfaz
+.B sysctl 
+es nueva en la versión 2.2 de Linux.
+.SH ERRORES
+.\" XXX document all errors. We should really fix the kernels to give more
+.\" uniform error returns (ENOMEM vs ENOBUFS, EPERM vs EACCES etc.)  
+.TP
+.B ENOTCONN
+La operación sólo está definida en un conector conectado pero el conector no
+está conectado.
+.TP
+.B EINVAL
+Se ha pasado un argumento inválido.
+.TP
+.B EMSGSIZE 
+El datagrama es mayor que la MTU de DDP.
+.TP
+.B EACCES
+El usuario ha intentado ejecutar una operación sin los permisos necesarios.
+Estos incluyen el enviar a una dirección de difusión sin haber activado la
+opción de difusión e intentar el enlace a un puerto reservado sin un
+identificador de usuario efectivo 0 y sin
+.BR CAP_NET_BIND_SERVICE . 
+.TP
+.B EADDRINUSE
+Se ha intentado el enlace a una dirección ya en uso.
+.TP
+.BR ENOMEM " y " ENOBUFS
+No hay suficiente memoria disponible. 
+.TP
+.BR ENOPROTOOPT " y " EOPNOTSUPP
+Se han pasado opciones de conector inválidas.
+.TP
+.B EPERM
+El usuario no tiene permiso para establecer una prioridad más alta, hacer un
+cambio a la configuración o enviar señales al proceso o grupo solicitado.
+.TP
+.B EADDRNOTAVAIL
+Se ha solicitado una interfaz inexistente o la dirección fuente solicitada
+no es local.
+.TP
+.B EAGAIN
+La operación se bloquearía sobre un conector bloqueante.
+.TP
+.B ESOCKTNOSUPPORT
+El conector está sin configurar o se ha solicitado un tipo de conector
+desconocido.
+.TP
+.B EISCONN
+Se ha llamado a
+.BR connect (2) 
+sobre un conector ya conectado.
+.TP
+.B EALREADY
+Ya se está realizando una operación de conexión sobre un conector no
+bloqueante.
+.TP
+.B ECONNABORTED
+Se ha cerrado la conexión durante un
+.BR accept (2). 
+.TP
+.B EPIPE
+La conexión ha sido cerrada o cancelada por el otro extremo.
+.TP
+.B ENOENT
+Se ha llamado a
+.B SIOCGSTAMP
+sobre un conector en donde no han llegado paquetes.
+.TP
+.B EHOSTUNREACH
+No existe una entrada en la tabla de enrutamiento que coincida con la
+dirección de destino.
+.TP
+.B ENODEV 
+El dispositivo de red no está disponible o es incapaz de enviar IP.
+.TP
+.B ENOPKG 
+No se ha configurado un subsistema del núcleo.
+.SH COMPATIBILIDAD
+La interfaz básica de conectores AppleTalk es compatible con
+.B netatalk 
+en los sistemas derivados de BSD. Muchos sistemas BSD fallan al comprobar
+.B SO_BROADCAST
+cuando se envían tramas de difusión. Esto puede conducir a problemas de
+compatibilidad.
+.PP
+El modo de conector directo es único de Linux y existe para soportar más
+fácilmente el paquete alternativo CAP y las herramientas de monitorización
+de AppleTalk.
+.SH FALLOS
+Hay demasiados valores de error inconsistentes.
+.PP
+Las ioctls usadas para configurar las tablas de enrutamiento, dispositivos,
+tablas AARP y otros dispositivos no se han descrito todavía.
+.SH VÉASE TAMBIÉN 
+.BR sendmsg (2), 
+.BR recvmsg (2), 
+.BR socket (7)

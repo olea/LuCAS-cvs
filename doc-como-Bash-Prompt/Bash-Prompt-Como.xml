@@ -1,0 +1,2465 @@
+<?xml version="1.0" encoding="iso-8859-1" ?>
+<!DOCTYPE article PUBLIC "-//OASIS//DTD DocBook V4.1.2//EN"
+"http://www.oasis-open.org/docbook/xml/4.1.2/docbookx.dtd">
+
+<article>
+
+<articleinfo>
+
+<title>Bash Prompt COMO</title>
+
+<author>
+<firstname>Giles Orr, <ulink
+url="mailto:giles@interlog.com"
+>giles@interlog.com</ulink
+>
+
+Traducido por Iosu Santurtún, <ulink
+url="mailto:iosu@bigfoot.com"
+>iosu@bigfoot.com</ulink
+></firstname>
+</author>
+
+<pubdate>v0.60, 7 de Enero de 1999, Traducción 12 de Junio de 1999</pubdate>
+
+<abstract>
+
+<para>
+En este documento se comenta la creación y el manejo de prompts de
+terminales en modo texto y X, incluyendo secuencias estándar de escape que
+proporcionan el nombre de usuario, el directorio actual de trabajo, la
+hora, etc. Se hacen sugerencias más complejas sobre cómo modificar las
+barras de título de las terminales X, cómo usar funciones externas para
+proporcionar información en el prompt, y cómo usar colores <acronym>ANSI</acronym>.
+</para>
+
+</abstract>
+
+</articleinfo>
+
+<sect1>
+<title>Introducción y «administrivia»</title>
+
+<sect2>
+<title>Requerimientos</title>
+
+<para>
+Será necesario el <literal remap="tt">bash</literal>. La versión por defecto de la práctica
+totalidad de distribuciones LiNUX es la <literal remap="tt">1.14.7</literal>, que es una
+versión bien conocida y de confianza. Actualmente se encuentra disponible
+la versión <literal remap="tt">2.0</literal> (incluso superiores): yo llevo usando la <literal remap="tt">2.0</literal>
+algún tiempo, pero la mayoría del código aquí presentado debería funcionar
+bajo la <literal remap="tt">1.14.7</literal>. Si conozco alguna incompatibilidad, lo mencionaré. Se
+puede comprobar la versión del <literal remap="tt">bash</literal> mediante el comando <literal remap="tt">echo
+$BASH_VERSION</literal>. En mi máquina responde <literal remap="tt">2.02.1(1)-release</literal>. 
+</para>
+
+<para>
+La experiencia en programación <literal remap="tt">shell</literal> puede venir bien, pero no es
+esencial: cuanto más se sepa, más complejos serán los prompts que se
+puedan crear. Presupongo un conocimiento básico de la programación
+<literal remap="tt">shell</literal> y utilidades unix a lo largo de este tutorial. Sin embargo, mis
+propios niveles de programación <literal remap="tt">shell</literal> son limitados, así que doy gran
+cantidad de ejemplos y explicaciones que pueden parecer innecesarias para
+el programador experimentado. 
+</para>
+
+</sect2>
+
+<sect2>
+<title>Cómo usar este documento</title>
+
+<para>
+Se incluyen muchos ejemplos y textos aclaratorios. Su utilidad variará
+según la persona de la que se trate. Esto ha crecido lo suficiente como
+para que una lectura completa pueda resultar difícil; se recomienda leer
+únicamente las secciones que se necesite, volviendo hacia atrás las veces
+que sea necesario. 
+</para>
+
+</sect2>
+
+<sect2>
+<title>Traducciones</title>
+
+<para>
+A fecha de 6 de Enero de 1999, existen traducciones al japonés (Akira
+Endo, <literal remap="tt"><ulink
+url="mailto:akendo@t3.rim.or.jp"
+>akendo@t3.rim.or.jp</ulink
+></literal>) y alemán (Thomas Keil, <literal remap="tt"><ulink
+url="mailto:thomas@h-preissler.de"
+>thomas@h-preissler.de</ulink
+></literal>). 
+¡Gracias a ambos! Las url serán incluidas cuando estén disponibles.
+<footnote>
+
+<para>
+ N. del T.  
+ bueno, ahora también está disponible la versión
+en castellano ;) 
+</para>
+
+</footnote>
+
+</para>
+
+</sect2>
+
+<sect2>
+<title>Problemas</title>
+
+<para>
+Esta es una lista de problemas que he encontrado programando <emphasis remap="it">prompts</emphasis>. 
+No comience a leer por aquí, y no deje que esta lista le desanime, la
+mayoría son detalles de poca importancia. Échele un vistazo únicamente si
+llega a algún punto conflictivo. 
+</para>
+
+<para>
+
+<itemizedlist>
+<listitem>
+
+<para>
+
+Algunas características de <literal remap="tt">bash</literal> (tales como funciones matemáticas
+dentro de <literal remap="tt">$(())</literal>, entre otras) son opciones en tiempo de
+compilación. Si está usando una distribución binaria, como la que viene en
+las distribuciones estándar de LiNUX, tales características deberían estar
+incluidas. Pero si está trabajando en otro sistema, merece la pena
+recordar esto si no funciona algo que debería hacerlo. Algunas notas
+acerca de esto en <emphasis remap="it">Learning the Bash Shell</emphasis>, págs <emphasis remap="it">260-262</emphasis>
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+El manejador de terminal <literal remap="tt">screen</literal> no siempre funciona con colores ANSI. 
+Desafortunadamente no soy un experto en <literal remap="tt">screen</literal>. Mi versión de
+<literal remap="tt">screen</literal> (una muy reciente) parece que funciona bien en estos casos,
+pero he visto ocasiones en que redujo todos los colores del prompt al
+color de primer plano estándar en terminales X. Esto no parece ser un
+problema en la consola. 
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+Los ficheros <literal remap="tt">Xdefaults</literal> pueden redefinir colores. Mire en
+<literal remap="tt">&tilde;/.Xdefaults</literal> las líneas referidas a <literal remap="tt">XTerm*background</literal> y
+<literal remap="tt">XTerm*foreground</literal> (o posiblemente <literal remap="tt">XTerm*Background</literal> y
+<literal remap="tt">XTerm*Foreground</literal>).
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+Uno de los <emphasis remap="it">prompts</emphasis> que se comentan en este documento utiliza la
+salida de <literal remap="tt">jobs</literal> - como se comenta en su momento, las salida de
+<literal remap="tt">jobs</literal> a una tubería no funciona con <literal remap="tt">bash 2.02</literal>. 
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+Las secuencias de escape ANSI de movimiento del cursor no están
+implementadas en todas las terminales X. Esto se comenta en su propia
+sección.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+
+
+Se pueden crear «pseudo-gráficos» bastante agradables utilizando una
+fuente <acronym>VGA</acronym> en lugar de las estándar de LiNUX. Desafortunadamente, estos
+efectos son horrorosos si no se utiliza un tipo <acronym>VGA</acronym>, y no hay manera de
+detectar dentro de una terminal qué clase de fuentes de letra se están
+utilizando.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+Ha aparecido <literal remap="tt">bash 2.02+</literal> que incorpora nuevas características, y
+cambia algunos comportamientos.  Lo que funcionase bajo la versión
+<literal remap="tt">1.14.7</literal> no tiene por qué funcionar bajo la <literal remap="tt">2.0+</literal>, y viceversa.
+
+</para>
+</listitem>
+
+</itemizedlist>
+
+</para>
+
+</sect2>
+
+<sect2 id="Comentarios-y-Sugerencias">
+<title>Comentarios y sugerencias
+</title>
+
+<para>
+Esta es una experiencia de aprendizaje para mi. He llegado a saber
+bastante acerca de lo que se puede hacer para crear <emphasis remap="it">prompts</emphasis>
+interesantes y útiles, pero necesito indicaciones para corregir y mejorar
+este documento.  He intentado comprobar las sugerencias que yo hago contra
+diferentes versiones de <literal remap="tt">bash</literal> (sobre todo la <literal remap="tt">2.02</literal> que uso, y la
+<literal remap="tt">1.14.7</literal> que es la más popular), no obstante, comuníqueme cualquier
+incompatibilidad que encuentre. 
+</para>
+
+<para>
+La última versión de éste documento debería estar siempre disponible en
+
+<literal remap="tt"><ulink
+url="http://www.interlog.com/~giles/bashprompt.html"
+>http://www.interlog.com/~giles/bashprompt.html</ulink
+></literal>. Compruébelo y
+siéntase libre de mandarme un mensaje a <literal remap="tt"><ulink
+url="mailto:giles@interlog.com"
+>giles@interlog.com</ulink
+></literal> con sus
+sugerencias.
+</para>
+
+<para>
+Utilizo los HOWTOs del <emphasis remap="it">Linux Documentation Project</emphasis> casi
+exclusivamente en formato HTML, así que cuando los convierto desde SGML,
+el HTML es el único formato que compruebo concienzudamente. Si hay
+problemas con otros formatos puede que yo no sepa nada, por lo que
+agradecería cualquier comentario sobre ello. 
+</para>
+
+</sect2>
+
+<sect2>
+<title>Créditos</title>
+
+<para>
+En la creación de este documento he tomado prestado mucho del proyecto
+<emphasis remap="it">BashPrompt</emphasis>, disponible en <literal remap="tt"><ulink
+url="http://bash.current.nu"
+>http://bash.current.nu</ulink
+></literal>. 
+</para>
+
+<para>
+Otras fuentes han sido:
+</para>
+
+<para>
+
+<itemizedlist>
+<listitem>
+
+<para>
+mini-COMO acerca del <emphasis remap="it">Título de las</emphasis> <literal remap="tt">xterm</literal> de Ric Lister,
+disponible en 
+ <literal remap="tt"><ulink
+url="http://sunsite.unc.edu/LDP/HOWTO/mini/Xterm-Title.html"
+>http://sunsite.unc.edu/LDP/HOWTO/mini/Xterm-Title.html</ulink
+></literal>. 
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+<emphasis remap="it">Prompts ANSI</emphasis> de Keebler, disponible en 
+ <literal remap="tt"><ulink
+url="http://www.ncal.verio.com/~keebler/ansi.html"
+>http://www.ncal.verio.com/~keebler/ansi.html</ulink
+></literal>. 
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+<emphasis remap="it">Cómo hacer un prompt para</emphasis> <literal remap="tt">bash</literal> de Stephen Webb, disponible en
+
+<literal remap="tt"><ulink
+url="http://bash.current.nu/bash/HOWTO.html"
+>http://bash.current.nu/bash/HOWTO.html</ulink
+></literal>. 
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+y <emphasis remap="it">X ANSI Fonts</emphasis> de Stumpy, disponible en <literal remap="tt"><ulink
+url="http://home.earthlink.net/~us5zahns/enl/ansifont.html"
+>http://home.earthlink.net/~us5zahns/enl/ansifont.html</ulink
+></literal>
+
+</para>
+</listitem>
+
+</itemizedlist>
+
+</para>
+
+<para>
+También han sido de inmensa ayuda numerosas conversaciones y e-mails de
+Dan, un compañero del <emphasis remap="it">Georgia College &amp; State University</emphasis>, cuyo
+conocimiento sobre UNIX sobrepasa el mío con mucho. Me ha proporcionado
+excelentes sugerencias; ideas suyas han conducido hacia prompts
+interesantes. 
+</para>
+
+<para>
+Tres libros que me han has sido de mucha utilidad programando prompts son:
+</para>
+
+<para>
+
+<itemizedlist>
+<listitem>
+
+<para>
+<emphasis remap="it">Linux in a Nutshell</emphasis> de Jessica Heckman Perry (<emphasis remap="it">O'Reilly</emphasis>, 1997)
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+<emphasis remap="it">Learning the Bash Shell</emphasis> de Cameron Newham y Bill Rosenblatt
+(<emphasis remap="it">O'Reilly</emphasis>, 2a. ed., 1998)
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+y <emphasis remap="it">Unix Shell Programming</emphasis> de Lowell Jay Arthur (<emphasis remap="it">Wiley</emphasis>, 1986; 
+esta es la primera edición, la segunda apareció en 1997). 
+
+</para>
+</listitem>
+
+</itemizedlist>
+
+</para>
+
+</sect2>
+
+<sect2>
+<title>Copyright y demás</title>
+
+<para>
+Este documento es copyright &copy;1998-1999 de Giles Orr. Se anima a su
+distribución, aunque no debería modificarse este documento (véase la
+sección <xref linkend="Comentarios-y-Sugerencias"/> para todo lo referente a ponerse en contacto conmigo:  he
+venido añadiendo los cambios sugeridos por los lectores desde hace mucho).
+Póngase en contacto conmigo si está interesado en realizar una traducción,
+esa es una de las modificaciones con las que puedo vivir.
+</para>
+
+</sect2>
+
+</sect1>
+
+<sect1>
+<title><literal remap="tt">bash</literal> y sus prompts</title>
+
+<sect2>
+<title>¿Qué es <literal remap="tt">bash</literal>?</title>
+
+<para>
+Descendiente del <emphasis remap="it">Bourne Shell</emphasis>, <literal remap="tt">bash</literal> es un producto GNU, el
+<emphasis remap="it">Bourne Again Shell</emphasis>. Es el interfaz estándar de línea de comandos en
+la mayoría de las máquinas LiNUX. Potencia la interactividad, soportando
+edición en línea de comando, capacidad de completar o recordar
+automáticamente un comando, etc. También soporta prompts configurables -
+la mayoría de la gente se da cuenta de esto, pero no saben hasta qué
+punto. 
+</para>
+
+</sect2>
+
+<sect2>
+<title>¿Qué puede aportar la manipulación del prompt ?</title>
+
+<para>
+La mayoría de los sistemas LinuX tienen un prompt por defecto en un solo
+color (normalmente gris) que indica el nombre de usuario, el nombre de la
+máquina en la que se está trabajando y alguna indicación acerca del
+directorio de trabajo actual. Toda esta información es útil, pero se puede
+ir mucho más allá: se puede mostrar todo tipo de información (número de
+«tty», hora, fecha, carga, número de usuarios, tiempo sin reiniciar ...) y
+el prompt puede usar colores ANSI, ya sea por razones puramente estéticas,
+o para remarcar cierta información. También se puede manipular la barra de
+título de una <literal remap="tt">xterm</literal> para reflejar parte de esta información. 
+</para>
+
+</sect2>
+
+<sect2>
+<title>¿Por qué molestarse ?</title>
+
+<para>
+Además de una apariencia bonita, en ocasiones es útil seguir la pista de
+cierta información del sistema. Una idea que sé que gusta a la gente es
+que es posible poner los prompts de diferentes máquinas en diferentes
+colores. Si se tienen varias terminales X abiertas en diferentes máquinas,
+o si se tiende a olvidar en qué máquina se está trabajando y se borran
+ficheros equivocados, encontrará en esta una buena forma de recordar en
+qué máquina se encuentra.
+</para>
+
+</sect2>
+
+<sect2>
+<title>El primer paso</title>
+
+<para>
+La apariencia del prompt viene dada por la variable del <emphasis remap="it">shell</emphasis>
+<literal remap="tt">PS1</literal>.  Las continuaciones de comandos se indican mediante la cadena
+<literal remap="tt">PS2</literal>, que puede modificarse de la misma forma que aquí se comentan
+--ya que el manejo es exactamente el mismo, y que no es tan
+«interesante»--, casi siempre se van a tratar modificaciones de la cadena
+<literal remap="tt">PS1</literal> (También existen las cadenas <literal remap="tt">PS3</literal> y <literal remap="tt">PS4</literal>. Estas nunca
+están a la vista del usuario medio (vea la página del manual sobre
+<literal remap="tt">bash</literal> si está interesado en su propósito).
+</para>
+
+<para>
+Para cambiar el aspecto del prompt, hay que cambiar la variable <literal remap="tt">PS1</literal>. 
+Para experimentar, se pueden introducir cadenas <literal remap="tt">PS1</literal> directamente
+desde el prompt, y ver los resultados inmediatamente (esto sólo afecta a
+la sesión actual, y los cambios desaparecen cuando termina).  Si se desea
+hacer permanentes estos cambios, modifique su <literal remap="tt">&tilde;/.bashrc</literal>, y añada
+la nueva definición de <literal remap="tt">PS1</literal>. Si tiene permisos de <literal remap="tt">root</literal>, puede
+mirar en <literal remap="tt">/etc/profile</literal> y modificar allí la línea <literal remap="tt">PS1=</literal>. Tenga
+en cuenta que en algunas distribuciones (al menos en la <emphasis remap="it">RedHat 5.1</emphasis>) 
+<literal remap="tt">/etc/bashrc</literal> redefine los valores de <literal remap="tt">PS1</literal> y <literal remap="tt">PS2</literal>. 
+</para>
+
+<para>
+Antes de comenzar, es importante recordar que la cadena <literal remap="tt">PS1</literal> se
+almacena en el entorno como cualquier otra variable de entorno. Si se
+modifica en la línea de comando, su prompt cambiará. Antes de hacer
+cualquier cambio, puede salvar su prompt actual en otra variable de
+entorno.
+</para>
+
+<para>
+
+<screen>
+       [giles@nikola giles]$ SAVE=$PS1
+       [giles@nikola giles]$
+</screen>
+
+</para>
+
+<para>
+El prompt más sencillo sería el de un sólo carácter, como:
+</para>
+
+<para>
+
+<screen>
+       [giles@nikola giles]$ PS1=$
+       $ls
+       bin   mail
+       $
+</screen>
+
+</para>
+
+<para>
+Esto demuestra la mejor manera de experimentar con prompts básicos: 
+introduciéndolos en la línea de comando. Nótese que el texto introducido
+por el usuario aparece inmeditamente después del prompt. Yo prefiero usar
+</para>
+
+<para>
+
+<screen>
+       $PS1="$ "
+       $ ls
+       bin   mail
+       $
+</screen>
+
+</para>
+
+<para>
+que fuerza un espacio después del prompt, haciéndolo más legible. Para
+restaurar el prompt original, basta con llamar a la variable almacenada: 
+</para>
+
+<para>
+
+<screen>
+       $ PS1=$SAVE
+       [giles@nikola giles]$
+</screen>
+
+</para>
+
+</sect2>
+
+<sect2>
+<title>Secuencias de escape del prompt <literal remap="tt">bash</literal></title>
+
+<para>
+Hay numerosas secuencias de escape ofrecidas por el shell <literal remap="tt">bash</literal> para
+insertar en el prompt. De la página del manual del <literal remap="tt">bash 2.02</literal>:
+</para>
+
+<para>
+Cuando se ejecuta interactivamente, <literal remap="tt">bash</literal> muestra el prompt primario
+<literal remap="tt">PS1</literal> cuando está listo para leer un comando, y el prompt secundario
+<literal remap="tt">PS2</literal> cuando necesita más datos de entrada para completar un comando. 
+<literal remap="tt">bash</literal> permite que estas cadenas de prompt sean modificadas insertando
+ciertos caracteres especiales escapados mediante contrabarra que se
+decodifican de la manera siguiente: 
+</para>
+
+<para>
+
+<itemizedlist>
+<listitem>
+
+<para>
+<literal remap="tt">\a</literal> carácter de campana ASCII (<literal remap="tt">07</literal>)
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+<literal remap="tt">\d</literal> la fecha en formato <emphasis remap="it">día mes día</emphasis> (p.ej., <literal remap="tt">mar may
+26</literal>)
+</para>
+</listitem>
+<listitem>
+
+<para>
+<literal remap="tt">\e</literal> caracter de escape ASCII (<literal remap="tt">033</literal>) 
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+<literal remap="tt">\h</literal> el nombre del host hasta el primer «.»
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+<literal remap="tt">\H</literal> el nombre del la máquina completo (<emphasis remap="it">FQDN</emphasis>)
+</para>
+</listitem>
+<listitem>
+
+<para>
+<literal remap="tt">\n</literal> caracter de nueva línea
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+<literal remap="tt">\r</literal> retorno de carro
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+<literal remap="tt">\s</literal> el nombre del shell, el nombre base de <literal remap="tt">$0</literal> (el
+fragmento que sigue a la última barra)
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+<literal remap="tt">\t</literal> la hora actual en formato 24-horas <literal remap="tt">HH:MM:SS</literal>
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+<literal remap="tt">\T</literal> la hora actual en formato 12-horas <literal remap="tt">HH:MM:SS</literal>
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+<literal remap="tt">\@</literal> la hora actual en formato 12-horas AM/PM
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+<literal remap="tt">\u</literal> el nombre de usuario del usuario actual
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+<literal remap="tt">\v</literal> la versión de <literal remap="tt">bash</literal> (p.ej., <literal remap="tt">2.0</literal>) 
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+<literal remap="tt">\V</literal> la versión del paquete del <literal remap="tt">bash</literal>, versión + <emphasis remap="it">patch-level</emphasis>
+(p.ej., <literal remap="tt">2.00.0</literal>) 
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+<literal remap="tt">\w</literal> el directorio actual de trabajo
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+<literal remap="tt">\W</literal> el nombre base del directorio actual de trabajo
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+<literal remap="tt">\!</literal> el número del comando actual en el histórico
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+<literal remap="tt">#</literal> el número de comando del comando actual
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+<literal remap="tt">\$</literal> si el UID efectivo es <literal remap="tt">0</literal>, un <literal remap="tt">#</literal>; en otro caso,
+<literal remap="tt">$</literal>
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+<literal remap="tt">\nnn</literal> el caracter correspondiente al número en octal <literal remap="tt">nnn</literal>
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+<literal remap="tt">\\</literal> una contrabarra
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+<literal remap="tt">\[</literal> inicio de una secuencia de caracteres no imprimibles que
+pueden usarse para incrustar una secuencia de control del terminal en el
+prompt. 
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+<literal remap="tt">\]</literal> fin de una secuencia de caracteres no imprimibles
+
+</para>
+</listitem>
+
+</itemizedlist>
+
+</para>
+
+<para>
+Continuando donde lo habíamos dejado:
+</para>
+
+<para>
+
+<screen>
+       [giles@nikola giles]$ PS1="\u@\h \W&#62; "
+       giles@nikola giles&#62; ls
+       bin   mail
+       giles@nikola giles&#62;
+</screen>
+
+</para>
+
+<para>
+Este es similar al prompt por defecto de la mayoría de las distribuciones
+LiNUX. Pero yo quería una apariencia ligeramente diferente, así que lo
+cambié a:
+</para>
+
+<para>
+
+<screen>
+       giles@nikola giles&#62; PS1="[\t][\u@\h:\w]\$ "
+       [21:52:01][giles@nikola:~]$ ls
+       bin   mail
+       [21:52:15][giles@nikola:~]$
+</screen>
+
+</para>
+
+</sect2>
+
+<sect2 id="Valor-permanente-de-las-cadenas-PS">
+<title>Valor permanente de las cadenas «<literal remap="tt">PS?</literal>» </title>
+
+<para>
+Las cadenas <literal remap="tt">PS?</literal> son establecidas, según la persona o distribución en
+distintos lugares. Los más comunes son <literal remap="tt">/etc/profile</literal>,
+<literal remap="tt">/etc/bashrc</literal>, <literal remap="tt">&tilde;/.bash_profile</literal>, y <literal remap="tt">&tilde;/.bashrc</literal>.
+Johan Kullstam, <literal remap="tt"><ulink
+url="mailto:johan19@idt.net"
+>johan19@idt.net</ulink
+></literal> escribe: 
+</para>
+
+<para>
+<emphasis remap="it">La cadena</emphasis> <literal remap="tt">PS1</literal> <emphasis remap="it">debería ponerse en el</emphasis> <literal remap="tt">.bashrc</literal> <emphasis remap="it">debido
+a que los</emphasis> <literal remap="tt">bash</literal> <emphasis remap="it">no interactivos no tienen en cuenta este fichero,
+y por tanto, no estableceremos</emphasis> <literal remap="tt">PS1</literal> <emphasis remap="it">si se trata de una shell no
+interactiva. La página del manual de</emphasis> <literal remap="tt">bash</literal> <emphasis remap="it">indica que la
+presencia o ausencia de</emphasis> <literal remap="tt">PS1</literal> <emphasis remap="it">es una buena manera de saber si
+uno está en una sesión interactiva o no interactiva de bash. </emphasis>
+</para>
+
+<para>
+<emphasis remap="it"> La forma en que me percaté de esto es que</emphasis> <literal remap="tt">startx</literal> <emphasis remap="it">es un
+script bash, lo que implica que pulverizará el prompt. Cuando se pone</emphasis>
+<literal remap="tt">PS1</literal> <emphasis remap="it">en el</emphasis> <literal remap="tt">.profile</literal> <emphasis remap="it">(o en el</emphasis> <literal remap="tt">.bash_profile</literal><emphasis remap="it">, al
+entrar en consola y lanzar las X vía</emphasis> <literal remap="tt">startx</literal><emphasis remap="it">, la variable</emphasis>
+<literal remap="tt">PS1</literal> <emphasis remap="it">se elimina en el proceso, dejándole con el prompt por
+defecto.</emphasis>
+</para>
+
+<para>
+<emphasis remap="it"> Una solución es lanzar las</emphasis> <literal remap="tt">xterm</literal> <emphasis remap="it">y las</emphasis> <literal remap="tt">rxvt</literal>
+<emphasis remap="it">con la opción</emphasis> <literal remap="tt">-ls</literal> <emphasis remap="it">para forzarles a leer el</emphasis>
+<literal remap="tt">.profile</literal><emphasis remap="it">, pero en el momento en que se llame un shell mediante un
+shell-script no interactivo se perderá</emphasis> <literal remap="tt">PS1</literal>. <literal remap="tt">system(3)</literal>
+<emphasis remap="it">usa</emphasis> <literal remap="tt">sh -c</literal> <emphasis remap="it">que, si</emphasis> <literal remap="tt">sh</literal> <emphasis remap="it">es</emphasis> <literal remap="tt">bash</literal><emphasis remap="it">, eliminará</emphasis>
+<literal remap="tt">PS1</literal>. <emphasis remap="it">Una forma mejor de hacer esto es situar la definición
+de</emphasis> <literal remap="tt">PS1</literal> <emphasis remap="it">en</emphasis> <literal remap="tt">.bashrc</literal>. <emphasis remap="it">Este fichero se lee cada vez
+que se inicia bash y es donde deberían aparecer las cosas interactivas
+(p.ej.</emphasis> <literal remap="tt">PS1</literal><emphasis remap="it">) </emphasis>
+</para>
+
+<para>
+<emphasis remap="it"> Por lo tanto se llega a la conclusión de que</emphasis> <literal remap="tt">PS1=
+...(blah)...</literal> <emphasis remap="it">debería ir en</emphasis> <literal remap="tt">.bashrc</literal> <emphasis remap="it">y no en</emphasis>
+<literal remap="tt">.profile</literal>
+</para>
+
+<para>
+He intentado simular el problema que él comenta, y he encontrado uno
+diferente: mi variable <literal remap="tt">PROMPT_COMMAND</literal> (de la que se hablará
+después) era desintegrada. Mi conocimiento en este área es un poco
+limitado, así que seguiré lo que dice Johan. 
+</para>
+
+</sect2>
+
+</sect1>
+
+<sect1>
+<title>Comandos Externos</title>
+
+<sect2>
+<title><literal remap="tt">PROMPT_COMMAND</literal></title>
+
+<para>
+<literal remap="tt">bash</literal> proporciona otra variable de entorno llamada
+<literal remap="tt">PROMPT_COMMAND</literal>. El contenido de esta variable se ejecuta como un
+comando <literal remap="tt">bash</literal> normal justo antes de que <literal remap="tt">bash</literal> muestre el prompt.
+</para>
+
+<para>
+
+<screen>
+       [21:55:01][giles@nikola:~] PS1="[\u@\h:\w]\$ "
+       [giles@nikola:~] PROMPT_COMMAND="date +%H%M"
+       2155
+       [giles@nikola:~] d
+       bin   mail
+       2156
+       [giles@nikola:~]
+</screen>
+
+</para>
+
+<para>
+Lo que ocurre arriba es que he cambiado <literal remap="tt">PS1</literal> para que no incluya la
+secuencia de escape <literal remap="tt">\t</literal>, de tal modo que la hora no forme parte del
+prompt.  Después he usado <literal remap="tt">date +%H%M</literal> para mostrar la
+hora en un formato que me gusta más. Pero aparece en una línea diferente a
+la del prompt. Esto se soluciona usando <literal remap="tt">echo -n</literal> ... como se muestra
+debajo, funciona con <literal remap="tt">bash 2.0+</literal>, pero parece que no lo hace con
+<literal remap="tt">bash 1.14.7</literal>:  aparentemente el prompt se dibuja de manera diferente,
+y el método mostrado a continuación resulta en superposición de texto. 
+</para>
+
+<para>
+
+<screen>
+       2156
+       [giles@nikola:~] PROMPT_COMMAND="echo -n [$(date +%H%M)]"
+       [2156][giles@nikola:~]$
+       [2156][giles@nikola:~]$ d
+       bin   mail
+       [2157][giles@nikola:~]$ unset PROMPT_COMMAND
+       [giles@nikola:~]
+</screen>
+
+</para>
+
+<para>
+<literal remap="tt">echo -n </literal>... controla la salida del comando <literal remap="tt">date</literal> y suprime el
+caracter de nueva línea final, permitiendo que el prompt aparezca en una
+sola línea. Al final, uso el comando <literal remap="tt">unset</literal> para eliminar la variable
+de entorno <literal remap="tt">PROMPT_COMMAND</literal>.
+</para>
+
+<para>
+Nótese que uso la convención $(&lt;comando&gt;) para la sustitución
+de comandos, es decir
+</para>
+
+<para>
+
+<screen>
+       $(date +%H%M)
+</screen>
+
+</para>
+
+<para>
+significa «sustituye la salida de <literal remap="tt">date +%H%M</literal> aquí». 
+Esto funciona en <literal remap="tt">bash 2.0+</literal>. En alguna versión antigua de <literal remap="tt">bash</literal>,
+anterior a la <literal remap="tt">1.14.7</literal>, puede ser necesario el uso de comillas simples
+graves (<literal remap="tt">`date +%H%M`</literal>). Estas comillas pueden usarse en
+<literal remap="tt">bash 2.0+</literal>, pero es preferible usar <literal remap="tt">$()</literal>, que funciona
+mejor en el caso de anidamientos. Voy a usar esta convención a lo largo de
+este documento.  Si utiliza una versión anterior de <literal remap="tt">bash</literal>, normalmente
+podrá sustituir los <literal remap="tt">$()</literal> por las comillas. Si la sustitución de
+comandos está escapada (es decir, <literal remap="tt">\$(comando)</literal> ), entonces
+deberá usar contrabarras para escapar AMBAS comillas (o sea,
+<literal remap="tt">\`comando\`</literal> ). 
+</para>
+
+</sect2>
+
+<sect2>
+<title>Comandos externos en el prompt</title>
+
+<para>
+También se puede usar la salida de comandos regulares LiNUX directamente
+en el prompt. Obviamente, no es deseable insertar muchas cosas, o se
+creará un prompt enorme. Además será preferible usar un comando rápido ya
+que se va a ejecutar cada vez que el prompt aparezca en pantalla, y
+retrasa la aparición de éste lo que puede resultar muy molesto. (A
+diferencia del ejemplo anterior al que recuerda, esto funciona con
+<literal remap="tt">bash 1.14.7</literal>) 
+</para>
+
+<para>
+
+<screen>
+       [21:58:33][giles@nikola:~]$ PS1="[\$(date +%H%M)][\u@\h:\w]\$ "
+       [2159][giles@nikola:~]$ ls
+       bin   mail
+       [2200][giles@nikola:~]$
+</screen>
+
+</para>
+
+<para>
+Es importante hacer notar la contrabarra anterior al signo de dólar de la
+sustitución del comando. Sin ella, el comando externo se ejecuta
+exactamente una vez: cuando se lee la cadena almacenada en <literal remap="tt">PS1</literal> del
+entorno. Para este prompt, eso significaría que mostraría siempre la misma
+hora, sin importar cuanto tiempo se ha usado el prompt. La contrabarra
+protege los contenidos de <literal remap="tt">$()</literal> de la interpretación inmediata
+del shell, por lo que <literal remap="tt">date</literal> es llamado cada vez que se genera un
+prompt.
+</para>
+
+<para>
+LiNUX incluye muchas utilidades de pequeño tamaño como <literal remap="tt">date</literal>,
+<literal remap="tt">grep</literal> o <literal remap="tt">wc</literal> que permiten la manipulación de datos. Si se encuentra
+en la situación de crear una combinación compleja de estos programas
+dentro del prompt, podría ser más fácil crear un <emphasis remap="it">shell script</emphasis> y
+llamarlo desde el prompt. En ocasiones son necesarias secuencias de escape
+en los scripts de <literal remap="tt">bash</literal> para asegurar que las variables se expanden en
+el momento correcto (como se ha mostrado arriba con el comando <literal remap="tt">date</literal>):
+esto llega a niveles mayores con la línea de prompt <literal remap="tt">PS1</literal>, y es una
+buena idea evitarlo creando <emphasis remap="it">scripts</emphasis>. 
+</para>
+
+<para>
+Un ejemplo de un pequeño <emphasis remap="it">shell script</emphasis> usado dentro de un prompt es el
+siguiente: 
+</para>
+
+<para>
+
+<screen>
+ 
+  #!/bin/bash
+  #     lsbytesum - suma del número total de bytes de un ls
+  TotalBytes=0
+  for Bytes in $(ls -l | grep "^-" | cut -c30-41)
+  do
+      let TotalBytes=$TotalBytes+$Bytes
+  done
+  TotalMeg=$(echo -e "scale=3 \n$TotalBytes/1048576 \nquit" | bc)
+  echo -n "$TotalMeg"
+</screen>
+
+</para>
+
+<para>
+A veces he mantenido ambos como funciones (mucho más eficiente, pero
+desafortunadamente, la explicación de funciones en detalle va más allá de
+este documento), o como <emphasis remap="it">scripts</emphasis> en mi directorio <literal remap="tt">/bin</literal>, que
+se encuentra en mi variable <literal remap="tt">PATH</literal>. Utilizándolo en un prompt:
+</para>
+
+<para>
+
+<screen>
+       [2158][giles@nikola:~]$ PS1="[\u@\h:\w (\$(lsbytesum) Mb)]\$ "
+       [giles@nikola:~ (0 Mb)]$ cd /bin
+       [giles@nikola:/bin (4.498 Mb)]$
+</screen>
+
+</para>
+
+</sect2>
+
+<sect2>
+<title>Qué poner en el prompt</title>
+
+<para>
+Se habrá percatado de que yo pongo el nombre de usuario, el nombre de la
+máquina, la hora y el directorio actual en la mayoría de mis prompts. Con
+la excepción de la hora, son cosas muy normales de encontrar en un prompt,
+y la hora es posiblemente la adición más común. Pero lo que incluya cada
+uno es cosa de gusto personal. Aquí hay ejemplos de personas que conozco
+que le pueden dar ideas.
+</para>
+
+<para>
+El prompt de Dan es mínimo pero muy efectivo, particularmente para su
+forma de trabajar. 
+</para>
+
+<para>
+
+<screen>
+       [giles@nikola:~]$ cur_tty=$(tty | sed -e "s/.*tty\(.*\)/\1/")
+       [giles@nikola:~]$ echo $cur_tty
+       p4
+       [giles@nikola:~]$ PS1="\!,$cur_tty,\$?\$ "
+       1095,p4,0$
+</screen>
+
+</para>
+
+<para>
+A Dan no le gusta que el hecho de tener el directorio actual de trabajo en
+el prompt pueda variar el tamaño de éste drásticamente mientras se pasa de
+un directorio a otro, así que el mantiene la pista de esto en su cabeza (o
+usa <literal remap="tt">pwd</literal>). El aprendió Unix con <literal remap="tt">csh</literal> y <literal remap="tt">tcsh</literal>, así que usa su
+histórico de comandos de forma intensiva (cosa que los adictos al
+<literal remap="tt">bash</literal> no solemos hacer), así que la primera cosa en el prompt es el
+número del histórico. El segundo campo es el caracter significante de la
+tty (la salida de <literal remap="tt">tty</literal> es recortada mediante sed), un dato que puede
+ser útil para los usuarios de <literal remap="tt">screen</literal>. El tercer campo es el valor de
+retorno del último comando/tubería (nótese que se muestra inútil para
+cualquier comando que se ejecuta dentro del prompt; se puede solucionar
+capturándolo en una variable). Finalmente, «<literal remap="tt">\$</literal>» es un símbolo
+de dólar para un usuario normal y cambia a <literal remap="tt">#</literal> si el usuario es el
+<literal remap="tt">root.</literal>
+</para>
+
+<para>
+Torben Fjerdingstad me escribió para decirme que a menudo suspende tareas,
+y después se le olvidan, así que usa su prompt para servir de recordatorio
+de las tareas suspendidas: 
+</para>
+
+<para>
+
+<screen>
+       [giles@nikola:~]$ function jobcount {
+       &#62; jobs|wc -l| awk '{print $1}'
+       &#62; }
+       [giles@nikola:~]$ export PS1='\W[`jobcount`]# '
+       giles[0]# man ls &#38;
+       [1] 4150
+
+       [1]+  Stopped (tty output)    man ls
+       giles[1]#
+</screen>
+
+</para>
+
+<para>
+Torben usa <literal remap="tt">awk</literal> para evitar el espacio de la salida de <literal remap="tt">wc</literal>,
+mientras que yo habría usado <literal remap="tt">sed</literal> o <literal remap="tt">tr</literal> - no porque sean mejor,
+sino porque me resultan más familiares. Probablemente existan más formas.
+Torben además rodea sus cadenas <literal remap="tt">PS1</literal> con comillas simples. lo que
+evita que el <literal remap="tt">bash</literal> interprete inmediatamente las contrabarras, así no
+tiene que escaparlas como yo había dicho. 
+</para>
+
+<para>
+<emphasis remap="bf">NOTA</emphasis>: existe un <emphasis remap="it">bug</emphasis> conocido en <literal remap="tt">bash 2.02</literal> que provoca que
+el comando <literal remap="tt">jobs</literal> no retorne nada a una tubería. Si intenta lo de
+arriba bajo <literal remap="tt">bash 2.02</literal>, siempre obtendrá un «<literal remap="tt">0</literal>»
+independientemente de los trabajos que haya suspendidos. Chet Ramey, uno
+de los responsables de <literal remap="tt">bash</literal> me ha dicho que esto se soluciona en la
+<literal remap="tt">v2.03</literal>.
+</para>
+
+</sect2>
+
+<sect2>
+<title>Entorno <literal remap="tt">bash</literal> y funciones</title>
+
+<para>
+Como he mencionado antes, <literal remap="tt">PS1</literal>, <literal remap="tt">PS2</literal>, <literal remap="tt">PS3</literal>, <literal remap="tt">PS4</literal> y
+<literal remap="tt">PROMPT_COMMAND</literal> se almacenan todas en el entorno del <literal remap="tt">bash</literal>. Para
+aquellos que provengan del DOS, la idea de almacenar gran cantidad de
+código en el entorno es aterradora, ya que el entorno del DOS era pequeño,
+y no creció bien exactamente.  Posiblemente haya límites prácticos en lo
+que se puede y debe poner en el entorno, pero no los conozco, y
+probablemente se está hablando de un par de órdenes de magnitud mayores de
+a lo que están acostumbrados los usuarios de DOS. Como dijo Dan: 
+</para>
+
+<para>
+<emphasis remap="it">En mi shell interactivo tengo 62 alias y 25 funciones. Mi regla es que
+si necesito algo únicamente para uso interactivo y puedo escribirlo bien
+en bash, hago de ello una función de shell (teniendo en cuenta que no
+pueda expresarse de manera sencilla como un alias). Si la gente se
+preocupa por la memoria no deberían estar usando</emphasis> <literal remap="tt">bash</literal>. <literal remap="tt">bash</literal>
+<emphasis remap="it">es uno de los programas más grandes que ejecuto en mi máquina LiNUX
+(aparte de Oracle).  Ejecute</emphasis> <literal remap="tt">top</literal> <emphasis remap="it">algún tiempo y pulse
+«<literal remap="tt">M</literal>» para ordenar por memoria, y compruebe lo cerca que está bash de
+la cima de la lista. O sea, que es ¡mayor que sendmail!... Recomienda que
+utilicen mejor </emphasis> <literal remap="tt">ash</literal><emphasis remap="it"> o algo así</emphasis>.
+</para>
+
+<para>
+Supongo que estaba usando la consola el día que probó eso: ejecutando X y
+aplicaciones X obtendrá muchas cosas mayores que bash. Pero la idea es la
+misma: el entorno es algo para ser usado, sin preocupación de desbordarlo. 
+</para>
+
+<para>
+Me arriesgo a la censura de los gurús de unix cuando digo esto (por el
+delito de supersimplificación), pero las funciones son básicamente
+pequeños <literal remap="tt">shell scripts</literal> que se cargan en el entorno con el propósito
+de una mayor eficiencia. Citando a Dan de nuevo: <emphasis remap="it">las funciones shell
+son lo más eficiente. El procedimiento es similar a un</emphasis> <literal remap="tt">source</literal>
+<emphasis remap="it">de un shell script pero con el ahorro de las operaciones
+entrada/salida, ya que la función se encuentra ya en memoria. Las
+funciones shell se cargan típicamente del </emphasis><literal remap="tt">.bashrc o
+.bash_profile</literal> <emphasis remap="it">dependiendo de si se las quiere en el shell inicial
+o en los sucesivos subshells también.</emphasis>
+</para>
+
+<para>
+<emphasis remap="it">Compárese esto con la ejecución de un shell script: el shell realiza
+un </emphasis> <literal remap="tt">fork</literal><emphasis remap="it">, el hijo lleva a cabo un </emphasis><literal remap="tt">exec</literal><emphasis remap="it">,
+potencialmente se busca el</emphasis> <literal remap="tt">path</literal><emphasis remap="it">, el kernel abre el fichero y
+examina la cantidad suficiente de bytes para saber cómo ejecutarlo, en el
+caso de un shell script debe arrancarse un shell con el nombre del script
+como argumento. Comparado con una función shell, cualquier cosa aparte de
+la ejecución de las sentencias, puede considerarse una sobrecarga
+innecesaria.</emphasis>
+</para>
+
+</sect2>
+
+</sect1>
+
+<sect1>
+<title>Manipulaciones de la barra de título de Xterm</title>
+
+<para>
+Pueden usarse secuencias de escape no imprimibles para producir efectos
+interesantes en los prompts. Para usar estas secuencias es necesario
+encerrarlas entre <literal remap="tt">\[</literal> y <literal remap="tt">\]</literal>, advirtiendo al <literal remap="tt">bash</literal> de que
+ignore estas secuencias cuando calcule la longitud del prompt. No incluir
+estos delimitadores resulta en una colocación errónea del cursor en el
+código de edición de línea, ya que no conoce el tamaño real del prompt. 
+Las secuencias de escape además deben ir precedidas de <literal remap="tt">\033[</literal> en
+<literal remap="tt">bash</literal> anteriores a la versión <literal remap="tt">2</literal>, o por <literal remap="tt">\033[</literal> o <literal remap="tt">\[e</literal> en
+versiones posteriores. 
+</para>
+
+<para>
+Si se intenta cambiar la barra de título de la Xterm con el prompt
+mientras se está en la consola, se producirá basura en el prompt. Para
+evitar esto, hay que comprobar la variable de entorno <literal remap="tt">TERM</literal> para
+indicar que el prompt va a estar en una <literal remap="tt">xterm</literal>: 
+</para>
+
+<para>
+
+<screen>
+  function proml
+  {
+  case $TERM in
+      xterm*)
+          local TITLEBAR='\[\033]0;\u@\h:\w\007\]'
+          ;;
+      *)
+          local TITLEBAR=''
+          ;;
+  esac
+
+  PS1="${TITLEBAR}\
+  [\$(date +%H%M)]\
+  [\u@\h:\w]\
+  \$ "
+  PS2='&#62; '
+  PS4='+ '
+  }
+</screen>
+
+</para>
+
+<para>
+Esta es una función que puede ser añadida al <literal remap="tt">&tilde;/.bashrc</literal>. Entonces
+se podrá invocar a la función mediante su nombre. La función, como la
+cadena <literal remap="tt">PS1</literal>, se almacena en el entorno. Una vez que la función ha dado
+valor a la cadena <literal remap="tt">PS1</literal>, se puede eliminar la función del entorno con
+<literal remap="tt">unset proml</literal>. Debido a que el prompt no puede cambiar de estar en una
+Xterm a estar en la consola, la variable <literal remap="tt">TERM</literal> no se comprueba cada
+vez que se genera el prompt. He usado marcadores de comtinuación
+(contrabarras, <literal remap="tt">\</literal>)  en la definición del prompt, para permitir
+continuarlo a lo largo de varias líneas. Esto mejora la legibilidad,
+haciendo más fácil modificarlo o depurarlo. 
+</para>
+
+<para>
+Lo he definido como una función porque es así como funciona el paquete
+<literal remap="tt">Bashprompt</literal>: no es la única manera de hacerlo pero funciona bien. A
+medida que los prompts usados se tornen más complejos, resulta más y más
+tedioso teclearlos en la línea de comando, y más práctico situarlos en
+algún tipo de fichero de texto. En este caso, para probar esto como
+prompt, salve lo de arriba como un fichero de texto llamado <literal remap="tt">proml</literal>. Se
+puede trabajar con él de la manera que sigue: 
+</para>
+
+<para>
+
+<screen>
+[giles@nikola:/bin (4.498 Mb)]$ cd     -&#62; Ir a donde se almacena el prompt
+[giles@nikola:~ (0 Mb)]$ vi proml      -&#62; Editar el prompt
+       ...                             -&#62; Introducir el texto anterior
+[giles@nikola:~ (0 Mb)]$ source proml  -&#62; Leer la funcion de prompt
+[giles@nikola:~ (0 Mb)]$ proml         -&#62; Ejecutar la funcion de
+prompt
+</screen>
+
+</para>
+
+<para>
+El primer paso en la creación del prompt es comprobar si el shell en el
+que nos encontramos es o no una <literal remap="tt">xterm</literal>; si lo es, estará definida la
+variable de entorno <literal remap="tt">($(TITLEBAR))</literal>. Esta consiste de la
+secuencia de escape apropiada, y <literal remap="tt">\u@;\h:\w</literal>, lo que escribe
+<literal remap="tt">&lt;usuario&gt;@&lt;máquina&gt;:&lt;directorio&gt;</literal> en la barra de
+título de la Xterm. Esto es particularmente útil para <literal remap="tt">xterm</literal>
+minimizadas haciéndolas más rápidamente identificables. El resto de
+material de este prompt debería ser familiar de prompts previos que hemos
+creado. 
+</para>
+
+<para>
+El único percance que puede darse manipulando la barra de título de la
+<literal remap="tt">xterm</literal> de esta forma ocurre cuando se ingresa en un sistema en el que
+no se ha preparado la barra de título: la <literal remap="tt">xterm</literal> continuará mostrando
+la información del sistema anterior que tenía la barra de título
+manipulada.
+</para>
+
+</sect1>
+
+<sect1>
+<title>Secuencias de escape ANSI: colores y movimientos del cursor</title>
+
+<sect2>
+<title>Colores</title>
+
+<para>
+Como se mencionó antes, las secuencias escape de caracteres no imprimibles
+tienen que encerrarse entre <literal remap="tt">\[\033[</literal> y <literal remap="tt">\]</literal>. Para las
+secuencias de escape de color, también deben aparecer, seguidos además de
+una <literal remap="tt">m</literal> minúscula.
+</para>
+
+<para>
+Si se prueba uno de los prompts siguientes en una <literal remap="tt">xterm</literal> y resulta que
+no se ven los colores nombrados, compruebe su <literal remap="tt">&tilde;/.Xdefaults</literal> (y
+posiblemente sus hermanos) y busque líneas como <literal remap="tt">XTerm*Foreground:
+BlanchedAlmond</literal>. Esto puede comentarse colocando un <literal remap="tt">!</literal> delante. Por
+supuesto, depende de qué emulador de terminal esté usando. Este es el
+lugar más probable en el que los colores de su terminal pueden ser
+redefinidos. 
+</para>
+
+<para>
+Para incluir texto azul en el prompt
+</para>
+
+<para>
+
+<screen>
+       PS1="\[\033[34m\][\$(date +%H%M)][\u@\h:\w]$ "
+</screen>
+
+</para>
+
+<para>
+El problema con este prompt es que el color azul que comienza con el
+código 34 no se retorna nunca al color habitual, por lo que cualquier
+texto que se teclee después del prompt será del mismo color que el prompt.
+Este es también un azul oscuro, así que combinarlo con el código de
+negrita puede resultar útil:
+</para>
+
+<para>
+
+<screen>
+       PS1="\[\033[1;34m\][\$(date +%H%M)][\u@\h:\w]$\[\033[0m\] "
+</screen>
+
+</para>
+
+<para>
+Ahora el prompt es azul claro, y termina cambiando el color de nuevo a
+«nada» (el color que se tenía previamente de primer plano) 
+</para>
+
+<para>
+Aquí está el resto de equivalencias de colores:
+</para>
+
+<para>
+
+<screen>
+       Negro       0;30     Gris oscuro    1;30
+       Azul        0;34     Azul claro     1;34
+       Verde       0;32     Verde claro    1;32
+       Cyan        0;36     Cyan claro     1;36
+       Rojo        0;31     Rojo claro     1;31
+       Purpura     0;35     Purpura claro  1;35
+       Marron      0;33     Amarillo       1;33
+       Gris claro  0;37     blanco         1;37
+</screen>
+
+</para>
+
+<para>
+También se pueden poner colores de fondo, usando 44 para fondo azul, 41
+para fondo rojo, etc. No hay colores de fondo 'negrita'; se pueden usar
+combinaciones, como texto rojo claro sobre fondo azul
+<literal remap="tt">\[\033[44;1;31m\]</literal>, aunque parece que funciona mejor poner los colores
+separadamente (es decir, <literal remap="tt">\[\033[44m\]\[\033[1;31m\])</literal>. Otros códigos
+disponibles incluyen 4: subrayado, 5: parpadeante, 7: inverso y 8: oculto.
+</para>
+
+<para>
+Nota: mucha gente (yo incluido), tienen fuertes objeciones al uso del
+atributo «parpadeo». Afortunadamente no funciona en ningún emulador de
+terminal que yo conozca - pero si que funciona en la consola. Y si alguien
+se preguntaba (como yo hice) «¿para qué sirve el atributo oculto?», yo he
+visto usarlo en un ejemplo de shell script (no en un prompt) que permitía
+introducir un password sin ser reflejado en la pantalla.
+</para>
+
+<para>
+Basado en el prompt <emphasis remap="it">elite2</emphasis> del paquete <literal remap="tt">bashprompt</literal> (que he
+modificado para funcionar mejor en una consola estándar, en lugar de con
+los tipos especiales de <literal remap="tt">xterm</literal> necesarios para ver correctamente el
+original), este es un prompt que he usado mucho:
+</para>
+
+<para>
+
+<screen>
+  function elite
+  {
+
+  local GRAY="\[\033[1;30m\]"
+  local LIGHT_GRAY="\[\033[0;37m\]"
+  local CYAN="\[\033[0;36m\]"
+  local LIGHT_CYAN="\[\033[1;36m\]"
+
+  case $TERM in
+      xterm*)
+          local TITLEBAR='\[\033]0;\u@\h:\w\007\]'
+          ;;
+      *)
+          local TITLEBAR=""
+          ;;
+  esac
+
+  local GRAD1=$(tty|cut -d/ -f3)
+  PS1="$TITLEBAR\
+  $GRAY-$CYAN-$LIGHT_CYAN(\
+  $CYAN\u$GRAY@$CYAN\h\
+  $LIGHT_CYAN)$CYAN-$LIGHT_CYAN(\
+  $CYAN\#$GRAY/$CYAN$GRAD1\
+  $LIGHT_CYAN)$CYAN-$LIGHT_CYAN(\
+  $CYAN\$(date +%H%M)$GRAY/$CYAN\$(date +%d-%b-%y)\
+  $LIGHT_CYAN)$CYAN-$GRAY-\
+  $LIGHT_GRAY\n\
+  $GRAY-$CYAN-$LIGHT_CYAN(\
+  $CYAN\$$GRAY:$CYAN\w\
+  $LIGHT_CYAN)$CYAN-$GRAY-$LIGHT_GRAY "
+  PS2="$LIGHT_CYAN-$CYAN-$GRAY-$LIGHT_GRAY "
+  }
+</screen>
+
+</para>
+
+<para>
+Defino los colores como variables temporales del shell en favor de la
+legibilidad. Es más fácil trabajar así. La variable <literal remap="tt">GRAD1</literal> es una
+comprobación para determinar en qué terminal se está. Como la prueba para
+saber si se está en una <literal remap="tt">xterm</literal>, solo es necesario llevarla a cabo una
+vez. El prompt es similar a esto, excepto el color
+</para>
+
+<para>
+
+<screen>
+       --(giles@nikola)-(75/ttyp7)-(1908/12-Oct-98)--
+       --($:~/tmp)--
+</screen>
+
+</para>
+
+<para>
+Para recordar qué colores hay disponibles, uso el siguiente script que
+saca todos los colores por pantalla: 
+</para>
+
+<para>
+
+<screen>
+  #!/bin/bash
+  #
+  # Este fichero saca por pantalla un monton de codigos de color
+  # para demostrar que hay disponible. Cada linea es un color con
+  # fondo negro y gris, con el codigo en medio. Funciona sobre
+  # fondos blancos, negros y verdes (2 dic. 98)
+  #
+  echo "  Sobre gris claro:        Sobre negro:"
+  echo -e "\033[47m\033[1;37m  Blanco        \033[0m\
+   1;37m \
+  \033[40m\033[1;37m  Blanco        \033[0m"
+  echo -e "\033[47m\033[37m  Gris Claro    \033[0m\
+     37m \
+  \033[40m\033[37m  Gris Claro    \033[0m"
+  echo -e "\033[47m\033[1;30m  Gris          \033[0m\
+   1;30m \
+  \033[40m\033[1;30m  Gris          \033[0m"
+  echo -e "\033[47m\033[30m  Negro         \033[0m\
+     30m \
+  \033[40m\033[30m  Negro         \033[0m"
+  echo -e "\033[47m\033[31m  Rojo          \033[0m\
+     31m \
+  \033[40m\033[31m  Rojo          \033[0m"
+  echo -e "\033[47m\033[1;31m  Rojo Claro    \033[0m\
+   1;31m \
+  \033[40m\033[1;31m  Rojo Claro    \033[0m"
+  echo -e "\033[47m\033[32m  Verde         \033[0m\
+     32m \
+  \033[40m\033[32m  Verde         \033[0m"
+  echo -e "\033[47m\033[1;32m  Verde Claro   \033[0m\
+   1;32m \
+  \033[40m\033[1;32m  Verde Claro   \033[0m"
+  echo -e "\033[47m\033[33m  Marrón        \033[0m\
+     33m \
+  \033[40m\033[33m  Marron        \033[0m"
+  echo -e "\033[47m\033[1;33m  Amarillo      \033[0m\
+   1;33m \
+  \033[40m\033[1;33m  Amarillo      \033[0m"
+  echo -e "\033[47m\033[34m  Azul          \033[0m\
+     34m \
+  \033[40m\033[34m  Azul          \033[0m"
+  echo -e "\033[47m\033[1;34m  Azul Claro    \033[0m\
+   1;34m \
+  \033[40m\033[1;34m  Azul Claro    \033[0m"
+  echo -e "\033[47m\033[35m  Púrpura       \033[0m\
+     35m \
+  \033[40m\033[35m  Purpura       \033[0m"
+  echo -e "\033[47m\033[1;35m  Rosa          \033[0m\
+   1;35m \
+  \033[40m\033[1;35m  Rosa          \033[0m"
+  echo -e "\033[47m\033[36m  Cyan          \033[0m\
+     36m \
+  \033[40m\033[36m  Cyan          \033[0m"
+  echo -e "\033[47m\033[1;36m  Cyan Claro    \033[0m\
+   1;36m \
+  \033[40m\033[1;36m  Cyan Claro    \033[0m"
+</screen>
+
+</para>
+
+</sect2>
+
+<sect2>
+<title>Movimiento del cursor</title>
+
+<para>
+Las secuencias de escape ANSI permiten mover el cursor por la pantalla a
+voluntad. Esto es más útil para interfaces de usuario a pantalla completa
+generados por shell scripts, pero también se pueden usar en prompts. Las
+secuencias de escape de movimientos son las siguientes:
+</para>
+
+<para>
+
+<screen>
+       - Posicionar el cursor:
+         \033[&#60;L&#62;;&#60;C&#62;H
+	 pone el cursor en la linea L, columna C.
+       - Mover el cursor arriba N lineas:
+         \033[&#60;N&#62;A
+       - Mover el cursor abajo N lineas:
+         \033[&#60;N&#62;B
+       - Mover el cursor hacia adelante N columnas:
+         \033[&#60;N&#62;C
+       - Mover el cursor hacia atras N columnas:
+         \033[&#60;N&#62;D
+       - Guardar la posicion del cursor:
+         \033[s
+       - Restaurar la posicion del cursor:
+         \033[u
+</screen>
+
+</para>
+
+<para>
+Los dos últimos códigos no están presentes en muchos emuladores de
+terminal. Los únicos que conozco que los soportan son <literal remap="tt">xterm</literal> y
+<literal remap="tt">nxterm</literal>, a pesar de que la mayoría de los emuladores de terminal están
+basados en el código de <literal remap="tt">xterm</literal>. Por lo que yo sé, ni <literal remap="tt">rxvt</literal>,
+<literal remap="tt">kvt</literal> ni <literal remap="tt">xiterm</literal> ni <literal remap="tt">Eterm</literal> no soportan esto. La consola sí lo
+soporta. 
+</para>
+
+<para>
+Pruebe a poner la siguiente línea de código en el prompt (está más claro
+lo que hace si el prompt está bastantes líneas más abajo que el tope
+superior de la terminal) 
+</para>
+
+<para>
+
+<screen>
+ 
+echo -en "\033[7A\033[1;35m BASH \033[7B\033[6D" 
+</screen>
+
+</para>
+
+<para>
+Esto debería mover el cursor 7 líneas hacia arriba de la pantalla,
+escribir la palabra <literal remap="tt">BASH</literal>, y volver a su sitio habitual en el prompt. 
+Esto no es un prompt, es solo una demostración de movimiento del cursor
+por la pantalla, usando color para enfatizar lo que se ha hecho. 
+</para>
+
+<para>
+Salve lo siguiente en un fichero llamado <literal remap="tt">clock</literal>:  
+<footnote>
+
+<para>
+N.del T.:
+
+para que funcione bien, he tenido que poner <literal remap="tt">let
+prompt_x=$COLUMNS-7</literal>, en lugar de la línea original
+</para>
+
+</footnote>
+
+</para>
+
+<para>
+
+<screen>
+  #!/bin/bash
+
+  function prompt_command {
+  let prompt_x=$COLUMNS-5
+  }
+
+  PROMPT_COMMAND=prompt_command
+
+  function clock {
+  local       BLUE="\[\033[0;34m\]"
+  local        RED="\[\033[0;31m\]"
+  local  LIGHT_RED="\[\033[1;31m\]"
+  local      WHITE="\[\033[1;37m\]"
+  local  NO_COLOUR="\[\033[0m\]"
+  case $TERM in
+      xterm*)
+          TITLEBAR='\[\033]0;\u@\h:\w\007\]'
+          ;;
+      *)
+          TITLEBAR=""
+          ;;
+  esac
+
+  PS1="${TITLEBAR}\
+  \[\033[s\033[1;\$(echo -n \${prompt_x})H\]\
+  $BLUE[$LIGHT_RED\$(date +%H%M)$BLUE]\[\033[u\033[1A\]
+  $BLUE[$LIGHT_RED\u@\h:\w$BLUE]\
+  $WHITE\$$NO_COLOUR "
+  PS2='&#62; '
+  PS4='+ '
+  }
+</screen>
+
+</para>
+
+<para>
+Este prompt es bastante sencillo, excepto por el hecho de que mantiene un
+reloj en la esquina superior derecha de la pantalla (incluso aunque se
+varíe de tamaño el terminal). Esto NO funcionará en los emuladores de
+terminal que he mencionado que no aceptan guardar y recuperar la posición
+del cursor. Si se intenta ejecutar este prompt en cualquiera de esos
+terminales, el reloj aparecerá correctamente, pero el prompt quedará
+encajado en la segunda línea del terminal.
+</para>
+
+<para>
+Véase la sección <xref linkend="Prompt-con-Reloj-Elegante-e-Inútil"/> para un uso más extensivo de estos códigos.
+</para>
+
+</sect2>
+
+<sect2>
+<title>Movimiento del cursor con <literal remap="tt">tput</literal></title>
+
+<para>
+Como ocurre con muchas cosas en unix, hay más de una forma de conseguir
+los mismos objetivos. Una utilidad llamada <literal remap="tt">tput</literal> puede también usarse
+para mover el cursor por la pantalla, o devolver información acerca del
+estado del terminal. <literal remap="tt">tput</literal> es menos flexible que las secuencias de
+escape ANSI para el posicionamiento del cursor: sólo se puede mover el
+cursor a una posición absoluta, no se puede mover con relación a la
+posición actual. Yo no uso <literal remap="tt">tput</literal>, así que no voy a explicarlo en
+detalle. Consulte la página del manual y sabrá tanto como yo de <literal remap="tt">tput</literal>. 
+</para>
+
+</sect2>
+
+</sect1>
+
+<sect1>
+<title>Caracteres especiales: secuencias de escape octales</title>
+
+<para>
+Aparte de los caracteres que se pueden teclear mediante un teclado, hay
+muchos otros que se pueden mostrar por la pantalla. He creado un script
+que permite comprobar qué tiene disponible el tipo que esté usando. El
+comando principal a usar para utilizar estos caracteres es <literal remap="tt">echo -e</literal>.
+La opción <literal remap="tt">-e</literal> le indica a <literal remap="tt">echo</literal> que habilite la interpretación de
+caracteres escapados mediante contrabarra. Lo que aparezca a partir de un
+200-400 octal será muy diferente con un tipo VGA de lo que aparezca con un
+tipo estándar linux. Queda avisado de que algunas de estas secuencias de
+escape tienen extraños efectos en el terminal, y no he intentado
+evitarlos. Los caracteres de dibujos de líneas y bloques (que nos resultan
+tan familiares a los usuarios de <emphasis remap="it">WordPerfect</emphasis>)  utilizados masivamente
+en el proyecto <emphasis remap="it">Bashprompt</emphasis> están entre el <literal remap="tt">260</literal> y <literal remap="tt">337</literal> octal. 
+</para>
+
+<para>
+
+<screen>
+  #!/bin/bash
+
+  #   Script: escgen
+
+  function usage {
+     echo -e "\033[1;34mescgen\033[0m &#60;valor_inferior&#62; [&#60;valor_superior&#62;]"
+     echo "   Generador de secuencias de escape octales: imprime todas las"
+     echo "   secuencias de escape contenidas entre los valores menor y"
+     echo "   mayor. Si no se proporciona el segundo valor, se imprimen"
+     echo "   8 caracteres."
+     echo "   1998 - Giles Orr, sin garantía."
+     exit 1
+  }
+
+  if [ "$#" -eq "0" ]
+  then
+     echo -e "\033[1;31mPor favor incluya uno o dos valores.\033[0m"
+     usage
+  fi
+  let lower_val=${1}
+  if [ "$#" -eq "1" ]
+  then
+     # Si no hay dos valores, sacar 8 caracteres
+     upper_val=$(echo -e "obase=8 \n ibase=8 \n $lower_val+10 \n quit" | bc)
+  else
+     let upper_val=${2}
+  fi
+  if [ "$#" -gt "2" ]
+  then
+     echo -e "\033[1;31mPor favor, incluya dos valores.\033[0m"
+     echo
+     usage
+  fi
+  if [ "${lower_val}" -gt "${upper_val}" ]
+  then
+     echo -e "\033[1;31m${lower_val} es mayor que ${upper_val}."
+     echo
+     usage
+  fi
+  if [ "${upper_val}" -gt "777" ]
+     then
+     echo -e "\033[1;31mLos valores no pueden superar 777.\033[0m"
+     echo
+     usage
+  fi
+
+  let i=$lower_val
+  let line_count=1
+  let limit=$upper_val
+  while [ "$i" -lt "$limit" ]
+  do
+     octal_escape="\\$i"
+     echo -en "$i:'$octal_escape' "
+     if [ "$line_count" -gt "7" ]
+     then
+        echo
+        #   Put a hard return in.
+        let line_count=0
+     fi
+     let i=$(echo -e "obase=8 \n ibase=8 \n $i+1 \n quit" | bc)
+     let line_count=$line_count+1
+  done
+  echo
+</screen>
+
+</para>
+
+<para>
+También se puede usar <literal remap="tt">xfd</literal> para mostrar todos los caracteres de un
+tipo X, mediante el comando <literal remap="tt">xfd -fn &lt;tipo&gt;</literal>. Pinchando sobre un
+caracter determinado se puede obtener mucha información sobre él,
+incluyendo su valor octal. El script de arriba puede resultar útil en la
+consola, y en el caso de que no se esté seguro acerca del nombre del tipo
+de letra. 
+</para>
+
+</sect1>
+
+<sect1>
+<title>El paquete Bash Prompt</title>
+
+<sect2>
+<title>Disponibilidad</title>
+
+<para>
+El paquete <literal remap="tt">Bash Prompt</literal> está disponible en <literal remap="tt"><ulink
+url="http://bash.current.nu"
+>http://bash.current.nu</ulink
+></literal>, y es el
+resultado del trabajo de varias personas coordinadas por Rob Current (aka
+<footnote>
+
+<para>
+N del T.: 
+ «<emphasis remap="bf">A</emphasis>lso <emphasis remap="bf">Known</emphasis> <emphasis remap="bf">A</emphasis>s», <emphasis remap="it">conocido
+también como ...</emphasis>, <emphasis remap="it">alias ...</emphasis>.
+</para>
+
+</footnote>
+
+<emphasis remap="it">BadLandZ</emphasis>). El paquete
+se encuentra en sus primeras betas, pero proporciona una manera simple de
+usar múltiples prompts (o temas), permitiendo poner prompts para los
+shells de ingreso (login shells), y para los subshells (es decir, poner
+cadenas <literal remap="tt">PS1</literal> en <literal remap="tt">.bash_profile</literal> y <literal remap="tt">.bashrc</literal>).
+</para>
+
+<para>
+La mayoría de los temas usan caracteres VGA extendidos, así que se ven mal
+a menos que se usen fuentes VGA (que no viene por defecto en la mayoría de
+los sistemas). 
+</para>
+
+</sect2>
+
+<sect2>
+<title>Cambio de fuentes en una <literal remap="tt">xterm</literal></title>
+
+<para>
+Para usar algunos de los prompts más bonitos del paquete <literal remap="tt">Bash Prompt</literal>,
+es necesario obtener e instalar fuentes que soporten el conjunto de
+caracteres esperado por los prompts. Se conocen como <emphasis remap="it">fuentes VGA</emphasis>,
+pero no tengo clara la distinción entre estos y las que Linux suele
+incluir, aunque claramente soportan diferentes conjuntos de caracteres.
+</para>
+
+<para>
+Las <literal remap="tt">xterm</literal> estándar soportan un alfabeto extendido, incluyendo muchas
+letras con tildes. En las fuentes VGA todo esto se reemplaza con
+caracteres gráficos (líneas, puntos, bloques...). Si alguien puede
+explicar esto con más detalle, que se ponga en contacto conmigo e incluiré
+la explicación aquí. 
+</para>
+
+<para>
+
+<footnote>
+
+<para>
+ N. del T.: 
+  Se puede modificar un tipo determinado para
+que tenga caracteres gráficos y además incluya vocales acentuadas y eñes,
+para que resulte útil a un usuario hispanoamericano. Esto lo he hecho yo
+en mi sistema
+</para>
+
+</footnote>
+
+</para>
+
+<para>
+Obtener e instalar estas fuentes es de alguna forma un proceso
+relacionado.  Primero hay que conseguir lo(s) tipo(s). Después asegurarse
+de que son ficheros <literal remap="tt">.pcf</literal> o <literal remap="tt">.pcf.gz</literal>. Si son ficheros <literal remap="tt">.bdf</literal>
+viene bien el comando <literal remap="tt">bdftopcf</literal> (mirar la página del manual). Hay que
+colocar estos ficheros en el directorio
+<literal remap="tt">/usr/X11R6/lib/X11/fonts/misc</literal> (este es el lugar correcto para
+<emphasis remap="it">RedHat 5.1</emphasis> y <emphasis remap="it">Slackware 3.4</emphasis>
+<footnote>
+
+<para>
+N. del T.: 
+ y para la
+<emphasis remap="it">RedHat 6.0</emphasis>.
+</para>
+
+</footnote>
+, aunque podrían variar en otras
+distribuciones). Desde el directorio en cuestión hay que ejecutar el
+comando <literal remap="tt">mkfontdir</literal>, seguido de <literal remap="tt">xset fp rehash</literal>. En ocasiones es
+una buena idea editar el fichero <literal remap="tt">fonts.alias</literal> del mismo directorio y
+crear alias más cortos para los tipos. 
+</para>
+
+<para>
+Para usar los nuevos tipos, hay que lanzar el emulador de terminal deseado
+con el comando apropiado, que se puede encontrar bien en la página del
+manual correspondiente o mediante la opción <literal remap="tt">--help</literal> de línea de
+comando. En los emuladores de terminal más populares se usan así: 
+</para>
+
+<para>
+
+<screen>
+       xterm -font &#60;tipo&#62;
+</screen>
+
+</para>
+
+<para>
+o
+</para>
+
+<para>
+
+<screen>
+       xterm -fn &#60;tipo&#62; -fb &#60;tipo-negrita&#62;
+       Eterm -F &#60;tipo&#62;
+       rxvt -fn &#60;tipo&#62;
+</screen>
+
+</para>
+
+<para>
+Hay tipos VGA disponibles en la página de Tipos ANSI de Stumpy en 
+ 
+<literal remap="tt"><ulink
+url="http://home.earthlink.net/~us5zahns/enl/ansifont.html"
+>http://home.earthlink.net/~us5zahns/enl/ansifont.html</ulink
+></literal> (de la
+que he tomado mucho para escribir este documento). 
+</para>
+
+</sect2>
+
+</sect1>
+
+<sect1>
+<title>Carga de un prompt diferente</title>
+
+<sect2>
+<title>Carga de un prompt diferente posterior</title>
+
+<para>
+Las explicaciones en este COMO han mostrado cómo crear las variables de
+entorno <literal remap="tt">PS1</literal>, o cómo incorporar las cadenas <literal remap="tt">PS1</literal> y <literal remap="tt">PS2</literal> a
+funciones que podían ser llamadas por <literal remap="tt">&tilde;/.bashrc</literal> o como un tema
+por el paquete <literal remap="tt">Bash Prompt</literal>.
+</para>
+
+<para>
+Mediante el paquete <literal remap="tt">Bash Prompt</literal>, basta con escribir <literal remap="tt">bashprompt
+-i</literal> para ver una lista de temas disponibles. Para poner un prompt a los
+shells de ingreso (<emphasis remap="it">login shells</emphasis>) futuros (sobre todo la consola, pero
+también <literal remap="tt">telnet</literal> y <literal remap="tt">Xterms</literal>, dependiendo de cómo estén configuradas
+las <literal remap="tt">Xterms</literal>), se hace con <literal remap="tt">bashprompt -l tema</literal>. <literal remap="tt">bashprompt</literal>
+entonces modifica el <literal remap="tt">&tilde;/.bash_profile</literal> para llamar al tema
+seleccionado al arrancar. Para poner un prompt a subshells futuros
+(normalmente <literal remap="tt">Xterms</literal>, <literal remap="tt">rxvt</literal>, etc.), se hace con <literal remap="tt">bashprompt -s
+tema</literal>, y <literal remap="tt">bashprompt</literal> modifica el <literal remap="tt">&tilde;/.bashrc</literal> para llama al tema
+apropiado al iniciarse. 
+</para>
+
+<para>
+Vea <xref linkend="Valor-permanente-de-las-cadenas-PS"/> la nota de Johan Kullstam acerca de la importancia de
+poner las cadenas <literal remap="tt">PS?</literal> en <literal remap="tt">&tilde;/.bashrc</literal>
+</para>
+
+</sect2>
+
+<sect2>
+<title>Carga inmediata de un prompt diferente</title>
+
+<para>
+Se puede cambiar el prompt en el terminal actual (usando la función de
+ejemplo <literal remap="tt">elite</literal> de arriba) escribiendo <literal remap="tt">source elite</literal> seguido de
+<literal remap="tt">elite</literal> (suponiendo que el fichero de la función <literal remap="tt">elite</literal> se
+encuentre en el directorio de trabajo). Esto es engorroso, y deja una
+función extra (elite) en el espacio de entorno --si quiere limpiar el
+entorno, se hace con <literal remap="tt">unset elite</literal>--. Esto parece un buen candidato
+para un pequeño shell script, pero un script no funciona aquí porque no
+puede cambiar el entorno del shell actual: solo puede cambiar el entorno
+del subshell en el que se ejecuta. En cuanto termina el script, el
+subshell desaparece y con él los cambios hechos al entorno.
+</para>
+
+<para>
+Algo que si puede cambiar el entorno del shell actual son las funciones de
+entorno. El paquete <literal remap="tt">Bash Prompt</literal> coloca una función llamada
+<literal remap="tt">callbashprompt</literal> en el entorno, y, mientras no se documente, no puede
+usarse para cargar ningún tema de <literal remap="tt">bashprompt</literal> sobre la marcha. Mira en
+el directorio de temas que instala (el tema que se llama debe estar allí),
+hace un <literal remap="tt">source</literal> de la función solicitada, carga la función y luego la
+elimina, de forma que mantiene el entorno limpio. <literal remap="tt">callbashprompt</literal> no
+fue pensada para usarse de este modo, y no tiene control de errores, pero
+si se tiene esto en cuenta, funciona bastante bien.
+</para>
+
+</sect2>
+
+</sect1>
+
+<sect1>
+<title>Prompt dinámico con color según la carga del sistema</title>
+
+<sect2>
+<title>Un ejemplo de «prueba de concepto»</title>
+
+<para>
+Esto es una «prueba de concepto» más que un prompt bonito: cambio de
+colores en el prompt dinámicamente. En este ejemplo, el color del nombre
+del host cambia dependiendo de la carga (a modo de aviso). 
+</para>
+
+<para>
+
+<screen>
+  #!/bin/bash
+  #   "hostloadcolour" - 17 Octubre 98, by Giles
+  #
+  #   La idea aqui es cambiar el color del nombre del host en el prompt
+  #   dependiendo de un valor de carga que sirve de umbral.
+
+  # THRESHOLD_LOAD es el valor de la carga en un minuto
+  # (multiplicado por 100) al cual se desea que el prompt
+  # cambie de COLOUR_LOW a COLOUR_HIGH
+
+  THRESHOLD_LOAD=200
+  COLOUR_LOW='1;34'
+            # light blue
+  COLOUR_HIGH='1;31'
+             # light red
+
+  function prompt_command {
+  ONE=$(uptime | sed -e "s/.*load average: \(.*\...\), \(.*\...\), \(.*\...\)/\1/" -e "s/ //g")
+  # Aparentemente "scale" en bc no se aplica a las multiplicaciones
+  # pero si a las divisiones
+  ONEHUNDRED=$(echo -e "scale=0 \n $ONE/0.01 \nquit \n" | bc)
+  if [ $ONEHUNDRED -gt $THRESHOLD_LOAD ]
+  then
+      HOST_COLOUR=$COLOUR_HIGH
+          # Light Red
+  else
+      HOST_COLOUR=$COLOUR_LOW
+          # Light Blue
+  fi
+  }
+
+  function hostloadcolour {
+
+  PROMPT_COMMAND=prompt_command
+  PS1="[$(date +%H%M)][\u@\[\033[\$(echo -n \$HOST_COLOUR)m\]\h\[\033[0;37m\]:\w]$ "
+  }
+</screen>
+
+</para>
+
+<para>
+Mediante su editor favorito, salve esto en un fichero llamado
+<literal remap="tt">hostloadcolour</literal>. Si tiene instalado el paquete <literal remap="tt">Bash Prompt</literal>,
+funcionará como un tema. Si no lo tiene, escriba <literal remap="tt">source
+hostloadcolour</literal> seguido de <literal remap="tt">hostloadcolour</literal>. De cualquiera de las dos
+formas, <literal remap="tt">prompt_commad</literal> se convierte en una función del entorno. Si
+examina el código, notará que los colores (<literal remap="tt">$COLOUR_HIGH y
+$COLOUR_LOW</literal>) se ponen mediante un código parcial de color, es decir,
+<literal remap="tt">1;34</literal> en lugar de <literal remap="tt">\[\033[1;34m\]</literal>, cosa que hubiera preferido,
+pero no he sido capaz de que funcione con el código completo. Le
+agradecería que me avisara si lo consigue. 
+</para>
+
+</sect2>
+
+</sect1>
+
+<sect1>
+<title>Prompt de ejemplo</title>
+
+<sect2>
+<title>Un prompt «ligero»</title>
+
+<para>
+
+<screen>
+  function proml {
+  local BLUE="\[\033[0;34m\]"
+  local RED="\[\033[0;31m\]"
+  local LIGHT_RED="\[\033[1;31m\]"
+  local WHITE="\[\033[1;37m\]"
+  local NO_COLOUR="\[\033[0m\]"
+  case $TERM in
+      xterm*)
+          TITLEBAR='\[\033]0;\u@\h:\w\007\]'
+          ;;
+      *)
+          TITLEBAR=""
+          ;;
+  esac
+
+  PS1="${TITLEBAR}\
+  $BLUE[$RED\$(date +%H%M)$BLUE]\
+  $BLUE[$LIGHT_RED\u@\h:\w$BLUE]\
+  $WHITE\$$NO_COLOUR "
+  PS2='&#62; '
+  PS4='+ '
+  }
+</screen>
+
+</para>
+
+</sect2>
+
+<sect2>
+<title>Tema elite de <literal remap="tt">Bashprompt</literal></title>
+
+<para>
+Es necesaria una fuente VGA
+</para>
+
+<para>
+
+<screen>
+  # Created by KrON from windowmaker on IRC
+  # Changed by Spidey 08/06
+  function elite {
+  PS1="\[\033[31m\]\332\304\[\033[34m\](\[\033[31m\]\u\[\033[34m\]@\[\033[31m\]\h\
+  \[\033[34m\])\[\033[31m\]-\[\033[34m\](\[\033[31m\]\$(date +%I:%M%P)\
+  \[\033[34m\]-:-\[\033[31m\]\$(date +%m)\[\033[34m\033[31m\]/\$(date +%d)\
+  \[\033[34m\])\[\033[31m\]\304-\[\033[34m]\\371\[\033[31m\]-\371\371\
+  \[\033[34m\]\372\n\[\033[31m\]\300\304\[\033[34m\](\[\033[31m\]\W\[\033[34m\])\
+  \[\033[31m\]\304\371\[\033[34m\]\372\[\033[00m\]"
+  PS2="&#62; "
+  }
+</screen>
+
+</para>
+
+</sect2>
+
+<sect2>
+<title>Prompt de usuario avanzado</title>
+
+<para>
+Este es el prompt que yo uso, pero se nota un cierto retraso en la
+aparición del prompt en un PII-400 monousuario, así que no lo recomendaría
+para un P-100 multiusuario... Tómelo como una idea, más que como un prompt
+práctico.
+</para>
+
+<para>
+
+<screen>
+  #!/bin/bash
+  #----------------------------------------------------------------------
+  #       POWER USER PROMPT "pprom2"
+  #----------------------------------------------------------------------
+  #
+  #   Created August 98, Last Modified 9 November 98 by Giles
+  #
+  #  Problema: cuando la carga baja, dice "1.35down-.08". Hay que deshacerse
+  #  del negativo
+
+  function prompt_command
+  {
+  #   Crea la variable TotalMeg: la suma de los tamagnos de los ficheros
+  #   visibles del directorio actual
+  local TotalBytes=0
+  for Bytes in $(ls -l | grep "^-" | cut -c30-41)
+  do
+      let TotalBytes=$TotalBytes+$Bytes
+  done
+  TotalMeg=$(echo -e "scale=3 \nx=$TotalBytes/1048576\n if (x&#60;1) 
+	{print \"0\"} \n print x \nquit" | bc)
+
+  #      Esto se usa para calcular el diferencial en los valores 
+  #      de carga proporcionados por el comando "uptime". "uptime"
+  #      proporciona medias de carga en 1, 5, y 15 minutos.
+  #
+  local one=$(uptime | sed -e "s/.*load average: \(.*\...\), \(.*\...\), \(.*\...\)/\1/" -e "s/ //g")
+  local five=$(uptime | sed -e "s/.*load average: \(.*\...\), \(.*\...\), \(.*\...\).*/\2/" -e "s/ //g")
+  local diff1_5=$(echo -e "scale = scale ($one) \nx=$one - $five\n if (x&#62;0) 
+	{print \"up\"} else {print \"down\"}\n print x \nquit \n" | bc)
+  loaddiff="$(echo -n "${one}${diff1_5}")"
+
+  #   Cuenta los ficheros visibles:
+  let files=$(ls -l | grep "^-" | wc -l | tr -d " ")
+  let hiddenfiles=$(ls -l -d .* | grep "^-" | wc -l | tr -d " ")
+  let executables=$(ls -l | grep ^-..x | wc -l | tr -d " ")
+  let directories=$(ls -l | grep "^d" | wc -l | tr -d " ")
+  let hiddendirectories=$(ls -l -d .* | grep "^d" | wc -l | tr -d " ")-2
+  let linktemp=$(ls -l | grep "^l" | wc -l | tr -d " ")
+  if [ "$linktemp" -eq "0" ]
+  then
+      links=""
+  else
+      links=" ${linktemp}l"
+  fi
+  unset linktemp
+  let devicetemp=$(ls -l | grep "^[bc]" | wc -l | tr -d " ")
+  if [ "$devicetemp" -eq "0" ]
+  then
+      devices=""
+  else
+      devices=" ${devicetemp}bc"
+  fi
+  unset devicetemp
+
+  }
+
+  PROMPT_COMMAND=prompt_command
+
+  function pprom2 {
+
+  local        BLUE="\[\033[0;34m\]"
+  local  LIGHT_GRAY="\[\033[0;37m\]"
+  local LIGHT_GREEN="\[\033[1;32m\]"
+  local  LIGHT_BLUE="\[\033[1;34m\]"
+  local  LIGHT_CYAN="\[\033[1;36m\]"
+  local      YELLOW="\[\033[1;33m\]"
+  local       WHITE="\[\033[1;37m\]"
+  local         RED="\[\033[0;31m\]"
+  local   NO_COLOUR="\[\033[0m\]"
+
+  case $TERM in
+      xterm*)
+          TITLEBAR='\[\033]0;\u@\h:\w\007\]'
+          ;;
+      *)
+          TITLEBAR=""
+          ;;
+  esac
+
+  PS1="$TITLEBAR\
+  $BLUE[$RED\$(date +%H%M)$BLUE]\
+  $BLUE[$RED\u@\h$BLUE]\
+  $BLUE[\
+  $LIGHT_GRAY\${files}.\${hiddenfiles}-\
+  $LIGHT_GREEN\${executables}x \
+  $LIGHT_GRAY(\${TotalMeg}Mb) \
+  $LIGHT_BLUE\${directories}.\
+  \${hiddendirectories}d\
+  $LIGHT_CYAN\${links}\
+  $YELLOW\${devices}\
+  $BLUE]\
+  $BLUE[${WHITE}\${loaddiff}$BLUE]\
+  $BLUE[\
+  $WHITE\$(ps ax | wc -l | sed -e \"s: ::g\")proc\
+  $BLUE]\
+  \n\
+  $BLUE[$RED\$PWD$BLUE]\
+  $WHITE\$\
+  \
+  $NO_COLOUR "
+  PS2='&#62; '
+  PS4='+ '
+  }
+</screen>
+
+</para>
+
+</sect2>
+
+<sect2>
+<title>Un prompt con la anchura del terminal</title>
+
+<para>
+Un amigo se quejó de que no le gustaba tener un prompt que cambiara su
+tamaño debido a que tenía un <literal remap="tt">$PWD</literal>, así que escribí este prompt
+que ajusta su tamaño a la anchura exacta del terminal, con el directorio
+de trabajo en la línea superior. 
+</para>
+
+<para>
+
+<screen>
+  #!/bin/bash
+
+  #   termwide prompt
+  #      by Giles - created 2 November 98
+  #
+  #  La idea aqui es tener la linea superior de un prompt de 2 lineas
+  #  siempre de la misma anchura que el terminal. Esto se consigue
+  #  calculando la anchura de los elementos de texto, y rellenando
+  #  o truncando $PWD
+  #
+
+  function prompt_command {
+
+  TERMWIDTH=${COLUMNS}
+
+  #   Calcula la anchura del prompt:
+
+  hostnam=$(echo -n $HOSTNAME | sed -e "s/[\.].*//")
+  #   "whoami" y "pwd" incluyen un caracter de nueva línea al final
+  usernam=$(whoami)
+  let usersize=$(echo -n $usernam | wc -c | tr -d " ")
+  newPWD="${PWD}"
+  let pwdsize=$(echo -n ${newPWD} | wc -c | tr -d " ")
+  #   Agnadir los accesorios debajo...
+  let promptsize=$(echo -n "--(${usernam}@${hostnam})---(${PWD})--" \
+                   | wc -c | tr -d " ")
+  let fillsize=${TERMWIDTH}-${promptsize}
+  fill=""
+  while [ "$fillsize" -gt "0" ]
+  do
+     fill="${fill}-"
+     let fillsize=${fillsize}-1
+  done
+
+  if [ "$fillsize" -lt "0" ]
+  then
+     let cut=3-${fillsize}
+     sedvar=""
+     while [ "$cut" -gt "0" ]
+     do
+        sedvar="${sedvar}."
+        let cut=${cut}-1
+     done
+     newPWD="...$(echo -n $PWD | sed -e "s/\(^${sedvar}\)\(.*\)/\2/")"
+  fi
+  }
+
+  PROMPT_COMMAND=prompt_command
+
+  function termwide {
+
+  local GRAY="\[\033[1;30m\]"
+  local LIGHT_GRAY="\[\033[0;37m\]"
+  local WHITE="\[\033[1;37m\]"
+  local NO_COLOUR="\[\033[0m\]"
+
+  local LIGHT_BLUE="\[\033[1;34m\]"
+  local YELLOW="\[\033[1;33m\]"
+
+  case $TERM in
+      xterm*)
+          TITLEBAR='\[\033]0;\u@\h:\w\007\]'
+          ;;
+      *)
+          TITLEBAR=""
+          ;;
+  esac
+
+  PS1="$TITLEBAR\
+  $YELLOW-$LIGHT_BLUE-(\
+  $YELLOW\${usernam}$LIGHT_BLUE@$YELLOW\${hostnam}\
+  ${LIGHT_BLUE})-${YELLOW}-\${fill}${LIGHT_BLUE}-(\
+  $YELLOW\${newPWD}\
+  $LIGHT_BLUE)-$YELLOW-\
+  \n\
+  $YELLOW-$LIGHT_BLUE-(\
+  $YELLOW\$(date +%H%M)$LIGHT_BLUE:$YELLOW\$(date \"+%a,%d %b %y\")\
+  $LIGHT_BLUE:$WHITE\$$LIGHT_BLUE)-\
+  $YELLOW-\
+  $NO_COLOUR "
+
+  PS2="$LIGHT_BLUE-$YELLOW-$YELLOW-$NO_COLOUR "
+
+  }
+</screen>
+
+</para>
+
+</sect2>
+
+<sect2 id="Prompt-con-Reloj-Elegante-e-Inútil">
+<title>Prompt con Reloj elegante e inútil
+</title>
+
+<para>
+Este es posiblemente el prompt más atractivo (e inútil) que he creado. 
+Debido a que muchos emuladores de terminal X no implementan las funciones
+de salvar y restaurar la posición del cursor, la alternativa cuando se
+sitúa un reloj en la esquina superior derecha es anclar el cursor a la
+parte baja del terminal. Esto se basa en la idea del prompt de la anchura
+del terminal anterior, con el dibujo de una línea desde el prompt hasta el
+reloj. Es necesaria una fuente VGA. 
+</para>
+
+<para>
+Nota: hay una sustitución en este código, que puede que no se muestre bien
+al pasar de SGML a otros formatos: he tenido que sustituir el carácter de
+pantalla pro el código <literal remap="tt">\304</literal>; normalmente habría incluido la secuencia
+<literal remap="tt">\304</literal>, pero ha sido necesaria la sustitución en este caso: 
+</para>
+
+<para>
+
+<screen>
+  #!/bin/bash
+
+  #   Este prompt requiere una fuente VGA. El prompt se ancla a la parte
+  #   baja del terminal, rellena la anchura del terminal, y dibuja una linea
+  #   hacia arriba en la parte derecha del terminal hasta unirse a un reloj
+  #   en la esquina superior derecha del terminal
+
+  function prompt_command {
+  #   Calcula la anchura del prompt:
+  hostnam=$(echo -n $HOSTNAME | sed -e "s/[\.].*//")
+  #   "whoami" y "pwd" incluyen un caracter de nueva línea al final
+  usernam=$(whoami)
+  newPWD="${PWD}"
+  #   Se agnaden todos los accesorios
+  let promptsize=$(echo -n "--(${usernam}@${hostnam})---(${PWD})-----" \
+                   | wc -c | tr -d " ")
+  #   Adivina cuanto agnadir entre user@host y PWD (o cuanto quitar a PWD)
+  let fillsize=${COLUMNS}-${promptsize}
+  fill=""
+  #   si el prompt no es tan ancho como el terminal, lo relleno
+  while [ "$fillsize" -gt "0" ]
+  do
+     fill="${fill}Ä"
+     # La A con umlaut (aparecera como un guión largo si se utiliza
+     # una fuente VGA) es \304, pero la corté y pegué aquí porque
+     # Bash sólo hace una sustitución, que en este caso es hacer que
+     # $fill aparezca en el prompt.		
+     let fillsize=${fillsize}-1
+  done
+  #   Trunco $PWD por la derecha si el prompt es mas ancho que el terminal:
+  if [ "$fillsize" -lt "0" ]
+  then
+     let cutt=3-${fillsize}
+     sedvar=""
+     while [ "$cutt" -gt "0" ]
+     do
+        sedvar="${sedvar}."
+        let cutt=${cutt}-1
+     done
+     newPWD="...$(echo -n $PWD | sed -e "s/\(^${sedvar}\)\(.*\)/\2/")"
+  fi
+  #
+  #   Creo el reloj y la barra que sube hasta el
+  #
+  local LIGHT_BLUE="\033[1;34m"
+  local     YELLOW="\033[1;33m"
+  #   Posicion del cursor para dibujar el reloj:
+  echo -en "\033[2;$((${COLUMNS}-9))H"
+  echo -en "$LIGHT_BLUE($YELLOW$(date +%H%M)$LIGHT_BLUE)\304$YELLOW\304\304\277"
+  local i=${LINES}
+  echo -en "\033[2;${COLUMNS}H"
+  #   Dibujo barras verticales:
+  while [ $i -ge 4 ]
+  do
+     echo -en "\033[$(($i-1));${COLUMNS}H\263"
+     let i=$i-1
+  done
+
+  let prompt_line=${LINES}-1
+  #   Esto es necesario porque hacer \${LINES} dentro de una función
+  #   matematica de Bash (es decir $(()) ) no parece funcionar.
+  }
+
+  PROMPT_COMMAND=prompt_command
+
+  function clock3 {
+  local LIGHT_BLUE="\[\033[1;34m\]"
+  local     YELLOW="\[\033[1;33m\]"
+  local      WHITE="\[\033[1;37m\]"
+  local LIGHT_GRAY="\[\033[0;37m\]"
+  local  NO_COLOUR="\[\033[0m\]"
+
+  case $TERM in
+      xterm*)
+          TITLEBAR='\[\033]0;\u@\h:\w\007\]'
+          ;;
+      *)
+          TITLEBAR=""
+          ;;
+  esac
+
+  PS1="$TITLEBAR\
+  \[\033[\${prompt_line};0H\]
+  $YELLOW\332$LIGHT_BLUE\304(\
+  $YELLOW\${usernam}$LIGHT_BLUE@$YELLOW\${hostnam}\
+  ${LIGHT_BLUE})\304${YELLOW}\304\${fill}${LIGHT_BLUE}\304(\
+  $YELLOW\${newPWD}\
+  $LIGHT_BLUE)\304$YELLOW\304\304\304\331\
+  \n\
+  $YELLOW\300$LIGHT_BLUE\304(\
+  $YELLOW\$(date \"+%a,%d %b %y\")\
+  $LIGHT_BLUE:$WHITE\$$LIGHT_BLUE)\304\
+  $YELLOW\304\
+  $LIGHT_GRAY "
+
+  PS2="$LIGHT_BLUE\304$YELLOW\304$YELLOW\304$NO_COLOUR "
+
+  }
+</screen>
+
+</para>
+
+</sect2>
+
+</sect1>
+
+<sect1 id="Insflug">
+<title>Anexo: El INSFLUG </title>
+
+<para>
+El <emphasis>INSFLUG</emphasis> forma parte del grupo internacional <emphasis remap="it">Linux
+Documentation Project</emphasis>, encargándose de las traducciones al castellano de
+los Howtos (Comos), así como la producción de documentos originales en
+aquellos casos en los que no existe análogo en inglés. 
+</para>
+
+<para>
+En el <emphasis remap="bf">INSFLUG</emphasis> se orienta preferentemente a la traducción de
+documentos breves, como los <emphasis>COMOs</emphasis> y <emphasis>PUFs</emphasis> (<emphasis remap="bf">P</emphasis>reguntas de
+<emphasis remap="bf">U</emphasis>so <emphasis remap="bf">F</emphasis>recuente, las <emphasis remap="it">FAQs</emphasis>. <literal remap="tt">:)</literal> ), etc. 
+</para>
+
+<para>
+Diríjase a la sede del INSFLUG para más información al respecto.
+</para>
+
+<para>
+En la sede del INSFLUG encontrará siempre las <emphasis remap="bf">últimas</emphasis> versiones de
+las traducciones «oficiales»:  <literal remap="tt"><ulink
+url="http://www.insflug.org"
+>www.insflug.org</ulink
+></literal>. Asegúrese de comprobar cuál es la última
+versión disponible en el Insflug antes de bajar un documento de un
+servidor réplica. 
+</para>
+
+<para>
+Además, cuenta con un sistema interactivo de gestión de fe de erratas y
+sugerencias en línea, motor de búsqueda específico, y más servicios que
+estamos trabajando incesantemente para añadir.
+</para>
+
+<para>
+Se proporcionará también una lista de los servidores réplica (<emphasis remap="it">mirror</emphasis>) 
+del Insflug más cercanos a Vd., e información relativa a otros recursos en
+castellano. 
+</para>
+
+<para>
+En <literal remap="tt"><ulink
+url="http://www.insflug.org/insflug/creditos.php3"
+>http://www.insflug.org/insflug/creditos.php3</ulink
+></literal> cuenta con una
+detallada relación de las personas que hacen posible tanto esto como las
+traducciones. 
+</para>
+
+<para>
+¡Diríjase a <literal remap="tt"><ulink
+url="http://www.insflug.org/colaboracion/index.php3"
+>http://www.insflug.org/colaboracion/index.php3</ulink
+></literal> si desea
+unirse a nosotros!. 
+</para>
+
+<para>
+Francisco José Montilla, <literal remap="tt"><ulink
+url="mailto:pacopepe@insflug.org"
+>pacopepe@insflug.org</ulink
+></literal>. 
+</para>
+
+</sect1>
+
+</article>

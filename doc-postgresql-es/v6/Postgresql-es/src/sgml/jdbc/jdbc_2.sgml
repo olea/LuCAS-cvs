@@ -1,0 +1,965 @@
+***************** Colocar aquí la primera parte del fichero
+***************** Dejar estas líneas para el coordinador.
+
+Fastpath
+
+Fastpath is an <acronym>API</acronym> that exists within the libpq C interface, and 
+allows a client machine to execute a function on the database backend. 
+Most client code will not need to use this method, but it's provided 
+because the Large Object <acronym>API</acronym> uses it.
+
+To use, you need to import the postgresql.fastpath package, using the 
+line:
+     import postgresql.fastpath.*;
+
+Then, in your code, you need to get a FastPath object:
+     Fastpath fp = ((postgresql.Connection)conn).getFastpathAPI();
+
+This will return an instance associated with the database connection 
+that you can use to issue commands. The casing of Connection to 
+postgresql.Connection is required, as the getFastpathAPI() is one of 
+our own methods, not <acronym>JDBC</acronym>'s.
+
+Once you have a Fastpath instance, you can use the fastpath() methods 
+to execute a backend function.
+
+Class postgresql.fastpath.Fastpath
+
+java.lang.Object
+   |
+   +----postgresql.fastpath.Fastpath
+
+   public class Fastpath
+
+   extends Object
+
+   This class implements the Fastpath api.
+
+   This is a means of executing functions imbeded in the postgresql 
+backend from within a java application.
+
+   It is based around the file src/interfaces/libpq/fe-exec.c
+
+   See Also:
+          FastpathFastpathArg, LargeObject
+
+Methods
+
+ public Object fastpath(int fnid,
+                        boolean resulttype,
+                        FastpathArg args[]) throws SQLException
+
+          Send a function call to the PostgreSQL backend
+          
+        Parameters:
+                fnid - Function id
+                resulttype - True if the result is an integer, false 
+for
+                other results
+                args - FastpathArguments to pass to fastpath
+
+        Returns:
+                null if no data, Integer if an integer result, or 
+byte[]
+                otherwise
+         
+        Throws: SQLException
+                if a database-access error occurs.
+
+ public Object fastpath(String name,
+                        boolean resulttype,
+                        FastpathArg args[]) throws SQLException
+
+          Send a function call to the PostgreSQL backend by name. 
+
+Note:
+          the mapping for the procedure name to function id needs to 
+exist, usually to an earlier call to addfunction(). This is the 
+prefered method to call, as function id's can/may change between 
+versions of the backend. For an example of how this works, refer to 
+postgresql.LargeObject
+
+        Parameters:
+                name - Function name
+                resulttype - True if the result is an integer, false 
+for
+                other results
+                args - FastpathArguments to pass to fastpath
+
+        Returns:
+                null if no data, Integer if an integer result, or 
+byte[]
+                otherwise
+
+        Throws: SQLException
+                if name is unknown or if a database-access error 
+occurs.
+
+        See Also:
+                LargeObject
+          
+ public int getInteger(String name,
+                       FastpathArg args[]) throws SQLException
+
+          This convenience method assumes that the return value is an 
+Integer
+
+        Parameters:
+                name - Function name
+                args - Function arguments
+
+        Returns:
+                integer result
+
+        Throws: SQLException
+                if a database-access error occurs or no result
+
+ public byte[] getData(String name,
+                       FastpathArg args[]) throws SQLException
+
+          This convenience method assumes that the return value is 
+binary data
+
+        Parameters:
+                name - Function name
+                args - Function arguments
+
+        Returns:
+                byte[] array containing result
+
+        Throws: SQLException
+                if a database-access error occurs or no result
+
+ public void addFunction(String name,
+                         int fnid)
+
+          This adds a function to our lookup table.
+
+          User code should use the addFunctions method, which is based 
+upon a query, rather than hard coding the oid. The oid for a function 
+is not guaranteed to remain static, even on different servers of the 
+same version.
+
+        Parameters:
+                name - Function name
+                fnid - Function id
+
+ public void addFunctions(ResultSet rs) throws SQLException
+                       
+          This takes a ResultSet containing two columns. Column 1 
+contains the function name, Column 2 the oid.
+
+          It reads the entire ResultSet, loading the values into the 
+function table.
+
+          REMEMBER to close() the resultset after calling this!!
+
+          Implementation note about function name lookups:
+          
+          PostgreSQL stores the function id's and their corresponding 
+names in the pg_proc table. To speed things up locally, instead of 
+querying each function from that table when required, a Hashtable is 
+used. Also, only the function's required are entered into this table, 
+keeping connection times as fast as possible.
+
+          The postgresql.LargeObject class performs a query upon it's 
+startup, and passes the returned ResultSet to the addFunctions() 
+method here.
+       
+          Once this has been done, the LargeObject api refers to the 
+functions by name.
+          
+          Dont think that manually converting them to the oid's will 
+work. Ok, they will for now, but they can change during development 
+(there was some discussion about this for V7.0), so this is 
+implemented to prevent any unwarranted headaches in the future.
+
+        Parameters:
+                rs - ResultSet
+
+        Throws: SQLException
+                if a database-access error occurs.
+          
+        See Also:
+                LargeObjectManager
+
+ public int getID(String name) throws SQLException
+          
+          This returns the function id associated by its name
+          
+          If addFunction() or addFunctions() have not been called for 
+this name, then an SQLException is thrown.
+
+        Parameters:
+                name - Function name to lookup
+
+        Returns:
+                Function ID for fastpath call
+
+        Throws: SQLException
+                is function is unknown.
+
+Class postgresql.fastpath.FastpathArg
+
+java.lang.Object
+   |
+   +----postgresql.fastpath.FastpathArg
+
+   public class FastpathArg extends Object
+        
+   Each fastpath call requires an array of arguments, the number and 
+type dependent on the function being called.
+
+   This class implements methods needed to provide this capability.
+
+   For an example on how to use this, refer to the 
+postgresql.largeobject package
+
+   See Also:
+          Fastpath, LargeObjectManager, LargeObject
+
+Constructors
+
+ public FastpathArg(int value)
+ 
+          Constructs an argument that consists of an integer value
+
+        Parameters:
+                value - int value to set
+
+ public FastpathArg(byte bytes[])
+          
+          Constructs an argument that consists of an array of bytes
+
+        Parameters:
+                bytes - array to store
+
+ public FastpathArg(byte buf[],
+                    int off,
+                    int len)
+
+           Constructs an argument that consists of part of a byte 
+array
+
+        Parameters:
+                buf - source array
+                off - offset within array
+                len - length of data to include
+
+ public FastpathArg(String s)
+          
+          Constructs an argument that consists of a String.
+      
+        Parameters:
+                s - String to store
+
+Geometric Data Types
+
+PostgreSQL has a set of datatypes that can store geometric features 
+into a table. These range from single points, lines, and polygons.
+
+We support these types in Java with the postgresql.geometric package.
+
+It contains classes that extend the postgresql.util.PGobject class. 
+Refer to that class for details on how to implement your own data type 
+handlers.
+
+Class postgresql.geometric.PGbox
+
+java.lang.Object
+   |
+   +----postgresql.util.PGobject
+           |
+           +----postgresql.geometric.PGbox
+
+   public class PGbox extends PGobject implements Serializable, 
+Cloneable
+
+   This represents the box datatype within postgresql.
+
+Variables
+
+ public PGpoint point[]
+
+          These are the two corner points of the box.
+
+Constructors
+
+ public PGbox(double x1,
+              double y1,
+              double x2,
+              double y2)
+
+        Parameters:
+                x1 - first x coordinate
+                y1 - first y coordinate
+                x2 - second x coordinate
+                y2 - second y coordinate
+
+ public PGbox(PGpoint p1,
+              PGpoint p2)
+
+        Parameters:
+                p1 - first point
+                p2 - second point
+
+ public PGbox(String s) throws SQLException
+                            
+        Parameters:
+                s - Box definition in PostgreSQL syntax
+
+        Throws: SQLException
+                if definition is invalid
+                
+ public PGbox()
+
+          Required constructor
+              
+Methods
+
+ public void setValue(String value) throws SQLException
+                
+          This method sets the value of this object. It should be 
+overidden, but still called by subclasses.
+                            
+        Parameters:
+                value - a string representation of the value of the 
+object
+        Throws: SQLException
+                thrown if value is invalid for this type
+
+        Overrides:
+                setValue in class PGobject
+
+ public boolean equals(Object obj)
+
+        Parameters:
+                obj - Object to compare with
+                
+        Returns:
+                true if the two boxes are identical
+          
+        Overrides:
+                equals in class PGobject
+
+ public Object clone()
+        
+          This must be overidden to allow the object to be cloned
+
+        Overrides:
+                clone in class PGobject
+   
+ public String getValue()
+        
+        Returns:
+                the PGbox in the syntax expected by postgresql
+
+        Overrides:
+                getValue in class PGobject
+
+Class postgresql.geometric.PGcircle
+
+java.lang.Object
+   |
+   +----postgresql.util.PGobject
+           |
+           +----postgresql.geometric.PGcircle
+        
+   public class PGcircle extends PGobject implements Serializable, 
+Cloneable
+               
+   This represents postgresql's circle datatype, consisting of a point 
+and a radius
+
+Variables
+
+ public PGpoint center
+           
+          This is the centre point
+ 
+public double radius
+           
+          This is the radius
+   
+Constructors   
+
+ public PGcircle(double x,
+                 double y,
+                 double r)
+          
+        Parameters:
+               x - coordinate of centre
+                y - coordinate of centre
+                r - radius of circle
+
+ public PGcircle(PGpoint c,
+                 double r)
+          
+        Parameters:
+                c - PGpoint describing the circle's centre
+                r - radius of circle
+
+ public PGcircle(String s) throws SQLException
+
+        Parameters:
+                s - definition of the circle in PostgreSQL's syntax.
+
+        Throws: SQLException
+                on conversion failure
+
+ public PGcircle()
+
+          This constructor is used by the driver.
+            
+Methods   
+
+ public void setValue(String s) throws SQLException
+
+        Parameters:
+                s - definition of the circle in PostgreSQL's syntax.
+
+        Throws: SQLException
+                on conversion failure
+
+        Overrides:
+                setValue in class PGobject
+
+ public boolean equals(Object obj)
+
+        Parameters:
+                obj - Object to compare with
+            
+        Returns:
+                true if the two boxes are identical
+
+        Overrides:
+                equals in class PGobject
+
+ public Object clone()
+
+          This must be overidden to allow the object to be cloned
+
+        Overrides:
+                clone in class PGobject
+
+ public String getValue()
+
+        Returns:
+                the PGcircle in the syntax expected by postgresql
+        
+        Overrides:
+                getValue in class PGobject
+
+Class postgresql.geometric.PGline
+
+java.lang.Object
+   |
+   +----postgresql.util.PGobject
+           |
+           +----postgresql.geometric.PGline
+
+   public class PGline extends PGobject implements Serializable, 
+Cloneable
+
+   This implements a line consisting of two points. Currently line is 
+not yet implemented in the backend, but this class ensures that when 
+it's done were ready for it.
+
+Variables
+   
+ public PGpoint point[]
+     
+          These are the two points.
+
+Constructors
+
+ public PGline(double x1,
+               double y1,
+               double x2,
+               double y2)
+
+        Parameters:
+                x1 - coordinate for first point
+                y1 - coordinate for first point
+                x2 - coordinate for second point
+                y2 - coordinate for second point
+
+ public PGline(PGpoint p1,
+               PGpoint p2)
+     
+        Parameters:
+                p1 - first point
+                p2 - second point
+
+ public PGline(String s) throws SQLException
+               
+        Parameters:
+                s - definition of the circle in PostgreSQL's syntax.
+
+        Throws: SQLException
+                on conversion failure
+
+ public PGline()
+
+          reuired by the driver
+               
+Methods
+
+ public void setValue(String s) throws SQLException
+
+        Parameters:
+                s - Definition of the line segment in PostgreSQL's 
+syntax
+
+        Throws: SQLException
+                on conversion failure
+
+        Overrides:
+                setValue in class PGobject
+                
+ public boolean equals(Object obj)
+
+        Parameters:
+                obj - Object to compare with
+               
+        Returns:
+                true if the two boxes are identical
+   
+        Overrides:
+                equals in class PGobject
+
+ public Object clone()
+        
+          This must be overidden to allow the object to be cloned
+
+        Overrides:
+                clone in class PGobject
+
+ public String getValue()
+   
+        Returns:
+                the PGline in the syntax expected by postgresql
+        
+        Overrides:
+                getValue in class PGobject
+
+Class postgresql.geometric.PGlseg
+             
+java.lang.Object
+   |
+   +----postgresql.util.PGobject
+           |
+           +----postgresql.geometric.PGlseg
+          
+   public class PGlseg extends PGobject implements Serializable, 
+Cloneable
+ 
+   This implements a lseg (line segment) consisting of two points
+
+Variables
+
+ public PGpoint point[]
+           
+          These are the two points.
+
+Constructors
+   
+ public PGlseg(double x1,
+               double y1,
+               double x2,
+               double y2)
+     
+        Parameters:
+
+                x1 - coordinate for first point
+                y1 - coordinate for first point
+                x2 - coordinate for second point
+                y2 - coordinate for second point
+
+ public PGlseg(PGpoint p1,
+               PGpoint p2)
+           
+        Parameters:
+                p1 - first point
+                p2 - second point
+   
+ public PGlseg(String s) throws SQLException
+
+        Parameters:
+                s - definition of the circle in PostgreSQL's syntax.
+
+        Throws: SQLException
+                on conversion failure
+
+ public PGlseg()
+
+          reuired by the driver
+               
+Methods    
+   
+ public void setValue(String s) throws SQLException
+   
+        Parameters:
+                s - Definition of the line segment in PostgreSQL's 
+syntax
+
+        Throws: SQLException
+                on conversion failure
+     
+        Overrides:
+                setValue in class PGobject
+                
+ public boolean equals(Object obj)
+
+        Parameters:
+                obj - Object to compare with
+               
+        Returns:
+                true if the two boxes are identical
+   
+        Overrides:
+                equals in class PGobject
+   
+ public Object clone()
+
+          This must be overidden to allow the object to be cloned
+
+        Overrides:
+               clone in class PGobject
+
+ public String getValue()
+
+        Returns:
+                the PGlseg in the syntax expected by postgresql
+        
+        Overrides:
+                getValue in class PGobject
+
+Class postgresql.geometric.PGpath
+                                
+java.lang.Object
+   |
+   +----postgresql.util.PGobject
+           |
+           +----postgresql.geometric.PGpath
+          
+   public class PGpath extends PGobject implements Serializable, 
+Cloneable
+               
+   This implements a path (a multiple segmented line, which may be 
+closed)
+           
+Variables
+
+ public boolean open
+               
+          True if the path is open, false if closed
+
+ public PGpoint points[]
+
+          The points defining this path
+
+Constructors   
+
+ public PGpath(PGpoint points[],
+               boolean open)
+          
+        Parameters:
+                points - the PGpoints that define the path
+                open - True if the path is open, false if closed
+
+ public PGpath()
+
+          Required by the driver
+
+ public PGpath(String s) throws SQLException
+
+        Parameters:
+                s - definition of the circle in PostgreSQL's syntax.
+
+        Throws: SQLException
+                on conversion failure
+
+Methods
+
+ public void setValue(String s) throws SQLException
+   
+        Parameters:
+                s - Definition of the path in PostgreSQL's syntax
+           
+        Throws: SQLException
+                on conversion failure
+
+        Overrides:
+                setValue in class PGobject
+
+ public boolean equals(Object obj)
+
+        Parameters:
+                obj - Object to compare with
+
+        Returns:
+                true if the two boxes are identical
+
+        Overrides:
+                equals in class PGobject
+
+ public Object clone()
+
+          This must be overidden to allow the object to be cloned
+
+        Overrides:
+                clone in class PGobject
+
+ public String getValue()
+
+          This returns the polygon in the syntax expected by 
+postgresql
+
+        Overrides:
+                getValue in class PGobject
+
+ public boolean isOpen()
+
+     This returns true if the path is open
+
+ public boolean isClosed()
+
+     This returns true if the path is closed
+
+ public void closePath()
+
+     Marks the path as closed
+
+ public void openPath()
+
+     Marks the path as open
+
+Class postgresql.geometric.PGpoint
+                                
+java.lang.Object
+   |
+   +----postgresql.util.PGobject
+           |
+           +----postgresql.geometric.PGpoint
+          
+   public class PGpoint extends PGobject implements Serializable, 
+Cloneable
+
+   This implements a version of java.awt.Point, except it uses double 
+to represent the coordinates.
+
+   It maps to the point datatype in postgresql.
+
+Variables
+
+ public double x
+
+          The X coordinate of the point
+
+ public double y
+
+          The Y coordinate of the point
+
+Constructors
+
+ public PGpoint(double x,
+                double y)
+
+        Parameters:
+                x - coordinate
+                y - coordinate
+
+ public PGpoint(String value) throws SQLException
+     
+          This is called mainly from the other geometric types, when a 
+point is imbeded within their definition.
+             
+        Parameters:
+                value - Definition of this point in PostgreSQL's 
+syntax
+   
+ public PGpoint()
+          
+          Required by the driver
+
+Methods
+
+ public void setValue(String s) throws SQLException
+
+        Parameters:
+                s - Definition of this point in PostgreSQL's syntax
+
+        Throws: SQLException
+                on conversion failure
+
+        Overrides:
+                setValue in class PGobject
+          
+ public boolean equals(Object obj)
+
+        Parameters:
+                obj - Object to compare with
+
+        Returns:
+                true if the two boxes are identical
+
+        Overrides:
+                equals in class PGobject
+
+ public Object clone()
+                
+          This must be overidden to allow the object to be cloned
+
+        Overrides:
+                clone in class PGobject
+          
+ public String getValue()       
+    
+        Returns:
+                the PGpoint in the syntax expected by postgresql
+
+        Overrides:
+                getValue in class PGobject
+          
+ public void translate(int x,
+                       int y)
+
+          Translate the point with the supplied amount.
+
+        Parameters:
+                x - integer amount to add on the x axis
+                y - integer amount to add on the y axis
+
+ public void translate(double x,
+                       double y)
+          
+          Translate the point with the supplied amount.
+ 
+        Parameters:
+                x - double amount to add on the x axis
+                y - double amount to add on the y axis
+
+ public void move(int x,
+                  int y)
+                
+          Moves the point to the supplied coordinates.
+
+        Parameters:
+                x - integer coordinate
+                y - integer coordinate
+
+public void move(double x,
+                  double y)
+          
+          Moves the point to the supplied coordinates.
+
+        Parameters:
+                x - double coordinate
+                y - double coordinate
+
+ public void setLocation(int x,
+                         int y)
+
+          Moves the point to the supplied coordinates. refer to
+          java.awt.Point for description of this
+
+        Parameters:
+                x - integer coordinate
+                y - integer coordinate
+
+        See Also:
+                Point
+
+ public void setLocation(Point p)
+
+          Moves the point to the supplied java.awt.Point refer to
+          java.awt.Point for description of this
+
+        Parameters:
+                p - Point to move to
+
+        See Also:
+                Point
+
+Class postgresql.geometric.PGpolygon
+                                
+java.lang.Object
+   |
+   +----postgresql.util.PGobject
+           |
+           +----postgresql.geometric.PGpolygon
+
+   public class PGpolygon extends PGobject implements Serializable, 
+Cloneable
+               
+   This implements the polygon datatype within PostgreSQL.
+
+Variables
+
+ public PGpoint points[]
+
+          The points defining the polygon
+                                
+Constructors
+
+ public PGpolygon(PGpoint points[])
+
+          Creates a polygon using an array of PGpoints
+
+        Parameters:
+                points - the points defining the polygon
+
+ public PGpolygon(String s) throws SQLException
+                 
+        Parameters:
+                s - definition of the circle in PostgreSQL's syntax.
+
+        Throws: SQLException
+                on conversion failure
+
+ public PGpolygon()
+
+          Required by the driver
+
+Methods
+
+ public void setValue(String s) throws SQLException
+
+        Parameters:
+                s - Definition of the polygon in PostgreSQL's syntax
+
+        Throws: SQLException
+                on conversion failure
+
+        Overrides:
+                setValue in class PGobject
+
+ public boolean equals(Object obj)
+     
+        Parameters:
+                obj - Object to compare with
+                                
+        Returns:
+                true if the two boxes are identical
+
+        Overrides:
+                equals in class PGobject
+
+ public Object clone()
+        
+          This must be overidden to allow the object to be cloned
+
+        Overrides:
+                clone in class PGobject
+                 
+ public String getValue()
+
+        Returns:
+                the PGpolygon in the syntax expected by postgresql
+
+        Overrides:
+                getValue in class PGobject
+
+****************** Colocar aquí la tercera parte del fichero
+****************** Dejar estas líneas para el coordinador.

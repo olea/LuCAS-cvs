@@ -1,0 +1,964 @@
+\chapter{HP-UX}
+\section{Introducci\'on}
+HP-UX es la versi\'on de Unix desarrollada y mantenida por Hewlett--Packard 
+desde 1983, ejecutable t\'{\i}\-pi\-ca\-men\-te sobre procesadores HP PA RISC y 
+en sus \'ultima versiones sobre Intel Itanium (arquitectura Intel de 64 bits); 
+a pesar de estar basada ampliamente en {\it System V} incorpora importantes 
+caracter\'{\i}sticas BSD. En la actualidad la \'ultima versi\'on del operativo 
+es la 11.11, aunque existen numerosas instalaciones de sistemas m\'as antiguos, 
+especialmente HP-UX 10.x o incluso 9.x.\\
+\\HP-UX es, como la mayor parte de Unices comerciales, un entorno de trabajo
+flexible, potente y estable, que soporta un abanico de aplicaciones que van
+desde simples editores de texto a complicados programas de dise\~no gr\'afico o
+c\'alculo cient\'{\i}fico, pasando por sistemas de control industrial que
+incluyen planificaciones de tiempo real.\\
+\\Durante los \'ultimos a\~nos Hewlett--Packard, como muchos otros fabricantes,
+parece haberse interesado bastante por la seguridad en general, y en concreto
+por los sistemas de protecci\'on para sus sistemas; prueba de ello es la gama
+de productos relacionados con este campo desarrollados para HP-UX, como el
+sistema de detecci\'on de intrusos {\sc ids/9000} para HP-UX 11.x corriendo 
+sobre m\'aquinas HP-9000 o la utilidad {\it Security Patch Check}, similar al 
+{\it PatchDiag} de Sun Microsystems. Tambi\'en es importante destacar las 
+grandes mejoras en cuanto a seguridad del sistema se refiere entre HP-UX 9.x, 
+HP-UX 10.x y muy especialmente HP-UX 11.x.\\
+\\En este cap\'{\i}tulo, como hemos hecho antes con Solaris, Linux y AIX,
+hablaremos de aspectos de la seguridad particulares de HP-UX, teniendo siempre
+presente que el resto de cap\'{\i}tulos del documento tambi\'en son aplicables
+a este operativo. Para conocer m\'as HP-UX podemos consultar \cite{kn:reh00} o
+\cite{kn:pon01}, y si nos interesa especialmente su seguridad una obra 
+obligatoria es \cite{kn:won01}. Aparte de documentaci\'on impresa, a trav\'es 
+de Internet podemos acceder a numerosa documentaci\'on t\'ecnica de HP-UX, en 
+la URL {\tt http://docs.hp.com/}; por supuesto, tambi\'en son b\'asicas para 
+una correcta administraci\'on las p\'aginas de manual que se instalan con el 
+producto.
+\section{Seguridad f\'{\i}sica en PA--RISC}
+Los sistemas de las series HP9000 incluyen un {\it firmware} muy similar a la 
+{\it OpenBoot PROM} de las estaciones y servidores {\sc sparc} que se denomina 
+{\sc pdc} ({\it Processor Dependent Code}) y que implementa las funcionalidades
+dependientes del procesador; su funci\'on b\'asica es, en el arranque de la 
+m\'aquina, inicializar el procesador y comprobar que su estado es correcto
+mediante unas pruebas llamadas {\sc post} ({\it Power On Self Test}). Si todo es
+satisfactorio el PDC carga el {\sc isl} ({\it Initial System Loader}) o {\sc 
+ipl} ({\it Initial Program Loader}) y le transfiere el control para que este 
+pueda arrancar el sistema operativo.\\
+\\Como en cualquier dispositivo {\it hardware} existen formas de interrumpir el 
+proceso de arranque habitual para modificar su comportamiento; en concreto, en 
+la familia HP9000 suele existir un intervalo de 10 
+segundos antes de cargar el {\sc isl} en el que sin m\'as que pulsar la tecla 
+{\sc esc}\footnote{Dependiendo de la serie concreta es posible que la 
+pulsaci\'on de cualquier tecla interrumpa el proceso; esto sucede, por ejemplo,
+en los modelos de las series 800.} se puede acceder al men\'u de arranque del 
+equipo y, desde este, definir dispositivos de arranque alternativos o 
+interactuar con el {\sc isl}, por ejemplo para pasar un par\'ametro al {\it 
+kernel} de HP-UX antes de cargarlo; decimos `suele existir' porque el intervalo
+durante el cual se puede interrumpir el autoarranque se respeta s\'olo si las
+variables {\tt autoboot} y {\tt autosearch} del {\sc isl} est\'an activadas, ya
+que en caso contrario el sistema autom\'aticamente accede al men\'u de arranque
+y no se inicia hasta que un operador no interactua con el mismo.\\
+\\Si al interrumpir el proceso de arranque elegimos interactuar con el {\sc 
+isl} llegamos a un {\it prompt} sencillo en el que podemos comenzar a introducir
+\'ordenes desde el cargador {\tt hpux}, como {\tt `hpux -v'}, que muestra la
+versi\'on del {\sc isl} o {\tt `hpux -iS'}, que inicia el operativo en modo
+monousuario:
+\begin{quote}
+\begin{verbatim}
+Hard booted.
+
+ISL Revision A.00.09  March 27, 1990
+
+ISL> hpux -v
+Secondary Loader 9000/700
+Revision 1.1
+@(#) Revision 1.1 Wed Dec 10 17:24:28 PST 1986
+
+ISL>
+\end{verbatim}
+\end{quote}
+Antes de acceder a este {\it prompt} podemos activar o resetar una variable 
+denominada {\tt secure}, que indica el modo de arranque seguro del equipo; si
+est\'a activada no se podr\'a interactuar con el arranque del sistema, lo cual
+implica una protecci\'on relativa: un atacante situado delante del equipo lo
+tendr\'a m\'as dif\'{\i}cil para arrancar el sistema desde un dispositivo que
+no sea el est\'andar, o para iniciarlo en modo monousuario. El hecho de que esta
+protecci\'on sea relativa es l\'ogico: si no fuera reversible, nunca nadie m\'as
+podr\'{\i}a modificar la secuencia de arranque del equipo; si aunque el modo de 
+arranque seguro est\'e activado queremos o necesitamos interrumpir el arranque,
+no tenemos m\'as que desconectar todos los dispositivos arrancables del equipo
+(discos, red, unidad de CD-ROM\ldots), de forma que el arranque falle y se
+acceda al men\'u para poder resetear la variable {\tt secure}.
+\section{Usuarios y accesos al sistema}
+Como sucede en Linux, el acceso {\tt root} remoto a una m\'aquina HP-UX se puede
+y debe limitar desde el archivo {\tt /etc/securetty}, donde se listan las
+terminales desde las que el superusuario del sistema puede acceder al mismo; si
+queremos que el {\tt root} s\'olo pueda conectar desde la consola f\'{\i}sica
+de la m\'aquina este archivo debe ser creado de la forma siguiente:
+\begin{quote}
+\begin{verbatim}
+marta:/# echo console > /etc/securetty 
+marta:/# chown root:sys /etc/securetty 
+marta:/# chmod 644 /etc/securetty 
+marta:/# 
+\end{verbatim}
+\end{quote}
+De nuevo, al igual que suced\'{\i}a en Linux, esto no evita que se pueda 
+ejecutar {\tt `su'} desde cualquier sesi\'on para 
+conseguir privilegios de administrador, ni deshabilita el acceso remoto 
+v\'{\i}a {\sc ssh} o {\it X Window}. En el primer caso debemos vetar el acceso
+desde el archivo de configuraci\'on de {\tt sshd}, mientras que en el segundo
+podemos hacerlo de la forma siguiente:
+\begin{quote}
+\begin{verbatim}
+marta:/# cp -p /usr/dt/config/Xstartup /etc/dt/config/Xstartup 
+marta:/# print "[[ ${USER} = root ]] && exit 1" >>/etc/dt/config/Xstartup 
+marta:/# 
+\end{verbatim}
+\end{quote}
+Muchos de los par\'ametros que controlan el acceso de los usuarios a un sistema
+HP-UX se definen en el archivo {\tt /etc/default/security}, que ha de tener 
+permiso de escritura para {\tt root} y de lectura para todos los usuarios; si 
+este fichero no existe, el administrador puede -- y debe -- crearlo. Esta
+{\it feature} del operativo fue introducida de forma no documentada en HP-UX
+11.0, y se incluye tambi\'en en HP-UX 11i, ya documentada en la p\'agina de 
+manual de {\tt `security'}. Un ejemplo de este archivo puede ser el siguiente:
+\begin{quote}
+\begin{verbatim}
+marta:/# cat /etc/default/security
+ABORT_LOGIN_ON_MISSING_HOMEDIR=1
+MIN_PASSWORD_LENGTH=8
+NOLOGIN=1
+NUMBER_OF_LOGINS_ALLOWED=3
+PASSWORD_HISTORY_DEPTH=2
+SU_ROOT_GROUP=admins
+#SU_DEFAULT_PATH=
+marta:/# 
+\end{verbatim}
+\end{quote}
+Seguramente los par\'ametros m\'as importantes que podemos encontrar en este
+archivo son los referentes a las claves de usuario; tenemos en primer lugar 
+{\sc min$\_$password$\_$length}, que como su nombre indica
+define la longitud m\'{\i}nima de las contrase\~nas en el sistema; mientras que
+en un HP-UX normal no afecta al {\tt root}, en Trusted HP-UX s\'{\i} que lo 
+hace. Puede adoptar cualquier valor entre 6 (el m\'{\i}nimo por defecto) y 8 en
+los entornos normales, y entre 6 y 80 en Trusted HP-UX. El otro par\'ametro
+referente a las contrase\~nas es {\sc password$\_$history$\_$depth}, que marca
+los {\it passwords} antiguos contra los que se compara uno nuevo: si su valor es
+N, cuando un usuario cambia su clave no podr\'a utilizar ninguna de sus N
+anteriores contrase\~nas. El valor de esta variable puede ser cualquier n\'umero
+entre 1 (valor por defecto) y 10, el valor m\'aximo; si su valor es 2, evitamos
+que un usuario alterne constantemente dos contrase\~nas en el sistema.\\
+\\Otro grupo de directivas es el formado por aquellas que afectan a la entrada
+de usuarios en el sistema; tenemos en primer lugar {\sc 
+abort$\_$login$\_$on$\_$missing$\_$homedir}, que define c\'omo ha de 
+comportarse el operativo cuando un usuario se autentica correctamente pero su 
+directorio {\it \$HOME} no existe. Si su valor es 0, el acceso se autorizar\'a y
+el usuario entrar\'a directamente al directorio {\tt `/'}; si es 1, el {\it 
+login} ser\'a rechazado a pesar de que la autenticaci\'on haya sido correcta.La 
+segunda directiva de este grupo es {\sc nologin}: si su valor es 1 y el fichero
+{\tt /etc/nologin} existe, cuando un usuario diferente del {\tt root} se 
+autentique para entrar al sistema se le mostrar\'a el contenido del archivo y
+se le cerrar\'a la conexi\'on (lo habitual en todos los Unices); por contra, si
+el valor de esta variable es 0, el archivo {\tt /etc/nologin} simplemente ser\'a
+ignorado. Finalmente, la directiva {\sc number$\_$of$\_$logins$\_$allowed} 
+delimita el n\'umero m\'aximo de conexiones simult\'aneas que los usuarios 
+diferentes de {\tt `root'} pueden poseer en el sistema; si su valor es 0, este
+n\'umero es ilimitado.\\
+\\Vamos a ver por \'ultimo un par de directivas que afectan a la ejecuci\'on 
+de la orden {\tt `su'} en el sistema. En primer lugar tenemos {\sc 
+su$\_$root$\_$group}, que indica qu\'e grupo de usuarios puede ejecutar la 
+orden para convertirse -- tecleando la contrase\~na, evidentemente -- en 
+administrador del sistema. Si este par\'ametro no est\'a definido, cualquier
+usuario que conozca la clave puede convertirse en {\tt root}, mientras que si
+lo est\'a s\'olo los usuarios pertenecientes al grupo indicado pueden hacerlo.\\
+\\Aparte del anterior par\'ametro, en HP-UX 11i se introdujo una nueva 
+directiva en el fichero {\tt /etc/default/security}; se
+trata de {\sc su$\_$default$\_$path}, que marca el valor de la variable {\it
+\$PATH} cuando alguien cambia su identificador de usuario mediante {\tt `su'} 
+sin la opci\'on {\tt `-'} (esto es, sin emular un {\it login} real).\\
+\\Acabamos de ver que en el archivo {\tt /etc/default/security} se pueden
+configurar diferentes aspectos relativos a las pol\'{\i}ticas de contrase\~nas a
+seguir en un sistema HP-UX; no obstante, algunos de los puntos m\'as importantes
+de cualquier pol\'{\i}tica est\'an, como ocurre en Solaris, integrados dentro
+de la propia orden {\tt passwd}: entre ellos algunos tan decisivos como la
+longitud m\'{\i}nima de una contrase\~na. Un esquema de este tipo resulta algo
+pobre actualmente, y como ya dijimos, cualquier Unix moderno deber\'{\i}a 
+incluir `de serie' la posibilidad de ofrecer una granularidad m\'as adecuada en
+todo lo respectivo a las claves de los usuarios. Sea como sea, el esquema 
+seguido en HP-UX es muy similar al de Solaris en cuanto a los requisitos 
+m\'{\i}nimos para un {\it password}: al menos seis caracteres, dos de los cuales
+han de ser letras y uno num\'erico o especial, diferencias con la contrase\~na
+anterior en al menos tres caracteres -- considerando equivalentes a may\'usculas
+y min\'usculas para este prop\'osito --, clave diferente del nombre de usuario
+y cualquier rotaci\'on del mismo, etc.\\
+\\Ya para finalizar este punto, y relacionado tambi\'en con la gesti\'on de 
+usuarios en HP-UX (aunque no expl\'{\i}citamente con el acceso de los mismos al 
+sistema), es 
+necesario hablar brevemente de los privilegios de grupo; este mecanismo, 
+introducido en HP-UX 9.0, permite asignar a un grupo ciertos privilegios de
+administraci\'on, distribuyendo en cierta forma el `poder' del superusuario y
+rompiendo la aproximaci\'on al reparto de privilegios cl\'asico de Unix (todo o
+nada). En la tabla \ref{privgrp} se muestran los privilegios de grupo
+soportados en HP-UX junto a la versi\'on del operativo en la que fueron 
+introducidos (\cite{kn:hpfaq}).\\
+\begin{table}
+\begin{center}
+\begin{tabular}{|c|c|c|}
+\hline
+Versi\'on & Privilegio & Descripci\'on\\
+\hline
+\hline
+9 & {\sc rtprio} & Especificaci\'on de prioridades de tiempo real\\
+\hline
+9 & {\sc mlock} & Utilizaci\'on de {\tt plock()}\\
+\hline
+9 & {\sc chown} & {\it System V} {\tt chown}\\
+\hline
+9 & {\sc lockrdonly} & Utilizaci\'on de {\tt lockf()}\\
+\hline
+9 & {\sc setrugid} & Utilizaci\'on de {\tt setuid()} y {\tt setgid()}\\
+\hline
+10 & {\sc mpctl} & Utilizaci\'on de {\tt mpctl()}\\
+\hline
+10 & {\sc rtsched} & Utilizaci\'on de {\tt sched$\_$setparam()}\\
+\hline
+10 & {\sc serialize} & Utilizaci\'on de {\tt serialize()}\\
+\hline
+11 & {\sc spuctl} & Utilizaci\'on de {\tt spuctl()}\\
+\hline
+11i & {\sc fssthread} & Utilizaci\'on de {\tt fss()}\\
+\hline
+11i & {\sc pset} & Utilizaci\'on de {\tt pset$\_\ast$()}\\
+\hline
+\end{tabular}
+\caption{Privilegios de grupo en HP-UX}
+\label{privgrp}
+\end{center}
+\end{table}
+\\Para asignar privilegios a un determinado grupo se utiliza la orden {\tt
+setprivgrp} desde l\'{\i}nea de comandos, y para que las modificaciones sean
+permanentes en el arranque de la m\'aquina se lee el archivo {\tt 
+/etc/privgroup} (si existe) desde {\tt /etc/rc} en HP-UX 9.x o de {\tt
+/etc/init.d/set$\_$prvgrp} en versiones superiores; en este fichero se indican 
+(uno por l\'{\i}nea) los privilegios a otorgar o eliminar a cada grupo:
+\begin{quote}
+\begin{verbatim}
+marta:/# cat /etc/privgroup
+-n CHOWN
+admins CHOWN
+admins SETRUGID
+marta:/# 
+\end{verbatim}
+\end{quote}
+En el anterior ejemplo se limita de forma global el permiso para ejecutar {\tt
+chown} a todos los usuarios, y a continuaci\'on se habilita ese mismo permiso, 
+junto a la capacidad para utilizar {\tt setuid()} y {\tt setgid()}, a los 
+miembros del grupo {\tt admins}. Al menos la primera entrada deber\'{\i}a 
+encontrarse siempre en HP-UX, ya que por defecto el operativo presenta un 
+comportamiento de {\tt chown} basado en {\it System V}, lo que permite que un 
+usuario pueda cambiar la propiedad de sus archivos asign\'andolos al resto de 
+usuarios -- incluido el {\tt root} --, lo que claramente puede llegar a suponer 
+un problema de seguridad; es mucho m\'as recomendable una aproximaci\'on basada
+en {\sc bsd}, que limita la ejecuci\'on de {\tt chown} al {\tt root}.\\
+\\Como en otros sistemas Unix, cuando en HP-UX un usuario quiere cambiar de
+grupo puede ejecutar la orden {\tt newgrp}; sin embargo, se introduce una 
+caracter\'{\i}stica adicional: en el fichero {\tt /etc/logingroup}, de formato
+similar a {\tt /etc/group} (de hecho puede ser un enlace a este por cuestiones
+de simplicidad), se define la lista inicial de grupos a los que un usuario 
+pertenece, es decir, aquellos sobre los cuales no tiene que ejecutar {\tt 
+`newgrp'} para convertirse en miembro de los mismos. Si este archivo no existe
+o est\'a vac\'{\i}o, el usuario ha de ejecutar {\tt `newgrp'} siempre que
+quiera acceder a un grupo secundario, y evidentemente conocer la clave de grupo
+(como en cualquier Unix, si no est\'a definido un {\it password} para el grupo,
+ning\'un usuario puede pertenecer a \'el si no es como grupo primario); en
+cualquier caso, la relaci\'on de grupos secudarios para un usuario ha de
+definirse en {\tt /etc/logingroup}, ya que si s\'olo lo est\'a en {\tt 
+/etc/group} se ignorar\'a y el usuario deber\'a ejecutar {\tt `newgrp'} para 
+acceder a los grupos secundarios no definidos.\\
+\\La orden {\tt `groups'} nos indicar\'a a qu\'e grupos pertenece de forma
+directa -- sin tener que teclear ninguna contrase\~na -- un cierto usuario, 
+bas\'andose para ello en la informaci\'on almacenada en {\tt /etc/passwd},
+{\tt /etc/group} y {\tt /etc/logingroup}:
+\begin{quote}
+\begin{verbatim}
+marta:/# groups root
+adm bin daemon lmadmin lp mail other root sys users
+marta:/# 
+\end{verbatim}
+\end{quote}
+\section{El sistema de parcheado}
+En los sistemas HP-UX la gesti\'on de {\it software}, tanto paquetes como 
+parches, se puede llevar a cabo de una forma sencilla mediante la familia de 
+comandos {\tt sw$\ast$}: {\tt swinstall}, {\tt swlist}, {\tt swremove}\ldots; a
+este sistema de gesti\'on se le denomina SD-UX ({\it Software Distributor 
+HP-UX}), y a pesar de estar basado en una tecnolog\'{\i}a distribuida 
+cliente--servidor permite \'unicamente la gesti\'on en la m\'aquina local. Para
+obtener m\'as informaci\'on sobre el funcionamiento de SD-UX es recomendable
+consultar \cite{kn:hp96}.\\
+\\Igual que suced\'{\i}a en AIX, HP-UX posee una terminolog\'{\i}a propia para
+referirse a los diferentes objetos del {\it Software Distributor}. El objeto
+m\'as peque\~no manejado por SD-UX es el {\bf fileset}, que no es m\'as que un
+subconjunto de los diferentes ficheros que forman un {\bf producto}, que a su
+vez es un conjunto de {\it filesets} estructurado de cierta forma, en el que se
+incluyen {\it scripts} de control para facilitar su manejo como un \'unico 
+objeto. HP-UX suele manejar sus parches a nivel de
+producto: un parche es un producto que puede estar formado por diferentes {\it
+filesets}, aunque lo m\'as normal es que lo est\'e por uno solo; si no fuera 
+as\'{\i}, y descarg\'aramos un parche formado por varios {\it filesets}, es 
+recomendable instalar todos como un \'unico producto: aunque SD-UX permite 
+el manejo de parches a nivel de {\it filesets} individuales, aplicar s\'olo
+algunos de ellos puede provocar que la vulnerabilidad que el parche ha de 
+solucionar permanezca en el sistema (\cite{kn:hp00b}.\\
+\\El siguiente nivel de {\it software} es el {\bf bundle}, un objeto manejado
+por SD-UX que agrupa diferentes productos y {\it filesets} relacionados entre
+s\'{\i}, consiguiendo de esta forma una gesti\'on de {\it software} m\'as 
+c\'omoda: por ejemplo, podemos utilizar {\it bundles} de parches para 
+actualizar nuestro sistema, sin necesidad de descargar e instalar cada uno de 
+esos parches de forma individual. Por \'ultimo, en SD-UX se introduce el 
+concepto de {\bf depot}, un almac\'en de {\it software} en forma de directorio,
+cinta, CD-ROM o fichero \'unico, que permite la instalaci\'on local o remota de
+sus contenidos: por ejemplo, el directorio {\tt /var/adm/sw/products/} puede
+ser considerado un {\it depot}, que a su vez contiene productos en forma de 
+subdirectorios, que a su vez contienen {\it filesets} tambi\'en en forma de
+subdirectorio, como veremos en el pr\'oximo ejemplo; mediante la orden {\tt 
+swcopy} podemos crear nuestros propios {\it depots}, que nos facilitar\'an la 
+tarea de gestionar el {\it software} de diferentes sistemas.\\
+\\Todo el {\it software} instalado en una m\'aquina queda registrado en 
+un cat\'alogo denominado {\sc ipd} ({\it Installed Products Database}), que se 
+encuentra en el directorio {\tt /var/adm/sw/products/}. Por ejemplo, para 
+obtener un listado de los {\it filesets} instalados en la m\'aquina 
+relacionados con el producto {\it accounting}, junto a la versi\'on de los 
+mismos podemos utilizar la orden {\tt swlist} o simplemente consultar la {\sc 
+ipd} con comandos como {\tt ls} o {\tt cat} (por supuesto, la primera forma es 
+la recomendable):
+\begin{quote}
+\begin{verbatim}
+marta:/# swlist -l fileset Accounting
+# Initializing...
+# Contacting target "marta"...
+#
+# Target:  marta:/
+#
+
+# Accounting                                    B.10.20        Accounting     
+  Accounting.ACCOUNTNG                          B.10.20                       
+  Accounting.ACCT-ENG-A-MAN                     B.10.20                       
+marta:/# cd /var/adm/sw/products/Accounting
+marta:/var/adm/sw/products/Accounting/# ls
+ACCOUNTNG       ACCT-ENG-A-MAN  pfiles
+marta:/var/adm/sw/products/Accounting/# grep ^revision ACC*/INDEX
+ACCOUNTNG/INDEX:revision B.10.20
+ACCT-ENG-A-MAN/INDEX:revision B.10.20
+marta:/var/adm/sw/products/Accounting/# 
+\end{verbatim}
+\end{quote}
+Como hemos dicho, tambi\'en mediante la orden {\tt swlist} podemos obtener un 
+listado de los parches aplicados a nuestro sistema HP-UX a nivel de 
+aplicaci\'on; de nuevo, podr\'{\i}amos conseguir esta informaci\'on accediendo
+directamente a {\tt /var/adm/sw/products/}:
+\begin{quote}
+\begin{verbatim}
+marta:/# swlist -l fileset -a patch_state |grep PH|grep -v ^\#|head -3
+  PHCO_10124.PHCO_10124                 
+  PHCO_10175.PHCO_10175                 
+  PHCO_10272.PHCO_10272                 
+marta:/#
+\end{verbatim}
+\end{quote}
+Para obtener los parches aplicados al n\'ucleo del sistema operativo podemos
+utilizar la orden {\tt `what'} sobre el {\it kernel} de HP-UX:
+\begin{quote}
+\begin{verbatim}
+marta:/# what /stand/vmunix|grep PH |head -2
+         PATCH_10.20: tty_pty.o  1.13.112.5  98/01/13  PHNE_13800
+         PATCH_10.20: mux2.o  1.8.112.5  98/01/13  PHNE_13800
+marta:/#
+\end{verbatim}
+\end{quote}
+Todos los parches oficiales de HP-UX (tanto a nivel de n\'ucleo como de 
+aplicaci\'on) se identifican por cuatro letras que definen el tipo de parche, 
+seguidas de un n\'umero y 
+separados ambos por un subrayado: por ejemplo, como acabamos de ver, 
+el nombre de un parche puede ser {\sc phne$\_$13800}. Actualmente existen 
+cuatro tipos de parches definidos por Hewlett--Packard: comandos y 
+librer\'{\i}as ({\sc phco}), {\it kernel} ({\sc phkl}), red ({\sc phne}) y 
+subsistemas ({\sc phss}); todos los parches comienzan con la denominaci\'on 
+com\'un {\sc ph} ({\it patch HP-UX}), y el n\'umero que los identifica es 
+\'unico, independientemente del tipo de parche.\\
+\\Hewlett--Packard distribuye cada cuatro meses sus parches oficiales en CDROMs 
+o cintas, denominados {\it Support Plus}; tambi\'en a trav\'es de Internet 
+podemos descargar actualizaciones y parches en la direcci\'on {\tt 
+http://www.itrc.hp.com/}, que nos indicar\'a la URL adecuada a la que debemos
+dirigirnos en funci\'on de nuestra ubicaci\'on geogr\'afica (Europa, 
+Am\'erica\ldots). A diferencia de lo que sucede con otros fabricantes, en el 
+caso de Hewlett--Packard es necesario estar registrado para acceder a sus 
+parches, pero este registro es completamente gratuito.\\
+\\Cuando descargamos un parche para HP-UX obtenemos un \'unico fichero que no 
+es m\'as que un {\it shellscript}, y para instalarlo evidentemente lo primero
+que tenemos que hacer es ejecutar dicho archivo; esto generar\'a un par de 
+ficheros con
+el nombre del parche correspondiente y extensiones {\tt .text} y {\tt .depot}
+respectivamente\footnote{Recordemos que en Unix el concepto de `extensi\'on' de 
+un archivo no exite; realmente, obtendremos dos archivos con nombres 
+finalizados en {\tt .text} y {\tt .depot}.}: el primero de ellos contiene 
+informaci\'on sobre el parche (nombre, plataformas, instrucciones de 
+instalaci\'on\ldots), mientras que el segundo es un archivo con formato TAR que
+podremos instalar mediante la orden {\tt swinstall}. Si por ejemplo queremos
+instalar el parche {\sc phne$\_$12492} ejecutaremos una orden similar a la 
+siguiente:
+\begin{quote}
+\begin{verbatim}
+marta:/# swinstall -x autoreboot=true -x match_target=true \
+-s ./PHNE_12492.depot 2>&1 >/dev/null
+marta:/#
+\end{verbatim}
+\end{quote}
+La opci\'on que m\'as nos interesa de {\tt swinstall} es sin duda {\tt `-s'},
+que especifica la ubicaci\'on del archivo {\tt .depot} en el sistema de 
+ficheros; la opci\'on {\tt `-x autoreboot=true'} no indica obligatoriamente un
+reinicio del sistema, sino que simplemente lo permite: cada parche de HP-UX 
+`sabe' si para instalarse correctamente es necesario reiniciar el operativo 
+(nosotros lo podemos saber simplemente leyendo el fichero {\tt .text} que hemos
+generado anteriormente), y si el {\it reboot} es necesario con esta opci\'on 
+indicamos que se lleve a cabo autom\'aticamente, algo \'util en instalaciones
+autom\'aticas pero que puede ser cr\'{\i}tico en algunas ocasiones.\\
+\\Una vez instalado el parche correspondiente es recomendable ejecutar {\tt 
+swverify}; esta orden verifica que la informaci\'on registrada en la {\sc ipd}
+de HP-UX (dependencias, integridad de archivos\ldots) se corresponde con la que 
+se encuentra en los ficheros y directorios del sistema. Podemos verificar todos
+los registros de {\it software} (productos y parches) mediante el comod\'{\i}n 
+{\tt `$\ast$'}, o bien \'unicamente el parche que acabamos de instalar; aparte
+de mostrarse en la consola o terminal desde la que se ejecute, el resultado de 
+la ejecuci\'on de esta orden se guardar\'a en el fichero de {\it log} 
+correspondiente, dentro del directorio {\tt /var/adm/sw/}:
+\begin{quote}
+\begin{verbatim}
+marta:/# swverify PHNE_12492
+
+=======  12/11/01 03:23:34 MET  BEGIN swverify SESSION
+         (non-interactive)
+
+       * Session started for user "root@marta".
+
+       * Beginning Selection
+       * Target connection succeeded for "marta:/".
+       * Software selections:
+             PHNE_12492.PHNE_12492,l=/,r=B.10.00.00.AA,\
+             a=HP-UX_B.10.20_700/800,v=HP:/
+       * Selection succeeded.
+
+
+       * Beginning Analysis
+       * Session selections have been saved in the file
+         "/.sw/sessions/swverify.last".
+       * The analysis phase succeeded for "marta:/".
+       * Verification succeeded.
+
+
+NOTE:    More information may be found in the agent logfile (location
+         is marta:/var/adm/sw/swagent.log).
+
+=======  12/11/01 03:23:40 MET  END swverify SESSION (non-interactive)
+
+marta:/#
+\end{verbatim}
+\end{quote}
+Antes de finalizar este punto es necesario recordar que siempre, antes de
+cualquier actualizaci\'on del sistema o de la aplicaci\'on de cualquier tipo de
+parche, es {\bf imprescindible} hacer una copia de seguridad completa de todos
+los sistemas de ficheros; esto es algo que se recomienda en {\bf todos} los
+procedimientos de instalaci\'on de parches oficiales de Hewlett--Packard, y que
+nos puede ayudar a devolver al sistema a un estado operativo ante cualquier
+m\'{\i}nimo problema durante una actualizaci\'on.
+\section{Extensiones de la seguridad}
+\subsection{Product Description Files}
+HP-UX (tanto en su versi\'on {\it Trusted} como en la habitual) posee un 
+interesante mecanismo que nos permite verificar si ciertos ficheros han 
+sido o no modificados: se trata de PDF (aqu\'{\i} no significa {\it Portable
+Document Format} sino {\it Product Description File}), que no es m\'as que un
+repositorio de informaci\'on acerca de todos y cada uno de los archivos que un
+determinado {\it fileset} instala en una m\'aquina. Aunque el uso de los PDFs 
+est\'a desfasado desde la versi\'on 10.20 del operativo (ha sido 
+sustituido por el {\it Software Distributor}), la informaci\'on que contienen es
+bastante interesante desde el punto de vista de la seguridad, ya que incluye
+caracter\'{\i}sticas como el grupo, el propietario, los permisos, el tama\~no o
+un {\it checksum} de cada archivo.\\
+\\En el directorio {\tt /system/} de un sistema HP-UX encontramos un 
+subdirectorio por cada {\it fileset} instalado en la m\'aquina; dentro de cada 
+uno de estos subdirectorios existe -- o ha de existir -- un fichero denominado 
+{\tt pdf}, que contiene justamente la informaci\'on de la que estamos hablando:
+\begin{quote}
+\begin{verbatim}
+marta:/system/UX-CORE# pwd
+/system/UX-CORE
+marta:/system/UX-CORE# ls -l pdf
+-r--r--r--   1 bin      bin        36199 Jan 10  1995 pdf
+marta:/system/UX-CORE# head pdf
+% Product Description File
+% UX-CORE fileset, Release 9.05
+/bin/alias:bin:bin:-r-xr-xr-x:160:1:70.2:4285122165:
+/bin/basename:bin:bin:-r-xr-xr-x:16384:1:70.5:3822935702:
+/bin/bg:bin:bin:-r-xr-xr-x:151:1:70.2:735613650:
+/bin/cat:bin:bin:-r-xr-xr-x:16384:1:70.2:1679699346:
+/bin/cd:bin:bin:-r-xr-xr-x:151:1:70.2:525751009:
+/bin/chgrp:bin:bin:-r-xr-xr-x:20480:1:70.2:203825783:
+/bin/chmod:bin:bin:-r-xr-xr-x:24576:1:70.6:1826477440:
+/bin/chown:bin:bin:-r-xr-xr-x:20480:1:70.2:1796648176:
+marta:/system/UX-CORE# 
+\end{verbatim}
+\end{quote}
+Como vemos, cada l\'{\i}nea de este fichero (excepto las que comienzan con el
+car\'acter {\tt `\%'}) es la entrada correspondiente a un cierto archivo que
+el {\it fileset} instala en la m\'aquina; su formato es el siguiente:
+\begin{quote}
+-- {\tt pathname}: Ruta absoluta del fichero.\\
+-- {\tt owner}: Propietario (nombre o UID) del archivo.\\
+-- {\tt group}: Grupo (nombre o GID) al que pertenece.\\
+-- {\tt mode}: Tipo y permisos (en formato {\tt `ls -l'}).\\
+-- {\tt size}: Tama\~no del fichero en {\it bytes}.\\
+-- {\tt links}: N\'umero total de enlaces en el {\it filesystem}.\\
+-- {\tt version}: Versi\'on del archivo.\\
+-- {\tt checksum}: Comprobaci\'on de errores seg\'un el algoritmo IEEE 802.3 
+CRC.\\
+-- {\tt linked$\_$to}: Nombres adicionales del fichero (enlaces duros o 
+simb\'olicos).
+\end{quote}
+Para comprobar que los archivos de un determinado {\it fileset} no han sufrido
+modificaciones que afecten a alguno de los campos anteriores podemos 
+programar un sencillo {\it shellscript} que utilizando la salida de \'ordenes 
+como {\tt `ls -l'}, {\tt `what'}, {\tt `ident'} o {\tt `cksum'} compruebe el
+resultado de las mismas con la informaci\'on almacenada en el PDF 
+correspondiente:
+\begin{quote}
+\begin{verbatim}
+marta:/# grep ^/bin/cat /system/UX-CORE/pdf
+/bin/cat:bin:bin:-r-xr-xr-x:16384:1:70.2:1679699346:
+marta:/# ls -l /bin/cat
+-r-xr-xr-x   1 bin      bin        16384 Jan 10  1995 /bin/cat
+marta:/# what /bin/cat
+/bin/cat:
+         $Revision: 1.1 $
+marta:/# cksum /bin/cat
+1679699346 16384 /bin/cat 
+marta:/# 
+\end{verbatim}
+\end{quote}
+De la misma forma, podemos ejecutar la orden {\tt `pdfck'},  que nos informar\'a
+de cualquier cambio detectado en los ficheros de un {\it fileset}:
+\begin{quote}
+\begin{verbatim}
+marta:/# pdfck /system/UX-CORE/pdf
+/etc/eisa/HWP0C70.CFG: deleted
+/etc/eisa/HWP0C80.CFG: deleted
+/etc/eisa/HWP1850.CFG: deleted
+/etc/eisa/HWP2051.CFG: deleted
+/etc/eisa/HWPC000.CFG: deleted
+/etc/eisa/HWPC010.CFG: deleted
+/etc/eisa/HWPC051.CFG: deleted
+/etc/newconfig/905RelNotes/hpuxsystem: deleted
+/etc/newconfig/inittab: size(848 -> 952), checksum(214913737 -> 2198533832)
+/usr/lib/nls/POSIX: owner(bin -> root), group(bin -> sys)
+marta:/# 
+\end{verbatim}
+\end{quote}
+La aproximaci\'on a los verificadores de integridad que ofrece HP-UX es
+interesante, pero tiene tambi\'en importantes carencias; en primer lugar, los
+algoritmos de CRC est\'an pensados para realizar una comprobaci\'on de errores
+pura, especialmente en el tr\'ansito de datos a trav\'es de una red (de hecho,
+el utilizado por los PDFs es el mismo que el definido por el est\'andar IEEE
+802.3 para redes {\it Ethernet}), no para detectar cambios en el contenido de
+un archivo. As\'{\i}, es factible -- y no dif\'{\i}cil -- que un atacante
+consiga modificar sustancialmente un fichero sin afectar a su CRC global, con
+lo cual este hecho no ser\'{\i}a detectado; si realmente queremos verificar que
+dos archivos son iguales hemos de recurrir a funciones {\it hash} como {\sc
+md5}. Por si esto fuera poco, {\tt pdfck} es incapaz de detectar la presencia
+de nuevos ficheros en un directorio, con lo que algo tan simple como la 
+aparici\'on de un archivo {\it setuidado} en el sistema no ser\'{\i}a notificado
+por esta utilidad; incluso ciertos cambios sobre los archivos de los cuales 
+s\'{\i} tiene constancia pasan desapercibidos para ella, como la modificaci\'on 
+de listas de control de acceso en los ficheros:
+\begin{quote}
+\begin{verbatim}
+marta:/# lsacl /bin/ps
+(bin.%,r-x)(%.sys,r-x)(%.%,r-x) /bin/ps
+marta:/# chacl "toni.users+rwx" /bin/ps
+marta:/# lsacl /bin/ps
+(toni.users,rwx)(bin.%,r-x)(%.sys,r-x)(%.%,r-x) /bin/ps
+marta:/# 
+\end{verbatim}
+\end{quote}
+Como vemos, la orden anterior est\'a otorgando a un usuario un control total
+sobre el archivo {\tt /bin/ps}, con todo lo que esto implica; evidentemente,
+si esto lo ha realizado un atacante, estamos ante una violaci\'on muy grave de 
+nuestra seguridad. Sin embargo, {\tt pdfck} ejecutado sobre el PDF 
+correspondiente no reportar\'{\i}a ninguna anomal\'{\i}a, con lo que la 
+intrusi\'o pasar\'{\i}a completamente desapercibida para el administrador.\\
+\\A la vista de estos problemas, parece evidente que si necesitamos un 
+verificador de integridad `de verdad' no podemos limitarnos a utilizar las
+facilidades proporcionadas por los PDFs de HP-UX; no obstante, ya que este
+mecanismo viene `de serie' con el sistema, no est\'a de m\'as usarlo, pero sin
+basarnos ciegamente en sus resultados. Siempre hemos de tener en cuenta que la
+informaci\'on de cada fichero registrada en los archivos {\tt 
+/system/$\ast$/pdf}
+se almacena igual que se est\'a almacenando el propio archivo, en un cierto 
+directorio de la m\'aquina donde evidentemente el administrador puede escribir 
+sin poblemas. Por tanto, a nadie se le escapa que si un atacante consigue el 
+privilegio suficiente para modificar una herramienta de base (por ejemplo, {\tt 
+/bin/ls}) y troyanizarla, no tendr\'a muchos problemas en modificar tambi\'en
+el archivo donde se ha guardado la informaci\'on asociada a la misma, de forma 
+que limit\'andonos a comparar ambas no nos daremos cuenta de la 
+intrusi\'on. As\'{\i}, es una buena idea guardar, nada m\'as instalar el 
+sistema, una copia del directorio {\tt /system/}, donde est\'an los PDFs, en una
+unidad de s\'olo lectura; cuando lleguemos al tema dedicado a la detecci\'on de
+intrusos hablaremos con m\'as detalle de los verificadores de integridad y la
+importancia de esa primera copia, sobre un sistema limpio, de toda la 
+informaci\'on que posteriormente vamos a verificar.
+\subsection{\tt inetd.sec(4)}
+Desde hace m\'as de diez a\~nos, HP-UX incorpora en todas sus {\it releases} 
+un mecanismo de control de acceso a los servicios que el sistema ofrece a 
+trav\'es de {\tt inetd}; se trata de un esquema muy similar al ofrecido por {\it
+TCP Wrappers}, esto es, basado en la direcci\'on IP de la m\'aquina o red 
+solicitante del servicio, y procesado {\bf antes} de ejecutar el demonio que
+va a servir la petici\'on correspondiente. De esta forma, se establece un nivel
+de seguridad adicional al ofrecido por cada uno de estos demonios.\\
+\\Evidentemente, este esquema basa su configuraci\'on en un determinado archivo;
+el equivalente ahora a los ficheros {\tt /etc/hosts.allow} y {\tt 
+/etc/hosts.deny} de {\it TCP Wrappers} es {\tt /usr/adm/inetd.sec} (si no 
+existe, el sistema funciona de la forma habitual, sin ning\'un nivel de 
+protecci\'on adicional). El formato de cada l\'{\i}nea del mismo es muy simple:
+\begin{center}
+{\it servicio allow$\mid$deny direccion}
+\end{center}
+La directiva {\it `servicio'} indica el nombre del servicio a proteger tal y 
+como aparece en el archivo {\tt /etc/services} (esto es una diferencia con 
+respecto a {\it TCP
+Wrappers}, que se gu\'{\i}a por el nombre concreto del demonio y no por el del
+servicio); {\it `allow'} o {\it `deny'} (opcionales, si no se indica este campo
+se asume un {\it `allow'}) definen si vamos a permitir o denegar 
+el acceso, respectivamente, y por \'ultimo en el campo {\it `direccion'} podemos
+indicar (tambi\'en es un campo opcional) la direcci\'on IP de uno o m\'as {\it 
+hosts} o redes, as\'{\i} como los
+nombres de los mismos. Si para un mismo servicio existe m\'as de una entrada,
+s\'olo se aplica la \'ultima de ellas; aunque a primera vista esto nos pueda 
+parecer una limitaci\'on importante, no lo es: si definimos una entrada {\it
+`allow'}, a todos los sistemas no contemplados en ella se les negar\'a el 
+acceso, si definimos una {\it `deny'} se le permitir\'a a todo el mundo excepto 
+a los expl\'{\i}citamente indicados, y si para un servicio no existe una entrada
+en el fichero, no se establece ning\'un tipo de control.\\
+\\Imaginemos que el contenido de {\tt /usr/adm/inetd.sec} es el siguiente:
+\begin{quote}
+\begin{verbatim}
+marta:/# grep -v ^\# /usr/adm/inetd.sec
+finger allow localhost 158.42.* 
+ssh allow localhost 158.42.* 192.168.0.*
+pop allow
+marta:/#
+\end{verbatim}
+\end{quote}
+En este caso lo que estamos haciendo es permitir el acceso al servicio {\tt 
+finger} a todas las m\'aquinas cuya direcci\'on comience por {\tt 158.42.},
+as\'{\i} como a la m\'aquina local, y
+negarlo al resto, permitir acceso a {\tt ssh} adem\'as de a estas a las que 
+tengan una direcci\'on {\tt 192.169.0.}, y dejar que cualquier sistema (no 
+definimos el tercer campo) pueda consultar nuestro servicio {\sc pop3}
+(la entrada mostrada ser\'{\i}a equivalente a un indicar \'unicamente el
+nombre del servicio, o a no definir una entrada para el mismo). As\'{\i},
+en el momento que un sistema trate de acceder a un servicio para el que no 
+tiene autorizaci\'on obtendr\'a una respuesta similar a la ofrecida por {\it
+TCP Wrappers} (esto es, el cierre de la conexi\'on):
+\begin{quote}
+\begin{verbatim}
+luisa:~# telnet 158.42.2.1 79  
+Trying 158.42.2.1...
+Connected to 158.42.2.1.
+Escape character is '^]'.
+Connection closed by foreign host.
+luisa:~#
+\end{verbatim}
+\end{quote}
+Como vemos, se trata de un mecanismo sencillo que, aunque no ofrezca el mismo
+nivel de protecci\'on que un buen cortafuegos (nos podemos fijar que la 
+conexi\'on se establece y luego se corta, en lugar de denegarse directamente
+como har\'{\i}a un {\it firewall}), y aunque no sea tan parametrizable -- ni
+conocido -- como {\it TCP Wrappers}, puede ahorrar m\'as de un problema a los
+administradores de una m\'aquina HP-UX; y ya que existe, no cuesta nada 
+utilizarlo junto a cualquier otra medida de seguridad adicional que se nos
+ocurra (recordemos que en el mundo de la seguridad hay muy pocos mecanismos 
+excluyentes, casi todos son complementarios). Para obtener m\'as informaci\'on
+acerca de este, podemos consultar la p\'agina de manual de {\tt inetd.sec(4)}.
+\section{El subsistema de red}
+Igual que al hablar de Solaris o AIX hemos hecho referencia a \'ordenes como
+como {\tt ndd} o {\tt no}, en HP-UX es obligatorio comentar la orden {\tt 
+nettune}, que permite examinar y modificar diferentes par\'ametros del 
+subsistema de red del operativo en HP-UX 10.x (en versiones anteriores era
+necesario utilizar comandos como {\tt adb}, y en HP-UX 11 se introduce la orden
+{\tt ndd}, como veremos m\'as adelante, muy similar a la existente en Solaris); 
+por ejemplo, una consulta t\'{\i}pica puede ser la siguiente:
+\begin{quote}
+\begin{verbatim}
+marta:/# /usr/contrib/bin/nettune -l
+arp_killcomplete = 1200 default = 1200 min = 60 max = 3600 units = seconds
+arp_killincomplete = 600 default = 600 min = 30 max = 3600 units = seconds
+arp_unicast = 300 default = 300 min = 60 max = 3600 units = seconds
+arp_rebroadcast = 60 default = 60 min = 30 max = 3600 units = seconds
+icmp_mask_agent = 0 default = 0 min = 0 max = 1
+ip_check_subnet_addr = 1 default = 1 min = 0 max = 1
+ip_defaultttl = 255 default = 255 min = 0 max = 255 units = hops
+ip_forwarding = 1 default = 1 min = 0 max = 1
+ip_intrqmax = 50 default = 50 min = 10 max = 1000 units = entries
+pmtu_defaulttime = 20 default = 20 min = 10 max = 32768
+tcp_localsubnets = 1 default = 1 min = 0 max = 1
+tcp_receive = 32768 default = 32768 min = 256 max = 262144 units = bytes
+tcp_send = 32768 default = 32768 min = 256 max = 262144 units = bytes
+tcp_defaultttl = 64 default = 64 min = 0 max = 255 units = hops
+tcp_keepstart = 7200 default = 7200 min = 5 max = 12000 units = seconds
+tcp_keepfreq = 75 default = 75 min = 5 max = 2000 units = seconds
+tcp_keepstop = 600 default = 600 min = 10 max = 4000 units = seconds
+tcp_maxretrans = 12 default = 12 min = 4 max = 12
+tcp_urgent_data_ptr = 0 default = 0 min = 0 max = 1
+udp_cksum = 1 default = 1 min = 0 max = 1
+udp_defaultttl = 64 default = 64 min = 0 max = 255 units = hops
+udp_newbcastenable = 1 default = 1 min = 0 max = 1
+udp_pmtu = 0 default = 0 min = 0 max = 1
+tcp_pmtu = 1 default = 1 min = 0 max = 1
+tcp_random_seq = 0 default = 0 min = 0 max = 2
+so_qlimit_max = 4096 default = 4096 min = 1 max = 8192
+sb_max = 262144 default = 262144 min = 10240 max = 4294967295
+hp_syn_protect = 0 default = 0 min = 0 max = 1
+so_qlimit_min = 500 default = 500 min = 0 max = 8192
+high_port_enable = 0 default = 0 min = 0 max = 1
+high_port_max = 65535 default = 65535 min = 49153 max = 65535
+ip_forward_directed_broadcasts = 1 default = 1 min = 0 max = 1
+marta:/#
+\end{verbatim}
+\end{quote}
+Podemos ver que simplemente por el nombre de estos par\'ametros el valor de 
+algunos de ellos parece importante (y lo es) para la seguridad del sistema; 
+este es el caso de {\tt ip$\_$forwarding} o {\tt tcp$\_$random$\_$seq}, por 
+poner unos ejemplos. Podremos modificar el valor de todos aquellos par\'ametros
+que nos interese tambi\'en mediante la orden {\tt nettune}:
+\begin{quote}
+\begin{verbatim}
+marta:/# /usr/contrib/bin/nettune -l ip_forwarding 
+ip_forwarding = 1 default = 1 min = 0 max = 1
+marta:/# /usr/contrib/bin/nettune -s ip_forwarding 0
+marta:/# /usr/contrib/bin/nettune -l ip_forwarding
+ip_forwarding = 0 default = 1 min = 0 max = 1
+marta:/#
+\end{verbatim}
+\end{quote}
+Quiz\'as son dos los par\'ametros de los que m\'as nos interesa estar pendientes
+para reforzar nuestra seguridad; el primero de ellos lo acabamos de ver, y es
+{\tt ip$\_$forwarding}. Como su nombre indica, esta directiva indica si la 
+m\'aquina ha de reenviar paquetes (si su valor es 1, el establecido por defecto)
+o si no ha de hacerlo (valor 0); como ya sabemos, lo m\'as probable es que no 
+nos interese este tipo de comportamiento en nuestro sistema HP-UX, por lo que
+debemos establecerle un valor {\tt `0'} tal y como hemos visto en el ejemplo
+anterior.\\
+\\El segundo par\'ametro al que debemos estar atentos para incrementar la 
+robustez de un sistema HP-UX es {\tt tcp$\_$random$\_$seq}, que es equivalente
+al {\sc tcp$\_$strong$\_$iss} de Solaris: si su valor es 0 (por defecto es 
+as\'{\i}), la generaci\'on de n\'umeros iniciales de secuencia {\sc tcp} es
+bastante d\'ebil, si es 1 es algo m\'as robusta, y si es 2 (el valor 
+recomendado) se adapta al esquema definido en \cite{kn:rfc1498}, que como ya 
+sabemos es m\'as robusto que los anteriores.\\
+\\Aparte de los dos anteriores, existe otro par\'ametro configurable v\'{\i}a 
+{\tt nettune} que es interesante para nuestra seguridad: 
+{\tt hp$\_$syn$\_$protect}, introducido en HP-UX 10.x, y que protege a una 
+m\'aquina de ataques {\it SYN Flood} si su valor es `1' (por defecto est\'a a 
+0, desactivado), algo con un objetivo similar a las {\it SYN Cookies} del 
+n\'ucleo de Linux:
+\begin{quote}
+\begin{verbatim}
+marta:/# /usr/contrib/bin/nettune -l hp_syn_protect
+hp_syn_protect = 0 default = 0 min = 0 max = 1
+marta:/# /usr/contrib/bin/nettune -s hp_syn_protect 1
+marta:/# /usr/contrib/bin/nettune -l hp_syn_protect
+hp_syn_protect = 0 default = 0 min = 0 max = 1
+marta:/#
+\end{verbatim}
+\end{quote}
+No todos los par\'ametros importantes para la seguridad del subsistema de red
+de HP-UX son accesibles a trav\'es de {\tt nettune}; un buen ejemplo es {\tt
+ip$\_$block$\_$source$\_$routed}, que como su nombre indica bloquea las tramas
+{\it source routed} que llegan a los interfaces de red cuando su valor es 
+verdadero (`1'), enviando ante la recepci\'on de una de ellas un paquete {\sc
+icmp} de destino inalcanzable hacia el origen de la misma (\cite{kn:ste98b}). 
+Otro ejemplo interesante es {\tt lanc$\_$outbound$\_$promisc$\_$flag}, que
+permite a las aplicaciones que utilizan el modo promiscuo de un interfaz 
+capturar tanto los paquetes {\it inbound} (los `vistos' por el sistema) como 
+los {\it outbound} (los transmitidos por el propio sistema); por defecto el
+valor de este par\'ametro es `0', lo que provoca que aplicaciones como {\tt
+tcpdump} puedan no funcionar correctamente al ver s\'olo el tr\'afico no 
+generado por el propio {\it host}. Para asignarle el valor {\it true} a ambos
+par\'ametros no podemos utilizar {\tt nettune}, sino que tenemos que escribir
+directamente sobre el n\'ucleo en ejecuci\'on:
+\begin{quote}
+\begin{verbatim}
+marta:/# echo 'ip_block_source_routed/W1'|adb -w /stand/vmunix /dev/kmem
+marta:/# echo 'lanc_outbound_promisc_flag/W1'|adb -w /stand/vmunix /dev/kmem
+marta:/#
+\end{verbatim}
+\end{quote}
+Como hemos dicho al principio de este punto, en HP-UX 11 se introduce un comando
+{\tt ndd}, similar al que existe en Solaris, que facilita enormemente el ajuste 
+de par\'ametros de la seguridad del subsistema de red. Para obtener un listado
+de cada par\'ametro configurable a trav\'es de este interfaz podemos ejecutar
+{\tt `ndd -h'}, y para hacernos una idea de cuales de estos par\'ametros son
+los m\'as importantes para nuestra seguridad una excelente referencia es 
+\cite{kn:ste00}; en cualquier caso, el nombre de los mismos, as\'{\i} como la
+sintaxis de la orden, es muy similar a la que existe en Solaris.\\
+\\Como siempre, nos va a interesar deshabilitar diferentes tipos de {\it 
+forwarding} en nuestro sistema: el {\it IP Forwarding}, el reenv\'{\i}o de 
+paquetes con opciones de {\it source routing}, y los {\it broadcasts}; para 
+conseguirlo podemos ejecutar {\tt `ndd -set'}:
+\begin{quote}
+\begin{verbatim}
+marta11:/# ndd -set /dev/ip ip_forwarding 0
+marta11:/# ndd -set /dev/ip ip_forward_src_routed 0
+marta11:/# ndd -set /dev/ip ip_forward_directed_broadcasts 0
+marta11:/# 
+\end{verbatim}
+\end{quote}
+Como ya sabemos, el protocolo {\sc icmp} puede ser fuente de diferentes 
+problemas de seguridad en el sistema, por lo que en ocasiones conviene modificar
+algunos de sus par\'ametros; es importante no responder a {\it broadcasts} de
+tramas {\sc icmp$\_$echo$\_$request}, {\sc icmp$\_$address$\_$mask$\_$request}
+o {\sc icmp$\_$timestamp$\_$request}, as\'{\i} como tampoco hacerlo a 
+peticiones {\sc icmp$\_$timestamp$\_$request} dirigidas directamente a la 
+m\'aquina (no en {\it broadcast}). En este orden, los par\'ametros del interfaz
+{\tt ndd} son los siguientes:
+\begin{quote}
+\begin{verbatim}
+marta11:/# ndd -set /dev/ip ip_respond_to_echo_broadcast 0
+marta11:/# ndd -set /dev/ip ip_respond_to_address_mask_broadcast 0
+marta11:/# ndd -set /dev/ip ip_respond_to_timestamp_broadcast 0
+marta11:/# ndd -set /dev/ip ip_respond_to_timestamp 0
+marta11:/#
+\end{verbatim}
+\end{quote}
+El envio de tramas {\sc icmp$\_$redirect} e {\sc icmp$\_$source$\_$quench} se
+puede evitar tambi\'en mediante {\tt ndd}, as\'{\i} como la activaci\'on de la
+defensa contra el {\it SYN flood} que proporciona HP-UX:
+\begin{quote}
+\begin{verbatim}
+marta11:/# ndd -set /dev/ip ip_send_redirects 0
+marta11:/# ndd -set /dev/ip ip_send_source_quench 0
+marta11:/# ndd -set /dev/tcp tcp_syn_rcvd_max 500
+marta11:/#
+\end{verbatim}
+\end{quote}
+Al igual que suced\'{\i}a en Solaris (o en AIX con la orden {\tt no}), los 
+cambios efectuados por {\tt ndd} tienen efecto s\'olo mientras no se reinicia 
+el sistema, por lo que si queremos hacerlos permanentes hemos de ejecutarlos 
+autom\'aticamente en el arranque de la m\'aquina. HP-UX ejecuta en uno de sus
+{\it scripts} de arranque la orden {\tt `ndd -c'}, que inicializa los valores 
+por defecto de cada par\'ametro, para lo que lee el archivo {\tt 
+/etc/rc.config.d/nddconf}. En este fichero (de texto), podemos definir las 
+entradas correspondientes a los valores de cada par\'ametro que nos interesen,
+de forma que en cada reinicio del sistema se asignen autom\'aticamente; 
+{\bf no} se trata de un simple {\it shellscript}, sino de un fichero de 
+configuraci\'on con tres entradas por par\'ametro a configurar, que definen el
+componente sobre el que se aplica ({\tt tcp}, {\tt ip}, {\tt arp}\ldots), el
+nombre del par\'ametro, y el valor que queremos darle. Es conveniente, tras
+modificar el fichero, que comprobemos que efectivamente todo ha funcionado como
+hab\'{\i}amos definido tras un reinicio del sistema (es decir, que cada uno de 
+los par\'ametros tiene el valor que nosotros queremos), ya que, como se cita en 
+\cite{kn:ste00}, existen algunos problemas relacionados con esta forma de 
+trabajar; si no fuera as\'{\i}, en la misma obra se explica una sencilla 
+modificaci\'on del sistema que har\'a que todo funcione correctamente.
+\section{El n\'ucleo de HP-UX}
+Generalmente se recomienda utilizar la herramienta SAM ({\it System 
+Administration Manager}) en los sistemas HP-UX, que adem\'as de las tareas 
+cl\'asicas de administraci\'on permite modificar par\'ametros de un n\'ucleo, 
+reconstruirlo e instalarlo en el sistema de una forma sencilla, guardando una
+copia del {\it kernel} actual en {\tt /SYSBACKUP} (algo muy \'util, ya que 
+recordemos que un n\'ucleo mal configurado puede hacer que la m\'aquina no 
+arranque). Por tanto, desde SAM hemos de entrar en el men\'u {\tt `Kernel 
+Configuration'} y desde ah\'{\i} elegir los par\'ametros que deseamos modificar
+para construir el nuevo {\it kernel}; como en el caso de Solaris, podemos fijar 
+el par\'ametro {\tt maxusers} (tambi\'en con un significado similar al que esta 
+variable posee en Solaris) y tambi\'en el n\'umero m\'aximo de procesos por 
+usuario (par\'ametro {\tt maxuprc}).\\
+\\Si deseamos modificar y reconstruir el nuevo n\'ucleo a mano, el proceso 
+difiere entre HP-UX 9.x, HP-UX 10.x y HP-UX 11.x. Los pasos en cada caso son 
+los siguientes:
+\begin{itemize}
+\item {\bf HP-UX 9.x}
+\begin{quote}
+\begin{verbatim}
+# cd /etc/conf
+# cp dfile dfile.old
+# vi dfile
+# config dfile
+# make -f config.mk
+# mv /hp-ux /hp-ux.old
+# mv /etc/conf/hp-ux /hp-ux
+# cd / ; shutdown -ry 0
+\end{verbatim}
+\end{quote}
+\item {\bf HP-UX 10.x}
+\begin{quote}
+\begin{verbatim}
+# cd /stand/build
+# /usr/lbin/sysadm/system_prep -s system
+# vi system
+# mk_kernel -s system
+# mv /stand/system /stand/system.prev
+# mv /stand/build/system /stand/system
+# mv /stand/vmunix /stand/vmunix.prev
+# mv /stand/build/vmunix_test /stand/vmunix
+# cd / ; shutdown -ry 0
+\end{verbatim}
+\end{quote}
+\item {\bf HP-UX 11.x}
+\begin{quote}
+\begin{verbatim}
+# cd /stand/build 
+# /usr/lbin/sysadm/system_prep -s system 
+# vi system 
+# /usr/sbin/mk_kernel -s /stand/build/system 
+# mv /stand/system /stand/system.prev 
+# mv /stand/vmunix /stand/vmunix.prev 
+# mv system .. 
+# /usr/sbin/kmupdate 
+# cd / ; shutdown -ry 0
+\end{verbatim}
+\end{quote}
+\end{itemize}
+Al editar los ficheros {\tt /etc/conf/dfile} (HP-UX 9.x) o {\tt 
+/stand/build/system} (HP-UX 10.x y 11.x) hemos de especificar los par\'ametros 
+comentados anteriormente, de la forma
+\begin{quote}
+\begin{verbatim}
+maxuprc     60
+maxusers    100
+\end{verbatim}
+\end{quote}
+Otros par\'ametros a tener en cuenta relacionados con la gesti\'on de procesos
+son {\tt nproc} (n\'umero m\'aximo de procesos en el sistema), {\tt nkthread}
+(n\'umero m\'aximo de hilos simult\'aneos en el n\'ucleo) o {\tt 
+max$\_$thread$\_$proc} (n\'umero m\'aximo de hilos en un proceso).\\ 
+\\Igual que en Solaris -- y en cualquier Unix en general -- tambi\'en nos puede
+interesar limitar algunos par\'ametros relacionados con el sistema de ficheros,
+de cara a evitar posibles consumos excesivos de recursos que puedan comprometer
+nuestra seguridad. Por ejemplo, {\tt maxfiles} indica un l\'{\i}mite {\it soft}
+a los ficheros abiertos por un proceso y {\tt maxfiles$\_$lim} un l\'{\i}mite
+{\it hard} (que obviamente ha de ser mayor que el anterior); {\tt nfile} 
+indica el n\'umero m\'aximo de ficheros abiertos en el sistema y {\tt ninode}
+el n\'umero de inodos (se recomienda que ambos coincidan). Por \'ultimo, {\tt 
+nflocks} indica el n\'umero m\'aximo de ficheros abiertos y bloqueados en la 
+m\'aquina.\\
+\\En el n\'ucleo de HP-UX 11i se ha introducido un nuevo par\'ametro que puede
+resultar muy interesante para incrementar nuestra seguridad; se trata de {\tt 
+executable$\_$stack}, que permite evitar que los programas ejecuten c\'odigo de
+su pila, previniendo as\'{\i} desbordamientos (\cite{kn:hp00}). Por motivos de 
+compatibilidad
+su valor es 1 (esto es, est\'a habilitado y los programas pueden ejecutar 
+c\'odigo de su pila), pero desde {\sc sam} podemos cambiar este valor a 0; si
+lo hacemos as\'{\i} y un programa concreto necesita que su pila sea ejecutable,
+podemos darle ese privilegio mediante la orden {\tt chatr}:
+\begin{quote}
+\begin{verbatim}
+marta:/# chatr +es enable /usr/local/bin/check
+marta:/# 
+\end{verbatim}
+\end{quote}

@@ -1,0 +1,972 @@
+
+-=|=======================[ x-eZine #0 / Art. 011 ]======================|=-
+-=|=============[ Lista global de spinlocks y su sintaxis. ]=============|=-
+-=|=======================[ By TheguesT y Cable. ]=======================|=-
+
+Lista global de spinlocks y su sintaxis
+
+Rick Lindsley IBM Linux Technology Center nevdull@us.ibm.com
+rick@eaglet.rain.com Current for 2.4.16; Rev 0.2; last revised
+12/06/01
+
+Traducido al castallano por TheguesT y Cable
+
+Contribuciones adicionales: Andi Kleen, Dave Hansen
+Otras versiones: http://lse.sourceforge.net/lockhier/index.html
+
+	1. Introducción.
+	~~~~~~~~~~~~~~~~
+	
+Uno d los primeros pasos para determinar si Linux es escalable en situaciones
+de SMP o NUMA era funcionar en situaciones reales SMP o NUMA y experimentar e
+investigar si los mecanismos d bloqueo son eficientes en esas situaciones. Se
+vería,sin embargo, que frecuentemente no hay documentación externa ni interna
+(comentarios) que describan la  sintaxis  correcta de la mayoria de los locks
+del sistema, convirtiendo esta tarea, en el mejor de los casos, en inexacta y
+frustrante en el peor. Este documento  tratará de documentar no sólo la exis-
+tencia, sino además la sintaxis de al menos la mayoría de los locks en uso.
+
+	2. Alcance.
+	~~~~~~~~~~~
+
+Este texto es un  intento  de  documentar  la existencia y la sintaxis de los
+spinlocks en el kernel 2.4.16 de Linux.  Puesto que este documento nace de la
+necesidad de entender el uso correcto de los spinlocks globales, estos prime-
+ros esfuerzos están  restringidos  a  los  tipos  spinlock_t  y rwlock_t y no
+incluye, en su mayor parte, semaphores, wait queues o cualquier otro mecanis-
+mo de sincronización.  Los  spinlocks  que  se  utilizan  incorrectamente más
+habitualmente son aquellos cuyo alcanze se extiende más allá del fichero o de
+su declaración. Esta es  la  razón  por  la  que  este documento no incluye (
+actualmente) static spinlocks o  spinlocks  declarados sin una estructura (lo
+cual es típicamente obvio  en  los  elementos  de  seguridad de la estructura
+misma). Idealmente, todos los locks y semaphores deberían aparecer claramente
+documentados en su uso, este documento se ampliará en el futuro (o parches en
+los comentarios en el código) para incluirlo.
+
+Si, por pura coincidencia, la  sintaxis  de  un lock excluído fuera examinado
+como parte a la hora de la determinación de la sintaxis de un lock global, se
+incluia esa información en la  última  sección  en  lugar de descartarla. Sin
+embargo, los static  locks  deben  ser   convenientemente  documentados en el
+fichero hacia el cual son estáticos. Si no, esos spinlocks serán (espero) los
+menos propensos a usarse incorrectamente en el caso de ser usados en un único
+fichero.
+
+Usted encontrará que este documento,  por  si  mismo, es más una guía de refe-
+rencia que un documento informativo. Lo hemos hecho así con toda la intención.
+Una vez que hallamos establecido cual  es  el uso "correcto" de los diferentes
+locks en uso del sistema, podremos  invertir  más  tiempo en discutir sintaxis
+incorrectas o innecesarias.  Antes  determinaremos  cual es el uso "correcto",
+ya que las otras discusiones podrían llegar a ser demasiado filosóficas.
+
+Como mencionamos anteriormente, este documento no tratará de cubrir los spin-
+locks que forman parte de  estructuras  globales. Normalmente, estos aseguran
+elementos de las estructuras en las que están declarados, aunque esto no debe
+ser asumido ciegamente.  (Añadir  un  estudio de estos locks a este documento
+sería realmente fantástico).
+
+En general, la información que podeis  encontrar aquí describe lo que ES y no
+lo que DEBERÍA SER. Es cierto, sin  embargo, que ver lo que ES en texto puede
+llegar a crear fallos obvios. Cuando  esos bugs sean corregidos, si el resul-
+tado altera la información,  este  documento  será  actualizado. Los usos que
+actualmente permanecen del Big Kernel  Lock son, en general, enigmáticos y no
+obvios. Muy probablemente, muchos  son  innecesarios. Si alguien se siente lo
+suficientemente cualificado  para  comentar  alguno  de  los usos que todavía
+permanecen del BKL, por favor  que  desarrolle el tema. Personalmente pienso,
+de momento, que todos los  usos  actuales  o son incorrectos o innecesarios o
+muy pronto lo serán (aunque no  he  reflejado esta opinión en el documento de
+manera sucinta en un esfuerzo por  mantenerlo cercano a una auténtica guía de
+referencia.) Mientras que el BKL  puede finalmente convertirse en un lock con
+un único y auténtico uso, o desaparecer completamente, no se ha llegado aun a
+ninguno de estos extremos.
+
+Mi intención es que este documento  sea mantenido según unas normas vigentes,
+por mi o por otro. (Sí, yo  me  ofrezco  inicialmente). Tengo la idea, de mo-
+mento, de que este  documento  se actualizará trimestralmente y muy probable-
+mente  menos  frecuentemente. Las  actualizaciones  necesariamente apareceran 
+tras cada nuevo release con  almenos  6 semanas de diferencia ya que no puedo
+escribir correctamente este  documento  por  cada release en particular hasta
+que ha salido a la luz y he tenido  tiempo de revisarla (o sino el release me
+espera a mi y estoy bastante  feliz  de  tener  a Linus como la última puerta
+antes de que aparezca.)
+
+	3. Formato de las descripciones de los locks.
+	~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Estos son los campos que describen cada lock:
+
+Lock
+
+	Nombre con el cual  es  declarado el spinlock. (A veces el uso
+	de un lock es "hidden" por ser parte de una macro. Cuando este
+	sea el caso, este aparecerá  bajo su declaración, y las macros
+	que lo usan se mencionarán en la sección Macros.
+
+Interrupciones
+
+	El campo Interrupciones  describe (parcialmente) como el lock
+	es adquirido.  (Dese  cuenta,  de  nuevo,  que  este NO es un
+	comentario de como DEBERÍA ser adquirido.)
+
+		Salvado:
+			el lock es adquirido por spin_lock_irqsave() o
+			equivalente. Interrupción y flag state són
+			guardados y recuperados, y las interrupciones son
+			bloqueadas mientras se mantiene este lock.
+
+		Bloqueado:
+			el lock es adquirido por spin_lock_irq() o
+			equivalente. Las interrupciones son bloqueadas
+			mientras se mantiene este lock.
+
+		Bloqueado (bh):
+			el lock es adquirido por spin_lock_bh(),
+			read_lock_bh(), o write_lock_bh(). Las
+			interruciones de por debajo de la mitad
+			(software) son bloqueadas mientras se mantiene
+			este lock de esta manera, pero las
+			interrupciones por hardware pueden darse. Se
+			encuentra más comunmente en código de red.
+
+		Ignorado:
+			el lock es adquirido por spin_lock(), o
+			read_lock() o write_lock() para rwlock_t. Las
+			interrupciones pueden darse mientras se
+			mantiene este lock.
+
+Uso
+
+	Describe bajo qué condiciones se puede mantener este lock. Tal
+	como se describe más arriba, este no es necesariamente un
+	comentario sobre como DEBERÍA ser usado, sino una observación
+	de como parece que se usa actualmente (o una indicación no
+	obvia de como debe ser usado)
+
+Funciones
+
+	Indica que funciones acceden a este spin lock directamente.
+
+Macros
+
+	Algunos spinlocks son solo accesibles via macros. Cuando se de el
+	caso, serás listadas aquí, seguidas de los ficheros donde se usan
+	dichas macros.
+
+Notas
+	Si es necesario algún otro comentario sobre el lock, este
+	aparecerá aquí.
+
+Arquitecturas
+	La mayoria de los locks aparecen en todas las arquitecturas
+	porque son usados mediante datos y codigo independientes de la
+	arquitectura (o presentes en todas las arquitecturas).
+	Algunos, sin embargo, son dependientes de la arquitectura.
+	Este campo, si aparece, indicará en que arquitectura(s) se
+	utiliza. La ausencia de este campo indica que este lock se usa
+	en todas las arquitecturas.
+
+4. Spin locks globales
+
+#
+# kernel/
+#
+Lock:		task_capability_lock
+Interrupciones:	Ignorado
+Funciones:	sys_capget()
+Uso:		Mantenido mientras se modifican las capacidades de una
+		tarea
+Notas:		Cuando se necesita también tasklist_lock(), este lock
+		debe ser adquirido primero.
+
+Lock:		dma_spin_lock
+Interrupciones:	Salvado
+Macros:         claim_dma_lock()
+		    eata.c, u14-34f.c, floppy.c, xd.c, esp.c,
+		    tpqic02.c, 3c505.c, ltpc.c, dmascc.c, lance.c,
+		    ni65.c, tms380tr.c, cosa.c, z85230.c, znet.c,
+		    parport_pc.c, NCR53c406a.c, wd7000.c, dmabuf.c,
+		    sscape.c, irda_device.c;
+		release_dma_lock()
+		    eata.c, u14-34f.c, floppy.c, xd.c, esp.c,
+		    tpqic02.c, 3c505.c, ltpc.c, dmascc.c, lance.c,
+		    ni65.c, tms380tr.c, cosa.c, z85230.c, znet.c,
+		    parport_pc.c, NCR53c406a.c, wd7000.c, dmabuf.c,
+		    sscape.c, irda_device.c;
+Uso:            Mantenido mientras se cambian parametros DMA tales
+		como (pero no limitados a) enabling o disabling un
+		canal DMA en particular.
+Nota:		static en sh architecture en 2.4.16
+		global en generic dma.c y arm arch's dma.c
+
+Lock:		lastpid_lock
+Interrupciones:	Ignorado
+Funciones:	get_pid()
+Uso:		Mantenido mientras last_pid es incrementado y
+		chequeado para darle la vuelta.
+Notas:		Cuanto también se necesita tasklist_lock, este lock se
+		debe adquirir primero.
+
+Lock:		runqueue_lock
+Interrupciones:	Ignorado, Bloqueado, y Salvado
+Funciones:	release(), wake_up_process(),
+		wake_up_process_synchronous(), __schedule_tail(),
+		schedule(), setscheduler(), sys_sched_yield(),
+		signal_wake_up()
+Uso:		Mantenido para checkear o modificar p->has_cpu.
+		Mantenido mientras se fuerza una reprogramación de otra cpu por
+                una señal que se ha enviado a un proceso que corre en esa cpu.
+		Mantenido para comprobar la condición de cruce o modificar la
+                cola de ejecución (task_on_runqueue(), add_to_runqueue(),
+                del_from_runqueue(), schedule()).
+Notas:
+		El caso en que las interruciones son ignoradas es en
+                signal_wake_up(), y un comentario remarca que se espera que las
+                interrupciones ya estén siendo bloqueadas por un lock adquirido
+                previamente. Así que para todos los efectos, este lock está
+                consistentemente mantenido con las interrupciones bloqueadas.
+
+Lock:		global_bh_lock
+Interrupciones:	Ignorado
+Funciones:	bh_action(), sync_timers()
+Uso:		Mantenido mientras se ejecuta la mitad baja. (Sólo una mitad
+                baja se puede ejecutar al mismo tiempo incluso en sistemas SMP.)
+
+Lock:		timerlist_lock
+Interrupciones:	Bloqueado y Salvado
+Funciones:	add_timer(), mod_timer(), del_timer(), 
+		del_timer_sync(),run_timer_list()
+Notas:		No puede hacerse estático, es usado en mm/fault.c en 386, s390x
+                y mips64, así como en el código independiente de la
+                arquitectura.
+Uso:		Mantenido mientras se modifica o inspecciona cualquier
+		timer_vec (incluyendo tv1, un timer_vec_root).
+
+Lock:		tqueue_lock
+Interrupciones:	Salvado
+Macros:		queue_task(), run_task_queue()
+Uso:		Mantenido mientras se añade un manejador de interruppciones de
+		software bottom-half a CUALQUIER cola de tarea
+
+# arch/alpha
+Lock:		i8259_irq_lock
+Interrupciones:	Ignorado
+Funciones:	i8259a_enable_irq(),i8259a_disable_irq(),
+		i8259a_mask_and_ack_ireq()
+Uso:		Mantenido mientras se escribe en puertos de E/S para i8259.c
+Notas:		Parece ser que se puede hacer estático para irq_i8259.c
+
+Lock:		global_irq_lock
+Interrupciones:	Ignorado
+Funciones:	wait_on_irq(), get_irqlock(), release_irqlock(), irq_enter()
+Notas:		Se declara de manera diferente en las diferentes arquitecturas.
+                En alpha y Mips-64, es un spinlock. En i386 ia-64, y ppc es
+                simplemente unsigned int. En s390, es atomic_t, que es un
+                signed int. El propósito de este lock, sin embargo, parece
+                idéntico entre todas las arquitecturas ya que es usado de
+                maneras similares.
+Uso:		Es difícil de decir. Parece no asegurar ninguna información,
+                pero sí parece proveer un significado: adaptar cpus cuando un
+                cli global es deseado.
+		get_irqlock sólo es llamado en __global_cli(), y de este modo
+                parece servir para adaptar peticiones de cli global.
+Arquitecturas:	alpha
+
+Lock:		srm_irq_lock
+Interrupciones:	Ignorado
+Funciones:	srm_enabled_irq(), srm_enabled_irq()
+Uso:		Mantenido mientras se escribe en registros de
+		hardware.
+Arquitecturas:	alpha
+
+Lock:		dp264_irq_lock
+Interrupciones:	Ignorado
+Funciones:	dp264_enabled_irq(), dp264_enabled_irq(),
+		clipper_enable_irq(), clipper_disable_irq(),
+		dp264_set_affinity(), clipper_set_affinity()
+Uso:		Mantenido mientras se escribe a los registros del hardware.
+Arquitecturas:	alpha
+
+Lock:		rawhide_irq_lock
+Interrupciones:	Ignorado
+Funciones:	rawhide_enabled_irq(), rawhide_enabled_irq()
+Uso:		Mantenido mientras se escribe en registros de hardware.
+Arquitecturas:	alpha
+
+Lock:		sable_irq_lock
+Interrupciones:	Ignorado
+Funciones:	sable_enabled_irq(), sable_enabled_irq(),
+		sable_mask_and_ack_irq()
+Uso:		Mantenido mientras se escribe en registros de hardware.
+Arquitecturas:	alpha
+
+Lock:		titan_irq_lock
+Interrupciones:	Ignorado
+Funciones:	privateer_enabled_irq(), privateer_enabled_irq(),
+		privateer_set_affinity()
+Uso:		Mantenido mientras se escribe en registros de hardware.
+Arquitecturas:	alpha
+
+Lock:		wildfire_irq_lock
+Interrupciones:	Ignorado
+Funciones:	wildfire_enabled_irq(), wildfire_enabled_irq(),
+		wildfire_mask_and_ack_irq()
+Uso:		Mantenido mientras se escribe en registros de hardware.
+Arquitecturas:	alpha
+
+Lock:		rtc_lock
+Interrupciones:	Ignorado, Bloqueado, y Salvado
+Funciones:	set_rtc_mmss(), nvram_read_byte(), nvram_write_byte(),
+		nvram_check_checksum(), nvram_check_checksum(),
+		nvram_read(), nvram_write(), nvram_ioctl(),
+		nvram_read_proc(), pc_proc_infos(), rtc_interrupt(),
+		rtc_read(), rtc_ioctl(), rtc_open(), rtc_release(),
+		rtc_poll(), rtc_init(), rtc_exit(), rtc_dropped_irq(),
+		rtc_proc_output(), rtc_is_updating(), get_rtc_time(),
+		get_rtc_alm_time(), mask_rtc_irq_bit(), set_rtc_irq_bit()
+Uso:		Uso para todas las rutinas excepto las nvram_* (incluyendo
+                set_rtc_mmss()) muy bien explicado en rtc.c:
+		    Un pequeño manejador de interrupcines. Se ejecuta con
+                    SA_INTERRUPT activado, pero hay una posibilidad de
+                    conflicto con la llamada set_rtc_mmss() (la iq del rtc y el
+                    timer irq pueden ser facilmente ejecutados al mismo tiempo
+                    en dos CPUs diferentes). Así que necesitamos adaptar los
+                    accesos al chip con el spinlock rtc_lock que cada
+                    arquitectura debe implementar en el código del timer.
+		    En contraste, no esta claro por qué es adquirido en las
+                    rutinas nvram_*. Las rutinas nvram_* son las únicas que
+                    realizan un save/restore en este lock.
+
+# arch/arm
+Lock:		gpio_lock
+Interrupciones:	Salvado
+Funciones:	wb977_init_gpio(), cpld_init(), nw_hw_init(),
+		netwinder_leds_event(), netwinder_lock(),
+		netwinder_unlock(), netwinder_set_fan(), kick_open(),
+		vnc_update_spkr_mute()
+Uso:		Según netwinder-hw.h, "Éste es un lock para acceder a los
+                puertos GP1_IO_BASE y GP2_IO_BASE."
+
+Lock:		die_lock
+Interrupciones:	Bloqueado
+Funciones:	die()
+Uso:		Mantenido mientras se procesa un trap, para asegurar la
+                serialización de la rutina die() (¡sólo un proceso intenta morir
+                a la vez!). (No estoy seguro de la razón de que sea global.)
+
+# arch/mips
+Lock:		i8259A_lock
+Interrupciones:	Salvado, Ignorado
+Funciones:	disable_8259A_irq(), enable_8259A_irq(),
+		8259A_irq_pending(), mask_anc_ack_8259A(), init_8259A(),
+Uso:		Se mantiene mientras lee o escribe a algún registro de
+                dispositivo para asegurar que sólo un proceso lo lo hace a la
+                vez. Se deriva del código del i386, se usa en pocas funciones
+Arquitecturas:	mips
+
+Lock:		pciasic_lock
+Interrupciones:	Salvado
+Funciones:	disable_pciasic_irq(), enable_pciasic_irq(),
+		init_pciasic()
+Uso:		Protege el contenido del puntero PCIMT_IRQSEL mientras se
+                escriben comandos.
+Arquitecturas:	mips
+
+# arch/i386
+Lock:		i8259A_lock
+Interrupciones:	Salvado, Ignorado
+Funciones:	disable_8259A_irq(), enable_8259A_irq(),
+		8259A_irq_pending(), mask_anc_ack_8259A(), init_8259A(),
+		print_PIC(), do_slow_gettimeoffset(), do_timer_interrupt()
+Uso:		Se mantiene mientras lee o escribe a algún registro de
+                dispositivo para asegurar que sólo un proceso lo lo hace a la
+                vez.
+Arquitecturas:	i386
+
+Lock:		i8253_lock
+Interrupciones:	Salvado, Ignorado
+Funciones:	get_8254_timer_count(), do_slow_get_timeoffset(),
+		timer_interrupt()
+Uso:		Se mantiene mientras lee o escribe a algún registro de
+                dispositivo para asegurar que sólo un proceso lo lo hace a la
+                vez.
+Arquitecturas:	i386
+
+Lock:		pci_config_lock
+Interrupciones:	Salvado
+Funciones:	pci_conf1_read(), pci_conf1_write(), pci_conf2_read(), 
+		pci_conf2_write(), pci_bios_read(), pci_bios_write()
+Uso:		Se mantiene mientras se lee/escribe a la memoria de
+		configuración del PCI.
+
+# arch/ia64
+Lock:		pci_lock
+Interrupciones:	Salvado
+Macros:		PCI_OP()
+		    pci.c;
+Uso:		Como dice en pci.c, "Este spinlock a salvo de interrupciones
+		protege todos los accesos al espacio de configuración del PCI."
+Notas:		Estático en el código genérico 2.4.16, global en el código ia64.
+
+Lock:		sal_lock
+Interrupciones:	Ignorado
+Macros:		SAL_CALL()
+		    sal.h;
+Uso:		No está claro el uso de esto. Parece que tiene que ver con el
+                IA64.
+Arquitecturas:	ia64
+
+Lock:		hcl_spinlock
+Interrupciones:	Jamás se utiliza
+Notas:		Se inicializa, pero jamás se utiliza. Se ha enviado un parche
+		al encargado del mantenimiento para quitarlo.
+Arquitecturas:	ia64
+
+
+Lock:		cpuprom_spinlock			
+Interrupciones:	Ignorado
+Macros:		PROM_LOCK()
+		    prominfo_add(), prominfo_get(), prominfo_nodeget()
+		PROM_UNLOCK()
+		    prominfo_add(), prominfo_get(), prominfo_nodeget()
+Uso:		Parece que protege al cpuprom_head.
+Notas:		Probablemente podría hacerse estático.
+Arquitecturas:	ia64
+
+Lock:		intr_dev_targ_map_lock
+Interrupciones:	Ignorado
+Funciones:	init_platform_nodepda(), do_intr_reserve_level()
+Uso:		Parece que protege intr_dev_targ_map.
+Notas:		Se utiliza tanto en ml_SN_init.c como en ml_SN_intr.c,
+		no se puede hacer estático. Esto es algo lioso porque el externo
+		de este lock se encuentra dentro de un #if defined(DEBUG)
+Arquitecturas:	ia64
+
+Lock:		int_test_spin
+Interrupciones:	Salvado, Bloqueado
+Funciones:	xbow_prio_bw_alloc(), xbow_attach()
+Uso:		Not clear what it guards.
+Notas:		Se toma, pero jamás es liberado.
+		Este puede que sea alguna clase de código de depuración de
+		interrupciones.
+		Todo el bloque de código parece sospechosamente como si tan sólo
+		fuese parte de algún código de prueba para interrupciones.
+		En cualquier caso, no es parte del código de producción.
+Arquitecturas:	ia64
+
+Lock:		efivars_lock
+Interrupciones:	Ignorado
+Funciones:	efivar_read(), efivar_write(), efivar_init(), efivar_exit()
+Uso:		Creo que intenta proteger var_data. Pero, ¡var_data es una
+		variable local en varias funciones!
+Notas:		Al menos le pudieron haber hecho estático. Se ha enviado un
+		parche para hacer el lock estático al encargado del
+		mantenimiento.
+Arquitecturas:	ia64
+
+# arch/mips64
+Lock:		nmi_lock
+Interrupciones:	Ignorado
+Macros:		enter_panic_mode()
+		    ip27-nmi.c;
+Uso:		Parece estar serializando el procesamiento de NMIs en una
+		arquitectura mips64, permitiendo que sólo un cpu procese una
+		NMI a la vez. Parece ser un preludio a causar que el sistema se
+		cuelgue a propósito.
+Arquitecturas:	mips64
+
+#
+# arch/parisc
+#
+Lock:		__atomic_hash
+Interrupciones:	Salvado
+Macros:		ATOMIC_HASH()
+Uso:		Las parisc no tienen operaciones atómicas, así que necesitan
+		trucos muy hábiles para hacer que atomic.h funcione. Uno de
+		ellos es tener una lista indexada de spinlocks, y este lock
+		protege la lista.
+Notas:		Cuando CONFIG_SMP no está definido, este es un arreglo de
+		spinlocks de longitud 1. Cuando SI está definido, el arreglo
+		tiene longitud... uno. Me parece que algo anda mal, pero...
+		El autor ha respondido con:
+			Debería haber algún comentario por aquí que indique que
+			yo sólo implementé la tabla trivial indexada por ahora;
+			No he mirado ese código en un largo tiempo, así que el
+			comentario puede haber desaparecido. Sí, está bien usar
+			sólamente un spinlock, pero dudo que ayude mucho al
+			desempeño si hay más de dos CPUs.
+Arquitecturas:	parisc
+
+Lock:		__atomic_lock
+Interrupciones:	Salvado
+Funciones:	__xchg
+Uso:		Parece que puede ser usado para garantizar la atomicidad de
+		una operación de intercambio de 64 bytes. Leer arriba respecto
+		a la carencia de operaciones atómicas.
+Arquitecturas:	parisc
+
+
+
+# arch/ppc
+Lock:		rtas_lock
+Interrupciones:	Salvado
+Funciones:	call_rtas()
+Uso:		Es adquirido antes de llamar a enter_rtas().
+Arquitecturas:	ppc
+
+Lock:		i8259_lock
+Interrupciones:	Salvado, Ignorado
+Funciones:	i8259_irq(), i8259_mask_and_ack_irq(), i8259_mask_irq(),
+		i8259_unmask_irq(), i8259_init()
+Uso:		Se mantiene mientras se escibe a los puertos de Entrada/Salida
+		para el i8259.
+Notas:		Parece ser que se podría hacer estático para el i8259.c.
+Arquitecturas:	ppc
+
+Lock:		pmac_pic_lock
+Interrupciones:	Salvado
+Funciones:	pmac_mask_and_ack_irq(), pmac_set_irq_mask()
+Uso:		No está claro.
+Notas:		Parece ser que se podría hacer estático para pmac-pic.c.
+Arquitecturas:	ppc
+
+Lock:		oops_lock
+Interrupciones:	Bloqueado
+Funciones:	die()
+Uso:		Parece ser que pretende serializar la rutina die().
+Notas:		Todas las otras arquitecturas parecen llamar a este el die_lock.
+		Por razones de consistencia, este lock probablemente debería
+		cambiar de nombre.
+Arquitecturas:	ppc
+
+
+# arch/s390x
+# arch/s390
+# arch/sh
+# arch/m68k
+Lock:		semaphore_wake_lock
+Interrupciones:	Salvado
+Funciones:	wake_one_more(), wake_non_zero(), wake_non_zero_interruptible(),
+		wake_non_zero_trylock()
+Uso:		Este parece ser un lock global que guarda todos los semáforos.
+		Cuando se examinan o modifican los campos de *cualquier*
+		semáforo, se toma este lock.
+Notas:		No está claro por qué este no es un miembro de las estructuras
+		individuales de un semáforo, en vez de ser hecho global. También
+		parece ser que las macros que usan este lock en
+		semaphore-helper.h no són incluídas en ninguna parte.
+		Los encargados de mantener algunas de (pero no todas) las
+		arquitecturas han aceptado un parche para eliminar este lock.
+Arquitecturas:	s390, sh, arm, m68k, parisc, s390x
+	Eliminado en 2.4.13
+
+# arch/sparc
+Lock:		sun4d_imsk_lock
+Interrupciones:	Salvado
+Funciones:	sun4d_disable_irq(), sun4d_enable_irq(), smp4d_callin()
+Uso:		Se adquiere para enmascarar serialmente las interrupciones a los
+		otros procesadores.
+Arquitecturas:	sparc
+
+Lock:		srmmu_nocache_spinlock
+Interrupciones:	Ignorado
+Funciones:	__srmmu_get_nocache(), srmmu_free_nocache()
+Uso:		Aparentemente se mantiene mientras se busca memoria que no está
+		en el cache en un procesador Sparc.
+Arquitecturas:	sparc
+
+Lock:		prom_lock
+Interrupciones:	Salvado
+Funciones:	prom_nbgetchar(), prom_nbputchar(),
+		prom_query_input_device(), prom_query_output_device(),
+		prom_mapio(), prom_unmapio(), prom_devopen(),
+		prom_devclose(), prom_seek(), prom_seek(),
+		prom_reboot(), prom_feval(), prom_cmdline(),
+		prom_halt(), prom_startcpu(), prom_stopcpu(),
+		prom_idlecpu(), prom_restartcpu(), prom_putsegment(),
+		__prom_getchild(), __prom_getsibling(), prom_getproplen(),
+		prom_getproperty(), __prom_nextprop(), prom_setprop(),
+		prom_inst2pkg()
+Uso:		Este lock aparentemente se utiliza para serializar casi todas
+		las operaciones en el prom de la Sun, protegiendo contra las
+		operaciones concurrentes.
+Arquitecturas:	sparc
+
+
+# arch/sparc64
+Lock:		pci_controller_lock
+Interrupciones:	Salvado
+Funciones:	pci_scan_each_controller_bus(), psycho_init()
+Uso:		Se usa para proteger el uso o modificación de
+		pci_controller_root.
+Arquitecturas:	sparc64
+
+Lock:		pci_poke_lock
+Interrupciones:	Salvado
+Funciones:	pci_config_read8(), pci_config_read16(),
+		pci_config_read32(), pci_config_write8(),
+		pci_config_write16(), pci_config_write32()
+Uso:		Se mantiene mientras se lleva a cabo cualquier operación PCI.
+Arquitecturas:	sparc64
+
+Lock:		ctx_alloc_lock
+Interrupciones:	Salvado
+Funciones:	get_new_mmu_context(), destroy_context()
+Uso:		Se mantiene mientras se está cambiando de contexto mmu.
+Arquitecturas:	sparc64
+
+Lock:		prom_entry_lock
+Interrupciones:	Ignorado
+Funciones:	prom_get_lock(), prom_release_lock()
+Uso:		Se mantiene mientras se accesa o modifica el contenido del prom.
+Arquitecturas:	sparc64
+
+Lock:		timod_pagelock
+Interrupciones:	Ignorado
+Funciones:	getpage()
+Uso:		Se mantiene mientras se accesa o modifica la variable estática
+		'page' en timod.c.
+Notas:		Se puede hacer estático. Se ha enviado un parche para hacerlo
+		estático a los encargados del mantenimiento.
+Arquitecturas:	sparc64
+
+Lock:		mostek_lock
+Interrupciones:	Bloqueado, Salvado
+Funciones:	kick_start_clock(), has_low_battery(), sbus_time_init(),
+		set_rtc_mmss(), set_system_time(), get_rtc_time(), rtc_open()
+Uso:		Aparentemente se mantiene mientras se modifica los registros del
+		reloj (pero no al leerlos).
+Arquitecturas:	sparc64
+
+#
+# drivers/block
+#
+Lock:		io_request_lock
+Interrupciones:	Ignorado, Bloqueado, Salvado
+Funciones:	<muchas muchas funciones bajo drivers/>
+Uso:		Se mantiene mientras se accesa o modifica cualquier lista de
+		solicitud de Entrada/Salida en el sistema o en cualquier
+		controlador. También se mantiene mientras se ejecuta algún
+		comando SCSI en ibmmca.c
+Notas:		Su uso en ibmmca.c es cuestionable. Este controlador está siendo
+		revisado por el encargado del mantenimiento, y el lock será
+		revisado también.
+
+
+#
+# drivers/char
+#
+Lock:		kbd_controller_lock
+Interrupciones:	Salvado
+Funciones:	keyboard_interrup(), kbd_write_command_w(),
+		kbd_write_output_w(), kbd_write_cmd(),
+		detect_auxiliary_port(), aux_write_dev(), aux_write_ack(),
+		get_from_queue()
+Uso:		Parece ser que se mantiene mientras se accesan o modifican los
+		campos pi_adapter.
+Notas:		Varios controladores distintos usan locks con este nombre. Todos
+		excepto uno han sido declarados estáticos. qtronix.c lo ha
+		declarado global. Se ha enviado un parche para hacerlo estático
+		(y cambiarle el nombre) al encargado del mantenimiento.
+
+
+Lock:		sysrq_key_table_lock
+Funciones:	__sysrq_lock_table(), __sysrq_unlock_table()
+Uso:		Se mantiene durante la llamada handle_sysrq(). Todas las
+		referencias a sysrq_key_table están en esa función. Asumo que
+		guarda el acceso a sysrq_key_table.
+
+#
+# drivers/isdn
+#
+Lock:		eicon_lock
+Interrupciones:	Salvado
+Funciones:	idi_handle_ind(), idi_handle_ack_ok(), idi_handle_ack(),
+		idi_send_data(), eicon_io_rcv_dispatch(), eicon_io_transmit(),
+		eicon_command(), if_readstatus(), eicon_putstatus(),
+		eicon_init()
+Uso:		No está claro qué es lo que guarda. Puede que se use para
+		proteger una instancia de un eicon_chan. El arreglo IdTable
+		tiene 256 entradas, así que probablemente puede haber 256 de
+		ellos.
+
+#
+# drivers/mtd
+#
+Lock:		chip_drvs_lock
+Interrupciones:	Ignorado
+Funciones:	register_mtd_chip_driver(),unregister_mtd_chip_driver()
+                get_mtd_chip_driver(),
+Uso:		Guarda chip_drvs_list, during list_add, list_del, y mientras se
+		recorren las listas.
+Notas:          Podría hacerse estático. El encargado del mantenimiento ha
+		aceptado un parche para hacerlo estático.
+
+
+#
+# drivers/scsi
+#
+Lock:		sym53c8xx_lock
+Interrupciones:	Salvado
+Macros:		NCR_LOCK_DRIVER()
+		    sym53c8xx.c, sym53c8xx_comm.h;
+		NCR_UNLOCK_DRIVER()
+		    sym53c8xx.c, sym53c8xx_comm.h;
+Uso:		Se mantiene mientras se hace asignación de un pool dependiente
+		del dispositivo.
+
+Lock:		DRIVER_SMP_LOCK
+Interrupciones:	Salvado
+Macros:		NCR_LOCK_DRIVER()
+		    sym53c8xx_comm.h;
+		NCR_UNLOCK_DRIVER()
+		    sym53c8xx_comm.h;
+Uso:		Se mantiene mientras se hace asignación de un pool dependiente
+		del dispositivo.
+Notas:		Esto aparentemente entra en conflicto con el sym53c8xx_lock,
+		descrito anteriormente. De hecho, parece ser que NCR_LOCK_DRIVER
+		es definido usando uno o el otro (¿ámbos?). Hay tantos ifdefs
+		que es difícil decirlo. Sólo ncr53c8xx.c incluye
+		sym53c8xx_comm.h, y no usa NCR_(UN)LOCK_DRIVER. Se ha enviado
+		un parche para eliminar el lock, pero no parece haber un
+		encargado oficial del mantenimiento.
+
+Lock:		dc390_drvlock
+Interrupciones:	Salvado (pero ver las notas)
+Macros:		DC390_LOCK_DRV()
+		    tmscsim.c, scsiiom.c;
+		DC390_UNLOCK_DRV()
+		    tmscsim.c, scsiiom.c;
+		DC390_LOCK_DRV_NI()
+		    tmscsim.c, scsiiom.c;
+		DC390_UNLOCK_DRV_NI()
+		    tmscsim.c, scsiiom.c
+Uso:		No puedo comprenderlo (ver las notas).
+Notas:		Este lock hace cosas distintas (y está implementado de formas
+		diferentes) dependiendo del valor de USE_SPINLOCKS, el cual
+		depende de la versión de Linux que estés compilando. Parece ser
+		que actualmente, este es un spinlock global, usado en general
+		por spinlock_irq_saved(). Las versiones anteriores probablemente
+		usarán construcciones sti/cli. Debido al uso generoso e
+		innovador de los #define, no es posible saber con exactitud qué
+		es lo que guarda este lock.
+		1 si kernel >= 2.1.93, básicamente un kernel 2.2-pre
+		2 si kernel >= 2.1.30, un kernel 2.2 beta temprano.
+		No parece que haya ningún lugar donde valga 3. Uff, despues de
+		todos esos rollos de #define, parece ser que algunos ni siquiera
+		se utilizan.
+
+
+#
+# fs/
+#
+Lock:		dcache_lock
+Interrupciones:	Ignorado
+Funciones:	is_tree_busy(), autofs4_expire(), try_to_fill_dentry(),
+		autofs4_root_revalidate(), autofs4_dir_rmdir(),
+		coda_flag_children(), dentry_iput(), dput(),
+		d_invalidate(), d_find_alias(), d_prune_aliases(),
+		prune_one_dentry(), prune_dcache(), shrink_dcache_sb(),
+		have_submounts(), select_parent(), d_alloc(),
+		d_instantiate(), d_lookup(), d_validate(), d_delete(),
+		d_rehash(), d_move(), sys_getcwd(), d_genocide(),
+		free_dentries(), __follow_up(), __follow_down(),
+		follow_dotdot(), ncp_dget_fpos(), ncp_renew_dentries(),
+		ncp_invalidate_dircache_entries(), nfs_free_dentries(),
+		nfsd_iget(), d_splice(), nfsd_findparent(), splice(),
+		proc_permission(), ramfs_empty(), dcache_readdir(),
+		add_vfsmnt(), move_vfsmnt(), remove_vfsmnt(),
+		kern_umount(), do_umount(), sys_pivot_root(),
+		umsdos_d_path(), vfat_revalidate(), d_drop(), d_path()
+Uso:		Se mantiene mientras se accede o modifica una struct dentry
+		que pueda estar en el dcache (y por tanto pueda sufrir cambios
+		en forma asíncrona). También se utiliza para serializar el
+		acceso a la lista de dispositivos vfs montados (vfsmntlist).
+
+Lock:		fat_inode_lock
+Interrupciones:	Ignorado
+Funciones:	fat_attach(), fat_detach(), fat_iget(), fat_clear_inode(),
+		fat_write_inode()
+Uso:		Se mantiene mientras se accesa o modifica el cache de inodos
+		asociado con el sistema de ficheros FAT.
+
+Lock:		modlist_lock
+Interrupciones:	Salvado
+Funciones:	sys_create_module(), free_module(), search_exception_table()
+Uso:		Se mantiene mientras se accesa o modifica la lista module_list.
+Notas:		Actualmente también parece requerir la BKL durante su creación;
+		¿Es eso realmente necesario?
+
+Lock:		mmlist_lock
+Interrupciones:	Ignorado
+Funciones:	exec_mmap(), mmput(), copy_mm(), swap_out()
+Uso:		Se mantiene mientras se accesa o modifica la mmlist (sobre todo,
+		init_mm).
+
+Lock:		files_lock
+Interrupciones:	Ignorado
+Macros:		file_list_lock()
+		    sysrq.c, tty_io.c, dquot.c, file-table.c, generic.c;
+		file_list_unlock()
+		    sysrq.c, tty_io.c, dquot.c, file-table.c, generic.c;
+Uso:		Se mantiene mientras se accesa o modifica cualquier lista de
+		estructuras de ficheros.
+
+Lock:		pagecache_lock
+Interrupciones:	Ignorado
+Funciones:	remove_inode_page(), __set_page_dirty(),
+		invalidate_inode_pages(), truncate_list_pages(),
+		truncate_inode_pages(), filemap_fdatasync(),
+		filemap_fdatawait(), add_to_page_cache_locked(),
+		add_to_page_cache(), add_to_page_cache_unique(),
+		page_cache_read(), __find_get_page(), drop_behind(),
+		do_generic_file_read(), mincore_page(),
+		__find_get_swapcache_page(), __find_lock_page(),
+		delete_from_swap_cache_nolock(), reclaim_page()
+Uso:		Se mantiene mientras se examina o modifica el conteo u estado
+		de cualquier página que pueda estar siendo usada.
+
+Lock:		pagemap_lru_lock
+Interrupciones:	Ignorado
+Macros:		lru_cache_add()
+		    fs/buffer.c, mm/filemap.c;
+		lru_cache_del()
+		    mm/swap_state.c, mm/filemap.c;
+Funciones:	invalidate_inode_pages(), shrink_mmap()
+Uso:		Se mantiene mientras se accesa o modifica el lru_cache.
+Notas:		Cuando se necesita también el lock page_cache, debería ser
+		adquirido primero.
+
+Lock:		swaplock
+Interrupciones:	Ignorado
+Macros:		swap_list_lock()
+		    stram.c, swapfile.c;
+		swap_list_unlock()
+		    stram.c, swapfile.c;
+Uso:		Se mantiene mientras se examina o modifica la swap_list.
+Notas:		Cuando se necesita también un sdev_lock (swap_info_struct), se
+		debería adquirir primero el swaplock.
+
+Lock:		proc_alloc_map_lock
+Interrupciones:	Ignorado
+Funciones:	proc_alloc_map_lock()
+Uso:		Guarda proc_alloc_map[] durante las búsquedas de números de
+		inodos libres dentro de proc_alloc_map[]
+Notas:          Se puede hacer estático. El encargado del mantenimiento ha
+		aceptado un parche para hacer el lock estático.
+
+Lock: 		journal_datalist_lock
+Interrupciones:	Ignorado
+Note:		Hay un comentario excelente junto a la declaración, que describe
+		su uso apropiado.
+
+Lock:		jh_splice_lock
+Interrupciones:	Ignorado
+Note:		Hay un comentario excelente junto a la declaración, que describe
+		su uso apropiado.
+
+
+#
+# net/
+#
+Lock:		atm_dev_lock
+Interrupciones:	Ignorado
+Funciones:	atm_release_vcc_sk(), atm_do_connect(), atm_connect_vcc(),
+		atm_ioctl(), free_atm_dev(), atm_dev_register(), sigd_close()
+Uso:		Guarda las listas de dispositivos ATM.
+
+Lock:		netdev_fc_lock
+Interrupciones:	Ignorado, Salvado
+Funciones:	netdev_register_fc(), netdev_unregister_fc(), netdev_wakeup()
+Uso:		Se mantiene cuando se examinan o modifican netdev_fc_xoff,
+		netdev_fc_mask, o netdev_fc_slots.
+Notas:		Podría ser estático. Se ha enviado un parche al encargado del
+		mantenimiento, pero no ha habido respuesta hasta el 9/5/01
+
+Lock:		inet_peer_idlock
+Interrupciones:	Bloqueado (bh)
+Funciones:	inet_getid()
+Uso:		Se mantiene mientras se accesa o modifica el ip_id_count en
+		cualquier estruct inet_peer que esté siendo usado. (No se
+		mantiene con struce inet_peers que estén siendo creados, pero
+		aún no insertados en el pool; ver inet_getpeer()).
+Notas:		Se podría hacer estático. El lock no se mantiene en
+		rt_fill_info() cuando el campo es referenciado pero no
+		modificado; ¿debería? Se ha enviado un parche para hacerlo
+		estático al encargado de mantenimiento, pero no ha habido
+		respuesta hasta el 9/6/01.
+
+Lock:		inet_peer_unused_lock
+Interrupciones:	Bloqueado (bh)
+Funciones:	inet_putpeer(), unlink_from_unused(), cleanup_once()
+Uso:		Se mantiene cuando se examinan o modifican
+		inet_peer_unused_head o	inet_peer_unused_tailp.
+Notas:		Probablemente se podría hacer estático.
+
+Lock:		rpc_credcache_lock
+Interrupciones:	Ignorado
+Funciones:	rpcauth_free_credcache(), rpcauth_gc_credcache(),
+		rpcauth_insert_credcache(), rpcauth_lookup_credcache(),
+		rpcauth_remove_credcache()
+Uso:		Se mantiene mientras se accesa o modifica el credcache de
+		cualquier arreglo rpc_auth en el sistema.
+Notas:		Sería mejor tener uno por rpc_auth si éste lock se adquiere con
+		frecuencia. Se está discutiendo con el encargado del
+		mantenimiento para reescribir el locking en general, lo cual
+		afectaría, no sólo a este lock, sino a pmap_lock también.
+
+Lock:		rpc_queue_lock
+Interrupciones:	Bloqueado (bh)
+Funciones:	rpc_run_timer(), rpc_add_timer(), rpc_add_wait_queue(),
+		rpc_remove_wait_queue(), rpc_sleep_on(), rpc_sleep_locked(),
+		rpc_wake_up_task(), rpc_wake_up_next(), rpc_wake_up(),
+		rpc_wake_up_status(), rpc_unlock_task(), __rpc_execute(),
+		__rpc_schedule(), rpc_release_task(), rpc_child_exit(),
+		rpc_run_child(), xprt_lookup_rqst(), xprt_append_pending(),
+		xprt_remove_pending(), xprt_remove_pending_next()
+Uso:		El comentario sugiere:
+		    Este es un spinlock para colas de espera. El acceso a las
+		    mismas tiene que estar a salvo de interrupciones, para
+		    permitir a los temporizadores despertar las tareas dormidas.
+		Sin embargo, parece ser que se mantiene mientras se examina o
+		modifica otros campos en el rpc_task: tk_timeout_fn,
+		tk_running, tk_wakeup, tk_timer, tk_rpcwait, tk_callback,
+		tk_flags, tk_active, tk_lock, tk_status, tk_timeout, así como en
+		la variable global childq. Sólo tk_timeout_fn, tk_wakeup,
+		tk_lock, y childq parecen seguir esto uniformemente (es decir,
+		el lock se mantiene siempre).
+Notas:		Parece ser que guarda más de lo que sugieren los comentarios.
+
+Lock:		xprt_sock_lock
+Funciones:	xprt_adjust_cwnd(), xprt_reconnect(), tcp_state_change(),
+		tcp_write_space(), udp_write_space(), do_xprt_transmit(),
+		xprt_reserve()
+Uso:		El poco ilustrativo comentario sugiere:
+		    Spinlock para secciones críticas del código.
+		No está claro en absoluto qué es lo que guarda, aunque causa
+		serialización en áreas aparentemente disjuntas.
+Notas:		Se podría hacer estático. Se ha enviado un parche al encargado
+		del mantenimiento para hacerlo estático. El encargado implantará
+		un parche distinto para incorporarles en estructuras, en lugar
+		de hacerlas globales.
+
+Lock:		xprt_lock
+Funciones:	xprt_reconnect(), xprt_reconn_status(),
+		xprt_down_transmit(), xprt_up_transmit()
+Uso:		El poco ilustrativo comentario sugiere:
+		   Spinlock para secciones críticas del código.
+		No está claro qué es lo que guarda. Parece ser que guarda el
+		campo "connecting" del struct rpc_xprt, pero también se utiliza
+		en otros contextos en los que no está claro qué está guardando.
+Notas:		Se le podría hacer estático. Se ha enviado un parche al
+		encargado del mantenimiento para hacerlo estático. El encargado
+		implantará un parche distinto para incorporarles en estructuras,
+		en lugar de hacerlas globales.
+
+linux/net/bluetooth/hci_core.c	
+Lock:		hdev_list_lock
+Interrupciones:	Ignorado, Bloqueado (bh)
+Funciones:	hci_register_notifier() hci_dev_get() 
+                hci_register_dev() hci_unregister_dev()
+                hci_dev_list()
+Uso:		Guarda la lista de dispositivos HCI e impide que sean
+		modificados.
+Notas:          Podría ser estático.

@@ -1,0 +1,1956 @@
+<!-- $Id: ch05.sgm,v 1.12 2002/11/03 10:17:42 jjamor Exp $ -->
+<!--
+Nota legal:
+
+   Linux Network Administration Guide, por Olaf Kirch et al.
+
+   La traducción al español se publica bajo la licencia GFDL,
+siendo texto de portada el siguiente:
+
+Linux Network Administrator's Guide
+by Olaf Kirch and Terry Dawson
+Copyright  (c) 1993 Olaf Kirch
+Copyright  (c) 2000 Terry Dawson
+Copyright on O'Reilly printed version (c) 2000 O'Reilly & Associates
+
+y siendo secciones invariantes, la sección de Agradecimientos,
+la sección titulada «La traducción al español», el apéndice C; así
+como esta nota.
+
+Capítulo traducido por:
+
+  César Tapia, tapia@eitig.com
+Revisión 1 por Francisco Javier Fernández, serrador@arrakis.es
+-->
+<chapter id="X-087-2-iface"><title>Configuración del <?lb>Protocolo TCP/IP</title>
+<para>
+<indexterm><primary>secuencia de arranque</primary></indexterm>
+<indexterm><primary>inicialización de redes</primary></indexterm>
+<indexterm><primary>redes</primary><secondary>arranque de</secondary></indexterm>
+<indexterm id="chtc.tcpip.config.netwks" class="startofrange"><primary>TCP/IP (Protocolo de Control de Transmisión/Protocolo de Internet)</primary><secondary>configuración de redes</secondary></indexterm>
+En este capítulo recorreremos todos los pasos necesarios para configurar
+el protocolo TCP/IP en su máquina. Empezando en la asignación de
+direcciones IP, iremos describiendo la configuración de las interfaces
+TCP/IP e introduciremos unas cuantas herramientas que resultan
+bastante útiles a la hora de resolver problemas surgidos durante la
+instalación de la red.
+</para>
+
+<para>
+La mayoría de las tareas descritas en este capítulo, generalmente, sólo
+habrá de ejecutarlas una única vez. Una vez hecho esto, sólo tendrá que
+tocar alguno de los ficheros de configuración cuando añada un nuevo
+sistema a su red, o si decide reconfigurar el sistema completamente. Algunas
+de las órdenes usados para configurar el protocolo TCP/IP, sin embargo,
+deben ser ejecutados cada vez que se arranca el sistema. La forma usual de
+llevar esto a cabo es a través de los scripts <filename>/etc/rc*</filename>.
+</para>
+
+<para>
+<indexterm><primary>script rc</primary></indexterm>
+Generalmente, las partes específicas de la red están contenidas en un
+script. El nombre de este script varía dependiendo de las distintas
+distribuciones de GNU/Linux. En muchas distribuciones de GNU/Linux antiguas, se
+llama <filename>rc.net</filename> o <filename>rc.inet</filename>. A
+veces también aparecerán dos scripts llamados <filename>rc.inet1</filename>
+y <filename>rc.inet2</filename>siendo la primera la encargada de inicializar
+la parte del núcleo que se ocupa de las comunicaciones, mientras que la
+segunda es la que se encarga de arrancar los servicios básicos y las
+aplicaciones. En las distribuciones modernas, los ficheros <filename>rc
+</filename> se estructuran de forma más sofisticada; en ellas encontrará
+scripts en los directorios <filename>/etc/init.d/</filename> (o
+<filename>/etc/rc.d/init.d/</filename>&thinsp;) que crean los dispositivos
+de red, y otros archivos <filename>rc</filename> que lanzan las
+aplicaciones de red. Los ejemplos de este libro están basados en esta
+última disposición.
+</para>
+
+<para>
+Este capítulo explica partes del script que configura las interfaces de
+su red, mientras que las aplicaciones se verán en próximos capítulos.
+Al finalizar este capítulo, debería usted haber establecido la secuencia
+de órdenes que configuran correctamente el protocolo TCP/IP en
+su ordenador. Sustituya las órdenes de ejemplo en los scripts de
+configuración por los suyos propios; asegúrese de que el script básico
+<filename>rc</filename> es ejecutado en el arranque y rearranque de
+su máquina. Los scripts rc que acompañen a su distribución de GNU/Linux
+favorita deberían ser un buen ejemplo.
+</para>
+
+<sect1 id="X-087-2-iface.procfs"><title>Montando el Sistema de Ficheros /proc</title>
+<indexterm><primary>Montaje</primary><secondary>del sistema de ficheros proc</secondary></indexterm>
+<indexterm><primary>sistema de ficheros proc, montaje</primary></indexterm>
+<para>
+
+Algunas de las herramientas de configuración de NET-2 y NET-3 utilizan el sistema
+de ficheros <filename>proc</filename> para comunicarse con el núcleo. Se trata de una interfaz
+que permite el acceso a la información del kernel en funcionamiento a través
+de un mecanismo que imita un sistema de ficheros. Una vez ha sido montado, se pueden listar los ficheros
+y ver su contenido como en cualquier otro sistema de ficheros. Normalmente
+aparecen ficheros como <filename>loadavg</filename>, que contiene la carga media del sistema, o
+<filename>meminfo</filename>, que contiene información sobre la memoria física y virtual.
+</para>
+
+<para>
+<indexterm><primary sortas="proc/net file">fichero /proc/net</primary></indexterm>
+
+Para esto, el código de redes añade el directorio <filename>net</filename>. Este directorio contiene
+una serie de ficheros que muestran cosas como las tablas ARP del núcleo, el estado
+de las conexiones TCP y las tablas de encaminamiento. La mayoría de las
+herramientas de administración de redes utilizan estos ficheros para acceder a
+la información que precisan.
+</para>
+
+<para>
+<indexterm><primary sortas="etc/fstab file">fichero /etc/fstab</primary></indexterm>
+
+El sistema de ficheros <filename>proc</filename> (también llamado <filename>procfs</filename>)
+se monta generalmente en <filename>/proc</filename> durante el arranque. El mejor método consiste en añadir la
+siguiente línea al fichero <filename>/etc/fstab</filename>&thinsp;:
+
+<screen>
+# Punto de montaje de procfs
+none		/proc		proc	defaults
+</screen>
+
+Y ejecutar <command>mount /proc</command> desde alguno de los scripts <filename>/etc/rc</filename>.
+</para>
+
+<para>
+
+El <filename>procfs</filename> viene configurado actualmente en la mayoría de los núcleos por
+omisión. Si no tiene el <filename>procfs</filename> en su núcleo, al intentar montarlo obtendrá un
+mensaje como este: <literal>mount: fs type procfs not supported by kernel</literal>. De ser así tiene que
+recompilar el núcleo asegurándose de configurarlo incluyendo el soporte para procfs.
+</para>
+</sect1>
+
+<sect1 id="X-087-2-iface.binaries"><title>Instalación de los ejecutables</title>
+<indexterm><primary>instalación</primary><secondary>de los ejecutables de red</secondary></indexterm>
+<indexterm><primary>ejecutables, instalación de los</primary></indexterm>
+<para>
+Si está utilizando alguna de las distribuciones de GNU/Linux, incluirá las
+aplicaciones y utilidades de red fundamentales así como un conjunto
+coherente de ficheros de configuración de ejemplo. El único caso en el
+que tendría que conseguir e instalar las nuevas utilidades es en el caso
+de instalar una nueva versión del núcleo. De forma ocasional, esto
+supone cambios en la capa de comunicaciones del núcleo. Eso significaría
+tener que actualizar también las herramientas de configuración. Esto se
+traduce en, al menos, la necesidad de recompilar, aunque a veces es posible
+que sea necesario conseguir un conjunto de ejecutables actualizados.
+Estos ejectuables están disponibles en su sitio oficial,
+<emphasis>ftp.inka.de/pub/comp/GNU/Linux/networking/NetTools/</emphasis>,
+empaquetados en ficheros llamados <filename>net-tools-XXX.tar.gz</filename>,
+donde <filename>XXX</filename> es la versión de que se trate. En el caso
+de GNU/Linux 2.0 es <filename>net-tools-1.45</filename>.
+</para>
+
+<para>
+Si quiere compilar e instalar las aplicaciones estándar de comunicaciones
+TCP/IP, puede obtener los ficheros fuente de la mayoría de los servidores
+FTP de GNU/Linux. Todas las distribuciones modernas de GNU/Linux incluyen un
+amplio grupo de aplicaciones de comunicaciones TCP/IP, como navegadores
+de la World Wide Web, programas de <command>telnet</command> y de
+<command>ftp</command>, y otras aplicaciones de red, como
+<command>talk</command>. Si encuentra algo que necesite compilar por
+usted mismo, es muy posible que pueda compilar sencillamente bajo GNU/Linux
+si sigue las instrucciones incluidas en el paquete de las fuentes.
+</para>
+
+</sect1>
+
+<sect1 id="X-087-2-iface.hostname"><title>Establecimiento del Nombre de la Máquina</title>
+<indexterm><primary>nombre de la máquina</primary><secondary>Establecimiento del</secondary></indexterm>
+<indexterm><primary>configuración</primary><secondary>del nombre de la máquina</secondary></indexterm>
+<indexterm><primary>Establecimiento</primary><secondary>del nombre de la máquina</secondary></indexterm>
+
+<para>
+La mayoría de las aplicaciones de red, si no todas, asumen que el nombre
+dado a la máquina local tiene un valor razonable. Este proceso tiene lugar
+durante el arranque cuando se ejecuta el comando <command>hostname
+</command>. Para llamar <replaceable>nombre</replaceable> haga lo siguiente:
+
+<screen>
+# <userinput>hostname</userinput> <replaceable>nombre</replaceable>
+</screen>
+</para>
+
+<para>
+
+Es una práctica común usar el nombre sin cualificarlo con el dominio de red.
+Así pues, supongamos que las máquinas de la Cervecera Virtual (descrita en
+<xref linkend="X-087-2-appendix.brewery">) se llamarán
+<systemitem role="sitename">vale.vbrew.com</systemitem> o
+<systemitem role="sitename">vlager.vbrew.com</systemitem>.
+Estos son los nombres oficiales, los <emphasis>nombres completamente
+cualificados de dominio</emphasis> (FQDN1). Los nombres locales serían,
+por tanto, únicamente el primer componente del nombre, como por ejemplo
+<systemitem role="sitename">vale</systemitem>. Sin embargo, dado que el
+nombre local se usa frecuentemente para buscar la dirección IP
+correspondiente, debe asegurarse de que la tabla que contiene esa información
+sea capaz de encontrar dicha IP. Esto generalmente equivale a añadir el
+nombre local al fichero <filename>/etc/hosts</filename>.
+</para>
+
+<para>
+<indexterm><primary>dominio</primary><secondary>nombres de</secondary><tertiary>NIS frente a DNS</tertiary></indexterm>
+<indexterm><primary>orden domainname</primary></indexterm>
+<indexterm><primary>Estableciendo</primary><secondary>el nombre de dominio</secondary></indexterm>
+
+Algunas personas sugieren la utilización de la oreden <command>domainname</command>
+para fijar el valor del dominio para el núcleo. Así, para obtener el FQDN combinaríamos la
+salida de <command>hostname</command> y <command>domainname</command>. Sin
+embargo, esto es, en el mejor de los casos, una verdad a medias. <command>domainname</command>
+se usa por lo general para establecer el domino NIS al que pertenece la máquina,
+que puede ser completamente diferente al del servidor de nombres (DNS).
+
+En lugar de ello, para asegurarse de que la forma corta del nombre de su máquina es
+resoluble por todas las versiones recientes de la orden <command>hostname</command>,
+añádalo como una entrada en su Servidor de Nombres de Dominio (DNS) local, o ponga
+el FQDN en el fichero <filename>/etc/hosts</filename>. Puede usar entonces el parámetro
+<parameter>--fqdn</parameter> de la orden <command>hostname</command>, y
+se imprimirá el FQDN.
+</para>
+
+</sect1>
+
+<sect1 id="X-087-2-iface.addresses"><title>Asignación de una dirección IP</title>
+<indexterm><primary>IP (Protocolo de Internet)</primary><secondary>direcciones</secondary><tertiary>Asignación</tertiary></indexterm>
+<indexterm><primary>direcciones</primary><secondary>escogiendo (IP)</secondary></indexterm>
+<indexterm><primary>escogiendo</primary><secondary>direcciones IP</secondary></indexterm>
+<indexterm><primary>direcciones IP privadas</primary></indexterm>
+<indexterm><primary>IP (Protocolo de Internet)</primary><secondary>direcciones</secondary><tertiary>privadas</tertiary></indexterm>
+<indexterm><primary>red</primary><secondary>direcciones IP de</secondary></indexterm>
+<para>
+Si configura su software de red para operar su máquina de forma aislada
+(por ejemplo con el objeto de utilizar el software de noticias de red INN)
+puede saltarse esta sección pues sólo necesita la dirección de la interfaz
+ de bucle local o loopback, que es siempre <systemitem role="sitename">127.0.0.1</systemitem>.
+</para>
+
+<para>
+Las cosas son algo más complicadas en redes reales como las
+Ethernets. Si quiere conectar su computadora a una red, tiene que pedir
+a los administradores de la misma que le asignen una dirección IP
+para esa red. Cuando es usted mismo el que está estableciendo la
+red, tendrá que ser usted quien asigne las direcciones IP.
+</para>
+
+<para>
+Las máquinas de una red local deben generalmente compartir
+direcciones de una subred lógica. Por ello lo primero es asignar una
+dirección IP para la red. Si tiene varias redes físicas, deberá asignar
+números de red diferentes a cada una o dividir el rango de direcciones
+IP disponibles en varias subredes. Las subredes se explican en la siguiente
+sección, <xref linkend="X-087-2-create.subnets">.&rdquo;
+</para>
+
+<para>
+Cuando se está seleccionando un número de red IP, la elección dependerá
+de si tiene intención de conectarse a Internet en un futuro próximo. Si es así,
+debería conseguir una dirección IP oficial <emphasis>ahora</emphasis>.
+Pregunte a su proveedor de Internet para conseguir ayuda. Si quiere
+conseguir un número de red, por si acaso se conecta a Internet algún día,
+pida un Formulario de Solicitud de Dirección de Red a <systemitem
+role="emailaddr">hostmaster@internic.net</systemitem>, o al Centro
+de Información de Red de su país, si existe.
+</para>
+
+<para>
+Si su red no está conectada a Internet, y no lo va a estar en un
+futuro cercano, usted es libre de elegir cualquier dirección de red
+legal. Únicamente asegúrese de que no haya paquetes de su
+red interna que escapen a la Internet real. Para asegurarse de que
+no haya perjuicio aunque se escapen paquetes, debería usar uno de
+los números de red reservados para uso privado. La Autoridad de
+Números Asignados de Internet (IANA, por sus siglas en inglés) ha
+reservado varios números de red de las clases A, B y C, que usted
+puede usar sin registrarlas. Estas direcciones sólo son válidas dentro
+de su red privada, y no se encaminarán entre sitios de Internet reales.
+Los números están definidos por RFC 1597 y  están listados en
+<xref linkend="X-087-2-issues.reserved.addresses"> en <xref
+linkend="X-087-2-issues">. Dése cuenta de que el segundo y tercer
+bloques contienen 16 y 256 redes, respectivamente.
+</para>
+
+<para>
+Seleccionar sus direcciones de una de estos números de red no es sólo
+útil para redes completamente desconectadas de Internet; todavía puede
+implementar un acceso algo más restringido usando un ordenador como
+pasarela o gateway. Desde la red local, la pasararela es accesible por
+su dirección IP interna, pero el mundo exterior la conoce por una dirección
+oficial (asignada por su proveedor). Volveremos sobre este concepto en
+la conexión con IP masquerade en <xref linkend="X-087-2-ipmasq">.
+</para>
+
+<para>
+Durante el resto del libro, asumiremos que el administrador de red de la
+cervecera usa un número de red de tipo B, por ejemplo
+<systemitem role="sitename">172.16.0.0</systemitem>. Por supuesto, una
+red de clase C debería bastar para la red de la cervecera y la vinatera.
+Usaremos aquí una red de clase B para simplificar; esto hará que los ejemplos
+de subredes de la siguiente sección del capítulo sean algo más intuitivos.
+</para>
+</sect1>
+
+<sect1 id="X-087-2-create.subnets"><title>Creación de Subredes</title>
+<indexterm><primary>Creación</primary><secondary>de subredes</secondary></indexterm>
+<indexterm><primary>subredes</primary><secondary>DNS, creación de</secondary></indexterm>
+<indexterm><primary>interfaces</primary><secondary>máscara de red de las</secondary></indexterm>
+<indexterm><primary>IP (Protocolo de Internet)</primary><secondary>máscara de red</secondary></indexterm>
+<para>
+
+Para operar varias redes Ethernet (o de otro tipo una vez que el
+controlador correspondiente esté disponible), debe dividir su red en
+subredes. Es importante darse cuenta de que esto es únicamente necesario
+si tiene mas de una <emphasis>dirección de "difusión" (broadcast)</emphasis>&mdash;
+en la red; las conexiones punto-a-punto no cuentan. Así, por ejemplo,
+si tiene una red Ethernet y uno o mas enlaces SLIP con el exterior no
+hace falta que divida su red. La razón se explica en <xref
+linkend="X-087-2-slip">.
+</para>
+
+<para>
+Para ajustar las dos Ethernets, el administrador de red de la cervecera
+decide usar ocho bytes la parte de la dirección correspondiente a los
+ordenadores como dirección de subred. Eso deja otros ocho bytes para
+las máquinas lo que equivale a 254 por cada subred. Asigna entonces el
+número de subred 1 a la cervecera, y le da a la vinatera el número 2. Las
+direcciones de red serán por tanto <systemitem role="sitename">172.16.1.0
+</systemitem> y <systemitem role="sitename">172.16.2.0</systemitem>.
+La máscara de subred es <systemitem role="sitename">255.255.255.0</systemitem>.
+</para>
+
+<para>
+
+A <systemitem role="sitename">vlager</systemitem>, que actúa de pasarela entre
+las redes, se le asigna el número de máquina 1 en ambas redes, lo que significa
+que tiene las direcciones IP <systemitem role="sitename">191.72.1.1</systemitem>
+y <systemitem role="sitename">191.72.2.1</systemitem>, respectivamente.
+</para>
+
+<para>
+Es importante notar que en este ejemplo estamos usando una red de clase B
+para simplificar; una red de tipo C sería más realista. Con el nuevo código de red,
+la división en subredes no está limitada a nivel de byte, de forma que incluso una
+red de clase C puede dividirse en varias subredes. Por ejemplo, podría usar 2 bits
+del byte de los nodos para designar la subred lo que permite implementar cuatro
+subredes de 64 máquinas cada una.<footnote id="X-087-2-FNTC02"><para>
+El primer número de cada subred es la dirección de la subred, y el último se reserva
+para las direcciones de difusión (broadcast), luego tenemos un total de 62 máquinas
+por subred.
+</para>
+</footnote>
+</para>
+</sect1>
+
+<sect1 id="X-087-2-iface.simple-resolv"><title>Preparación de los ficheros hosts y networks</title>
+<indexterm><primary>configuración</primary><secondary>nombre de la máquina</secondary><tertiary>de la resolución del</tertiary></indexterm>
+<indexterm><primary>fichero hosts</primary></indexterm>
+<indexterm><primary sortas="etc/hosts file">fichero /etc/hosts</primary></indexterm>
+<indexterm><primary>nombre de la máquina</primary><secondary>resolución del</secondary></indexterm>
+<indexterm><primary>redes</primary><secondary>nombres de las</secondary></indexterm>
+
+<para>
+Una vez ha dividido su red en subredes, debe habilitar un mecanismo simple
+de resolución de nombres usando el fichero <filename>/etc/hosts</filename>.
+Si no va a usar los sistemas DNS o NIS para la resolución de nombres, debe
+poner todos los nombres de las diferentes máquinas en el fichero
+<filename>hosts</filename>.
+</para>
+
+<para>
+Incluso si planea utilizar los servicios DNS y NIS en condiciones normales
+de operación, es conveniente tener un reducido número de máquinas
+en <filename>/etc/hosts</filename>. Debe tener algún tipo de
+resolución de nombres, incluso cuando no hay servicios de red
+ejecutándose. Este es el caso del arranque. Se trata, no sólo de una cuestión
+de conveniencia, sino que permite el uso de nombres simbólicos para las
+máquinas citadas en los scripts de red <filename>rc</filename>. De esta forma,
+para cambiar las direcciones IP, sólo tiene que copiar el fichero
+<filename>hosts</filename> actualizado a todas las máquinas y rearrancar,
+en vez de tener que modificar un gran número de ficheros <filename>rc</filename>
+por separado. Generalmente, también debe incluir los nombres y direcciones
+locales en <filename>hosts</filename>, añadiendo todas las pasarelas y servidores
+NIS usados. <footnote id="X-087-2-FNTC03"><para>
+Sólo necesita la dirección del servidor NIS si usa el NYS de Peter Eriksson.
+Otras implementaciones de NIS sólo encuentran sus servidores en ejecución
+usando <command>ypbind</command>.
+</para>
+</footnote>
+</para>
+
+<para>
+Debería asegurarse de que el subsistema de resolución utiliza la
+información del fichero <filename>hosts</filename> únicamente. Los ficheros
+de ejemplo que vienen con su software DNS o NIS pueden producir resultados
+extraños. Para forzar a que todas las aplicaciones utilicen
+<filename>/etc/hosts</filename> de forma exclusiva cuando buscan una
+dirección IP, debe editar el fichero <filename>/etc/host.conf</filename>.
+Desactive con comentarios cualquier línea que comience por
+<systemitem role="keyword">order</systemitem> añadiendo una
+almohadilla (#) e incluya la siguiente línea
+
+<screen>
+order hosts
+</screen>
+</para>
+
+<para>
+La configuración de la biblioteca de resolución se describe en detalle en
+<xref linkend="X-087-2-resolv">.
+</para>
+
+<para>
+El fichero <filename>hosts</filename> contiene un registro por línea,
+consistente en una dirección IP, un nombre de máquina y de forma opcional,
+una lista de alias para esa máquina. Los campos se separan por tabuladores
+o espacios y el campo con la dirección debe empezar en la primera columna.
+Cualquier cosa a continuación de una almohadilla (#) es interpretada como
+un comentario y es consecuentemente ignorado.
+</para>
+
+<para>
+Los nombres de las máquinas pueden ser con cualificación completa, o
+relativos al dominio local. Para la máquina <systemitem role="sitename">
+vale</systemitem>, el registro generalmente incluiría el nombre con
+cualificación completa, <systemitem role="sitename">vale.vbrew.com</systemitem>,
+y <systemitem role="sitename">vale</systemitem> en el fichero <filename>hosts</filename>, de forma que
+pueda ser referido usando el nombre oficial y el nombre local que es más corto.
+</para>
+
+<para>
+Este es un ejemplo del aspecto que el fichero <filename>hosts</filename>
+<systemitem role="sitename">vlager-if1</systemitem> y
+<systemitem role="sitename">vlager-if2</systemitem>,
+correspondientes a las direcciones de ambas interfaces de la máquina
+existentes en <systemitem role="sitename">vlager</systemitem>:
+</para>
+
+<para>
+<screen>
+#
+# Fichero Hosts de la Cervecera Virtual/Vinatera Virtual
+#
+# IP            FQDN                 aliases
+#
+127.0.0.1       localhost
+#
+172.16.1.1      vlager.vbrew.com      vlager vlager-if1
+172.16.1.2      vstout.vbrew.com      vstout
+172.16.1.3      vale.vbrew.com        vale
+#
+172.16.2.1      vlager-if2
+172.16.2.2      vbeaujolais.vbrew.com vbeaujolais
+172.16.2.3      vbardolino.vbrew.com  vbardolino
+172.16.2.4      vchianti.vbrew.com    vchianti
+</screen>
+</para>
+
+<para>
+<indexterm><primary>fichero networks</primary></indexterm>
+<indexterm><primary sortas="etc/networks file">fichero /etc/networks</primary></indexterm>
+Del mismo modo que con las direcciones IP, a veces también puede interesarle usar
+nombres simbólicos para los números de red. Con este objeto, el fichero
+<filename>hosts</filename> tiene un compañero llamado <filename>/etc/networks</filename>,
+que asocia nombres de red con los números correspondientes y viceversa.
+En la Cervecera Virtual, podríamos instalar un fichero <filename>networks</filename> como éste:
+<footnote id="X-087-2-FNTC04"><para> Dése cuenta de que los nombres en
+<filename>networks</filename> no pueden coincidir con nombres de máquinas del fichero
+<filename>hosts</filename> o algunos programas pueden producir extraños resultados.
+</para>
+</footnote>
+
+<screen>
+# /etc/networks para la cervecera virtual.
+brew-net      172.16.1.0
+wine-net      172.16.2.0
+</screen>
+</para>
+</sect1>
+
+<sect1 id="X-087-2-iface.interfaz"><title>Interfaz Configuración de la Interfaz para IP</title>
+<indexterm><primary>IP (Protocolo de Internet)</primary><secondary>de la interfaz para</secondary><tertiary>configuración</tertiary></indexterm>
+<indexterm><primary>interfaces</primary><secondary>configuración de las</secondary></indexterm>
+<indexterm><primary>configuración</primary><secondary>de red</secondary><tertiary>de las interfaces</tertiary></indexterm>
+<indexterm><primary>orden ifconfig</primary></indexterm>
+
+<para>
+Una vez ha configurado su hardware según se ha explicado en <xref
+linkend="X-087-2-serial">, debe asegurarse de que el software de red del
+núcleo conoce esos dispositivos. Hay una serie de órdenes que se usan con
+objeto de configurar las interfaces de red e inicializar la tabla de encaminamiento.
+Esas tareas son ejecutadas generalmente por el script de inicialización de red cada
+vez que el sistema es arrancado. Las herramientas básicas son <command>ifconfig
+</command> (donde &ldquo;if&thinsp;&rdquo; significa interfaz), y <command>route
+</command>.
+</para>
+
+<para>
+<command>ifconfig</command> se usa para dar acceso al núcleo a una
+interfaz. Esto incluye la asignación de una dirección IP y otros parámetros,
+así como la activación de la interfaz. Por activación nos referimos a permitir
+que el núcleo envía y recibe datagramas IP a través de la interfaz. El modo más sencillo
+de invocar esta herramienta es:
+
+<screen>
+ifconfig <replaceable>interfaz</replaceable> <replaceable>dirección-ip</replaceable>
+</screen>
+</para>
+
+<para>
+Esta orden asigna <replaceable>dirección-ip</replaceable> a
+<replaceable>interfaz</replaceable> y la activa. Los otros parámetros
+toman valores asignados por omisión. Por ejemplo, la máscara de subred por
+omisión toma el valor correspondiente al tipo de red al que pertenece la
+dirección IP. Así, tendríamos <systemitem role="sitename">255.255.0.0</systemitem>
+para una dirección de clase B. <command>ifconfig</command> es descrito en detalle
+en <xref linkend="X-087-2-iface.ifconfig">.&rdquo;
+</para>
+
+<indexterm><primary>orden route</primary></indexterm>
+<para>
+<command>route</command> permite añadir o quitar rutas de la tabla de
+encaminamiento del núcleo. Se puede invocar como:
+
+<screen>
+route [add|del] [-net|-host] <replaceable>destino</replaceable> [<replaceable>if</replaceable>]
+</screen>
+</para>
+
+<para>
+Los argumentos <option>add</option> y <option>del</option> determinan,
+respectivamente si se debe añadir o borrar la ruta hacia <replaceable>destino
+</replaceable>. Los argumentos <option>-net</option> y <option>-host</option>
+señalan al comando si el destino es una red o una máquina (que es lo que se
+supone si no se especifica). El argumento <option>if</option> es opcional también,
+y permite especificar a qué interfaz de red se dirige la ruta&mdash; el núcleo de
+GNU/Linux hará una conjetura si no se aporta este dato. Este tema se explicará más
+detalladamente en las siguientes secciones.
+</para>
+
+<sect2 id="X-087-2-iface.interfaz.loopback"><title>La interfaz de bucle local</title>
+<indexterm><primary>configuración</primary><secondary>del dispositivo de interfaz de bucle local</secondary></indexterm>
+<indexterm><primary>bucle local</primary><secondary>dispositivo de interfaz de</secondary><tertiary>configuración del</tertiary></indexterm>
+<indexterm><primary>interfaces</primary><secondary>bucle local</secondary></indexterm>
+<indexterm><primary>lo</primary></indexterm>
+
+<para>
+
+
+La primera interfaz en ser activada es la interfaz de bucle local o loopback:
+
+<screen>
+# <userinput>ifconfig lo 127.0.0.1</userinput>
+</screen>
+</para>
+
+<para>
+<indexterm><primary>localhost (nombre de máquina comodín)</primary></indexterm>
+Ocasionalmente, también vera que el nombre comodín <systemitem role="sitename">
+localhost</systemitem> es usado en vez de la dirección de IP. <command>ifconfig
+</command> buscará el nombre en el fichero <filename>hosts</filename> que
+debe contener un registro declarando <systemitem role="sitename">localhost
+</systemitem> como nombre válido para la dirección <systemitem role="sitename">
+127.0.0.1</systemitem>:
+
+<screen>
+# Registro de ejemplo para localhost en /etc/hosts
+localhost     127.0.0.1
+</screen>
+</para>
+
+<para>
+<indexterm><primary>prueba </primary><secondary>de red</secondary><tertiary>de la interfaz</tertiary></indexterm>
+Para ver la configuración de una interfaz, use <command>ifconfig
+</command>, pasándole como argumento únicamente el nombre
+de la interfaz:
+
+<screen>
+$ <userinput>ifconfig lo</userinput>
+lo        Link encap:Local Loopback  
+          inet addr:127.0.0.1  Mask:255.0.0.0
+          UP LOOPBACK RUNNING  MTU:3924  Metric:1
+          RX packets:0 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:0 errors:0 dropped:0 overruns:0 carrier:0
+          Collisions:0 
+</screen>
+</para>
+
+<para>
+Como podrá observar, la máscara asignada a la interfaz del bucle local es
+<systemitem role="sitename">255.0.0.0</systemitem>, debido a que
+<systemitem role="sitename">127.0.0.1</systemitem> es una dirección
+de clase A.
+</para>
+
+<para>
+Ahora, ya casi puede empezar a jugar con su "mini-red". Sólo queda
+añadir una entrada en la tabla de encaminamiento que comunique al
+IP que puede usar esa interfaz como ruta hacia <systemitem
+role="sitename">127.0.0.1</systemitem>. Para llevar esto a cabo,
+basta escribir:
+
+<screen>
+# route add 127.0.0.1
+</screen>
+</para>
+
+<para>
+También aquí puede usar <systemitem role="sitename">localhost
+</systemitem> en lugar de la dirección IP, suponiendo que lo
+haya introducido en su <filename>/etc/hosts</filename>.
+</para>
+
+<para>
+<indexterm><primary>prueba</primary><secondary>de la configuración de la red</secondary></indexterm>
+<indexterm><primary>prueba</primary><secondary>de la red</secondary><tertiary>configuración</tertiary></indexterm>
+<indexterm><primary>prueba</primary><secondary>de la disponibilidad</secondary></indexterm>
+<indexterm><primary>accediendo a una máquina</primary></indexterm>
+<indexterm><primary>tiempo de ida y vuelva (IP)</primary></indexterm>
+<indexterm><primary>orden ping</primary></indexterm>
+Lo siguiente es comprobar que todo funciona como es debido, por
+ejemplo usando <command>ping</command>. <command>ping</command>
+es el equivalente a un sonar en una red.<footnote id="X-087-2-FNTC05"><para>
+¿Alguien recuerda&ldquo;Echoes&rdquo; de Pink Floyd?
+</para>
+</footnote> Esta orden se usa para verificar que una dirección dada es
+accesible y para medir el retraso entre el envío de un datagrama y su recepción
+de vuelta. Este tiempo es conocido como tiempo de ida y vuelta.
+</para>
+
+<para>
+<screen>
+# <userinput>ping localhost</userinput>
+PING localhost (127.0.0.1): 56 data bytes
+64 bytes from 127.0.0.1: icmp_seq=0 ttl=255 time=0.4 ms
+64 bytes from 127.0.0.1: icmp_seq=1 ttl=255 time=0.4 ms
+64 bytes from 127.0.0.1: icmp_seq=2 ttl=255 time=0.4 ms
+^C
+--- localhost ping statistics ---
+3 packets transmitted, 3 packets received, 0% packet loss
+round-trip min/avg/max = 0.4/0.4/0.4 ms
+#
+</screen>
+</para>
+
+<para>
+Cuando se ejecuta <command>ping</command> según se muestra
+aquí, la emisión de paquetes continúa a menos que sea interrumpida
+por el usuario. El <literal>^C</literal> marca el momento en el que se
+apretó Ctrl-C.
+</para>
+
+<para>
+Este ejemplo muestra que los paquetes dirigidos a la máquina <systemitem
+role="sitename">127.0.0.1</systemitem> están siendo entregados
+correctamente y la respuesta a <command>ping</command> es recibida de
+forma casi instantánea. Esto significa que ha establecido con éxito su
+primera interfaz de red.
+</para>
+
+<para>
+<indexterm><primary>mensaje de error Network Unreachable (Red no accesible)</primary></indexterm>
+<indexterm><primary>redes</primary><secondary>no accesibles</secondary></indexterm>
+Si la salida de <command>ping</command> no se parece a la de más arriba,
+usted tiene problemas. Compruebe la posibilidad de que algún fichero no haya
+sido instalado correctamente. Compruebe que los ejecutables <command>ifconfig</command>
+y <command>route</command> son compatibles con la versión del núcleo que usa
+y sobre todo que éste ha sido compilado con la opción de red activada (esto se
+puede ver comprobando que existe el directorio <filename>/proc/net</filename>).
+Si el mensaje de error es &ldquo;network unreachable&rdquo;(red inaccesible),
+seguramente ejecutó la orden <command>route</command> incorrectamente.
+Asegúrese de que es la misma dirección que la que usó con <command>ifconfig</command>.
+</para>
+
+<para>
+<indexterm><primary>de red</primary><secondary>scripts de inicialización</secondary></indexterm>
+Los pasos descritos arriba son suficientes para poder ejecutar aplicaciones
+de red en una máquina aislada. Una vez esas líneas son añadidas al
+script de inicialización de red y después de asegurarse de que es ejecutado
+en tiempo de arranque, puede proceder a rearrancar su máquina y probar
+las diferentes aplicaciones de red. Por ejemplo <command>telnet localhost</command>
+debería establecer una conexión <command>telnet</command> con su
+máquina, pidiéndole el nombre de usuario y la contraseña.
+</para>
+
+<para>
+Sin embargo, la interfaz de bucle local es útil, no sólo como ejemplo en libros
+de redes, o como método de pruebas durante el desarrollo: también la
+utilizan algunas aplicaciones como modo normal de operacion. <footnote
+id="X-087-2-FNTC06"><para>Por ejemplo, todas las aplicaciones
+basadas en RPC utilizan la interfaz de bucle local para registrarse en el
+demonio <command>portmapper</command>(mapa de puertos)
+durante el arranque. Entre estas aplicaciones están NIS y NFS.
+</para>
+</footnote>
+Por ello, debe usted configurarla siempre, independientemente de que
+su máquina esté conectada a una red o no.
+</para>
+</sect2>
+
+<sect2 id="X-087-2-iface.interfaz.ethernet"><title>Interfaces Ethernet</title>
+<indexterm><primary>configuración</primary><secondary>de Ethernet</secondary></indexterm>
+<indexterm><primary>Ethernet</primary><secondary>configuración de la interfaz</secondary></indexterm>
+<indexterm><primary>interfaces</primary><secondary>Ethernet</secondary></indexterm>
+<indexterm><primary>IP (Protocolo de Internet)</primary><secondary>máscara de red</secondary></indexterm>
+<indexterm><primary>interfaces</primary><secondary>máscara de red de</secondary></indexterm>
+<indexterm><primary>eth0 (interfaz Ethernet)</primary></indexterm>
+<indexterm><primary>direcciones</primary><secondary>difusión de</secondary></indexterm>
+<indexterm><primary>IP (Protocolo de Internet)</primary><secondary>dirección de difusión</secondary></indexterm>
+<para>
+La configuración de una interfaz Ethernet es más o menos igual que la
+de la interfaz de bucle local. Sólo requiere algunos parámetros más cuando
+está usando varias subredes.
+</para>
+
+<indexterm><primary>comando ifconfig</primary></indexterm>
+<para>
+En la Cervecera Virtual, hemos dividido la red IP, originalmente de
+clase B, en subredes de clase C. Para que la interfaz reconozca esto,
+usamos la orden <command>ifconfig</command>
+<screen>
+# <userinput>ifconfig eth0 vstout netmask 255.255.255.0</userinput>
+</screen>
+</para>
+
+<para>
+
+Esto asigna a la interfaz <filename>eth0</filename> la dirección IP
+de la máquina <systemitem role="sitename">vstout</systemitem>
+(<systemitem role="sitename">191.72.1.2</systemitem>).
+Si hubiésemos omitido la máscara de red, <command>ifconfig</command>
+habría deducido la máscara de la clase de la red IP, tomando por
+tanto <systemitem role="sitename">255.255.0.0</systemitem>,
+que es incorrecto. Una comprobación rápida nos da:
+
+<screen>
+# <userinput>ifconfig eth0</userinput>
+eth0      Link encap 10Mps Ethernet HWaddr  00:00:C0:90:B3:42
+          inet addr 172.16.1.2 Bcast 172.16.1.255 Mask 255.255.255.0
+          UP BROADCAST RUNNING  MTU 1500  Metric 1
+          RX packets 0 errors 0 dropped 0 overrun 0
+          TX packets 0 errors 0 dropped 0 overrun 0
+</screen>
+</para>
+
+<para>
+Puede ver que <command>ifconfig</command> ha fijado la dirección de difusión
+automáticamente (el campo <systemitem role="keyword">Bcast</systemitem>
+de arriba) a su valor usual, que es el de la red con todos los bits de la máquina
+activados. Además se fija la unidad de transferencia de mensajes
+(tamaño máximo que el núcleo va a generar para esa interfaz) a un máximo
+de 1500 bytes. Todos estos valores pueden ser especificados mediante
+opciones especiales que se explican en <xref linkend="X-087-2-iface.ifconfig">&rdquo;.
+</para>
+
+<para>
+De forma semejante al caso de la interfaz de bucle local, debe también
+establecer ahora una entrada en la tabla de encaminamiento que informe
+al núcleo de que la red es accesible mediante <filename>eth0</filename>.
+Para la Cervecera Virtual, ejecutaría:
+
+<screen>
+# <userinput>route add -net 172.16.1.0</userinput>
+</screen>
+</para>
+
+<para>
+
+
+Inicialmente podría parecer algo mágico, pues no esta claro como
+<command>route</command> detecta cuál es la interfaz que debe
+usar. Sin embargo el truco es sencillo: el núcleo comprueba todas las
+interfaces que han sido configuradas hasta el momento y compara la
+dirección de destino (<systemitem role="sitename">191.72.1.0</systemitem>
+en este caso) con la parte de red de las direcciones de las interfaces
+(o, lo que es lo mismo, ejecuta un "and" lógico de la dirección de la interfaz
+y la máscara de red). La única interfaz que cumple esto es
+<filename>eth0</filename>.
+</para>
+
+<para>
+Veamos, ¿qué significa la opción <option>&ndash;net</option>?
+Esta opción es necesaria porque el programa <command>route</command>
+es capaz de trabajar con rutas a redes o a máquinas concretas (como
+vimos arriba en el caso de <systemitem role="sitename">localhost</systemitem>).
+Cuando la dirección es dada en notación de cuaterna, intenta adivinar si
+se trata de una red o una máquina fijándose en los bits de máquina
+de la dirección. Si esa parte es nula, <command>route</command> asume
+que se trata de una red, y de otro modo lo toma como dirección de una
+máquina. Por tanto, route supondría que <systemitem role="sitename">
+191.72.1.0</systemitem> es la dirección de una máquina en vez de una red,
+debido a que no sabe que hemos dividido el espacio de direcciones en
+subredes. Por tanto hemos de decírselo de forma explícita utilizando el
+indicador <option>&ndash;net</option>.
+</para>
+
+<para>
+Por supuesto, escribir el comando <command>route</command> es tedioso
+y susceptible de muchos errores de escritura. Un método más conveniente
+es usar los nombres definidos en <filename>/etc/networks</filename> como
+vimos más arriba. Esto hace el comando más inteligible; de este modo incluso
+podemos evitar escribir el indicador <option>&ndash;net</option>, porque
+<command>route</command> sabe que <systemitem role="sitename">
+191.72.1.0</systemitem> representa una red:
+
+<screen>
+# <userinput>route add brew-net</userinput>
+</screen>
+</para>
+
+<para>
+<indexterm><primary>probando</primary><secondary>la configuración de la red</secondary></indexterm>
+<indexterm><primary>probando</primary><secondary>de la red</secondary><tertiary>la configuración</tertiary></indexterm>
+<indexterm><primary>probando</primary><secondary>la disponibilidad</secondary></indexterm>
+Una vez finalizados los pasos básicos de configuración, debemos
+asegurarnos de que la interfaz Ethernet está funcionando correctamente.
+Elija una máquina de su red, por ejemplo <systemitem role="sitename">
+vlager</systemitem>, y escriba:
+
+<screen>
+# <userinput>ping vlager</userinput>
+PING vlager: 64 byte packets
+64 bytes from 172.16.1.1: icmp_seq=0. time=11. ms
+64 bytes from 172.16.1.1: icmp_seq=1. time=7. ms
+64 bytes from 172.16.1.1: icmp_seq=2. time=12. ms
+64 bytes from 172.16.1.1: icmp_seq=3. time=3. ms
+^C
+----vstout.vbrew.com PING Statistics----
+4 packets transmitted, 4 packets received, 0
+round-trip (ms)  min/avg/max = 3/8/12
+</screen>
+</para>
+
+<para>
+<indexterm><primary>orden netstat</primary></indexterm>
+Si el resultado no es similar a éste, algo va mal, obviamente. Una
+tasa de pérdida de paquetes inusualmente alta, sugiere un problema
+de hardware, como terminaciones en mal estado o incluso la ausencia
+de las mismas, etc. Si no recibe ningún paquete, debe comprobar la
+configuración de la interfaz mediante <command>netstat</command>,
+que describiremos después en <xref linkend="X-087-2-iface.netstat">&rdquo;.
+Las estadísticas de paquetes producidas por <command>ifconfig</command>
+le indican si algún paquete ha sido enviado mediante esa interfaz. Si
+tiene acceso a una máquina remota, también debería dirigirse a esa máquina
+y comprobar las estadísticas de la interfaz. De este modo puede
+determinar exactamente en qué momento se han descartado los paquetes.
+Además, debe consultar la información de encaminamiento con
+<command>route</command> para ver si ambas máquinas han registrado
+ésta correctamente en sus tablas. <command>route</command> imprime
+la tabla de encaminamiento del núcleo completa si se ejecuta sin
+argumentos (la opción <option>&ndash;n</option> hace que utilice la
+notación de cuaternas en vez de los nombres de las máquinas):
+
+<indexterm><primary>IP (Protocolo de Internet)</primary><secondary>de enrutamiento</secondary><tertiary>tabla</tertiary></indexterm>
+<indexterm><primary>mostrar</primary><secondary>la tabla de enrutamiento IP</secondary></indexterm>
+<indexterm><primary>comprobar</primary><secondary>la tabla de enrutamiento IP</secondary></indexterm>
+
+<screen>
+# <userinput>route -n</userinput>
+Kernel routing table
+Destination  Gateway  Genmask         Flags Metric Ref Use    Iface
+127.0.0.1    *        255.255.255.255 UH    1      0      112 lo
+172.16.1.0   *        255.255.255.0   U     1      0       10 eth0
+</screen>
+</para>
+
+<para>
+El significado de cada uno de los campos se detalla más adelante en  <xref
+linkend="X-087-2-iface.netstat">. La columna <systemitem role="keyword">Flags
+</systemitem> contiene una lista de los indicadores activos en cada
+interfaz. <systemitem role="keyword">U</systemitem> indica que la
+interfaz está activa y <systemitem role="keyword">H</systemitem>
+indica que la dirección de destino es una máquina. Si encuentra que el
+indicador <systemitem role="keyword">H</systemitem> se ha activado
+para una ruta que pretendía usar para una red, entonces debe usar la
+opción <option>&ndash;net</option> con el comando <command>route</command>.
+Para comprobar si alguna ruta esta siendo usada o no, debe mirar si el
+campo  <systemitem role="keyword">Use</systemitem> en la penúltima
+columna se incrementa entre dos ejecuciones sucesivas de <command>
+ping</command>.
+</para>
+</sect2>
+
+<sect2 id="X-087-2-iface.interfaz.gateway"><title>Encaminamiento a través de una pasarela</title>
+<indexterm><primary>enrutado</primary><secondary>IP</secondary><tertiary>de pasarelas</tertiary></indexterm>
+<indexterm><primary>IP (Protocolo de Internet)</primary><secondary>enrutado</secondary></indexterm>
+<indexterm><primary>IP (Protocolo de Internet)</primary><secondary>pasarelas</secondary></indexterm>
+<indexterm><primary>IP (Protocolo de Internet)</primary><secondary>subredes</secondary></indexterm>
+<indexterm><primary>pasarelas</primary><secondary>Encaminado de redes a través de</secondary></indexterm>
+
+<para>
+En la sección anterior, cubrimos sólo el caso en el que la máquina sólo
+tiene una única Ethernet. Frecuentemente, es posible encontrar redes
+conectadas unas a otras a través de pasarelas o máquinas de enlace.
+Estas pasarelas pueden simplemente unir dos o más Ethernets, pero
+pueden también servir de enlace con el exterior, con Internet. Para usar
+una pasarela, es necesario añadir información adicional a la capa de red.
+</para>
+
+<para>
+Por ejemplo, las Ethernets de la Cervecera Virtual y de la Vinatera Virtual
+están unidas a través de una pasarela, <systemitem role="sitename">vlager
+</systemitem>. Suponiendo que la máquina <systemitem role="sitename">
+vlager</systemitem> ha sido configurada ya, sólo tenemos que añadir otro
+registro a la tabla de encaminamiento de la máquina
+<systemitem role="sitename">vstout</systemitem> que le comunique al
+núcleo que puede acceder a todas los nodos de la red de la Vinatera a
+través de<systemitem role="sitename"> vlager</systemitem>. La orden
+apropiada usando <command>route</command> se muestra a continuación;
+la palabra clave <systemitem role="keyword">gw</systemitem> indica que
+el argumento siguiente es una pasarela:
+</para>
+
+<para>
+<screen>
+# <userinput>route add wine-net gw vlager</userinput>
+</screen>
+</para>
+
+<para>
+Por supuesto, cualquier nodo en la red de la Vinatera al que quiera dirigirse
+debe tener un registro análogo referido a la red de la Cervecera, o de otro
+modo sólo podría enviar datos a la red de la Vinatera desde la Cervecera,
+pero las máquinas de la Vinatera serían incapaces de responder.
+</para>
+
+<para>
+Este ejemplo describe únicamente una pasarela que conmuta paquetes
+entre dos redes Ethernet aisladas. Supongamos ahora que
+<systemitem role="sitename">vlager</systemitem> también tiene una
+conexión a la Internet (digamos que a través de un enlace SLIP). Nos
+gustaría que los datagramas destinados a <emphasis>cualquier</emphasis>
+dirección fuera de la red de la Cervecera fueran entregados a
+<systemitem role="sitename">vlager</systemitem>. Esto se puede conseguir
+convirtiéndolo en la pasarela por omisión para <systemitem
+role="sitename">vstout</systemitem>:
+
+<screen>
+# <userinput>route add default gw vlager</userinput>
+</screen>
+</para>
+
+<para>
+<indexterm><primary>IP (Protocolo de Internet)</primary><secondary>ruta por omisión</secondary></indexterm>
+El nombre de red <systemitem role="sitename">default</systemitem> es una abreviatura
+que representa la red <systemitem role="sitename">0.0.0.0</systemitem>, o ruta por omisión.
+La ruta por omisión analiza cada destino, y es la que será usada si no se encuentra ninguna
+ruta más específica. No es necesario añadir este nombre a <filename>/etc/networks</filename>,
+porque esta información esta contenida en el código de <command>route</command>.
+</para>
+
+<para>
+Una tasa alta de pérdida de paquetes usando <command>ping</command> hacia una
+máquina situada detrás de una o más pasarelas, puede deberse a que la red está muy
+congestionada. La pérdida de paquetes no se debe tanto a deficiencias técnicas como
+a exceso temporal de carga en las máquinas que actúan de enlace, provocando retrasos
+o incluso el descarte de datagramas entrantes.
+</para>
+</sect2>
+
+<sect2 id="X-087-2-iface.interfaz.gateway-conf"><title>Configuración de una Pasarela</title>
+<indexterm><primary>configuración</primary><secondary>de pasarelas IP</secondary></indexterm>
+<indexterm><primary>pasarelas</primary><secondary>configuración de</secondary></indexterm>
+
+<para>
+Configurar una máquina para conmutar paquetes entre dos Ethernets
+es bastante sencillo. Suponga que nos encontramos en <systemitem
+role="sitename">vlager</systemitem>, que contiene dos tarjetas
+Ethernet, respectivamente conectadas a cada una de las dos redes.
+Todo lo que necesitará hacer es configurar ambas interfaces de
+forma separada, dándole a cada una su dirección IP correspondiente,
+y eso es todo.
+</para>
+
+<para>
+Es bastante útil incluir la información de ambas interfaces en el fichero
+<filename>hosts</filename> del modo indicado a continuación, de
+forma que tengamos nombres para referirnos a ellas también:
+
+<screen>
+172.16.1.1      vlager.vbrew.com    vlager vlager-if1
+172.16.2.1      vlager-if2
+</screen>
+</para>
+
+<para>
+La secuencia de comandos para establecer las dos intefaces
+es por tanto:
+
+<screen>
+# <userinput>ifconfig eth0 vlager-if1</userinput>
+# <userinput>route add brew-net</userinput>
+# <userinput>ifconfig eth1 vlager-if2</userinput>
+# <userinput>route add wine-net</userinput>
+</screen>
+</para>
+
+<para>
+Si esta secuencia no funciona, asegúrese de que el núcleo ha sido
+compilado con el soporte para transmisión IP (IP forwarding). Una
+buena forma de hacerlo es comprobar que el primer número de la
+segunda línea de <filename>/proc/net/snmp</filename> es un
+<literal>1</literal>.
+</para>
+</sect2>
+
+<sect2 id="X-087-2-iface.interfaz.plip"><title>La interfaz PLIP</title>
+<indexterm><primary>configuración</primary><secondary>de PLIP</secondary></indexterm>
+<indexterm><primary>interfaces</primary><secondary>PLIP</secondary></indexterm>
+<indexterm><primary>enlace punto a punto</primary></indexterm>
+<indexterm><primary>protocolo PLIP (Linea Paralela IP)</primary><secondary>interfaz</secondary></indexterm>
+<para>
+Si usa un enlace PLIP para conectar dos máquinas, las cosas son un poco
+diferentes de lo visto para una Ethernet. En caso de PLIP se trata de un enlace
+conocido como <emphasis>punto-a-punto</emphasis>, lo que significa que
+sólo hay una máquina a cada extremo del enlace. A las redes como Ethernet
+se les llama redes de <emphasis>difusión</emphasis>. La configuración de
+enlaces punto a punto es diferente porque a diferencia de las redes de difusión,
+los enlaces punto a punto no son una red por sí mismos.
+</para>
+
+<para>
+PLIP ofrece conexión muy barata y portable entre ordenadores. A modo de
+ejemplo, consideremos un ordenador portátil de un empleado en la
+Cervecera Virtual que se conecta a <systemitem role="sitename">vlager</systemitem>
+mediante PLIP. El portátil se llama <systemitem role="sitename">vlite</systemitem>, y
+tiene un único puerto paralelo. Durante el arranque, este puerto será registrado como
+<filename>plip1</filename>. Para activar el enlace, ha de configurar la interfaz
+<filename>plip1</filename> mediante las órdenes siguientes:<footnote id="X-087-2-FNTC07"><para>
+Dése cuenta de que <userinput>pointopoint</userinput> no es una errata, es así como
+se escribe.
+</para>
+</footnote>
+
+<screen>
+# <userinput>ifconfig plip1 vlite pointopoint vlager</userinput>
+# <userinput>route add default gw vlager</userinput>
+</screen>
+</para>
+
+<para>
+La primera orden configura la interfaz, diciéndole al núcleo que se
+trata de un enlace punto-a-punto, donde la parte remota tiene la dirección de
+<systemitem role="sitename">vlager</systemitem>. El segundo instala la ruta
+por omisión que usa a <systemitem role="sitename">vlager</systemitem> como
+pasarela. En <systemitem role="sitename">vlager</systemitem> se necesita
+ejecutar <command>ifconfig</command> con argumentos similares para activar
+el enlace (en este caso no es necesario usar <command>route</command>):
+
+<screen>
+# <userinput>ifconfig plip1 vlager pointopoint vlite</userinput>
+</screen>
+</para>
+
+<para>
+Es interesante notar que la interfaz <filename>plip1</filename> en <systemitem
+role="sitename">vlager</systemitem> no necesita tener una dirección IP diferente,
+sino que puede usar la misma dirección <systemitem role="sitename">172.16.1.1
+</systemitem>. Las redes punto-a-punto no representan directamente una red, así
+que las interfaces no necesitan una dirección en ninguna red soportada. El núcleo
+usa la información de la interfaz que hay en la tabla de enrutamiento para prevenir
+cualquier posible equivocación. <footnote
+id="X-087-2-FNTC08"><para> Simplemente por precaución, debería
+configurar de todos modos sus enlaces PLIP o SLIP una vez que ha
+completado la configuración de la tabla de encaminamiento de las
+Ethernets. Con algunos núcleos más antiguos, la tabla de
+encaminamiento para la red puede acabar apuntando a su enlace
+punto-a-punto.
+</para>
+</footnote>
+</para>
+
+<para>
+Una vez hemos configurado el encaminamiento desde el portátil a
+la red de la Cervecera, sólo resta arbitrar un modo para que cualquier
+máquina en esa red pueda acceder a <systemitem role="sitename">vlite
+</systemitem>. Un modo particularmente enrevesado seríia añadir una
+ruta a las tablas de encaminamiento de cada una de las máquinas de la
+red para usar <systemitem role="sitename">vlager</systemitem> como
+pasarela hacia <systemitem role="sitename">vlite</systemitem>:
+
+<screen>
+# <userinput>route add vlite gw vlager</userinput>
+</screen>
+</para>
+
+<para>
+<indexterm><primary>enrutado</primary><secondary>dinámico</secondary></indexterm>
+<indexterm><primary>Protocolo de Información de Enrutado (RIP)</primary></indexterm>
+<INDEXTERM><PRIMARY>RIP (Protocolo de Información de Enrutado)</PRIMARY></INDEXTERM>
+<indexterm><primary>orden gated</primary></indexterm>
+<indexterm><primary>ARP (Protocolo de Resolución de Direcciones)</primary><secondary>proxy</secondary></indexterm>
+<indexterm><primary>proxy ARP</primary></indexterm>
+Una opción mejor cuando tenemos que trabajar con rutas temporales es usar
+encaminamiento dinámico. Una forma de conseguirlo es usando
+<command>gated</command>, un demonio de encaminamiento, que
+deberá instalar en cada una de las máquinas de la red de modo que
+distribuya la información de encaminamiento de forma dinámica. La
+forma más sencilla, sin embargo, consiste en usar <emphasis>proxy
+ARP</emphasis>. Con la sustitución ARP, <systemitem role="sitename">vlager</systemitem>
+responde a cualquier pregunta ARP dirigida a <systemitem role="sitename">vlite</systemitem>
+enviando su propia dirección Ethernet. El efecto conseguido es que todos los paquetes
+dirigidos a <systemitem role="sitename">vlite</systemitem> terminan
+yendo a <systemitem role="sitename">vlager</systemitem>, que se encarga
+de reenviárselos al portátil. Volveremos a hablar de sustitución ARP  en la sección <xref
+linkend="X-087-2-iface.verify.arp">.&rdquo;
+</para>
+
+<para>
+<indexterm><primary>orden plipconfig</primary></indexterm>
+Las actuales versiones de <filename>net-tools</filename> contienen una
+herramienta llamada <command>plipconfig</command>, que permite
+configurar algunos parámetros que permiten ajustar ciertos parámetros del 
+la temporización de PLIP. La IRQ que va a usarse por el puerto de la impresora
+puese especificarse usando la orden <command>ifconfig</command>.
+</para>
+</sect2>
+
+<sect2 id="X-087-2-iface.interfaz.slip"><title>Las interfaces SLIP y PPP</title>
+<indexterm><primary>sl0 (interfaz SLIP)</primary></indexterm>
+<indexterm><primary>ppp0 (interfaz PPP)</primary></indexterm>
+<indexterm><primary>enlace punto a punto</primary></indexterm>
+<indexterm><primary>configuración</primary><secondary>de SLIP</secondary></indexterm>
+<indexterm><primary>configuración</primary><secondary>de PPP</secondary></indexterm>
+<indexterm><primary>interfaces</primary><secondary>SLIP</secondary></indexterm>
+<indexterm><primary>interfaces</primary><secondary>PPP</secondary></indexterm>
+<indexterm><primary>protocolo SLIP (Serial Line IP)</primary><secondary>interfaz de</secondary></indexterm>
+<indexterm><primary>PPP (Protocolo de Punto-a-Punto)</primary></indexterm>
+
+<para>
+A pesar de que los enlaces SLIP y PPP son simples enlaces
+punto-a-punto igual que las conexiones PLIP, hay mucho más que
+decir de ellas. Generalmente, el establecimiento de un enlace SLIP
+incluye una llamada a un lugar de conexión remoto a través de un módem
+y el establecimiento del modo SLIP en la línea de comunicaciones serie.
+El uso de PPP es similar. Las herramientas necesarias para establecer
+un enlace SLIP o PPP se describen en  <xref linkend="X-087-2-slip">
+y <xref linkend="X-087-2-ppp">.
+</para>
+</sect2>
+
+<sect2 id="X-087-2-iface.interfaz.dummy"><title> La Interfaz Comodín</title>
+<indexterm><primary>configuración de la interfaz comodín</primary></indexterm>
+<indexterm><primary>interfaces</primary><secondary>dummy</secondary></indexterm>
+<indexterm><primary>máquinas independientes</primary></indexterm>
+<indexterm><primary>máquinas</primary><secondary>independientes</secondary></indexterm>
+
+<para>
+La interfaz comodín (dummy) parece un tanto exótica y sin embargo
+es bastante útil. Resulta especialmente ventajosa para máquinas aisladas
+y para las que se conectan a una red IP mediante un enlace telefónico.
+Se trata en realidad de máquinas que trabajan de forma aislada la mayor
+parte del tiempo.
+</para>
+
+<para>
+El dilema con las máquinas aisladas es que el único dispositivo activo
+es el de bucle local, al que generalmente se le asigna la dirección
+<systemitem role="sitename">127.0.0.1</systemitem>. En ocasiones,
+sin embargo, le resultará necesario enviar datos a la dirección IP
+&ldquo;oficial&ldquo; de la máquina. Supongamos, por ejemplo, el caso
+del portátil <systemitem role="sitename">vlite</systemitem> cuando no
+esta conectado a ninguna red. Una aplicación en <systemitem role="sitename">vlite</systemitem>
+puede querer enviar datos a otra aplicación en la misma máquina.
+Buscar <systemitem role="sitename">vlite</systemitem> en
+<filename>/etc/hosts</filename> dará como resultado <systemitem
+role="sitename">172.16.1.65</systemitem>, y por tanto intentará
+enviar los datos a esa dirección. Como la única interfaz activa en
+ese momento es la de bucle local, el núcleo no sabe que la dirección se
+refiere a la misma máquina. En consecuencia el núcleo descarta el
+datagrama y genera un error en la aplicación.
+</para>
+
+<para>
+En esta situación es cuando la interfaz comodín es útil, resolviendo
+el dilema actuando como alter ego de la interfaz de bucle local. En el caso
+de <systemitem role="sitename">vlite</systemitem>, simplemente debe
+asignarle la dirección <systemitem
+role="sitename">172.16.1.65</systemitem> y añadir una ruta que apunte
+a ella. Cada datagrama para <systemitem
+role="sitename">172.16.1.65</systemitem> es enviado entonces localmente.
+La forma correcta es pues:<footnote id="X-087-2-FNTC09"><para>
+La interfaz comodín se llama <filename>dummy0</filename> si usted lo
+tiene cargado como un módulo en lugar de una opción integrada en el
+núcleo. Esto se debe a que es posible cargar varios módulos y tener más
+de una interfaz comodín.
+</para>
+</footnote>
+
+<screen>
+# <userinput>ifconfig dummy vlite</userinput>
+# <userinput>route add vlite</userinput>
+</screen>
+</para>
+
+</sect2>
+
+<sect2 id="X-087-2-iface.interfaz.alias"><title>Alias de IP</title>
+<INDEXTERM><PRIMARY>IP (Protocolo de Internet)</PRIMARY><SECONDARY>configuración de alias de</SECONDARY></INDEXTERM>
+<indexterm><primary>interfaces</primary><secondary>alias de</secondary></indexterm>
+<indexterm><primary>máquina independiente</primary></indexterm>
+<indexterm><primary>máquinas</primary><secondary>independientes</secondary></indexterm>
+<indexterm><primary>máquinas</primary><secondary>virtuales</secondary></indexterm>
+
+<para>
+Los nuevos núcleos llevan una funcionalidad que puede sustituir por completo a la interfaz
+comodín, y que tiene otras útiles funciones. <emphasis>IP
+Alias</emphasis> permite configurar múltiples direcciones IP en un sólo
+dispositivo físico. En el caso más simple, usted puede reproducir la función
+de la interfaz comodín configurando la dirección del nodo como un alias de la
+interfaz de bucle local, y evitar por completo usar la intefaz comodín. Para usos más complejos,
+usted puede configurar su máquina para simular ser varias máquinas, cada una con
+su propia dirección IP. Esta configuración es llamaba a veces &ldquo;Hosting Virtual,&rdquo;
+aunque técnicamente se usa también para otras muchas técnicas.<footnote id="X-087-2-FNTC10">
+<para>Más correctamente, el uso de alias de IP se conoce como hosting virtual de capa de red.
+En los mundos del WWW y STMP es más común usar hosting virtual de capa de aplicación, en el
+que la misma dirección IP es usada por cada máquina virtual, pero en cada petición de la
+capa de aplicación se pasa un nombre de máquina diferente. Servicios como el FTP no son
+capaces de operar de esta forma, y necesitan hosting virtual de capa de red.
+</para>
+</footnote>
+</para>
+
+<para>
+Para configurar un alias para una interfaz, primero debe asegurarse
+de que su núcleo ha sido compilado con soporte para Alias de IP (compruebe
+que tiene un fichero <filename>/proc/net/ip_alias</filename> ; si no es
+así, debe recompilar el núcleo). La configuración de un alias de IP es
+virtualmente idéntica a la configuración de un dispositivo de red real; se
+usa un nombre especial para indicar que lo que usted quiere es un alias. Por
+ejemplo:
+
+<screen>
+# <userinput>ifconfig lo:0 172.16.1.1</userinput>
+</screen>
+
+Esta orden creará un alias para la interfaz de bucle local con la dirección
+<literal>172.16.1.1</literal>. Los alias de IP se señalan anteponiendo
+:<replaceable>n</replaceable> al dispositivo actual de red, donde &ldquo;n&rdquo;
+es un entero. En nuestro ejemplo, el dispositivo de red donde estamos creando
+el alias es <literal>lo</literal>, y estamos creando un alias numerado como cero
+para él. De esta forma, un único dispositivo físico puede soportar varios alias.
+</para>
+
+<para>
+Cada alias debe ser tratado como si fuera un dispositivo diferente, y en lo
+referente al software de IP del núcleo, así es; por más que esté compartiendo
+su hardware con otro interfaz.
+</para>
+
+</sect2>
+
+</sect1>
+
+<sect1 id="X-087-2-iface.ifconfig"><title>Todo sobre ifconfig</title>
+<indexterm id="chtc.ifconfig.cmd" class="startofrange"><primary>orden ifconfig</primary></indexterm>
+<para>
+El programa <command>ifconfig</command> tiene muchos más parámetros que los descritos hasta
+ahora. Generalmente se ejecuta en la forma:
+
+<screen>
+ifconfig <replaceable>interfaz</replaceable> [<replaceable>dirección</replaceable> [<replaceable>parámetros</replaceable>]]
+</screen>
+</para>
+
+<para>
+<replaceable>interfaz</replaceable> es el nombre de la interfaz y
+<replaceable>dirección</replaceable> es la dirección IP que se asigna
+a dicha interfaz. La dirección puede estar en forma de cuaterna o
+usando un nombre que <command>ifconfig</command> buscará en <filename>/etc/hosts</filename>.
+</para>
+
+<para>
+<indexterm><primary>mostrar</primary><secondary>la configuración de la interfazz</secondary></indexterm>
+Si <command>ifconfig</command> es ejecutado añadiendo únicamente el nombre
+de la interfaz, presentará la información de la configuración de dicha
+interfaz. Si se ejecuta sin parámetros, presenta todas las interfaces
+configuradas hasta el momento; usando la opción <option>&ndash;a</option>
+fuerza a ifconfig a incluir la información de las interfaces inactivas.
+A modo de ejemplo, la consulta de la configuración de la interfaz Ethernet
+<filename>eth0</filename> sería:
+
+<screen>
+# <userinput>ifconfig eth0</userinput>
+eth0      Link encap 10Mbps Ethernet  HWaddr 00:00:C0:90:B3:42
+          inet addr 172.16.1.2 Bcast 172.16.1.255 Mask 255.255.255.0
+          UP BROADCAST RUNNING  MTU 1500  Metric 0
+          RX packets 3136 errors 217 dropped 7 overrun 26
+          TX packets 1752 errors 25 dropped 0 overrun 0
+</screen>
+</para>
+
+<para>
+<indexterm><primary>Unidad Máxima de Transferencia (MTU)</primary><secondary>salida de ifconfig</secondary></indexterm>
+<indexterm><primary>enrutado</primary><secondary>métrica de</secondary></indexterm>
+Los campos <literal>MTU</literal> y <literal>Metric</literal> informan sobre
+los valores actuales de la MTU (Unidad Máxima de Transferencia) y de la
+métrica para una interfaz dada. El valor de la métrica es usado
+tradicionalmente por algunos sistemas operativos para calcular el coste de
+una ruta. GNU/Linux no usa este valor por el momento, pero lo define por
+razones de compatibilidad.
+</para>
+
+<para>
+Las líneas <literal>RX</literal> y <literal>TX</literal> dan idea
+de los paquetes recibidos o transmitidos sin errores, del número de
+errores ocurridos, de cuántos paquetes han sido descartados (seguramente
+por memoria insuficiente), y cuántos han sido perdidos por desbordamiento,
+condición que ocurre cuando la recepción de paquetes es demasiado rápida
+y el núcleo es incapaz de dar servicio al paquete anterior antes de la
+llegada del nuevo paquete. Los nombres de los campos que genera
+<command>ifconfig</command> coinciden más o menos con los parámetros
+con los que se puede ejecutar; estos parámetros son explicados más abajo.
+</para>
+
+<para>
+A continuación tenemos una lista de los parámetros reconocidos por
+<command>ifconfig</command>. Las opciones que simplemente activan alguna
+característica pueden usarse para desactivarla precediéndolas de un guión (&ndash;).
+</para>
+
+<variablelist>
+<varlistentry><term><literal>up</literal></term>
+<listitem><para>
+Marca la interfaz como disponible para que sea usada por la capa IP.
+Esta opción va implícita cuando lo que se da en la línea de órdenes es una
+<replaceable>dirección</replaceable>. También permite reactivar una interfaz
+que se ha desactivado temporalmente mediante la opción <literal>down</literal>.
+</para>
+
+<para>Esta opción corresponde a los indicadores <option>UP</option> y <option>RUNNING</option>.
+</para>
+</listitem>
+</varlistentry>
+<varlistentry><term><literal>down</literal></term> <listitem><para>
+Marca la interfaz como inaccesible a la capa IP. Esto inhabilita cualquier
+tráfico IP a través de la interfaz. Es importante darse cuenta que esto también
+borra los registros de la tabla de encaminamiento correspondientes a esa interfaz
+de forma automática.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><literal>netmask</literal> <replaceable>máscara</replaceable></term>
+<listitem><para>
+<indexterm><primary>IP (Protocolo de Internet)</primary><secondary>máscara de redk</secondary></indexterm>
+<indexterm><primary>interfaces</primary><secondary>máscara de red de</secondary></indexterm>
+
+Esto asigna una máscara de subred a una interfaz. Se puede dar como un
+valor de 32 bits en hexadecimal precedido del prefijo 0x, o en notación
+de cuaterna usando números decimales separados por puntos. Aunque la notación
+en forma de cuaterna es más común, la representación hexadecimal es muchas veces
+más fácil de usar. Las máscaras de red son esencialmente binarias, y es más fácil
+hacer una conversión binario-a-hexadecimal que una binario-a-decimal.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><literal>pointopoint</literal> <replaceable>dirección</replaceable></term>
+<listitem><para>
+<indexterm><primary>enlace punto a punto</primary></indexterm>
+Esta opción se usa para enlaces IP punto-a-punto en los que intervienen
+únicamente dos máquinas. Esta opción es necesaria para, por ejemplo, configurar
+las interfaces SLIP o PLIP. Si se ha definido una dirección punto a punto,<command>ifconfig</command>
+muestra el indicador <option>POINTOPOINT</option>.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><literal>broadcast</literal>
+<replaceable>dirección</replaceable></term>
+<listitem><para>
+<indexterm><primary>IP (Protocolo de Internet)</primary><secondary>dirección de difusión</secondary></indexterm>
+<indexterm><primary>dirección de difusión</primary></indexterm>
+<indexterm><primary>direcciones</primary><secondary>de difusión</secondary></indexterm>
+La dirección de difusión se obtiene, generalmente, usando la parte de red de
+la dirección y activando todos los bits de la parte correspondiente a
+la máquina. Algunas implementaciones de los protocolos IP (por ejemplo,
+sistemas derivados de BSD 4.2) utilizan un esquema diferente; esta opción
+proporciona un método para adaptarse a esos entornos más raros.
+<command>ifconfig</command> confirma el establecimiento de una
+dirección de difusión incluyendo el indicador <option>BROADCAST</option>.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><literal>irq</literal></term>
+<listitem><para>
+<indexterm><primary>establecimiento</primary><secondary>de IRQ</secondary></indexterm>
+<indexterm><primary>IRQ (Interrupt Request)</primary><secondary>establecimiento de</secondary></indexterm>
+Esta opción permite establecer la línea de IRQ usado por ciertos dispositivos.
+Esto es especialmente útil para PLIP, pero también puede ser de utilidad para
+algunas tarjetas Ethernet.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><literal>metric</literal> <replaceable>número</replaceable></term>
+<listitem><para>
+<indexterm><primary>Protocolo de Información de Encaminamiento(RIP)</primary></indexterm>
+<INDEXTERM><PRIMARY>RIP (Protocolo de Información de Encaminamiento)</PRIMARY></INDEXTERM>
+<indexterm><primary>IP (Protocolo de Internet)</primary><secondary>métrica</secondary></indexterm>
+Esta opción puede ser usada para asignar un valor de métrica a la tabla de
+encaminamiento creada para la interfaz. Esta métrica es usada por el Protocolo
+de Información de Encaminamiento (RIP) para construir las tablas de encaminamiento
+para la red.<footnote id="X-087-2-FNTC11"><para>
+RIP elige la ruta óptima a una determinada máquina basándose en la
+&ldquo;longitud&rdquo; del camino. Esto se calcula sumando los valores de las
+métricas individuales de cada enlace máquina-a-máquina. por omisión, un salto
+tiene longitud 1, pero puede ser cualquier entero positivo menor de 16 (Una longitud
+de ruta igual a 16 equivale a infinito. Estas rutas se consideran inusables). El
+parámetro <option>metric</option> establece este coste de los saltos, que es
+difundido entonces por el demonio de encaminamiento.
+</para>
+</footnote>
+
+El valor usado por omisión por <command>ifconfig</command> es cero.
+Si no esta ejecutando un demonio RIP, no necesita usar esta opción para
+nada; si por el contrario lo usa, sólo tendrá que modificar este valor
+en contadas ocasiones.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><literal>mtu</literal> <replaceable>bytes</replaceable></term>
+<listitem><para>
+<indexterm><primary>Unidad Máxima de Transferencia (MTU)</primary></indexterm>
+Esto fija la unidad máxima de transferencia, o lo que es lo mismo, el máximo
+número de octetos que la interfaz es capaz de manejar en una única transacción.
+Para Ethernets, la MTU toma el valor 1500 por omisión (que es el tamaño máximo
+permitido para un paquete Ethernet); para interfaces tipo SLIP, el valor por
+defecto es 296. No hay tamaño límite para el MTU en enlaces SLIP, pero este
+valor es una buena garantía.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><literal>arp</literal></term>
+<listitem><para>
+<indexterm><primary>ARP (Protocolo de Resolución de Direcciones)</primary><secondary>activación/desactivación</secondary></indexterm>
+Esta opción es específica de redes de difusión como las Ethernets o las de radio-paquetes.
+Permite el uso de ARP, el Protocolo de Resolución de Direcciones, para detectar
+la dirección física de las máquinas conectadas a la red. Para redes de difusión,
+esta opción es habilitada por omisión. Si ARP está desactivado,<command>ifconfig</command>
+muestra el indicador <option>NOARP</option>.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><literal>&ndash;arp</literal></term>
+<listitem><para>
+Inhabilita el uso de ARP para esta interfaz.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><literal>promisc</literal></term>
+<listitem><para>
+<indexterm><primary>Ethernet</primary><secondary>modo promiscuo de</secondary></indexterm>
+<indexterm><primary>seguridad</primary><secondary>en Ethernet</secondary></indexterm>
+
+Pone la interfaz en modo promiscuo. En una red de difusión, esto
+hace que la interfaz reciba todos los paquetes, independientemente
+de si eran para ella o no. Esto permite el análisis del tráfico de
+red utilizando utilidades como filtros de paquetes, también llamado
+<emphasis>fisgoneo de Ethernet</emphasis>. Se trata de una buena
+técnica para localizar problemas de red que de otra forma resultan
+difíciles de detectar. Herramientas como <command>tcpdump</command>
+se basan en esto.
+</para>
+
+<para>
+Por otro lado, esta opción permite a los atacantes hacer cosas feas,
+como filtrar el tráfico de su red en busca de contraseñas. Usted puede
+protegerse contra este tipo de ataques simplemente prohibiendo que nadie
+conecte un ordenador en la red. También puede usar protocolos de
+autentificación segura, como Kerberos o ssh (secure shell).
+<footnote id="X-087-2-FNTC12"><para> ssh puede obtenerse en
+ <systemitem role="sitename">ftp.cs.hut.fi</systemitem> en
+<filename>/pub/ssh</filename>.
+</para>
+</footnote> Esta opción corresponde al indicador<option>PROMISC</option>.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><literal>&ndash;promisc</literal></term>
+<listitem><para>
+Esta opción apaga el modo promiscuo.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><literal>allmulti</literal></term>
+<listitem><para>
+<indexterm><primary>IP (Protocolo de Internet)</primary><secondary>direcciones de envío múltiple</secondary></indexterm>
+Las direcciones de envío múltiple (multicast) son como las direcciones de difusión de Ethernet, excepto
+que en lugar de incluir automáticamente a todo el mundo, los únicos que reciben paquetes
+enviados a una dirección de envío múltiple son aquellos programados para escucharla. Esto
+es útil para aplicaciones como videoconferencia basada en Ethernet o audio para red, en los
+que sólo los interesados pueden escuchar. Las direcciones de envío múltiple están soportadas
+por casi todas las controladoras Ethernet (pero no todas). Cuando esta opción está activa,
+la interfaz recibe y envía paquetes de envío múltiple para su proceso. Esta opción corresponde
+al indicador <option>ALLMUTI</option>.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><literal>&ndash;allmulti</literal></term>
+<listitem><para>
+Esta opción desactiva las direcciones de envío múltiple.
+</para>
+</listitem>
+</varlistentry>
+</variablelist>
+
+<indexterm class="endofrange" startref="chtc.ifconfig.cmd"> 
+</sect1>
+
+<sect1 id="X-087-2-iface.netstat"><title>La orden netstat</title>
+<indexterm id="idx-commandnetstatcommand-1" class="startofrange"><primary>orden netstat</primary></indexterm>
+<para>
+<command>netstat</command> es una herramienta útil para comprobar la configuración
+y actividad de su red. Se llama netstat, aunque se trata en realidad de una colección
+de herramientas combinadas. Describiremos cada una de las funciones en las secciones
+siguientes.
+</para>
+
+<sect2 id="X-087-2-iface.netstat.-r"><title>Consulta de la tabla de encaminamiento</title>
+<indexterm><primary>IP (Protocolo de Internet)</primary><secondary>de encaminamiento</secondary><tertiary>tabla</tertiary></indexterm>
+<indexterm><primary>comprobación</primary><secondary>de la tabla de encaminamiento</secondary></indexterm>
+<indexterm><primary>consulta</primary><secondary>de la tabla de encaminamiento IP</secondary></indexterm>
+
+<para>
+Si ejecuta <command>netstat</command> usando el indicador <option>&ndash;r</option>,
+puede ver la información de la tabla de encaminamiento del núcleo igual que hemos
+venido haciendo hasta ahora con <command>route</command>. Para
+<systemitem role="sitename">vstout</systemitem>, tendríamos:
+
+<screen>
+# <userinput>netstat -nr</userinput>
+Kernel IP routing table
+Destination   Gateway      Genmask         Flags  MSS Window  irtt Iface
+127.0.0.1     *            255.255.255.255 UH       0 0          0 lo
+172.16.1.0    *            255.255.255.0   U        0 0          0 eth0
+172.16.2.0    172.16.1.1   255.255.255.0   UG       0 0          0 eth0
+</screen>
+</para>
+
+<para>
+
+La opción -n hace que <command>netstat</command> imprima las direcciones
+IP en notación de cuaterna en vez de usar los nombres simbólicos de las
+máquinas o las redes. Esto es especialmente útil si pretende evitar
+consultas para esos nombres a través de la red (por ejemplo consultas
+a un servidor DNS o NIS).
+</para>
+
+<para>
+La segunda columna de la salida producida por <command>netstat</command>
+informa sobre las pasarelas a las que apunta la información de
+encaminamiento. Si una ruta no usa pasarela, el programa imprime un
+asterisco. La tercera columna imprime el nivel de &ldquo;generalización&rdquo;
+de una ruta. Dada una dirección IP para la que encontrar una ruta apropiada, el núcleo
+recorre la tabla registro a registro haciendo un "AND" lógico de la dirección
+y la máscara de nivel de generalización antes de compararla con el destino
+que muestra dicho registro.
+</para>
+
+<para>
+La cuarta columna muestra varios indicadores que describen la ruta:
+
+<variablelist>
+<varlistentry><term><literal>G</literal></term>
+<listitem><para>
+La ruta utiliza una pasarela.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><literal>U</literal></term>
+<listitem><para>
+La interfaz está activa.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><literal>H</literal></term>
+<listitem><para>
+ Esta interfaz permite el acceso a una sola máquina. Este es el caso
+ de la interfaz de bucle local <systemitem role="sitename">127.0.0.1</systemitem>.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><literal>D</literal></term> <listitem><para>
+
+Esta ruta es creada dinámicamente. Aparece si la entrada de la tabla ha
+sido generada por un demonio de encaminamiento como <command>gated</command>
+o por un mensaje de redirección ICMP (ver la sección <xref
+linkend="X-087-2-issues.icmp">&rdquo; en el capítulo 2).
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><literal>M</literal></term> <listitem><para> Presente
+cuando este registro ha sido modificado por un mensaje de redirección ICMP.
+</para>
+</listitem>
+</varlistentry>
+
+
+<varlistentry><term><literal>!</literal></term>
+<listitem><para>
+La ruta es una ruta de rechazo, y los datagramas serán descartados.
+</para>
+</listitem>
+</varlistentry>
+</variablelist>
+</para>
+
+<para>
+<indexterm><primary>parámetro irtt</primary></indexterm>
+<indexterm><primary>mostrar</primary><secondary>irtt</secondary></indexterm>
+Las siguientes tres columnas muestran el MSS, tamaño de ventana y irtt que
+serán aplicados a las conexiones TCP establecidas a través de esta ruta. El
+MSS es el Tamaño Máximo de Segmento, y es el tamaño del datagrama más grande
+que construirá el núcleo para transmitir a través de esta ruta. La Ventana es
+la cantidad máxima de datos que el sistema aceptará de una sola vez desde una
+máquina remota. El acrónimo <literal>irtt</literal> significa &ldquo;tiempo inicial
+de ida y vuelta&rdquo;, por sus iniciales en inglés. El protocolo TCP se asegura
+de que los datos han sido transmitidos de forma fiable entre máquinas
+retransmitiendo un datagrama si éste ha sido perdido. El protocolo TCP mantiene
+un contador de cuánto tarda un datagrama en ser enviado a su destino, y el
+"recibo" que se recibe, de forma que sabe cuánto esperar antes de suponer que un
+datagrama necesita retrasmitirse. Este proceso se llama tiempo de ida y vuelta.
+El tiempo de ida y vuelta inicial es el valor que el protocolo TCP usará cuando
+se establezca una conexión por primera vez. Para la mayoría de los tipos de redes,
+el valor por omisión es válido, pero para algunas redes lentas, especialmente
+ciertos tipos de redes de radiopaquetes de aficionados, el tiempo es demasiado
+pequeño y causa retransmisiones innecesarias. El valor de <literal>irtt</literal>
+puede ajustarse usando el comando <command>route</command>. Los campos a 0
+significan que se está usando el valor por omisión.
+</para>
+
+<para>
+Para terminar, el último campo muestra el interfaz de red que usará esta ruta.
+</para>
+</sect2>
+
+<sect2 id="X-087-2-iface.netstat.-i"><title>Consulta de las estadísticas de una interfaz</title>
+<indexterm><primary>consulta</primary><secondary>de una interfaz</secondary><tertiary>estadísticas</tertiary></indexterm>
+<indexterm><primary>interfaces</primary><secondary>estadísticas de las, consulta</secondary></indexterm>
+<indexterm><primary>comprobación</primary><secondary>de red</secondary>
+<tertiary>de las interfaces</tertiary></indexterm>
+
+<para>
+Cuando se invoca con el indicador <option>&ndash;i</option>
+<command>netstat</command> presenta las estadísticas para las interfaces
+de red configuradas en ese momento. Si también se pasa la opción
+<option>&ndash;a</option>, mostrará <emphasis>todas</emphasis> las
+interfaces presentes en el núcleo, y no sólo aquellas que hayan sido
+configuradas. En <systemitem role="sitename">vstout</systemitem>, la
+salida para  <command>netstat</command> sería algo así:
+
+<screen>
+# <userinput>netstat -i</userinput>
+Kernel Interface table
+Iface MTU Met  RX-OK RX-ERR RX-DRP RX-OVR  TX-OK TX-ERR TX-DRP TX-OVR Flags
+lo      0   0   3185      0      0      0   3185      0      0      0 BLRU
+eth0 1500   0 972633     17     20    120 628711    217      0      0 BRU
+</screen>
+</para>
+
+<para>
+Los campos <literal>MTU</literal> y <literal>Met</literal> muestran los valores
+actuales de MTU y de métrica para esa interfaz. Las columnas
+<literal>RX</literal> y <literal>TX</literal> muestran cuántos paquetes
+han sido recibidos o transmitidos sin errores
+(<literal>RX-OK</literal>/<literal>TX-OK</literal>) o dañados
+(<literal>RX-ERR</literal>/<literal>TX-ERR</literal>); cuántos fueron descartados
+ (<literal>RX-DRP</literal>/<literal>TX-DRP</literal>); y cuántos se perdieron por
+ un desbordamiento. (<literal>RX-OVR</literal>/<literal>TX-OVR</literal>).
+</para>
+
+<para>
+La última columna muestra los indicadores activos para cada interfaz. Son
+abreviaturas del nombre completo del indicador, que se muestran con la
+configuración de la interfaz que ofrece <command>ifconfig</command>:
+
+<variablelist>
+<varlistentry><term><literal>B</literal></term>
+<listitem><para>
+Dirección de difusión activa.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><literal>L</literal></term>
+<listitem><para>
+La interfaz es un dispositivo de bucle local.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><literal>M</literal></term>
+<listitem><para>
+Se reciben todos los paquetes (modo promiscuo).
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><literal>O</literal></term>
+<listitem><para>
+ARP no funciona para esta interfaz.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><literal>P</literal></term>
+<listitem><para>
+Conexión punto a punto.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><literal>R</literal></term>
+<listitem><para>
+La interfaz funciona.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><literal>U</literal></term>
+<listitem><para>
+La interfaz está activa.
+</para></listitem>
+</varlistentry>
+</variablelist>
+</para>
+</sect2>
+
+<sect2 id="X-087-2-iface.netstat.-t-u-x"><title>Mostrar conexiones</title>
+<indexterm><primary>mostrar</primary><secondary>conexiones activas</secondary></indexterm>
+<indexterm><primary>redes</primary><secondary>mostrar conexiones</secondary></indexterm>
+<indexterm><primary>comprobación</primary><secondary>de redes</secondary>
+<tertiary>de conexiones</tertiary></indexterm>
+<indexterm><primary>comprobando</primary><secondary>la actividad del servidor TCP</secondary></indexterm>
+<INDEXTERM><PRIMARY>orden netstat</PRIMARY><SECONDARY>mostrando conexiones con el</SECONDARY></INDEXTERM>
+<para>
+<command>netstat</command> ofrece una serie de opciones para mostrar los puertos
+activos o pasivos. Las opciones <option>&ndash;t</option>,
+<option>&ndash;u</option>, <option>&ndash;w</option>, y
+<option>&ndash;x</option> muestran conexiones activas a puertos
+TCP, UDP, RAW, o Unix. Si incluye además el indicador
+<option>&ndash;a</option>, se mostrarán también los puertos que
+estén esperando una conexión (es decir, que estén escuchando). Esto
+le dará una lista de todos los servidores que estén corriendo
+actualmente en su sistema.
+</para>
+
+<para>
+Llamar a <command>netstat -ta</command> en
+<systemitem role="sitename">vlager</systemitem> produce esta salida:
+
+<screen>
+$ <userinput>netstat -ta</userinput>
+Active Internet Connections
+Proto Recv-Q Send-Q Local Address    Foreign Address    (State)
+tcp        0      0 *:domain         *:*                LISTEN
+tcp        0      0 *:time           *:*                LISTEN
+tcp        0      0 *:smtp           *:*                LISTEN
+tcp        0      0 vlager:smtp      vstout:1040        ESTABLISHED
+tcp        0      0 *:telnet         *:*                LISTEN
+tcp        0      0 localhost:1046   vbardolino:telnet  ESTABLISHED
+tcp        0      0 *:chargen        *:*                LISTEN
+tcp        0      0 *:daytime        *:*                LISTEN
+tcp        0      0 *:discard        *:*                LISTEN
+tcp        0      0 *:echo           *:*                LISTEN
+tcp        0      0 *:shell          *:*                LISTEN
+tcp        0      0 *:login          *:*                LISTEN
+</screen>
+</para>
+
+<para>
+Esta salida muestra que la mayoría de los servidores están simplemente
+esperando una conexión externa. Sin embargo, la cuarta línea muestra una
+conexión SMTP desde <systemitem role="sitename">vstout</systemitem>,
+y la sexta línea le indica que usted está haciendo una conexión telnet
+a <systemitem role="sitename">vbardolino</systemitem>.<footnote
+id="X-087-2-FNTC13"><para> Para saber si una conexión es saliente por
+los números de puerto. El número de puerto mostrado por una máquina
+<emphasis>que llama</emphasis> siempre será un entero simple. En el caso
+de llamar a una máquina, usaremos un puerto correspondiente a un servicio
+conocido, por lo que <command>netstat</command> usará el nombre simbólico,
+como <literal>smtp</literal>, que encuentre en <filename>/etc/services</filename>.
+</para>
+</footnote>
+
+</para>
+
+<para>
+El indicador <option>&ndash;a</option> por sí sólo indicará todos los
+sockets de todo tipo.
+</para>
+
+<para>
+<indexterm class="endofrange" startref="idx-commandnetstatcommand-1">
+</para>
+
+</sect2>
+</sect1>
+
+<sect1 id="X-087-2-iface.verify.arp"><title>Comprobación de las tablas ARP</title>
+<indexterm><primary>comprobación</primary><secondary>de las interfaces Ethernet</secondary></indexterm>
+<indexterm><primary>comprobación</primary><secondary>de las tablas ARP</secondary></indexterm>
+<indexterm><primary>ARP (Protocolo de Resolución de Direcciones)</primary><secondary>tabla</secondary></indexterm>
+<indexterm><primary>mostrar</primary><secondary>las tablas ARP</secondary></indexterm>
+
+<para>
+En ciertas ocasiones, es útil poder ver o alterar el contenido de las tablas
+ARP del núcleo, por ejemplo, cuando usted sospecha que una dirección IP
+duplicada es la casa de algún problema intermitente en su red. La herramienta
+<command>arp</command> se hizo para situaciones como ésta. Sus opciones son:
+
+<screen>
+arp [-v] [-t <replaceable>tipohw</replaceable>] -a [<replaceable>hostname</replaceable>]
+arp [-v] [-t <replaceable>tipohw</replaceable>] -s <replaceable>hostname</replaceable> <replaceable>dirección hardware</replaceable>
+arp [-v] -d <replaceable>máquina</replaceable> [<replaceable>hostname</replaceable>&hellip;]
+</screen>
+</para>
+
+<para>
+Todos los argumentos <replaceable>hostname</replaceable> pueden ser nombres
+simbólicos, o direcciones IP en notación de cuaterna.
+</para>
+
+<para>
+El primer comando muestra el registro de la tabla correspondiente a la dirección
+IP o máquina especificada, o si no se pasa ninguna, se mostrarán todos los
+registros. Por ejemplo, al invocar <command>arp</command> en
+<systemitem role="sitename">vlager</systemitem> obtendríamos:
+
+<screen>
+# <userinput>arp -a</userinput>
+IP address      HW type                 HW address
+172.16.1.3      10Mbps Ethernet         00:00:C0:5A:42:C1
+172.16.1.2      10Mbps Ethernet         00:00:C0:90:B3:42
+172.16.2.4      10Mbps Ethernet         00:00:C0:04:69:AA
+</screen>
+</para>
+
+<para>
+Que muestra las direcciones Ethernet de
+<systemitem role="sitename">vlager</systemitem>,
+<systemitem role="sitename">vstout</systemitem> y
+<systemitem role="sitename">vale</systemitem>.
+</para>
+
+<para>
+Se puede limitar el listado a un tipo de hardware especificado usando
+la opción <option>&ndash;t</option>. Los valores posibles son <systemitem
+role="keyword">ether</systemitem>, <systemitem
+role="keyword">ax25</systemitem>, o <systemitem
+role="keyword">pronet</systemitem>, y se refieren a Ethernet de 10Mbps,
+AMPR AX.25, y equipos token ring IEEE 802.5, respectivamente.
+</para>
+
+<para>
+La opción <option>&ndash;s</option> se usa para añadir permanentemente la
+dirección Ethernet de la máquina especificada a las tablas ARP. El argumento
+<replaceable>dirección hawdware</replaceable> especifica la dirección de hardware,
+que por omisión se supone que es una dirección Ethernet especificada como
+seis bytes en hexadecimal separados por dos puntos. Usted puede incluso
+definir las direcciones de hardware para otros tipos de hardware, usando
+la opción <option>&ndash;t</option>.
+</para>
+
+<para>
+Por alguna razón, las peticiones ARP para máquinas remotas fallan algunas
+veces, por ejemplo cuando el controlador ARP no funciona, o cuando alguna
+otra máquina se identifica erróneamente como si ella misma tuviera esa
+dirección IP. Este problema requiere que usted añada manualmente una
+dirección IP en la tabla ARP. También es una forma (muy drástica) de
+protegerse a sí mismo de otras máquinas de su Ethernet que tratan de hacerse
+pasar por otras.
+</para>
+
+<para>
+El uso de <command>arp</command> con el modificador <option>&ndash;d</option>
+borra todas las entradas ARP referentes a la máquina dada. Este modificador
+puede ser usado para forzar a la interfaz a intentar obtener la dirección
+Ethernet correspondiente a la dirección IP en cuestión. Esto es útil cuando
+un sistema mal configurado ha emitido una información ARP errónea (por supuesto,
+usted debe reconfigurar la máquina estropeada primero).
+</para>
+
+<para>
+<indexterm><primary>enlace punto a punto</primary></indexterm>
+<indexterm><primary>enrutado</primary><secondary>de proxy ARP</secondary></indexterm>
+<indexterm><primary>enrutado</primary><secondary>dinámico</secondary></indexterm>
+<indexterm><primary>proxy ARP</primary></indexterm>
+<indexterm><primary>ARP (Protocolo de Resolución de Direcciones)</primary><secondary>proxy</secondary></indexterm>
+<indexterm><primary>protocolo SLIP (Serial Line IP)</primary><secondary>enrutado</secondary></indexterm>
+<indexterm><primary>protocolo PLIP (Parallel Line IP)</primary><secondary>enrutado</secondary></indexterm>
+<indexterm><primary>PPP (Protocolo punto a punto)</primary><secondary>enrutado</secondary></indexterm>
+La opción <option>&ndash;s</option> también puede usarse para implementar
+un <emphasis>proxy</emphasis> ARP. Esta es una técnica especial, en la que
+una máquina, llamémosla <systemitem role="sitename">gate</systemitem>, actúa
+como una pasarela a otra máquina llamada <systemitem
+role="sitename">fnord</systemitem> simulando que las dos direcciones hacen
+referencia a la misma máquina, en este caso  <systemitem
+role="sitename">gate</systemitem>. Esto se consigue incluyendo una entrada
+ARP para <systemitem role="sitename">fnord</systemitem> que apunte a su
+propia interfaz Ethernet. Cuando una máquina envíe una petición ARP para
+<systemitem role="sitename">fnord</systemitem>, <systemitem
+role="sitename">gate</systemitem> devolverá una respuesta con su
+propia dirección Ethernet. La máquina que hizo la petición enviará entonces
+todos los datagramas a <systemitem role="sitename">gate</systemitem>,
+que se los pasará a <systemitem role="sitename">fnord</systemitem>.
+</para>
+
+<para>
+Estas virguerías pueden ser necesarias cuando usted quiera acceder a
+<systemitem role="sitename">fnord</systemitem> desde una máquina DOS
+con una implementación errónea de TCP, que no entienda el enrutado demasiado
+bien. Cuando use proxy ARP, éste le aparecerá a la máquina DOS como si
+<systemitem role="sitename">fnord</systemitem> estuviera en la subred local,
+así que no tiene que saber cómo enrutar a través de una pasarela.
+</para>
+
+<para>
+Otra aplicación útil del proxy ARP es cuando una de sus máquinas
+actúe como una pasarela para otra máquina sólo temporalmente, por
+ejemplo a través de un enlace telefónico. En un ejemplo anterior,
+ya nos encontramos con que el portátil <systemitem role="sitename">vlite</systemitem>
+se conectaba a <systemitem role="sitename">vlager</systemitem>
+a través de un enlace PLIP de vez en cuando. Por supuesto, esta
+aplicación servirá sólo si la dirección de la máquina para la que quiere
+actuar como proxy ARP está en la misma subred que su pasarela. <systemitem
+role="sitename">vstout</systemitem> podría hacer de proxy ARP para cualquier
+máquina de la red de la Cervecera (<systemitem
+role="sitename">172.16.1.0</systemitem>), pero nunca para una máquina de la
+red de la Vinatera (<systemitem role="sitename">172.16.2.0</systemitem>).
+</para>
+
+<para>
+La invocación adecuada para hacer de proxy ARP para <systemitem
+role="sitename">fnord</systemitem> se da abajo. Por supuesto, la
+dirección Ethernet dada debe ser la de <systemitem
+role="sitename">gate</systemitem>:
+</para>
+
+<para>
+<screen>
+# arp -s fnord 00:00:c0:a1:42:e0 pub
+</screen>
+</para>
+
+<para>
+Para borrar el registro del proxy ARP:
+
+<screen>
+# arp -d fnord
+</screen>
+</para>
+
+</sect1>
+
+<indexterm class="endofrange" startref="chtc.tcpip.config.netwks">
+</chapter>
+

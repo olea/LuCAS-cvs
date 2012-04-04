@@ -1,0 +1,496 @@
+<Chapter Id="regress">
+<Title>Pruebas de regresión</Title>
+
+<Abstract>
+<Para>
+Instruciones y análisis del test de regresión
+</Para>
+</Abstract>
+
+<Para>
+  Los tests de regresión de PostgreSQL son un conjunto completo de pruebas
+  para la implementación de SQL embebidos en PostgreSQL. Realizan pruebas
+  tanto sobre operaciones SQL estándar, como también sobre las capacidades
+  añadidas por PostgreSQL.
+</Para>
+
+<Para>
+  Los tests de regresión fueron desarrollados originalmente por Jolly Chen y 
+  Andrew Yu, y fueron extensamente repasados/reempaquetados por Fournier y
+  Thomas Lockhart. Para <ProductName>PostgreSQL</ProductName> v6.1 en 
+  adelante los tests de regresión forman parte de cada release oficial.
+</Para>
+
+<Para>
+  Algunas bases de datos PostgreSQL correctamente instaladas y totalmente
+  funcionales pueden fallar en alguno de estos test de regresión debido a
+  problemas con la representación del punto flotante y el soporte de zona
+  horaria. Los tests actuales son evaluados usando un sencillo algoritmo
+  "diff", y son muy sensibles a pequeñas diferencias en el sistema. Para
+  tests aparentemente fallidos, si se examinan estas diferencias, pueden
+  revelar no ser significativas.
+</Para>
+
+<Para>
+Las notas sobre tests de regresión de abajo asumen lo siguiente
+(excepto en casos indicados):
+<ItemizedList Mark="bullet" Spacing="compact">
+<ListItem>
+<Para>
+Las instrucciones son compatibles con Unix. Vea la nota abajo.
+</Para>
+</ListItem>
+<ListItem>
+<Para>
+Se usan las opciones por defecto excepto donde se indica.
+</Para>
+</ListItem>
+<ListItem>
+<Para>
+El usuario postgres es el superusuario <ProductName>Postgres</ProductName>.
+</Para>
+</ListItem>
+<ListItem>
+<Para>
+La ruta de las fuentes es /usr/src/pgsql (son posibles otras rutas).
+</Para>
+</ListItem>
+<ListItem>
+<Para>
+La ruta de los ejecutables es /usr/local/pgsql (son posibles otras rutas).
+</Para>
+</ListItem>
+</ItemizedList>
+</Para>
+
+<Sect1>
+<Title>Entorno de regresión</Title>
+
+<Para>
+  Para preparar los tests de regresión, haga <Command>make all</Command>
+  en el directorio de los tests de regresión. Esto compila un programa
+  <Acronym>C</Acronym> con funciones extendidas PostgreSQL en un
+  librería compartida. Se generan algunos guiones (scripts) SQL localizados
+  y archivos de salida comparativos para los tests que los necesiten.
+  La localización reemplaza macros en los archivos de fuentes con
+  rutas absolutas y nombres de usuario.
+</Para>
+
+<Para>
+  Normalmente, los tests de regresión deben ser ejecutados por el usuario
+  postgres ya que el directorio 'src/test/regress' y subdirectorios son 
+  de su propiedad. Si ejecuta los test de regresión con otro usuario el
+  directorio 'src/test/regress' debe tener permisos de escritura para ese
+  usuario.
+</Para>
+
+<Para>
+  Antes era estrictamente necesario ejecutar el postmaster con la zona
+  horaria del sistema establecida en PST, pero ya no es necesario. Puede
+  ejecutar los tests de regresión sobre su configuración habitual del 
+  postmaster. El guión (script) del test establecerá la variable de entorno
+  PGTZ para asegurar que los tests dependientes de la zona horaria produzcan 
+  los resultados esperados. De todas formas, su sistema debe proporcionar 
+  librerías de soporte para la zona horaria PST8PDT, o los tests
+  dependientes de la zona horaria fallarán.
+  Para comprobar que su equipo soporta esto, escriba lo siguiente:
+<ProgramListing>
+    setenv TZ PST8PDT
+    date
+</ProgramListing>
+</Para>
+
+<Para>
+  La orden "date" de arriba tiene que devolver la hora actual del sistema
+  en la zona horaria PST8PDT. Si la base de datos PST8PDT no está disponible,
+  entonces el sistema tiene que devolver la hora en GMT. Si la zona horaria
+  PST8PDT no está disponible, puede establecer las reglas para esa zona 
+  horaria explicitamente.
+<ProgramListing>
+    setenv PGTZ PST8PDT7,M04.01.0,M10.05.03
+</ProgramListing>
+    </Para>
+  </sect1>
+  
+  <Sect1>
+    <Title>Estructura de directorios</Title>
+    
+    <Para>
+      <Note>
+       <Para>
+        Esto debería ser una tabla en la sección anterior.
+       </Para>
+      </Note>
+    </Para>
+    
+    <Para>
+     <ProgramListing>
+  input/ .... .Archivos fuente que son convertidos, usando 'make all', en
+              alguno de los archivos .sql en el subdirectorio 'sql'
+
+  output/ ... .Archivos fuente que son convertidos, usando 'make all', en
+              archivos .out en el subdirectorio 'expected'  
+
+  sql/ ...... .Archivos sql usados para ejecutar los tests de regresión
+
+  expected/ . .Archivos .out que representan lo que *esperamos* que parezcan
+              los resultados
+
+  results/ .. .Archivos .out que contienen lo que los resultados *realmente*
+              parecen. Además es usado como almacén temporal para el test de 
+              copia de tablas.
+      </ProgramListing>
+    </Para>
+  </Sect1>
+  
+  <Sect1>
+    <Title>Procedimiento para el test de regresión</Title>
+    
+    <Para>
+      Las instrucciones están probadas en un RedHat Linux versión 4.2 usando
+      el intérprete de órdenes bash. Excepto donde se indique, seguramente
+      funcione en la mayoría de sistemas. Instrucciones como
+      <FileName>ps</FileName> y <FileName>tar</FileName> cambian mucho las
+      opciones que debe usar en cada plataforma. <Emphasis>Use el sentido
+      común</Emphasis> antes de escibir estas instrucciones.
+    </Para>
+      
+    <Para>
+     Para una instalación nueva o si está actualizando una versión
+     anterior de <ProductName>Postgres</ProductName>:
+    </Para>
+    
+    <Procedure>
+      <Title>Configuración de la Regresión de
+       <ProductName>Postgres</ProductName>
+      </Title>
+
+      <Step Performance="required">
+       <Para>
+        El archivo /usr/src/pgsql/src/test/regress/README tiene instrucciones
+        detalladas para la ejecución e interpretación de los tests de regresión.
+        Lo que sigue es una versión más corta:
+       </Para>
+
+       <Para>
+        Si el postmaster no se está ejecutando ya, inicie el postmaster en una
+        ventana que esté disponible escribiendo
+        <ProgramListing>
+         postmaster
+        </ProgramListing>
+        o inicie el demonio postmaster en segundo plano escibiendo
+        <ProgramListing>
+         cd
+         nohup postmaster > regress.log 2>&1 &
+        </ProgramListing>
+       </Para>
+
+       <Para>
+        Ejecute postmaster desde la cuenta de superusuario
+        de <ProductName>Postgres</ProductName> (normalmente la
+        cuenta postgres). 
+        <Note>
+         <Para>
+          No ejecute <FileName>postmaster</FileName> desde la cuenta de root.
+         </Para>
+        </Note>
+       </Para>
+      </Step>
+      
+      <Step Performance="optional">
+       <Para>
+        Si ha ejecutado anteriormente los tests de regresión, borre el
+        directorio de trabajo con:
+        <ProgramListing>
+         cd /usr/src/pgsql/src/test/regress
+         gmake clean
+        </ProgramListing>
+       </Para>
+
+       <Para>
+        No necesita escribir "gmake clean" si es la primera vez que está
+        ejecuntado los tests.
+       </Para>
+      </step>
+      
+      <Step Performance="required">
+       <Para>
+        Ejecute los tests de regresión. Escriba
+        <ProgramListing>
+         cd /usr/src/pgsql/src/test/regress
+         gmake all
+        </ProgramListing>
+       </Para>
+      </Step>
+      
+      <Step Performance="required">
+       <Para>
+        Ejecute los tests de regresión. Escriba
+        <ProgramListing>
+         cd /usr/src/pgsql/src/test/regress
+         gmake runtest
+        </ProgramListing>
+       </Para>
+      </Step>
+      
+      <Step Performance="required">
+       <Para>
+        Debería obtener en la pantalla (y además escrito en el
+        archivo ./regress.out) una serie de líneas indicando qué tests
+        han pasado y qué tests han fallado. Tenga en cuenta que puede
+        ser normal que alguno de los tests falle. Para los tests
+        fallidos, use diff para comparar los archivos de los
+        directorios ./results y ./expected. Si falla float8,
+        escriba algo como esto:
+        <ProgramListing>
+         cd /usr/src/pgsql/src/test/regress
+         diff -w expected/float8.out results
+        </ProgramListing>
+       </Para>
+      </Step>
+      
+      <Step Performance="required">
+       <Para>
+        Después de ejecutar los tests y examinar los resultados, escriba
+        <ProgramListing>
+         dropdb regression
+         cd /usr/src/pgsql/src/test/regress
+         gmake clean
+        </ProgramListing>
+        para recuperar el espacio en disco temporal usado por los tests.
+       </Para>
+      </Step>
+    </procedure>
+  </Sect1>
+  
+  <Sect1>
+    <Title>Análisis de Regresión</Title>
+
+     <Para>
+       Los resultados se encuentran en los archivos del directorio
+       ./results. Estos resultados pueden ser comparados con los
+       resultados del directorio ./expected usando 'diff'. (El guión
+       (script) del test hace esto por usted, y deja las diferencias en 
+       ./regression.diffs.)
+     </Para>
+
+     <Para>
+       Los archivos pueden no corresponderse de forma exacta. El guión
+       del test informará deuna diferencia como "failure" (fallo), pero
+       la diferencia puede deberse a pequeñas variaciones entre
+       plataformas en los mensajes de error, comportamiento de la
+       librería matemáica, etc.
+       "Fallos" de este estilo no indican necesariamente un problema con
+       <ProductName>Postgres</ProductName>.
+     </Para>
+    
+     <Para>
+       Por tanto, es necesario examinar las diferencias de cada test
+       "fallido" con el fin de determinar si existe un problema realmente.
+       Los siguientes puntos intentan proporcionar una guía para
+       determinar si una diferencia es significativa o no.
+     </Para>
+    
+    <Sect2>
+      <Title>Diferencias en los mensajes de error</Title>
+      
+      <Para>
+        Alguno de los tests de regresión incluyen intencionadamente
+        valores de entrada no válidos. Los mensajes de error pueden venir
+        tanto del código de Postgres como de las rutinas de sistema de la
+        plataforma en la que nos encontremos. En el último caso, los
+        mensajes pueden variar entre plataformas, pero deben reflejar
+        información similar. Estas diferencias en los mensajes darán
+        como resultado un test "fallido" que puede ser validado mediante
+        una inspección.
+      </Para>
+      
+    </Sect2>
+    
+    <Sect2>
+      <Title>Diferencias en fechas y horas</Title>
+      
+      <Para>
+       Muchos de los resultados de fecha y hora son dependientes del
+       entorno de la zona horaria. Los achivos de referencia están
+       generados para la zona horaria PST8PDT (Berkeley, California) y
+       aparentemente pueden parecer fallos si los tests no se ejecutan
+       con esta zona horaria establecida. El programa que ejecuta los
+       tests de regresión establece la variable de entorno PGTZ a
+       PST8PDT para asegurar resultados parecidos.
+      </Para>
+
+      <Para>
+       Parece que algunos sistemas no aceptan la sintaxis recomendada para
+       establecer explicitamente las reglas de la zona horaria local;
+       puede ser que necesite usar una forma distinta para establecer PGTZ
+       en estas máquinas.
+      </Para>
+
+      <Para>
+       Algunos sistemas que usan librerias antiguas de zonas horarias
+       fallan al aplicar las correciones de ahorro de luz solar en las
+       fechas anteriores a 1970, causando que las horas de esas fechas
+       aparezcan en PST a pesar de todo. Esto dará pie a diferencias
+       localizadas en los resultados de los tests.
+      </Para>
+      
+    </Sect2>
+    
+    <Sect2>
+      <Title>Diferencias en punto flotante</Title> 
+
+      <Para>
+       Algunos de los tests implican calcular números de 64-bits
+       (<Type>float8</Type>) a partir de las columnas de una tabla. Se
+       han observado diferencias en los resultados que devuelven
+       funciones matemáticas en columnas de tipo <Type>float8</Type>.
+       Los tests con float8 y de geometría son particularmente propensos
+       a pequeñas diferencias entre plataformas.
+       Se precisa una comparación con lupa por parte humana para
+       determinar diferencias que normalmente se encuentran 10
+       posiciones a la derecha del punto decimal.
+      </Para>
+
+      <Para>
+       Algunos errores de señales del sistema con pow() y exp() difieren
+       de los mecanismos que espera el actual código de Postgres.
+      </Para>
+      
+    </Sect2>
+    
+    <Sect2>
+      <Title>Diferencias en polígonos</Title>
+      
+      <Para>
+       Varios de los tests incluyen operaciones con coordenadas sobre el
+       callejero de Oakland/Berkley CA. Los datos de este mapa vienen
+       expresados como polígonos cuyos vértices están representados en
+       pares de números <Type>float8</Type> (latitud y longitud decimal).
+       Inicialmente, se crean y llenan algunas tablas con coordenadas,
+       después se crean algunas vistas (Views) haciendo el Join
+       de dos tablas usando el operador de intersección de polígonos (##),
+       y despúes se realiza un Select sobre la vista. 
+
+       Cuando comparamos los resultados de diferentes plataformas, las
+       diferencias aparecen en el segundo o tercer lugar a la derecha del
+       punto decimal. Las instrucciones SQL donde se dan estos problemas
+       son las siguientes:
+
+       <ProgramListing>
+        QUERY: SELECT * from street;
+        QUERY: SELECT * from iexit;
+       </ProgramListing>
+      </Para>
+      
+    </Sect2>
+    
+    <Sect2>
+      <Title>Diferencias aleatorias</Title>
+      
+      <Para>
+        Hay al menos un caso de test en random.out que esta diseñado
+        para producir resultados aleatorios. Esto causa que random falle
+        el test de regresión cada vez.
+
+        Escribir
+        <ProgramListing>
+         diff results/random.out expected/random.out
+        </ProgramListing>
+
+        debe producir una o unas pocas líneas de diferencias por esta
+        razón, pero otras variaciones en punto flotante o en arquitecturas
+        distintas pueden causar más diferencias.
+      </Para>
+      
+    </Sect2>
+    
+    <Sect2>
+      <Title>Los archivos <Quote>expected</Quote></Title>
+      
+      <Para>
+       Los archivos <FileName>./expected/*.out</FileName> fueron adaptados
+       del monolítico archivo original <FileName>expected.input</FileName>
+       proporcionado por Jolly Chen. Versiones más modernas de estos
+       archivos generadas en varias máquinas de desarrollo han sido
+       sustituidas después de una cuidadosa (?) inspección. Muchas de
+       estas máquinas de desarrollo están ejecutando variantes del Unix
+       OS (FreeBSD, Linux, etc) en hardware Ix86. 
+
+       El archivo original <FileName>expected.input</FileName> fue creado
+       en un sistema SPARC Solaris 2.4 usando el código de
+       <FileName>postgres5-1.02a5.tar.gz</FileName>. Fue comparado con un
+       archivo creado en un sistema I386 Solaris 2.4 y las diferencias
+       fueron solamente en los polígonos de punto flotante en el tercer
+       dígito a la derecha del punto decimal. (vea más arriba)
+
+       El archivo original <FileName>sample.regress.out</FileName> se
+       obtuvo de la entrega 1.01 de postgres construida por Jolly Chen y
+       se incluye aquí para referencia. Tendría que haberse ejecutado con
+       una máquina DEC ALPHA ya que el
+       <FileName>Makefile.global</FileName> en la version 1.01 de postgres
+       tiene PORTNAME=alpha.
+      </Para>
+      
+    </Sect2>
+    
+  </Sect1>
+
+  <Sect1>
+    <Title>Archivos de comparación específicos de la plataforma</Title>
+
+     <Para>
+      Como alguno de los tests producen resultados inherentes a la
+      plataforma usada, hemos proporcionamos una forma para suplir
+      los archivos de comparación especificos para cada plataforma.
+      Frecuentemente se da la misma variación en múltiples plataformas; en
+      vez de dar un archivo de comparación separado para cada plataforma,
+      existe un archivo guía que define qué archivo de comparación usar.
+      De forma que, para eliminar fallos tontos de una plataforma en
+      particular, debe elegir o crear un fichero de resultados variantes,
+      y añadir una línea al archivo guía, que es "mapa de resultados".
+     </Para>
+
+     <Para>
+      Cada línea del archivo guía es de la siguiente forma
+      <ProgramListing>
+       testname/platformnamepattern=comparisonfilename
+      </ProgramListing>
+      El nombre del test (testname) es sencillamente el nombre del módulo
+      de regresión de ese test en particular. El patrón del nombre de la
+      plataforma (platformnamepattern) está generado al estilo de expr(1)
+      (que es una expresión regular con el símbolo ^ implícito al
+      principio). Esta se comprueba con el nombre de la plataforma tal
+      como viene escrito en config.guess. El nombre del fichero de
+      comparación (comparisonfilename) es el nombre del sustituto del
+      fichero de resultados de comparación.
+     </Para>
+
+     <Para>
+      Por ejemplo: el test de regresión int2 incluye una entrada
+      deliberada de un valor que es demasiado largo para caber en un
+      int2. El mensaje de error específico que es producido es
+      dependiente de la plataforma; nuestra plataforma de referencia saca
+      <ProgramListing>
+       ERROR:  pg_atoi: error reading "100000": Numerical result out of range
+      </ProgramListing>
+      pero en un buen número de otras plataformas Unix saca
+      <ProgramListing>
+       ERROR:  pg_atoi: error reading "100000": Result too large
+      </ProgramListing>
+      En este caso, proporcionamos una variante del archivo de
+      comparación, int2-too-large.out, que incluye la sintaxis de este
+      mensaje de error. Para no mostrar estos "fallos" tontos en las
+      plataformas HPPA, el resultmap (mapa de resultados) incluye
+      <ProgramListing>
+       int2/hppa=int2-too-large
+      </ProgramListing>
+      que se activará en cualquier máquina en el que la salida de
+      config.guess comience por 'hppa'. Otras líneas en el resultmap
+      seleccionan la variante del archivo de comparación para otras
+      plataformas donde sea apropiado.
+     </Para>
+    
+  </Sect1>
+  
+</Chapter>

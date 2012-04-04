@@ -1,0 +1,220 @@
+<chapter id="page">
+
+<title>Ficheros de páginas.</title>
+
+<abstract>
+<para>
+Una descripción del formato de página de defecto de los ficheros de la 
+base de datos.
+</para>
+</abstract>
+
+<para>
+Esta sección proporciona una visión general del formato de página 
+utilizado por las clases de <productname>Postgres</productname>. 
+Los métodos de acceso definidos por el usuario no necesitan utilizar 
+este formato de página.
+</para>
+
+<para>
+En la siguiente explicación, se asume que un <firstterm>byte</firstterm> 
+contiene 8 bits. Además, el término <firstterm>campo</firstterm> se refiere 
+a los datos almacenados en una clase de <productname>Postgres</productname>.
+</para>
+
+<sect1>
+<title>Estructura de la página.</title>
+
+<para>
+La siguiente tabla muestra como están estructuradas las páginas tanto en 
+las clases normales de <productname>Postgres</productname> como en las 
+clases de índices de <productname>Postgres</productname> (es decir, un 
+índice B-tree).
+
+<table tocentry="1">
+<title>Muestra de Dibujo de Página</title>
+<titleabbrev>Dibujo de Página</titleabbrev>
+<tgroup cols="1">
+<thead>
+<row>
+<entry>
+Campo
+</entry>
+<entry>
+Descripción
+</entry>
+</row>
+</thead>
+
+<tbody>
+
+<row>
+<entry>
+Puntero a Datos (ItemPointerData)
+</entry>
+</row>
+
+<row>
+<entry>
+Espacio Libre (filler)
+</entry>
+</row>
+
+<row>
+<entry>
+Campo de datos....
+</entry>
+</row>
+
+<row>
+<entry>
+Espacio desocupado
+</entry>
+</row>
+
+<row>
+<entry>
+Campo de Continuación de Datos (ItemContinuationData)
+</entry>
+</row>
+
+<row>
+<entry>
+Espacio Especial
+</entry>
+</row>
+
+<row>
+<entry>
+``Campo de datos 2''
+</entry>
+</row>
+
+<row>
+<entry>
+``Campo de datos 1''
+</entry>
+</row>
+
+<row>
+<entry>
+Datos de Identificación de Campo (ItemIdData)
+</entry>
+</row>
+
+<row>
+<entry>
+Datos de Cabecera de Página (PageHeaderData)
+</entry>
+</row>
+
+</tbody>
+</tgroup>
+</table>
+</para>
+
+<!--
+..\" La ejecución de 
+..\" .q .../bin/dumpbpages
+..\" o
+..\" .q .../src/support/dumpbpages
+..\" como el superusuario postgres
+..\" con las rutas a los ficheros asociadas a las clases
+..\" (datos o índices B-tree),
+..\" .q .../data/base/<database-name>/<class-name>,
+..\" mostrará la estructura de página utilizada por las clases.
+..\" La especificación del marcador
+..\" .q -r
+..\" probocará que las clases se tranten como clases de datos
+..\" y se mostrará más información.
+-->
+
+<para>
+Los primeros 8 bytes de cada página consiten en la cabecera de la página 
+(PpageHeaderData). Dentro de la cabecera, los primeros tres campos enteros de 
+2 bytes (<firstterm>menor</firstterm>, <firstterm>mayor</firstterm> y 
+<firstterm>especial</firstterm>) representan bytes que reflejan el principio 
+del espacio desocupado, el final del espacio desocupado, y el principio del 
+<firstterm>espacio especial</firstterm>. El espacio especial es una región al 
+final de la página que se ocupa en la inicialización de la página y que 
+contiene información específica sobre un método de acceso. Los dos últimos 
+2 bytes de la cabecera de página, <firstterm>opaco</firstterm>, codifica el 
+tamaño de la página e información sobre la fragmentación interna de la misma. 
+El tamaño de la página se almacena en cada una de ellas, porque las 
+estructuras del pool de buffers pueden estar subdivididas en una forma 
+estructura por estructura dentro de una clase. La información sobre la 
+fragmentación interna se utiliza para ayudar a determinar cuando debería 
+realizarse la reorganización de la página.
+</para>
+
+<para>
+Siguiendo a la cabecera de la página están los identificadores de campo 
+(<firstterm>ItemIdData</firstterm>). Se situan nuevos identificadores de 
+campo a partir de los primeros cuatro bytes de espacio libre. Debido a que un 
+identificador de campo nonca se mueve hasta que se elimina, este índice se 
+puede utilizar para indicar la situación de un campo en l apágina. De hecho, 
+cada puntero a un campo (<firstterm>ItemPointer</firstterm>) creado por 
+<productname>Postgres</productname> consiste en un número de estructura y un 
+índice de un identificador de campo. Un identificador de campo contiene un 
+byte de referencia al principio de un campo, su longitud en bytes, y un 
+conjunto de bits de atributos que pueden afectar a su interpretación.  
+</para>
+
+<para>
+Los campos mismos están almacenados en un espacio situado más allá del final 
+del espacio libre. Habitualmente, los campos no son interpretados. 
+Sin embargo, cuando el campo es demasiado largo para ser situado en una única 
+página o cuando se desea la fragmentación del campo, éste mismo se divide y 
+cada parte se manipula como campos distintos de la siguiente manera. 
+Cada una de las partes en que se descompone se situa en una estructura de 
+continuación de campo (<firstterm>ItemContinuationData</firstterm>). 
+Esta estructura contiene un puntero (ItemPointerData) hacia la siguiente 
+parte. La última de estas partes se manipula normalmente.
+</para>
+</sect1>
+
+<sect1>
+<title>Ficheros</title>
+
+<para>
+<variablelist>
+<varlistentry>
+<term>
+<filename>data/</filename>
+</term>
+<listitem>
+<para>
+Localización de los ficheros de base de datos compartidos (globales).
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term>
+<filename>data/base/</filename>
+</term>
+<listitem>
+<para>
+Localización de los ficheros de base de datos locales.
+</para>
+</listitem>
+</varlistentry>
+
+</variablelist>
+</para>
+</sect1>
+
+<sect1>
+<title>Bugs</title>
+
+<para>
+El formato de la página puede cambiar en el futuro para proporcionar un 
+acceso más eficiente a los objetos largos.
+</para>
+
+<para>
+Esta sección contiene detalles insuficiente para ser de alguna asistencia en 
+la escritura de un nuevo método de acceso.
+</para>
+</sect1>
+</chapter>

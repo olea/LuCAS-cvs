@@ -1,0 +1,495 @@
+.\" Copyright (c) 1990, 1993
+.\"	The Regents of the University of California.  All rights reserved.
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions
+.\" are met:
+.\" 1. Redistributions of source code must retain the above copyright
+.\"    notice, this list of conditions and the following disclaimer.
+.\" 2. Redistributions in binary form must reproduce the above copyright
+.\"    notice, this list of conditions and the following disclaimer in the
+.\"    documentation and/or other materials provided with the distribution.
+.\" 3. All advertising materials mentioning features or use of this software
+.\"    must display the following acknowledgement:
+.\"	This product includes software developed by the University of
+.\"	California, Berkeley and its contributors.
+.\" 4. Neither the name of the University nor the names of its contributors
+.\"    may be used to endorse or promote products derived from this software
+.\"    without specific prior written permission.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+.\" ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+.\" ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+.\" FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+.\" DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+.\" OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+.\" HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+.\" LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+.\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+.\" SUCH DAMAGE.
+.\"
+.\"	@(#)dbopen.3	8.5 (Berkeley) 1/2/94
+.\"
+.\" Translated into Spanish on Wed Apr 14 1999 by
+.\"	Juan Piernas Cánovas <piernas@ditec.um.es>
+.\"
+.TH DBOPEN 3 "2 Enero 1994"
+.UC 7
+.SH NOMBRE
+dbopen \- métodos de acceso a bases de datos
+.SH SINOPSIS
+.nf
+.ft B
+#include <sys/types.h>
+#include <limits.h>
+#include <db.h>
+
+DB *
+dbopen(const char *file, int flags, int mode, DBTYPE type,
+.ti +5
+const void *openinfo);
+.ft R
+.fi
+.SH DESCRIPCIÓN
+.IR Dbopen
+es la interfaz de biblioteca para los ficheros de bases de datos.
+Los formatos de fichero soportados son árbolB, dispersión y ficheros
+orientados a UNIX.
+El formato árbolB es una representación de una estructura de árbol
+balanceada y ordenada.
+El formato disperso es un esquema de dispersión dinámico y extensible.
+El formato fichero plano es un fichero de flujo de bytes con registros de
+longitud fija o variable.
+Los formatos y la información específica de los formatos de los ficheros se
+describen en detalle en sus páginas de manual respectivas
+.IR btree (3),
+.IR hash (3)
+y
+.IR recno (3).
+.PP
+Dbopen abre el fichero
+.I file
+para lectura y/o escritura.
+Los ficheros destinados a ser conservados en disco nunca pueden crearse con
+un parámetro
+.I file
+con valor NULL.
+.PP
+Las opciones,
+.IR flags ,
+y los argumentos de modo,
+.IR mode ,
+son los mismos que los indicados para la rutina
+.IR open (2),
+aunque sólo las opciones O_CREAT, O_EXCL, O_EXLOCK, O_NONBLOCK,
+O_RDONLY, O_RDWR, O_SHLOCK y O_TRUNC tienen sentido.
+(Dese cuenta que no es posible abrir un fichero de base de datos con la
+opción O_WRONLY).
+.\"Three additional options may be specified by
+.\".IR or 'ing
+.\"them into the
+.\".I flags
+.\"argument.
+.\".TP
+.\"DB_LOCK
+.\"Do the necessary locking in the database to support concurrent access.
+.\"If concurrent access isn't needed or the database is read-only this
+.\"flag should not be set, as it tends to have an associated performance
+.\"penalty.
+.\".TP
+.\"DB_SHMEM
+.\"Place the underlying memory pool used by the database in shared
+.\"memory.
+.\"Necessary for concurrent access.
+.\".TP
+.\"DB_TXN
+.\"Support transactions in the database.
+.\"The DB_LOCK and DB_SHMEM flags must be set as well.
+.PP
+El argumento
+.I type
+es de tipo DBTYPE (tal y como se define en el fichero cabecera <db.h>) y
+puede tener el valor DB_BTREE, DB_HASH o DB_RECNO.
+.PP
+El argumento
+.I openinfo
+es un puntero a una estructura específica del método de acceso y descrita en
+la página de manual del método de acceso.
+Si
+.I openinfo
+es NULL, cada método de acceso usará valor por defecto apropiados para el
+sistema y para el método de acceso.
+.PP
+.I Dbopen
+devuelve un puntero a una estructura DB en caso de éxito y NULL en caso de
+error. La estructura DB se define en el fichero cabecera <db.h> y contiene,
+al menos, los siguientes campos:
+.sp
+.nf
+typedef struct {
+.RS
+DBTYPE type;
+int (*close)(const DB *db);
+int (*del)(const DB *db, const DBT *key, u_int flags);
+int (*fd)(const DB *db);
+int (*get)(const DB *db, DBT *key, DBT *data, u_int flags);
+int (*put)(const DB *db, DBT *key, const DBT *data,
+.ti +5
+u_int flags);
+int (*sync)(const DB *db, u_int flags);
+int (*seq)(const DB *db, DBT *key, DBT *data, u_int flags);
+.RE
+} DB;
+.fi
+.PP
+Estos elementos describen un tipo de base de datos y un conjunto de
+funciones que realizan diversas acciones.
+Estas funciones toman un puntero a una estructura como las devueltas por
+.IR dbopen ,
+y algunas veces uno o más punteros a estructuras clave/datos y a un valor de
+opción.
+.TP
+type
+El tipo del método de acceso subyacente (y del formato de fichero).
+.TP
+close
+Un puntero a una rutina para vaciar a disco cualquier información en caché,
+liberar cualquier recurso reservado y cerrar el(los) fichero(s) subyacentes.
+Puesto que los pares clave/datos pueden estar en la memoria caché, el dejar
+de sincronizar el fichero con las funciones
+.I close
+o
+.I sync
+puede producir inconsistencias o pérdida de información.
+Las rutinas
+.I close
+devuelve -1 en caso de error (asignando un valor a
+.IR errno )
+y 0 en caso de éxito.
+.TP
+del
+Un puntero a una rutina para eliminar pares clave/datos de la base de datos.
+.IP
+Al parámetro
+.I flag
+se le pueden asignar el siguiente valor:
+.RS
+.TP
+R_CURSOR
+Borra el registro referenciado por el cursor.
+El cursor debe haber sido inicializado previamente.
+.RE
+.IP
+La rutina
+.I delete
+devuelve -1 en caso de error (asignando un valor a
+.IR errno ),
+0 en caso de éxito y 1 si la clave
+.I key
+no estaba en el fichero.
+.TP
+fd
+Un puntero a una rutina que devuelve un descriptor de fichero representante
+de la base de datos subyacente.
+A todos los procesos que llamen a
+.I dbopen
+con el mismo nombre fichero
+.IR file ,
+se les devolverá un descriptor de fichero referenciando al mismo fichero.
+El descriptor de fichero se puede usar de forma segura como argumento de las
+funciones de bloqueo
+.IR fcntl (2)
+y
+.IR flock (2).
+El descriptor de fichero no está asociado necesariamente con ninguno de los
+ficheros subyacentes usados por el método de acceso.
+No se dispone de ningún descriptor de fichero para las bases de datos
+residentes en memoria.
+Las rutinas
+.I fd
+devuelven -1 en caso de error (asignando un valor a
+.IR errno ),
+y el descriptor de fichero en caso de éxito.
+.TP
+get
+Un puntero a una rutina que es la interfaz para la recuperación por clave de
+la base de datos.
+La dirección y longitud de los datos asociados con la clave especificada,
+.IR key ,
+se devuelven en la estructura referenciada por
+.IR data .
+Las rutinas
+.I get
+devuelven -1 en caso de error (asignando un valor a
+.IR errno ),
+0 e caso de éxito y 1 si la clave
+.I key
+no estaba en el fichero.
+.TP
+put
+Un puntero a una rutina para almacenar pares clave/datos en la base de
+datos.
+.IP
+Al parámetro
+.I flag
+se le puede asignar uno de los siguientes valores:
+.RS
+.TP
+R_CURSOR
+Reemplazar el par clave/datos referenciado por el cursos.
+El cursor debe haber sido inicializado previamente.
+.TP
+R_IAFTER
+Añadir los datos inmediatamente después de los datos referenciados por
+.IR key ,
+creando un nuevo par clave/datos.
+El número de registro del par clave/datos añadido se devuelve en la
+estructura
+.IR key .
+(Aplicable sólo al método de acceso DB_RECNO).
+.TP
+R_IBEFORE
+Insertar los datos inmediatamente antes de los datos referenciados por
+.IR key ,
+creando un nuevo par clave/datos.
+El número de registro del par clave/datos insertado se devuelve en la
+estructura
+.IR key .
+(Aplicable sólo al método de acceso DB_RECNO).
+.TP
+R_NOOVERWRITE
+Introducir el nuevo par clave/datos sólo si la clave no existe ya.
+.TP
+R_SETCURSOR
+Almacenar el par clave/datos, poniendo o inicializando la posición del
+cursor para que lo referencie.
+(Aplicable sólo a los métodos de acceso DB_BTREE y DB_RECNO).
+.RE
+.IP
+R_SETCURSOR sólo está disponible para los métodos de acceso DB_BTREE y
+DB_RECNO porque implica que las claves tienen un orden inherente que no
+cambia.
+.IP
+R_IAFTER y R_IBEFORE sólo están disponibles para el método de acceso
+DB_RECNO porque cada una de ellas implica que el método de acceso es capaz
+de crear nuevas claves.
+Esto sólo es cierto si las claves están ordenadas y son independientes, por
+ejemplo, los números de registro.
+.IP
+El comportamiento por defecto de las rutinas
+.I put
+es introducir el nuevo par clave/datos, reemplazando cualquier clave ya
+existente.
+.IP
+Las rutinas
+.I put
+devuelven -1 en caso de error (asignando un valor a
+.IR errno ),
+0 en caso de éxito y 1 si se especificó la opción R_NOOVERWRITE en
+.I flag
+y la clave ya existía en el fichero.
+.TP
+seq
+Un puntero a una rutina que es la interfaz para la recuperación secuencial
+de la base de datos.
+La dirección y longitud de la clave se devuelven en la estructura
+referenciada por
+.IR key ,
+y la dirección y la longitud de los datos se devuelven en la esctructura
+referenciada por
+.IR data .
+.IP
+La recuperación secuencial de pares clave/datos pueden empezar en cualquier
+momento y la posición del ``cursor'' no se ve afectada por las llamadas a
+las rutinas
+.IR del ,
+.IR get ,
+.IR put
+o
+.IR sync .
+Las modificaciones a la base de datos durante el recorrido secuencial se
+reflejarán en el recorrido, es decir, no se devolverán los registros
+insertados detrás del cursos mientras que los registros insertados delante
+del cursor sí se devolverán.
+.IP
+El valor de la opción
+.B debe
+ser uno de los siguientes valores:
+.RS
+.TP
+R_CURSOR
+Se devolverán los datos asociados con la clave especificada.
+Esto difiere de las rutinas
+.I get
+en las que también se posiciona o inicializa el cursor a las posición de la
+clave.
+(Dése cuenta que para el método de acceso DB_BTREE la clave devuelta no es
+necesariamente una coincidencia exacta de la clave especificada.
+La clave devuelta es la clave más pequeña mayor o igual que la clave
+especificada, permitiendo así las coincidencias parciales de claves y las
+búsquedas dentro de un intervalo).
+.TP
+R_FIRST
+Se devuelve el primer par clave/datos de la base de datos y el cursor se
+posiciona o inicializa para referenciarlo.
+.TP
+R_LAST
+Se devuelve el último par clave/datos de la base de datos y el cursor se
+posiciona o inicializa para referenciarlo.
+(Aplicable sólo en los métodos de acceso DB_BTREE y DB_RECNO).
+.TP
+R_NEXT
+Recupera el par clave/datos inmediatamente después del cursor.
+Si el cursor todavía no está colocado, ésta opción es la misma que R_FIRST.
+.TP
+R_PREV
+Recupera el par clave/datos inmediatamente antes del cursor.
+Si el cursor todavía no está colocado, ésta opción es la misma que R_LAST.
+(Aplicable sólo en los métodos de acceso DB_BTREE y DB_RECNO).
+.RE
+.IP
+R_LAST y R_PREV sólo están disponibles para los métodos DB_BTREE y DB_RECNO
+yaque cada una de ellas implica que las claves tienen un orden inherente que
+no cambia.
+.IP
+Las rutinas
+.I seq
+devuelven -1 en caso de error (asignando un valor a
+.IR errno ),
+0 en caso de éxito y 1 si no existen pares clave/datos menores o mayores que
+la clave especificada o actual.
+Si se usa el método de acceso DB_RECNO y si el fichero de la base de datos
+es un fichero especial de caracteres y no se dispone actualmente de pares
+clave/datos completos, la rutina
+.I seq
+devuelve 2.
+.TP
+sync
+Un puntero a una rutina para vaciar a disco cualquier información en caché.
+Si la base de datos está sólo en memoria, la rutina
+.I sync
+no hace nada y siempre tendrá éxito.
+.IP
+Al valor de la opción se le debe asignar el siguiente valor:
+.RS
+.TP
+R_RECNOSYNC
+Si se usa el método de acceso DB_RECNO, esta opción hace que la rutina de
+sincronización se aplique al fichero árbolB que subyace al fichero de
+registros numerados, no al propio fichero de registros numerados.
+(Véase el campo
+.I bfname
+de la página de manual de 
+.IR recno (3)
+para más información.)
+.RE
+.IP
+Las rutinas
+.I sync
+devuelven -1 en caso de error (asignando un valor a
+.IR errno )
+y 0 en caso de éxito.
+.SH "PARES CLAVE/DATOS"
+El acceso a todos los tipos de fichero se basa en los pares clave/datos.
+Tanto las claves como los datos se representan mediante la siguiente
+estructura de datos:
+.PP
+typedef struct {
+.RS
+void *data;
+.br
+size_t size;
+.RE
+} DBT;
+.PP
+Los elementos de la estructura DBT se definen como sigue:
+.TP
+data
+Un puntero a un cadena de bytes.
+.TP
+size
+La longitud de la cadena de bytes.
+.PP
+Las cadenas de bytes de claves y datos pueden referenciar a cadenas de,
+esencialmente, longitudes ilimitadas aunque cualesquiera dos de ellas deben
+caber en memoria al mismo tiempo.
+Debe darse cuenta que los métodos de acceso no garantizan la
+alineación de las cadenas de bytes.
+.SH ERRORES
+La rutina
+.I dbopen
+puede fallar y asignar a
+.I errno
+cualquiera de los errores especificados para las rutinas de biblioteca
+.IR open (2)
+y
+.IR malloc (3)
+o uno de los siguientes:
+.TP
+[EFTYPE]
+Un fichero está incorrectamente formateado.
+.TP
+[EINVAL]
+Se ha especificado un parámetro (función de dispersión, byte de relleno,
+etc.) que es incompatible con la especificación actual del fichero o que no
+tiene sentido para la función (por ejemplo, el uso del cursor sin una
+inicialización previa) o lo números de versión del fichero y del software no
+coinciden.
+.PP
+Las rutinas
+.I close
+pueden fallar y asignar a
+.I errno
+cualquiera de los errores especificados para las rutinas de biblioteca
+.IR close (2),
+.IR read (2),
+.IR write (2),
+.IR free (3)
+o
+.IR fsync (2).
+.PP
+Las rutinas
+.IR del ,
+.IR get ,
+.I put
+y
+.I seq
+pueden fallar y asignar a
+.I errno
+cualquiera de los errores especificados para las rutinas de biblioteca
+.IR read (2),
+.IR write (2),
+.IR free (3)
+o
+.IR malloc (3).
+.PP
+Las rutinas
+.I fd
+pueden fallar y asignar a
+.I errno
+el valor ENOENT para las bases de datos residentes en memoria.
+.PP
+Las rutinas
+.I sync
+pueden fallar y asignar a
+.I errno
+cualquiera de los errores especificados para la rutina de biblioteca
+.IR fsync (2).
+.SH "VÉASE TAMBIÉN"
+.IR btree (3),
+.IR hash (3),
+.IR mpool (3),
+.IR recno (3)
+.sp
+.IR "LIBTP: Portable, Modular Transactions for UNIX" ,
+Margo Seltzer, Michael Olson, USENIX proceedings, Winter 1992.
+.SH FALLOS
+El typedef DBT es un nemónico para ``base de datos thung'' (data base thung),
+y se usó porque nadie pudo pensar en un nombre razonable que no exisitiera ya.
+.PP
+La interfaz de descriptores de fichero es un latazo y se eliminará en una
+futura versión de la interfaz.
+.PP
+Ninguno de los métodos de acceso proporciona ninguna forma de acceso
+concurrente, bloqueo o transacción.

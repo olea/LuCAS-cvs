@@ -1,0 +1,436 @@
+.\" -*- nroff -*-
+.\" Copyright (C) 1997 John S. Kallal
+.\"
+.\" Se autoriza hacer y distribuir copias literales de este manual siempre
+.\" que el aviso de copyright y este aviso de autorización se preserven en
+.\" todas las copias.
+.\"
+.\" Se autoriza copiar y distribuir versiones modificadas de este manual
+.\" bajo las condiciones para copiar literalmente, siempre que todo el trabajo
+.\" resultante sea distribuido bajo los términos de un aviso de autorización
+.\" idéntico a éste.
+.\"
+.\" Ya que el kernel y las bibliotecas de Linux están cambiando
+.\" constantemente, esta página de manual puede ser incorrecta u obsoleta.
+.\" El(Los) autor(es) no asumen ninguna responsabilidad de los errores u
+.\" omisiones, o de los daños resultantes del uso de la información contenida
+.\" aquí. El(Los) autor(es) pueden no haber tomado el mismo nivel de cuidado en
+.\" la producción de este manual, que es licenciado gratuitamente, como el que
+.\" podrían haber tomado trabajando profesionalmente.
+.\"
+.\" Las versiones procesadas o tratadas de este manual que no se acompañen
+.\" con los fuentes deben reconocer el copyright y los autores de este trabajo.
+.\"
+.\" Si usted desea distribuir versiones de este trabajo bajo distintas condiciones
+.\" de las mencionadas arriba, por favor contacte con el/los autor(es) que siguen
+.\" para pedir permiso:
+.\"
+.\"  John S. Kallal - 
+.\"	email:     <kallal@voicenet.com>
+.\"	Dirección: 518 Kerfoot Farm RD, Wilmington, DE 19803-2444, USA
+.\"	Teléfono:  (302)654-5478
+.\"  
+.\"  Traducido (en primer intento) por:
+.\"       Julio González Durán <jugonzalez@mx3.redestb.es>
+.\"       18-05-1998
+.\"  Traducción revisada el domingo 4 de abril de 1999 por
+.\"	  Juan Piernas <piernas@ditec.um.es>
+.\"
+.\" $Id: initrd.4,v 1.4 2005/03/22 01:19:27 pepin.jimenez Exp $
+.\"
+.TH INITRD 4 "6 Noviembre 1997" "Linux 2.0" "Manual del Programador de Linux"
+.SH NOMBRE
+initrd \- disco-RAM inicializado por el gestor de arranque
+.SH DESCRIPCIÓN
+El fichero especial 
+.B /dev/initrd 
+es un dispositivo de bloques de sólo lectura.  
+El dispositivo 
+.B /dev/initrd
+es un disco RAM que es inicializado (es decir, cargado) por el
+gestor de arranque antes de cargar e iniciar el núcleo del sistema.
+Así, el núcleo puede utilizar el contenido del dispositivo
+.BR /dev/initrd 
+para un arranque del sistema en dos fases.
+.PP
+En la primera fase del arranque, el núcleo pone en marcha y
+monta un sistema de ficheros raíz inicial a partir del
+contenido de 
+.B /dev/initrd 
+(o sea, el disco-RAM inicializado por el gestor de arranque).
+En la segunda fase, se cargan controladores adicionales u otros 
+módulos desde el contenido del dispositivo raíz inicial.
+Tras cargar los módulos adicionales, se monta un nuevo sistema de 
+ficheros raíz (es decir, el sistema de ficheros raíz habitual) desde un
+dispositivo diferente.
+.\"
+.\"
+.\"
+.SH "FUNCIONAMIENTO DEL ARRANQUE" 
+Cuando se arranca el sistema con 
+.BR initrd ,
+ocurre lo siguiente:
+.RS 0.2i
+.PP
+1. El gestor de arranque ('boot loader') carga el núcleo y el contenido de 
+.BR /dev/initrd 
+en memoria.
+.PP
+2. En la puesta en marcha del núcleo, éste descomprime y copia el contenido del disp. 
+.B /dev/initrd
+en el dispositivo 
+.B /dev/ram0 
+y a continuación libera la memoria utilizada por 
+.BR /dev/initrd "."
+.PP
+3. Seguidamente, el núcleo monta el dispositivo
+.B /dev/ram0 
+en modo lectura/escritura como el sistema de ficheros raíz inicial.
+.PP
+4. Si el sistema de ficheros raíz habitual indicado coincide
+con el sistema de ficheros raíz inicial (por ejemplo, 
+.B /dev/ram0
+) entonces el núcleo salta directamente al último paso para la secuencia de
+arranque habitual.
+.PP
+5. Si el fichero ejecutable
+.BR /linuxrc
+está presente en el sistema de ficheros raíz inicial, se ejecuta
+con uid (identificador de usuario) 0.
+(El fichero 
+.B /linuxrc
+debe tener permiso de ejecución.
+El fichero 
+.B /linuxrc
+puede ser cualquier ejecutable válido, incluyendo los guiones de cualquier
+procesador de órdenes -'shell scripts'.)
+.PP
+6. Si no se ejecuta 
+.B /linuxrc
+o cuando  
+.B /linuxrc
+termina, se monta el sistema de ficheros raíz habitual.
+(Si 
+.BR /linuxrc 
+termina con algún sistema de ficheros montado en el raíz inicial,
+entonces el comportamiento del núcleo es
+.BR INDETERMINADO .
+(Vea la sección 
+.BR OBSERVACIONES
+para consultar el comportamiento actual del núcleo.)
+.PP
+7. Si el sistema de ficheros 'habitual' contiene el directorio 
+.BR /initrd ", el dispositivo"
+.B /dev/ram0
+se mueve desde 
+.BR / " a " /initrd "."
+En otro caso, si el directorio 
+.BR /initrd 
+no existe, el dispositivo
+.BR /dev/ram0
+se desmonta. 
+(Cuando es movido desde 
+.BR / " a " /initrd ", " /dev/ram0  
+no se desmonta, y por tanto los procesos pueden permanecer funcionando desde 
+.BR /dev/ram0 "."  
+Si el directorio 
+.BR /initrd 
+no existe en el sistema de ficheros raíz habitual 
+y queda algún proceso en funcionamiento sobre
+.BR /dev/ram0 " cuando " /linuxrc 
+termina, el comportamiento del núcleo es
+.BR INDETERMINADO .  
+Vea la sección de 
+.BR OBSERVACIONES
+para consultar el comportamiento actual del núcleo.)
+.PP
+8. La secuencia de arranque/inicio habitual (por ejemplo, la ejecución de
+.BR /sbin/init )
+se realiza en el sistema de ficheros habitual.
+.\"
+.\"
+.\"
+.SH OPCIONES
+Las siguientes opciones del gestor de arranque, cuando se utilizan con 
+.BR initrd ", alteran el proceso de puesta en marcha del núcleo:"
+.TP
+.BI initrd= "nombre_de_fichero"
+Especifica el fichero a cargar como el contenido de 
+.BR /dev/initrd "."
+.RB "Para " LOADLIN 
+esta es una opción de línea de órdenes.
+.RB "Para " LILO " tiene que utilizar este orden en el fichero de
+configuración de
+.BR LILO ", " /etc/lilo.config "."
+El nombre de fichero indicado con esta 
+opción será normalmente una imagen del sistema de ficheros comprimida con GZip.
+.TP
+.B noinitrd
+Esta opción de arranque deshabilita la operación de arranque en dos fases.
+El núcleo realiza la secuencia de arranque habitual como si 
+.B /dev/initrd 
+no hubiera sido inicializado.
+Con esta opción, cualquier contenido de 
+.B /dev/initrd 
+cargado en la memoria por el 'boot loader' es preservado.
+Esta opción permite que 
+.B /dev/initrd
+contenga cualquier clase de datos y no esté limitado a una imagen de sist. de ficheros.
+De todas formas, el dispositivo 
+.B /dev/initrd 
+es de sólo-lectura y puede ser leído sólo una vez tras la puesta en marcha del sistema.
+.TP
+.BI root= "nombre-de-dispositivo"
+Especifica el dispositivo que será utilizado como sistema de ficheros normal (raíz).
+.RB "Para " LOADLIN
+esta es una opción de línea de órdenes.
+.RB "Para " LILO " esta es una opción para el momento de arranque o
+puede utilizarse como línea de opción en el fichero de configuración de 
+.BR LILO ", " /etc/lilo.config "."
+El dispositivo indicado por la opción debe ser un dispositivo 'montable', y 
+contener un sistema de ficheros raíz adecuado.
+.\"   
+.\"   
+.\"   
+.SH "CAMBIAR EL SISTEMA DE FICHEROS RAÍZ HABITUAL"
+Por defecto, 
+las opciones establecidas del núcleo 
+(p. ej. establecidas en el fichero del núcleo mediante 
+.B rdev
+o compiladas dentro del mismo),
+o el establecimiento de opciones del 'boot loader'
+se utiliza para los sistemas de ficheros normales.
+Para un sistema de fich. raíz montado como NFS, debemos utilizar las opciones
+de arranque 
+.BR nfs_root_name " y " nfs_root_addrs 
+para proporcionar/establecer las opciones de NFS. 
+Para más información sobre sistemas raíz montados como NFS, vea el fichero de documentación del núcleo 
+.BR nfsroot.txt "."
+Para más información sobre el establecimiento del sistema de ficheros raíz, vea también la doc. de
+.BR LILO " y " LOADLIN "."
+.PP
+También es posible para el ejecutable de 
+.BR /linuxrc
+cambiar el dispositivo raíz por defecto.
+Para que 
+.BR /linuxrc
+cambie este dispositivo, 
+.BR /proc " debe ser montado."
+Tras montar 
+.BR /proc ", " /linuxrc 
+cambia el disp. raíz habitual escribiendo en los ficheros
+.BR /proc/sys/kernel/real-root-dev ", "
+.BR /proc/sys/kernel/nfs-root-name ", y " 
+.BR /proc/sys/kernel/nfs-root-addrs "."
+Para un dispositivo raíz físico, éste se cambia haciendo que
+.BR /linuxrc
+escriba el nuevo número de sistema de ficheros en
+.BR /proc/sys/kernel/real-root-dev "."
+Para un sistema raíz NFS, el disp. raíz se cambia haciendo que
+.BR /linuxrc
+escriba la opción de NFS en los ficheros
+.BR /proc/sys/kernel/nfs-root-name " y "
+.BR /proc/sys/kernel/nfs-root-addrs 
+y después escriba 0xff (p.ej. el número de pseudo-dispositivo-NFS) en el fichero
+.BR /proc/sys/kernel/real-root-dev "."
+Por ejemplo, la siguiente línea de órdenes del shell cambiaría
+el disp. raíz a 
+.BR /dev/hdb1 :
+.nf
+        echo 0x365 >/proc/sys/kernel/real-root-dev
+.fi
+Como ejemplo para sistemas NFS, las siguientes líneas de órdenes cambiarían el 
+dispositivo raíz al directorio NFS 
+.BR /var/nfsroot 
+en un servidor NFS local con dirección IP 193.8.232.7 para un sistema con 
+dirección 193.8.232.7 llamado 'idefix':
+.nf
+	echo /var/nfsroot >/proc/sys/kernel/nfs-root-name
+	echo 193.8.232.2:193.8.232.7::255.255.255.0:idefix \\
+	  >/proc/sys/kernel/nfs-root-addrs
+	echo 255 >/proc/sys/kernel/real-root-dev
+.fi
+.\"   
+.\"   
+.\"   
+.SH UTILIZACIÓN
+La principal motivación para implementar 
+.BR initrd 
+fue la de permitir una configuración modular del núcleo en el momento de la instalación.
+.PP
+Aquí se describe un posible escenario de la instalación del sistema:
+.RS 0.2i
+.PP
+1. El programa cargador arranca desde disquete u otro medio con un núcleo mínimo
+(p.ej. con soporte para 
+.BR /dev/ram ", " /dev/initrd ", y el sistema de ficheros ext2) y carga " 
+.BR /dev/initrd " con una versión comprimida (con gzip) del sistema de ficheros inicial.
+.PP
+2. El ejecutable 
+.BR /linuxrc 
+determina lo que se necesita para montar,
+.BR mount (1),
+el sistema de ficheros raíz normal
+(p.ej. tipo de dispositivo, controladores, sistema de ficheros) y (2) el
+formato 'de distribución' (p.ej. CD-ROM, red, cinta, ...). Esto se puede hacer
+preguntando al usuario, tanteando/probando automáticamente, o mediante una 
+aproximación mixta.
+.PP 
+3. El ejecutable 
+.BR /linuxrc 
+carga los módulos necesarios desde el sistema de ficheros inicial.
+.PP
+4. El ejecutable 
+.BR /linuxrc 
+crea y 'expande' el sistema de ficheros raíz. (En esta etapa, el sistema raíz 
+no tiene por qué ser aún un sistema completo.)
+.PP
+5. El ejecutable 
+.BR /linuxrc " establece " /proc/sys/kernel/real-root-dev,
+desmonta 
+.BR /proc ", "
+el sistema de ficheros raíz y cualquier otro sist. de ficheros
+que hubiese montado, y entonces termina.
+.PP
+6. El núcleo entonces monta el sistema de ficheros definitivo.
+.PP
+7. Ahora que el sist. de ficheros está accesible e intacto,
+el gestor de arranque puede ser instalado.
+.PP
+8. El gestor de arranque está configurado para cargarse en 
+.BR /dev/initrd ", "
+un sistema de ficheros con el conjunto de módulos que fue utilizado para poner en marcha el sistema. 
+(p.ej. El dispositivo 
+.BR /dev/ram0 
+puede ser modificado, después desmontado, y finalmente, la imagen es escrita desde 
+.BR /dev/ram0 
+a un fichero.)
+.PP
+9. El sistema es ahora capaz de arrancar, y se pueden abordar nuevas tareas
+de la instalación.
+.RE
+.PP
+El papel clave de 
+.BR /dev/initrd 
+en el proceso es el de reutilizar los datos de configuración durante el funcionamiento
+habitual del sistema sin que se requiera una selección inicial del núcleo, o un núcleo
+genérico demasiado grande, o recompilarlo.
+.PP
+Un segundo escenario se presenta para instalaciones en las que Linux corre
+en sistemas con diferentes configuraciones 'hardware' en una misma red.
+En estos casos, puede ser deseable utilizar sólo un pequeño conjunto de 
+núcleos (idealmente, uno) y mantener la parte específica de la configuración
+de cada sistema tan pequeña como sea posible.
+En este caso, se crea un fichero común 
+con todos los módulos requeridos.
+Entonces, sólo el fichero 
+.B /linuxrc
+o un fichero ejecutado por 
+.B /linuxrc
+sería diferente.
+.PP
+Un tercer ejemplo es más conveniente para discos 'de rescate'.
+Debido a que cierta información como la localización de la partición del 
+sistema de ficheros raíz no se necesita en el momento del arranque, el sistema cargado desde 
+.B /dev/initrd 
+puede utilizar un diálogo y/o autodetección seguido posiblemente 
+de un chequeo a este sistema de ficheros.
+.PP
+Por último, pero no menos importante, las distribuciones de Linux en CD-ROM pueden utilizar 
+.BR initrd
+para facilitar la instalación desde el CD-ROM.
+La distribución puede utilizar 
+.BR LOADLIN 
+para cargar directamente 
+.BR /dev/initrd
+desde el CD-ROM sin necesitar ningún disquete.
+La distribución podría también utilizar un disco de arranque con 
+.BR LILO 
+y después cargar un disco-ram más grande a través de 
+.BR /dev/initrd " desde el CD-ROM."
+.\"   
+.\"   
+.\"   
+.SH CONFIGURACIÓN
+El dispositivo de bloques  
+.B /dev/initrd 
+es de sólo lectura, al que se le asigna como número mayor 1 y como número
+menor 250. Típicamente 
+.B /dev/initrd
+es propiedad de 
+.B root:disk 
+con modo 0400 (con acceso de lectura sólo para el 'root').
+Si el sistema no tiene creado 
+.B /dev/initrd
+todavía, puede crearse con las siguientes órdenes:
+.nf
+\fB
+        mknod -m 400 /dev/initrd b 1 250
+        chown root.disk /dev/initrd
+\fP
+.fi
+También, el soporte tanto para "disco RAM" y "disco RAM Inicial" 
+(p.ej. 
+.BR CONFIG_BLK_DEV_RAM=y " y " CONFIG_BLK_DEV_INITRD=y
+) debe ser compilado directamente en el núcleo de Linux para utilizar  
+.BR /dev/initrd "."
+Cuando se usa 
+.BR /dev/initrd ", "
+el controlador del disco RAM no se puede cargar como módulo.
+.\"   
+.\"   
+.\"   
+.SH FICHEROS
+.I /dev/initrd
+.br
+.I /dev/ram0
+.br
+.I /linuxrc
+.br
+.I /initrd
+.SH "VÉASE TAMBIÉN"
+.BR chown (1),
+.BR mknod (1),
+.BR /dev/ram (4),
+.BR freeramdisk (8),
+.BR rdev (8),
+El fichero de documentación 
+.I initrd.txt
+en el paquete de los fuentes del núcleo, la documentación de LILO, 
+la documentación de LOADLIN, la documentación de SYSLINUX.
+.\"   
+.\"   
+.\"   
+.SH OBSERVACIONES
+1. Con el núcleo actual, cualquier sistema de ficheros que permanezca montado cuando
+.BR /dev/ram0 " es movido desde " / " a " /initrd 
+continúa siendo accesible. Sin embargo, la información en 
+.BR /proc/mounts 
+no es actualizada. 
+.PP
+2. Con el núcleo actual, si el directorio 
+.BR /initrd " no existe, entonces " /dev/ram0 
+no será completamente desmontado si 
+.BR /dev/ram0 
+está siendo utilizado por algún proceso o mantiene algún sistema de ficheros montado en él.
+Si no se desmonta completamente   
+.BR /dev/ram0 " , " 
+entonces  
+.BR /dev/ram0
+permanecerá en memoria.
+.PP
+3. Los usuarios de 
+.BR /dev/initrd 
+no deberían depender del comportamiento indicado en las notas anteriores.
+Este comportamiento puede cambiar en futuras versiones del núcleo de Linux.
+.\"   
+.\"   
+.\"   
+.SH AUTOR
+El código del núcleo para el dispositivo 
+.BR initrd 
+ha sido escrito por Werner Almesberger <almesber@lrc.epfl.ch> y 
+Hans Lermen <lermen@elserv.ffm.fgan.de>.
+El código para
+.BR initrd 
+se añadió al código básico del núcleo en la versión de desarrollo 1.3.73.

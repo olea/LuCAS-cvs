@@ -1,0 +1,1716 @@
+\chapter{Algunos servicios y protocolos}
+\section{Introducci\'on}
+En este cap\'{\i}tulo vamos a hablar de la seguridad (e inseguridad) de algunos
+de los protocolos, servicios y programas que los implementan en los entornos
+Unix. No vamos a entrar en detalles sobre el funcionamiento de cada uno de 
+ellos, ya que ese ser\'{\i}a un trabajo que exceder\'{\i}a los objetivos de este
+proyecto; para m\'as referencias se puede consultar \cite{kn:ste90} (detalles
+de la implementaci\'on interna de algunos servicios) o \cite{kn:ste94}.\\
+\\Podemos ver los diferentes servicios que un sistema Unix ofrece como 
+potenciales puertas de entrada al mismo, o al menos como fuentes de ataques
+que ni siquiera tienen por qu\'e proporcionar acceso a la m\'aquina -- como las
+negaciones de servicio --. De esta forma, si cada servicio ofrecido es un 
+posible problema para nuestra seguridad, parece claro que lo ideal ser\'{\i}a
+no ofrecer ninguno, poseer una m\'aquina completamente aislada del resto; 
+evidentemente, esto no suele ser posible hoy en d\'{\i}a en la mayor parte de
+los sistemas\footnote{No obstante, algunos equipos que no necesitan estar 
+conectados entre s\'{\i}, lo est\'an; cada administrador deber\'{\i}a 
+preguntarse si realmente necesita sus m\'aquinas conectadas a la red.}. Por 
+tanto, ya que es necesaria la conectividad entre equipos, hemos de ofrecer {\bf 
+los m\'{\i}nimos servicios necesarios} para que todo funcione correctamente;
+esto choca frontalmente con las pol\'{\i}ticas de la mayor\'{\i}a de 
+fabricantes de sistemas Unix, que por defecto mantienen la mayor\'{\i}a de
+servicios abiertos al instalar un equipo nuevo: es responsabilidad del 
+administrador preocuparse de cerrar los que no sean estrictamente necesarios.\\
+\\T\'{\i}picos ejemplos de servicios que suele ser necesario ofrecer son {\it
+telnet} o {\it ftp}; en estos casos no se puede aplicar el esquema todo o nada
+que vimos al estudiar el sistema de red de Unix, donde o bien ofrec\'{\i}amos
+un servicio o lo deneg\'abamos completamente: es necesaria una correcta 
+configuraci\'on para
+que s\'olo sea posible acceder a ellos desde ciertas m\'aquinas, como veremos
+al hablar de {\it TCP Wrappers}. Tambi\'en es una buena idea sustituir estos
+servicios por equivalentes cifrados, como la familia de aplicaciones {\sc ssh},
+y concienciar a los usuarios para que utilicen estos equivalentes: hemos de
+recordar siempre -- y recordar a los usuarios -- que cualquier conexi\'on en 
+texto claro entre dos sistemas puede ser f\'acilmente capturada por cualquier
+persona situada en una m\'aquina intermedia, con lo simplemente utilizando
+{\tt telnet} estamos poniendo en juego la seguridad de sistemas y redes
+completas.\\
+\\Aparte de puertas de entrada, los servicios ofrecidos tambi\'en son muy
+susceptibles de ataques de negaci\'on de servicio ({\it DoS}), por ejemplo por
+demasiadas conexiones abiertas simult\'aneamente en una misma m\'aquina; incluso
+es posible que uno de estos ataques contra cierto servicio inutilice 
+completamente a {\tt inetd}, de forma que todos los ofrecidos desde \'el quedan
+bloqueados hasta que el demonio se reinicia. Este problema incluso puede ser
+muy grave: imaginemos que -- por cualquier motivo -- {\tt inetd} deja de 
+responder peticiones; si esto sucede es posible que ni siquiera podamos acceder
+a la m\'aquina remotamente para solucionar el problema (por ejemplo {\tt 
+telnet} o incluso {\sc ssh} si lo servimos deste {\tt inetd} dejar\'{\i}an de 
+funcionar). Para evitar este problema, muchos administradores planifican una
+tarea que se ejecute cada pocos minutos mediante {\tt cron}, y que simplemente
+env\'{\i}e la se\~nal {\sc sighup} a {\tt inetd}, por ejemplo a\~nadiendo esta
+entrada a su fichero {\it crontab}\footnote{Es recomendable consultar la
+sintaxis de estos ficheros en el clon de Unix en que trabajemos, ya que puede
+variar entre diferentes Unices.}:
+\begin{quote}
+\begin{verbatim}
+* * * * *           killall -HUP inetd 
+\end{verbatim}
+\end{quote}
+Si en nuestro clon de Unix no disponemos de una \'orden para enviar se\~nales
+a los procesos en funci\'on de su nombre (como {\tt pkill} en Solaris o {\tt
+killall} en Linux o IRIX) podemos utilizar un poco de programaci\'on {\it
+shellscript} para conseguirlo:
+\begin{quote}
+\begin{verbatim}
+* * * * *     kill -HUP `ps -auxw|grep inetd|grep -v grep|awk '{print $2}'`
+\end{verbatim}
+\end{quote}
+\section{Servicios b\'asicos de red}
+Dentro de este apartado vamos a comentar brevemente la funci\'on de algunos
+servicios de Unix y sus potenciales problemas de seguridad. Los aqu\'{\i} 
+expuestos son servicios que habitualmente han de estar {\bf cerrados}, por lo
+que no implican excesivos problemas de seguridad conocidos. As\'{\i}, 
+no vamos a entrar en muchos detalles con ellos; en puntos siguientes 
+hablaremos con m\'as extensi\'on de otros servicios que suelen estar ofrecidos
+en todas las m\'aquinas, como {\it ftp}, {\it telnet} o {\sc smtp}, y que 
+en su mayor\'{\i}a presentan mayores problemas de seguridad.
+\subsection{systat}
+El servicio {\it systat} se asocia al puerto 11 de una m\'aquina Unix, de forma
+que al recibir una petici\'on mediante {\sc tcp} el demonio {\tt inetd} 
+ofrece una imagen de la tabla de procesos del sistema, por ejemplo ejecutando
+una orden como {\tt ps -auwwx} en Linux o {\tt ps -ef} en Solaris; en algunos 
+Unices se ofrece la salida de \'ordenes
+como {\tt who} o {\tt w} en lugar de la tabla de procesos: es f\'acil 
+configurar lo que cada administrador desee mostrar simplemente modificando
+la l\'{\i}nea correspondiente de {\tt /etc/inetd.conf}:
+\begin{quote}
+\begin{verbatim}
+anita:~# grep systat /etc/inetd.conf
+systat stream  tcp     nowait  root    /usr/bin/ps             ps -ef
+anita:~# 
+\end{verbatim}
+\end{quote}
+Bien se ofrezca la tabla de procesos o bien otro tipo de informaci\'on sobre
+el sistema, este servicio es habitual encontarlo {\bf deshabilitado}, ya que
+cualquier dato sobre nuestro sistema (especialmente procesos, nombres de 
+usuario, m\'aquinas desde las que conectan\ldots) puede ser aprovechado por un
+pirata para atacar el equipo. Si por motivos de comodidad a la hora de 
+administrar varios {\it hosts} dentro de una red local necesitamos tener 
+abierto {\it systat}, debemos restringir las direcciones desde las que se puede 
+acceder al servicio mediante {\it TCP Wrappers}.
+\subsection{daytime}
+El servicio {\it daytime}, asociado al puerto 13, tanto {\sc tcp} como {\sc
+udp}, es un servicio interno de {\tt inetd} (esto es, no hay un programa 
+externo que lo sirva, el propio {\tt inetd} se encarga de ello); al recibir
+una conex\'on a este puerto, el sistema mostrar\'a la fecha y la hora, en un
+formato muy similar al resultado de la orden {\tt date}:
+\begin{quote}
+\begin{verbatim}
+anita:~# telnet rosita daytime
+Trying 192.168.0.1...
+Connected to rosita.
+Escape character is '^]'.
+Thu Apr 20 05:02:33 2000
+Connection closed by foreign host.
+anita:~#
+\end{verbatim}
+\end{quote}
+Aunque a primera vista este servicio no represente un peligro para la integridad
+de nuestro sistema, siempre hemos de recordar una norma de seguridad 
+fundamental: s\'olo hay que ofrecer los servicios estrictamente necesarios para 
+el correcto funcionamiento de nuestras m\'aquinas. Como {\it daytime} no es un
+servicio b\'asico, suele ser recomendable cerrarlo; adem\'as, la informaci\'on
+que proporciona, aunque escasa, puede ser suficiente para un atacante: le 
+estamos indicando el estado del reloj de nuestro sistema, lo que por ejemplo
+le da una idea de la ubicaci\'on geogr\'afica del equipo.\\
+\\Un servicio parecido en muchos aspectos a {\it daytime} es {\it time} (puerto
+37, {\sc tcp} y {\sc udp}); tambi\'en indica la fecha y hora del equipo, pero
+esta vez en un formato que no es inteligible para las personas:
+\begin{quote}
+\begin{verbatim}
+anita:~# telnet rosita time
+Trying 192.168.0.1...
+Connected to rosita.
+Escape character is '^]'.
+['^Connection closed by foreign host.
+anita:~#
+\end{verbatim}
+\end{quote}
+Este servicio suele ser m\'as \'util que el anterior: aunque una persona no 
+entienda la informaci\'on mostrada por {\it time}, s\'{\i} que lo hace una
+m\'aquina Unix. De esta forma, se utiliza {\it time} en un servidor para que
+las estaciones cliente puedan sincronizar sus relojes con \'el con \'ordenes
+como {\tt netdate} o {\tt rdate}:
+\begin{quote}
+\begin{verbatim}
+luisa:~# date
+Thu Apr 20 02:19:15 CEST 2000
+luisa:~# rdate rosita
+[rosita] Thu Apr 20 05:10:49 2000
+luisa:~# date
+Thu Apr 20 02:20:02 CEST 2000
+luisa:~# rdate -s rosita
+luisa:~# date
+Thu Apr 20 05:11:59 2000
+luisa:~#
+\end{verbatim}
+\end{quote}
+Los problemas de {\it time} son en principio los mismos que los de {\it 
+daytime}; aunque tambi\'en es recomendable mantener este servicio cerrado, es
+m\'as f\'acil imaginar situaciones en las que un administrador desee ofrecer
+{\it time} en varias m\'aquinas que imaginar la necesidad de ofrecer {\it
+daytime}.
+\subsection{netstat}
+De la misma forma que {\it systat} ofrec\'{\i}a informaci\'on sobre el estado
+de nuestro sistema, {\it netstat} la ofrece sobre el estado de nuestra red. 
+Este servicio, asociado al puerto 15 con protocolo {\sc tcp}, ejecuta una orden
+como {\tt netstat} (con argumentos que dependen del clon de Unix utilizado)
+para mostar principalmente las conexiones activas en la m\'aquina; por ejemplo,
+si en Linux invocamos a {\tt netstat} desde {\tt /etc/inetd.conf} con la 
+opci\'on {\tt `-A inet'}, al recibir una conexi\'on se mostrar\'a algo parecido 
+a lo siguiente:
+\begin{quote}
+\begin{verbatim}
+anita:~# telnet rosita netstat
+Trying 192.168.0.1...
+Connected to rosita.
+Escape character is '^]'.
+Active Internet connections (w/o servers)
+Proto Recv-Q Send-Q Local Address      Foreign Address   State      
+tcp        0      0 rosita:netstat     anita:4990        ESTABLISHED 
+Connection closed by foreign host.
+anita:~#
+\end{verbatim}
+\end{quote}
+Como suced\'{\i}a con {\it systat}, es recomendable {\bf deshabilitar} este
+servicio comentando la l\'{\i}nea correspondiente de {\tt /etc/inetd.conf}, o
+en todo caso restringir el acceso al mismo a m\'aquinas de nuestra red local,
+mediante {\it TCP Wrappers}. La informaci\'on sobre el estado del sistema de
+red -- o al menos de parte del mismo -- puede ser muy \'util para un atacante,
+ya que por ejemplo le est\'a mostrando nombres de {\it hosts} y adem\'as le
+permite hacerse una idea del tr\'afico que soporta la m\'aquina, de los 
+servicios que ofrece, de los h\'abitos de conexi\'on de los usuarios\ldots
+\subsection{chargen}
+{\it chargen} (puerto 19, {\sc tcp} y {\sc udp}) es un generador de caracteres
+servido internamente por {\tt inetd}, que se utiliza sobre todo para comprobar 
+el estado de las conexiones en la red; cuando alguien accede a este servicio
+simplemente ve en su terminal una secuencia de caracteres ASCII que se repite
+indefinidamente.\\
+\\Los posibles problemas de seguridad relacionados con {\it chargen} suelen ser
+negaciones de servicio, tanto para la parte cliente como para la servidora. Sin
+duda el ejemplo m\'as famoso de utilizaci\'on de {\it chargen} es una de las
+an\'ecdotas del experto en seguridad Tsutomu Shimomura (el principal 
+contribuidor en la captura de Kevin Mitnick, el pirata m\'as famoso de los 
+noventa): cuando conectaba a un servidor de {\it ftp} an\'onimo, Shimomura se 
+di\'o cuenta de que la m\'aquina lanzaba un {\it finger} contra el cliente que 
+realizaba la conexi\'on. Esto no le gust\'o, y decidi\'o comprobar si ese
+sistema utilizaba el {\it finger} habitual; para ello modific\'o el fichero 
+{\tt /etc/inetd.conf} de su sistema de forma que las peticiones {\it finger}
+se redireccionaran al generador de caracteres {\it chargen}. Conect\'o al 
+servidor de nuevo, y al hacer \'este otro {\it finger}, la m\'aquina de 
+Shimomura se dedic\'o a enviar {\it megas} y {\it megas} de caracteres ({\it
+chargen} no finaliza hasta que el cliente corta la conexi\'on); en unas pocas
+horas el sistema remoto qued\'o inoperativo, y a la ma\~nana siguiente ese {\it 
+finger}
+autom\'atico hab\'{\i}a sido eliminado de la configuraci\'on del servidor.
+Ese servidor no habr\'{\i}a sufrido una ca\'{\i}da si hubiera utilizado {\tt 
+safe$\_$finger}, un programa de Wietse 
+Venema que se distribuye junto a {\it TCP Wrappers} y que limita la potencial
+cantidad de informaci\'on que {\it finger} puede recibir.
+\subsection{tftp}
+{\it tftp} ({\it Trivial File Transfer Protocol}) es un protocolo de 
+transferencia de ficheros asociado al puerto 69 y basado en {\sc udp} que no 
+proporciona {\bf ninguna seguridad}. Por tanto en la mayor\'{\i}a de sistemas
+es obligatorio que este servicio est\'e desactivado; su uso principal es el
+arranque de estaciones {\it diskless} o de {\it routers} a trav\'es de la red, 
+ya que la simpleza
+del protocolo permite implementarlo en un {\it chip}, y s\'olo en ese caso 
+nos veremos obligados a ofrecer el servicio. Si es este el caso, los ficheros
+que deseemos que sean p\'ublicos se han de situar en un determinado directorio 
+(dependiendo del clon de Unix, {\tt /tftpboot/}, {\tt /etc/tftpboot/}, {\tt
+/usr/local/boot/}\ldots) o utilizar otros nombres de directorio como argumentos 
+del demonio en {\tt /etc/inetd.conf}, algo 
+no recomendable. Por ejemplo, si en {\tt /tftpboot/} guardamos una copia de
+la imagen del {\it kernel}, los clientes podr\'an acceder a ella mediante la
+orden {\tt tftp}:
+\begin{quote}
+\begin{verbatim}
+luisa:~# tftp rosita
+tftp> get vmlinuz
+Received 531845 bytes in 3.4 seconds
+tftp> quit
+luisa:~# 
+\end{verbatim}
+\end{quote}
+Podemos ver que en ning\'un momento se solicita un nombre de usuario o una
+clave, lo que nos da una idea de los graves problemas de seguridad que el 
+ofrecer este servicio puede implicarnos. Hasta hace unos a\~nos, era normal
+que los fabricantes de sistemas Unix vendieran sus productos con {\it tftp}
+abierto y sin configurar, con lo que un pirata lo ten\'{\i}a muy f\'acil para
+conseguir cualquier fichero de contrase\~nas:
+\begin{quote}
+\begin{verbatim}
+luisa:~# tftp victima
+tftp> get /etc/passwd /tmp/salida
+Received 1845 bytes in 0.6 seconds
+tftp> quit
+luisa:~#
+\end{verbatim}
+\end{quote}
+
+\subsection{finger}
+T\'{\i}picamente el servicio {\it finger} (puerto 79, {\sc tcp}) ha sido una de
+las principales fuentes de problemas de Unix. Este protocolo proporciona
+informaci\'on -- demasiado detallada -- de los usuarios de una m\'aquina, 
+est\'en o no conectados en el momento de acceder al servicio; para hacerlo, se
+utiliza la aplicaci\'on {\tt finger} desde un cliente, d\'andole como argumento
+un nombre de m\'aquina precedido del s\'{\i}mbolo {\tt `@'} y, opcionalmente,
+de un nombre de usuario ({\tt finger} sobre el sistema local no utiliza el
+servicio de red, por lo que no lo vamos a comentar aqu\'{\i}). En el primer
+caso, {\tt finger} nos dar\'a datos generales de los usuarios conectados en 
+ese momento a la m\'aquina, y en el segundo nos informar\'a con m\'as detalle
+del usuario especificado como par\'ametro, est\'e o no conectado:
+\begin{quote}
+\begin{verbatim}
+anita:~# finger @rosita
+[rosita]
+Login     Name               Tty   Idle  Login Time   Office     Office Phone
+toni      Toni at ROSITA    */0      28  Apr 20 04:43 (anita)
+root      El Spiritu Santo    1      12  Apr 11 02:10 
+anita:~# finger toni@rosita
+[rosita]
+Login: toni                             Name: Toni at ROSITA
+Directory: /home/toni                   Shell: /bin/bash
+On since Thu Apr 20 04:43 (CEST) on pts/0 from anita
+   30 minutes 28 seconds idle
+     (messages off)
+No mail.
+No Plan.
+anita:~#
+\end{verbatim}
+\end{quote}
+Como podemos ver, {\it finger} est\'a proporcionando mucha informaci\'on que
+podr\'{\i}a ser de utilidad para un atacante: nombres de usuario, h\'abitos de
+conexi\'on, cuentas inactivas\ldots incluso algunas organizaciones rellenan
+exhaustivamente el campo {\it gecos} del fichero de contrase\~nas, con datos
+como n\'umeros de habitaci\'on de los usuarios o incluso su tel\'efono. Est\'a
+claro que esto es f\'acilmente aprovechable por un pirata para practicar
+ingenier\'{\i}a social contra nuestros usuarios -- o contra el propio 
+administrador --. Es {\bf b\'asico} para la integridad de nuestras m\'aquinas
+{\bf deshabilitar} este servicio, restringir su acceso a unos cuantos equipos
+de la red local mediante {\it TCP Wrappers} o utilizar versiones del demonio
+{\tt fingerd} como {\tt ph} ({\it Phone Book}), que permiten especificar la
+informaci\'on que se muestra al acceder al servicio desde cada m\'aquina.
+\subsection{POP}
+El servicio {\sc pop} ({\it Post Office Protocol}, puertos 109 y 110 en {\sc 
+tcp}) se
+utiliza para que los usuarios puedan acceder a su correo sin necesidad de 
+montar sistemas de ficheros compartidos mediante {\sc nfs}: los clientes
+utilizan {\sc smtp} para enviar correo y {\sc pop} para recogerlo del servidor,
+de forma que el procesamiento se realice en la m\'aquina del usuario. Se trata 
+de un 
+servicio que podr\'{\i}amos considerar peligroso, por lo que -- como el resto,
+pero este especialmente -- debemos {\bf deshabilitarlo} a no ser que sea 
+estrictamente necesario ofrecerlo; en ese caso debemos restringir al m\'aximo 
+los lugares desde los que se puede acceder, mediante {\it TCP Wrappers}.\\
+\\En algunos sistemas se utiliza {\sc pop} simplemente para evitar otorgar 
+cuentas completas a los usuarios: si s\'olo van a utilizar la m\'aquina 
+para leer su correo, >por qu\'e ofrecerles un {\it shell} `completo', con
+acceso a todo el sistema? Realmente esto es cierto (ser\'{\i}a un error 
+permitir ejecutar ciertas \'ordenes a aquellos que s\'olo utilizar\'an el equipo
+para gestionar su correo), pero en muchas ocasiones esta soluci\'on no es del
+todo conveniente: aparte de los peligros que implica un servicio adicional, que
+de otra forma no utilizar\'{\i}amos -- en algunos demonios de {\sc pop} han
+surgido {\it bugs} que incluso otorgaban un privilegio de {\it root} remoto 
+sin necesidad de ninguna clave --, estamos generando un tr\'ansito peligroso
+de contrase\~nas a trav\'es de la red. {\sc pop} ofrece tres modelos distintos
+de autenticaci\'on: uno basado en {\it Kerberos}, apenas utilizado, otro basado
+en un protocolo desaf\'{\i}o--respuesta ({\sc apop}, que tampoco se suele
+utilizar), y otro basado en un simple nombre de usuario con su {\it password} 
+correspondiente. Este \'ultimo, el m\'as usado en todo tipo de entornos, es
+un excelente objetivo para un pirata con un {\it sniffer}: los usuarios suelen
+configurar sus clientes para que chequeen el buz\'on de correo cada pocos
+minutos, con lo que a intervalos muy cortos env\'{\i}an su clave a un puerto 
+conocido de una m\'aquina conocida; al realizar toda esta comunicaci\'on en 
+texto claro, un atacante no tiene m\'as que interceptar la sesi\'on {\sc pop} 
+para averiguar nombres de usuario y claves (aparte de poder leer el correo que 
+baja del servidor al cliente). Si lo que deseamos es que nuestros usuarios no
+disfruten de una cuenta completa simplemente para gestionar su correo, podemos
+sustituir su {\it shell} en {\tt /etc/passwd} por el nombre de dicho lector:
+\begin{quote}
+\begin{verbatim}
+ircd:x:1001:100:Gestion IRC,,,:/home/ircd:/usr/bin/pine
+\end{verbatim}
+\end{quote}
+En este caso hemos de tomar una precauci\'on adicional: la mayor\'{\i}a de 
+programas de correo ({\tt elm}, {\tt pine}\ldots) permiten escapes al {\it
+shell}, procedimientos que tarde o temprano ejecutan con \'exito un
+int\'erprete de \'ordenes; por ejemplo, con {\tt elm} no tenemos m\'as que
+iniciar {\tt vi} para escribir un mensaje y en el editor ejecutar {\tt 
+:!/bin/sh} para ejecutar este int\'erprete. Para evitar estos escapes o bien
+podemos modificar el c\'odigo del gestor de correo -- algo no muy habitual -- o
+utilizar ya versiones modificadas disponibles a trav\'es de Internet.
+
+\subsection{auth}
+Se llama {\it socket} a la combinaci\'on de una direcci\'on de m\'aquina y un
+puerto; esta entidad identifica un proceso \'unico en la red (\cite{kn:bre95}).
+Un par de {\it sockets}, uno en la m\'aquina receptora y otro en la emisora
+definen una conexi\'on en protocolos como {\sc tcp}; esta conexi\'on tambi\'en
+ser\'a \'unica en la red en un instante dado. Como vemos, no entra en juego
+ning\'un nombre de usuario: en {\sc tcp/ip} se establecen canales de 
+comunicaci\'on entre m\'aquinas, no entre personas; no obstante, en muchas 
+ocasiones nos puede interesar conocer el nombre de usuario bajo el que cierta
+conexi\'on se inicia. Por ejemplo, de esta forma podr\'{\i}amos ofrecer o 
+denegar un servicio en funci\'on del usuario que lo solicita, aparte de la 
+m\'aquina desde donde viene la petici\'on.\\
+\\El protocolo {\it auth} (puerto 113, {\sc tcp}) viene a solucionar este 
+problema con un esquema muy simple: cuando un servidor necesita determinar el
+usuario que ha iniciado una conexi\'on contacta con el demonio {\tt identd} y
+le env\'{\i}a los datos necesarios para distinguir dicha conexi\'on (los
+componentes de los dos {\it sockets} que intervienen) de las
+dem\'as. De esta forma, el demonio identifica al usuario en cuesti\'on y
+devuelve al servidor informaci\'on sobre dicho usuario, generalmente su {\it 
+login}. Por ejemplo, si utilizamos {\it TCP Wrappers} -- un programa servidor
+que utiliza este mecanismo para determinar nombres de usuario siempre que sea
+posible --, se registar\'a el {\it login} del usuario remoto que solicita un
+servicio en nuestra m\'aquina si el sistema remoto tiene habilitado {\it auth}:
+\begin{quote}
+\begin{verbatim}
+luisa:~# tail -2 ~adm/syslog
+Apr 24 04:16:19 luisa wu.ftpd[1306]: connect from rosita
+Apr 24 04:16:21 luisa ftpd[1306]: ANONYMOUS FTP LOGIN FROM \
+           rosita [192.168.0.1], toni@
+luisa:~#
+\end{verbatim}
+\end{quote}
+No obstante, si el sistema desde el que esa persona conecta no tiene habilitado
+dicho servicio, el nombre de usuario no se va a poder conseguir:
+\begin{quote}
+\begin{verbatim}
+luisa:~# tail -2 ~adm/syslog
+Apr 24 04:19:37 luisa wu.ftpd[1331]: connect from root@anita
+Apr 24 04:19:39 luisa ftpd[1331]: ANONYMOUS FTP LOGIN FROM \
+           root @ anita [192.168.0.3], toni@
+luisa:~#
+\end{verbatim}
+\end{quote}
+El servicio {\it auth} {\bf no} se debe utilizar nunca con prop\'ositos de 
+autenticaci\'on robusta, ya que dependemos no de nuestros sistemas, sino de la
+honestidad de la m\'aquina remota; un atacante con el suficiente nivel de
+privilegio en esta puede enviarnos cualquier nombre de usuario que desee. 
+Incluso en ciertas situaciones, si {\it ident} no est\'a habilitado ni siquiera
+hacen falta privilegios para devolver un nombre falso: cualquier usuario puede
+hacerlo. En cambio, s\'{\i} que es \'util para detectar peque\~nas violaciones
+de seguridad, por lo que quiz\'as interese
+habilitar el servicio en nuestras m\'aquinas (aunque limitemos su uso mediante
+{\it TCP Wrappers}.
+\subsection{NNTP}
+El servicio {\sc nntp} ({\it Network News Transfer Protocol}, puerto 119 {\sc
+tcp}) se utiliza para intercambiar mensajes de grupos de noticias entre 
+servidores de {\it news}. Los diferentes demonios encargados de esta tarea
+(como {\tt in.nntpd} o {\tt innd}) suelen discriminar conexiones en funci\'on 
+de la direcci\'on o el nombre de la m\'aquina cliente; por ejemplo, el primero
+utiliza el fichero {\tt nntp$\_$access} para decidir si ofrece el servicio de
+{\it news} a un determinado {\it host}, y si es as\'{\i} concretar de que forma
+puede acceder a \'el (s\'olo lectura, s\'olo ciertos grupos\ldots). De esta 
+forma, los servidores {\sc nntp} son muy vulnerables a cualquier ataque que 
+permita falsear la identidad de la m\'aquina origen, como el {\it IP 
+Spoofing}.\\
+\\Los problemas relacionados con las {\it news} no suelen ser excesivamente
+graves desde un punto de vista estrictamente t\'ecnico, pero en ocasiones 
+s\'{\i} que lo son aplicando una visi\'on global. Por ejemplo, habr\'{\i}a que
+evaluar el da\~no que le supone a la imagen de nuestra organizaci\'on el que
+un atacante env\'{\i}e mensajes insultantes o pornogr\'aficos utilizando nuestro
+nombre o nuestros recursos. Tambi\'en es un problema la mala educaci\'on de los
+usuarios en materias de seguridad inform\'atica: tienden a creer todo lo que
+leen en ciertos grupos de noticias, por lo que un atacante podr\'{\i}a utilizar
+ingenier\'{\i}a social para perjudicar a nuestra organizaci\'on. Otra amenaza
+com\'un es el uso de grupos de {\it news} privados (internos) para tratar 
+informaci\'on confidencial en la organizaci\'on: esto es un error, ya que si
+la privacidad del servidor se ve comprometida un atacante puede obtener datos
+que {\it a priori} no estar\'{\i}a autorizado a saber.\\
+\\Realmente, es muy poco probable que necesitemos ofrecer este servicio, por lo
+que lo m\'as razonable para nuestra seguridad es {\bf deshabilitarlo}. 
+Generalmente s\'olo existen servidores de noticias en grandes organizaciones 
+-- como las universidades --, y adem\'as lo normal es que s\'olo haya uno por
+entidad. Si debemos administrar ese equipo la mejor forma de proteger el 
+servicio {\sc nntp} es utilizando un buen cortafuegos (\cite{kn:spa96}).
+\subsection{NTP}
+{\sc ntp} ({\it Network Time Protocol}, puerto 123 {\sc udp} y {\sc tcp}) es
+un protocolo utilizado para sincronizar relojes de m\'aquinas de una forma muy
+precisa; a pesar de su sofisticaci\'on no fu\'e dise\~nado con una idea de 
+robustez ante ataques, por lo que puede convertirse en una gran fuente de 
+problemas (\cite{kn:bis90}) si no est\'a correctamente configurado o si no 
+utilizamos versiones
+actualizadas de {\tt nntpd}, el demonio que ofrece este servicio.\\
+\\Son muchos los problemas de seguridad relacionados con un tiempo correcto; el
+m\'as simple y obvio es la poca fiabilidad que ofrecer\'a nuestro sistema de
+{\it log} a la hora de determinar cu\'ando sucedi\'o determinado evento: 
+aunque se registrara que alguien hizo un {\it telnet} a las tres de la tarde,
+no podr\'{\i}amos ni siquiera asegurar que la hora es correcta. Otro problema
+t\'{\i}pico radica en las facilidades que ofrece Unix para la planificaci\'on
+de tareas: si el reloj tiene problemas, es posible que ciertas tareas no se
+lleguen a ejecutar, que se ejecuten varias veces, o que se ejecuten cuando no
+han de hacerlo; esto es especialmente peligroso para tareas de las que depende
+nuestra seguridad, como la rotaci\'on de {\it logs}. Si hablamos de problemas
+m\'as sofisticados, podemos pensar en sistemas distribuidos, en los que una
+correcta sincronizaci\'on entre nodos es b\'asica para garantizar el correcto 
+funcionamiento del sistema global (\cite{kn:tan95}, \cite{kn:cou94}\ldots); la
+sincronizaci\'on es muy importantes en modelos de autenticaci\'on como {\it
+Kerberos}, que utiliza marcas de tiempo como pruebas de frescura para evitar
+ataques por reenv\'{\i}o.\\
+\\Como hemos visto, una correcta sincronizaci\'on del reloj de nuestro equipo 
+es vital para la seguridad; no obstante, muy pocos sistemas necesitan la 
+precisi\'on de {\sc ntp}, por lo que es habitual tener este servicio 
+deshabilitado. En la mayor\'{\i}a de ocasiones el propio reloj de la m\'aquina,
+o un protocolo mucho m\'as simple, como {\it time}, es m\'as que suficiente para
+sincronizar equipos.
+\subsection{UUCP}
+{\sc uucp} ({\it Unix to Unix CoPy}, puerto 540 {\sc tcp}) es un servicio que,
+como su nombre indica, se utiliza para copiar ficheros entre m\'aquinas Unix,
+generalmente a trav\'es de l\'{\i}neas telef\'onicas o redes de baja velocidad; 
+aunque hoy en d\'{\i}a apenas se utiliza, durante a\~nos ha sido la base de los 
+sistemas de correo electr\'onico y de {\it news} (incluso hoy en d\'{\i}a 
+algunos sistemas {\sc uucp} son capaces de transmitir noticias de Usenet m\'as 
+eficientemente que la m\'as moderna implementaci\'on de {\sc nntp}).\\
+\\Dos riesgos fundamentales amenazan a {\sc uucp}: al tratarse de una 
+transmisi\'on en texto claro, un potencial atacante puede tener acceso a 
+informaci\'on privada de los usuarios, vulnerando su privacidad. Evidentemente,
+en el caso de transmisi\'on de {\it news} esto no es muy relevante, ya que
+todos los mensajes son en principio de acceso p\'ublico, pero la cosa cambia
+si estamos transmitiendo correo electr\'onico. El segundo riesgo es incluso
+m\'as preocupante que la p\'erdida de privacidad: las contrase\~nas de los 
+usuarios tambi\'en se transmiten en texto claro, con el consiguiente peligro que
+supone la interceptaci\'on por parte de un pirata de dichas claves. Aunque
+si utilizamos l\'{\i}neas telef\'onicas la probabilidad de que un {\it sniffer}
+capture los datos enviados es menor que si utilizamos una red {\sc tcp}, en
+ambos casos el riesgo est\'a presente.\\
+\\Como siempre, y dado que como hemos dicho {\sc uucp} no se suele utilizar hoy
+en d\'{\i}a, lo m\'as recomendable es {\bf deshabilitar} este servicio; es
+m\'as, dado que suele existir un usuario {\tt uucp} en todo sistema Unix (por
+motivos simplemente de compatibilidad), hemos de estar atentos a los posibles
+problemas que dicho usuario pueda generar. Es necesario asegurarse que no se
+permiten conexiones bajo este nombre de usuario, que en su directorio {\it
+\$HOME} no existen un fichero {\tt .rhosts}\ldots las precauciones habituales
+con cualquier nombre de usuario de este tipo que tengamos en nuestro sistema;
+incluso nos puede interesar sustituir su {\it shell} original (si lo tiene) por 
+uno como {\tt /bin/false}, para que un posible atacante que se haga pasar por 
+{\tt uucp} no tenga posibilidad de ejecutar \'ordenes en la m\'aquina. Si 
+estamos obligados a ofrecer conexiones v\'{\i}a {\sc uucp} en nuestro sistema,
+una buena referencia para conocer m\'as detalles de este mecanismo y su 
+seguridad es \cite{kn:rei88} (s\'olo su fecha nos da una idea del grado de
+desuso en que ha ca\'{\i}do {\sc uucp}); otra excelente fuente de informaci\'on
+sobre la seguridad -- e inseguridad -- de {\sc uucp} es el cap\'{\i}tulo 15 de
+\cite{kn:spa96}. Una medida de protecci\'on b\'asica es asignar un {\it login}
+y {\it password} diferente para cada sistema que conecte con el nuestro 
+mediante este m\'etodo; aparte de incrementar la seguridad -- si un atacante
+averigua una clave s\'olo podr\'a utilizar un acceso, no todos -- as\'{\i} 
+conseguimos un mayor refinamiento a la hora de registrar los eventos que se
+produzcan en nuestro sistema, lo que es muy \'util de cara a perseguir un
+abuso del servicio por parte de usuarios no autorizados. Adem\'as, en 
+situaciones extremas podemos configurar los m\'odems para realizar un {\it
+callback} cuando reciben una petici\'on, lo que asegura que estamos llamando
+al sistema deseado y no a otro -- siempre que un atacante no haya podido 
+modificar esos n\'umeros --.
+\section{El servicio FTP}
+{\sc ftp} ({\it File Transfer Protocol}, puerto 21 {\sc tcp}) es, como su 
+nombre indica, un protocolo
+de transferencia de ficheros entre sistemas. Desde un equipo cliente conectamos
+a un servidor para descargar ficheros desde \'el -- lo habitual -- o para 
+enviarle nuestros propios archivos.\\
+\\Un problema b\'asico y grave de {\sc ftp} es que est\'a pensado para ofrecer
+la m\'axima velocidad en la conexi\'on, pero ni mucho menos para ofrecer la
+m\'axima seguridad; todo el intercambio de informaci\'on, desde el {\it login}
+y {\it password} del usuario en el servidor hasta la transferencia de 
+cualquier fichero, se realiza en texto claro, con lo que un atacante lo tiene
+muy f\'acil para capturar todo ese tr\'afico y conseguir as\'{\i} un acceso
+v\'alido al servidor. Incluso puede ser una amenaza a la privacidad de nuestros
+datos el hecho de que ese atacante tambi\'en pueda capturar y reproducir los
+ficheros transferidos. Para solucionar este problema es conveniente concienciar
+a nuestros usuarios de la utilidad de aplicaciones como {\tt scp} y {\tt sftp},
+incluidas en el paquete {\sc ssh}, que permiten transferir ficheros pero 
+cifrando todo el tr\'afico; de esta forma, son el mejor sustituto de {\sc 
+ftp}.\\
+\\Parece evidente que la conexi\'on {\sc ftp} a nuestro sistema ha de estar 
+restringida a los usuarios que realmente lo necesiten: por ejemplo, un usuario
+como {\tt root} en principio no va a necesitar utilizar este servicio, ya que
+por lo general va a trabajar en consola; otros usuarios considerados `del
+sistema' (donde se incluye por ejemplo a {\tt postmaster}, {\tt bin}, {\tt 
+uucp}, {\tt shutdown}, {\tt daemon}\ldots) tampoco necesitar\'an hacer uso de 
+{\sc ftp}. Podemos indicar este tipo de usuarios a los que {\bf no} les est\'a 
+permitida una conexi\'on v\'{\i}a {\sc ftp} a nuestra m\'aquina en {\tt 
+/etc/ftpusers}, con un nombre por l\'{\i}nea; un ejemplo de este fichero es el
+siguiente:
+\begin{quote}
+\begin{verbatim}
+luisa:~# cat /etc/ftpusers
+halt
+operator
+root
+shutdown
+sync
+bin
+daemon
+adm
+lp
+mail
+postmaster
+news
+uucp
+man
+games
+guest
+postgres # 'postgres' NO hace ftp
+nobody
+inferno
+luisa:~#
+\end{verbatim}
+\end{quote}
+\subsection{FTP an\'onimo}
+Los problemas relacionados con la seguridad del servicio {\sc ftp} son 
+especialmente preocupantes cuando se trata de configurar un servidor de
+{\sc ftp} an\'onimo; muchos de estas m\'aquinas situadas en universidades
+espa\~nolas se convierten en servidores de im\'agenes pornogr\'aficas o de 
+{\it warez} (copias ilegales de programas comerciales). Conseguir un servidor 
+de {\sc
+ftp} an\'onimo seguro puede llegar a ser una tarea complicada: incluso en las
+p\'aginas de ayuda de algunas variantes de Unix (como Solaris) se trata de
+facilitar el proceso para el administrador mediante un {\it shellscript} que
+-- por defecto -- presenta graves problemas de seguridad, ya que deja una
+copia del fichero de claves del sistema como un archivo de acceso p\'ublico y
+an\'onimo.\\
+\\Para configurar correctamente un servidor de este tipo necesitamos
+en primer lugar crear al usuario {\tt ftp} en {\tt /etc/passwd} y {\tt 
+/etc/shadow}, as\'{\i} como su directorio de conexi\'on (algunos Unices, como 
+Linux, ya incorporan esto al instalar el sistema). Este directorio ha de 
+pertenecer a {\tt root} ({\bf ning\'un} fichero o subdirectorio ha de 
+pertenecer {\bf nunca} a {\tt ftp}) y al grupo al que pertenece 
+{\tt ftp}: con esto conseguimos que los permisos de propietario sean para el
+administrador y los de grupo para los usuarios an\'onimos; estos permisos 
+ser\'an 555.\\
+\\Dentro del {\it \$HOME} de {\tt ftp} hemos de crear el \'arbol de directorios
+m\'{\i}nimo para poder trabajar correctamente; esto es debido a la llamada a
+{\tt chroot()} que se utiliza en los accesos an\'onimos, que permite a esos
+usuarios ver el directorio ra\'{\i}z de su conexi\'on en el directorio real
+{\tt \~{}ftp/}. Al menos dos directorios son necesarios: {\tt etc/} y {\tt 
+bin/}, ambos propiedad de {\tt root} y con modo 111. En el primero de ellos 
+hemos de crear un fichero {\tt passwd} y otro {\tt group}, utilizados {\bf no} 
+con prop\'ositos de autenticaci\'on sino para visualizar el propietario y grupo 
+de cada fichero en el entorno sobre el que se ha aplicado {\tt chroot()} al 
+ejecutar {\tt ls}: por
+tanto, no hace falta {\bf ninguna} contrase\~na en ese fichero {\tt passwd},
+y s\'olo ha de contener entradas para los usuarios que posean ficheros bajo
+la jerarqu\'{\i}a de {\tt ftp}, como {\tt root}; de la misma forma, el fichero 
+{\tt group} s\'olo ha de contener las entradas correspondientes a grupos que
+posean ficheros en dicha jerarqu\'{\i}a:
+\begin{quote}
+\begin{verbatim}
+anita:~# cat /export/home/ftp/etc/passwd
+root:*:0:1:El Spiritu Santo:/:/sbin/sh
+anita:~# cat /export/home/ftp/etc/group
+root::0:
+other::1:
+daemon::2:
+ftp::30000:
+anita:~#
+\end{verbatim}
+\end{quote}
+Como vemos, el usuario {\tt ftp} tiene un {\it shell} denominado {\tt 
+/bin/false}; aunque aqu\'{\i} no tiene ning\'un efecto, en el archivo de
+contrase\~nas real de la m\'aquina esto es \'util para prevenir que dicho 
+usuario pueda conectar mediante {\sc telnet} o similar.\\
+\\Por su parte, en el otro directorio que hemos creado ({\tt bin/}) hemos de
+almacenar una copia del programa {\tt ls}, de forma que los usuarios puedan
+listar los contenidos de los directorios cuyos permisos lo permitan; si 
+utilizamos una versi\'on est\'atica del programa, como hace por ejemplo Linux,
+no hemos de configurar nada para que la aplicaci\'on funcione, pero si en 
+cambio utilizamos un {\tt ls} din\'amico (como SunOS o Solaris) hemos de
+crear el directorio {\tt lib/} dentro de {\tt \~{}ftp/} y copiar en \'el las
+librer\'{\i}as necesarias para que el programa funcione (podemos ver de cu\'ales
+se trata con {\tt ldd}).\\
+\\Con estos pasos ya tenemos configurada la base de nuestro servidor de {\sc
+ftp} an\'onimo; no obstante, es habitual crear dos directorios m\'as, uno 
+denominado {\tt pub/} y otro {\tt incoming/}, dentro de la misma jerarqu\'{\i}a 
+que los anteriores (esto es, en el {\it \$HOME} del usuario {\tt ftp}). El
+primero suele contener directorios con todos los ficheros que deseemos ofrecer 
+a los usuarios an\'onimos; su modo ha de ser 555, o 2555 en los sistemas
+que utilicen el bit {\it setgid} en un directorio para que sus subdirectorios y
+ficheros hereden el grupo del propietario. El directorio {\tt incoming} es 
+justo lo contrario: sirve para que esos usuarios an\'onimos puedan enviar 
+archivos a nuestra m\'aquina. Y es aqu\'{\i} donde suelen comenzar muchos 
+problemas: al permitir el {\it upload} de {\it software}, es posible que algunos
+piratas utilicen nuestra m\'aquina para crear servidores {\it warez}, subiendo
+programas comerciales a este directorio y luego indicando su localizaci\'on
+exacta a otras personas, para que los puedan descargar. Por tanto, los permisos
+de {\tt incoming} son vitales para nuestra seguridad (incluso si no deseamos
+que los usuarios an\'onimos nos env\'{\i}en ficheros podemos borrar este
+directorio): esos permisos han de ser 1733, y el propietario del directorio es
+el {\tt root}. >Para qu\'e ponemos el bit de permanencia? Muy sencillo: para 
+que los usuarios no puedan sobreescribir o borrar ficheros existentes; aunque
+la mayor\'{\i}a de servidores {\sc ftp} no permiten a los usuarios an\'onimos
+sobreescribir ficheros, si no pusi\'eramos este modo un usuario normal del
+sistema s\'{\i} que podr\'{\i}a hacerlo.\\
+\\El siguiente {\it shellscript} puede utilizarse para configurar c\'omodamente
+un entorno restringido destinado a los usuarios de {\sc ftp} an\'onimo 
+siguiendo las directrices que acabamos de comentar; funciona correctamente
+(en teor\'{\i}a) sobre Solaris, Linux y AIX\footnote{En este \'ultimo es 
+necesario instalar la utilidad {\tt ldd}, que por defecto no se distribuye con
+el operativo.}. Al igual que sucede con muchas tareas automatizadas, conviene 
+repasar manualmente la estructura de directorios y ficheros creados para 
+comprobar que todo es como esper\'abamos:
+\begin{quote}
+\begin{verbatim}
+anita:~# cat /usr/local/sbin/creaentorno
+#!/bin/sh
+# Script para crear un entorno chroot()eado.
+# Funciona OK en Linux, Solaris y AIX.
+# 
+
+# Esta variable es una lista con los programas que necesitamos en el 
+# entorno restringido. 
+PROGS="/bin/ls"
+# Imprime modo de uso
+if (test $# -lt 1); then
+        echo "Usage: $0 /path/to/chroot-environment"
+        exit
+fi
+# Detectamos clon de Unix
+OS=`uname -s`
+# Creamos estructura de directorios
+echo "Creando estructura de directorios para $OS"
+if [ ! -d $1 ]; then
+        mkdir -p $1
+fi
+chown root $1
+for i in bin etc; do
+        if [ ! -d $1/$i ] ; then
+               mkdir -p $1/$i
+        fi
+        chown root $1/$i
+done
+# En funcion del Unix, la estructura sera una u otra...
+if [ $OS = "Linux" ]; then
+        if [ ! -d $1/lib ]; then
+               mkdir -p $1/lib
+        fi
+        chown root $1/lib
+fi
+if ( test $OS = "SunOS" || test $OS = "AIX" ); then
+        if [ ! -d $1/usr/lib ]; then
+                mkdir -p $1/usr/lib
+        fi
+        chown root $1/usr/lib
+        cd $1
+        ln -s ./usr/lib $1/lib
+fi
+# Instalamos programas y las librerias que necesitan
+echo "Instalando programas y librerias..."
+for i in $PROGS; do
+        if [ ! -f $1/$i ]; then
+                cp $i $1/bin
+        fi
+        chmod 111 $1/bin
+        chown root $1/bin
+        if [ $OS = "AIX" ]; then 
+        for j in `ldd $i|awk -F"(" '{if(NR!=1) print $1}'`; do
+                if [ ! -f $1/$j ]; then
+                        cp $j $1/lib
+                fi
+                chown root $1/$j
+        done
+        else 
+                for j in `ldd $i|awk '{print $3}'`; do
+                        if [ ! -f $1/$j ]; then
+                                cp $j $1/lib
+                        fi
+                        chown root $1/$j
+                done
+        fi
+done
+# Estos ficheros quizas sea necesario retocarlos a mano, en funcion del tipo
+# de entorno restringido que fabriquemos.
+# Generamos PASSWD
+echo "Generando /etc/passwd..."
+awk -F: '$1=="root" {print $1":*:"$3":"$4":"$5":"$6":"$7}' /etc/passwd >\
+$1/etc/passwd
+awk -F: '$1=="bin" {print $1":*:"$3":"$4":"$5":"$6":"$7}' /etc/passwd>>\
+$1/etc/passwd
+awk -F: '$1=="daemon" {print $1":*:"$3":"$4":"$5":"$6":"$7}' /etc/passwd>>\
+$1/etc/passwd
+chmod 444 $1/etc/passwd
+chown root $1/etc/passwd
+# Quizas hay que anyadir otros grupos que nos interesen
+# Generamos GROUP con algunas entradas
+echo "Generando /etc/group..."
+awk -F: '$1=="root" {print $1":*:"$3":"$4}' /etc/group>$1/etc/group
+awk -F: '$1=="bin" {print $1":*:"$3":"}' /etc/group>>$1/etc/group
+awk -F: '$1=="daemon" {print $1":*:"$3":"}' /etc/group>>$1/etc/group
+chmod 444 $1/etc/group
+chown root $1/etc/group
+# Generamos pub/ e incoming/
+echo "Generando pub/ e incoming/..."
+if [ ! -d $1/pub ]; then
+        mkdir -p $1/pub
+fi
+chmod 2555 $1/pub
+chown root $1/pub
+if [ ! -d $1/incoming ]; then
+        mkdir -p $1/incoming
+fi
+chmod 1733 $1/incoming
+chown root $1/incoming
+# Si estamos en Solaris, aun no hemos acabado
+if [ $OS = "SunOS" ]; then
+        # Mas librerias
+        echo "$OS: Instalando librerias..."
+        for i in ld.so.1 libc.so.1 libdl.so.1 libmp.so.2 libnsl.so.1 \
+        libsocket.so.1 nss_compat.so.1 nss_dns.so.1 nss_files.so.1 \
+        nss_nis.so.1 nss_nisplus.so.1 nss_xfn.so.1 straddr.so \
+        straddr.so.2; do
+               cp /usr/lib/$i $1/usr/lib
+        done
+        if [ ! -d $1/dev ]; then
+                mkdir -p $1/dev
+        fi
+        chown root $1/dev
+        # Generamos dispositivos
+        echo "$OS: Generando dispositivos..."
+        for i in /dev/zero /dev/tcp /dev/udp /dev/ticotsord; do
+                MAJOR=`ls -lL $i|awk '{print $5}'|sed s/","//g`
+                MINOR=`ls -lL $i|awk '{print $6}'`
+                TYPE=`ls -lL $i|cut -c1-1`
+                /usr/sbin/mknod $1/$i $TYPE $MAJOR $MINOR
+        done
+        chmod 666 $1/dev/*
+fi
+echo "FIN"
+# FIN de Solaris
+anita:~#
+\end{verbatim}
+\end{quote}
+Algunos problemas relacionados con {\tt incoming/} provienen de los permisos 
+con que se 
+crean sus ficheros y subdirectorios: aunque los usuarios an\'onimos no puedan
+leer el directorio, con algunos servidores {\tt ftpd} s\'{\i} que es posible
+que puedan leer los ficheros contenidos en \'el (y sus subdirectorios), con lo
+que sigue siendo posible acceder a los archivos conociendo su nombre exacto;
+para evitar este problema, muchos administradores planifican un sencillo
+{\it shellscript} para que cada cierto tiempo mueva los contenidos de {\tt 
+incoming} a otro lugar, fuera del alcance de los usuarios an\'onimos (por 
+ejemplo, un subdirectorio con modo 000 de {\tt /tmp/}). Ciertos servidores,
+como {\it WU--ftpd}, tienen un fichero de configuraci\'on ({\tt 
+/etc/ftpaccess}) donde indicar -- entre otras cosas -- los modos con que se van 
+a crear entradas en {\tt incoming/}.\\
+\\Un ataque t\'{\i}pico a los servidores de {\sc ftp} es una negaci\'on de
+servicio llenando todo el espacio disponible para el {\it upload} de ficheros;
+para minimizar las consecuencias de este ataque, es conveniente situar el
+directorio {\tt \~{}ftp/} en una partici\'on separada del resto del sistema
+de ficheros, donde s\'olo se encuentre dicho directorio; algunos demonios
+permiten directamente limitar la cantidad de ficheros subidos al servidor en
+cada sesi\'on.\\
+\\Otra negaci\'on de servicio muy habitual contra los servidores de {\sc ftp}
+an\'onimo es obligar a las m\'aquinas a consumir una excesiva cantidad de
+CPU, ralentizando el sistema hasta que la calidad de servicio es muy baja; esto
+se produce en servidores que permiten descargar directorios completos como un
+\'unico archivo, empaquetados con {\tt tar} y/o comprimidos con {\tt gzip}. 
+Veamos un ejemplo extra\'{\i}do de una sesi\'on de {\sc ftp} an\'onimo:
+\begin{quote}
+\begin{verbatim}
+ftp> pwd
+257 "/pub/utils" is current directory.
+ftp> ls
+200 PORT command successful.
+150 Opening ASCII mode data connection for /bin/ls.
+total 377
+drwxr-xr-x   2 root     root         1024 Sep 18 22:28 .
+drwxrwxr-x   3 root     wheel        1024 Sep 18 22:28 ..
+-rw-r--r--   1 root     root       163519 Sep 18 22:28 transfig-3.1.2.tar.gz
+-rw-r--r--   1 root     root       217850 Sep 18 22:27 tth_C.tgz
+226 Transfer complete.
+ftp>  cd ..
+250 CWD command successful.
+ftp> pwd
+257 "/pub" is current directory.
+ftp> ls
+200 PORT command successful.
+150 Opening ASCII mode data connection for /bin/ls.
+total 3
+drwxrwxr-x   3 root     wheel        1024 Sep 18 22:28 .
+drwxrwxr-x   8 root     wheel        1024 Aug  1  1994 ..
+drwxr-xr-x   2 root     root         1024 Sep 18 22:28 utils
+226 Transfer complete.
+ftp> get utils.tar.gz
+local: utils.tar.gz remote: utils.tar.gz
+200 PORT command successful.
+150 Opening BINARY mode data connection for /bin/tar.
+226 Transfer complete.
+381369 bytes received in 1.07 secs (3.5e+02 Kbytes/sec)
+ftp>
+\end{verbatim}
+\end{quote}
+Como podemos ver, acabamos de descargar un directorio completo empaquetado y
+comprimido sin m\'as que a\~nadir al nombre de dicho directorio la extensi\'on
+{\tt .tar.gz} (o simplemente {\tt .tar} si no hubi\'eramos querido comprimirlo).
+Evidentemente esto resulta muy \'util en determinadas situaciones pero, >nos
+hemos parado a pensar que suceder\'{\i}a si alguien intentara descargar el
+directorio {\tt /pub.tar.gz} en un servidor con unos cuantos {\it Gigabytes}
+de ficheros? La carga del sistema crecer\'{\i}a much\'{\i}simo, ya que estamos
+empaquetando y comprimiendo un archivo de grandes dimensiones; si ahora 
+extendemos esto a varios usuarios que ejecutan la misma orden 
+simult\'aneamente podemos hacernos una idea de la sobrecarga introducida en la
+m\'aquina: una raz\'on m\'as que suficiente para tener cuidado con los 
+directorios que permitimos descargar de esta forma\ldots\\
+\\Por \'ultimo, es una buena idea mostrar un mensaje cuando los usuarios 
+an\'onimos conectan a nuestra m\'aquina donde se indiquen claramente los fines 
+del sistema y la atenci\'on a su uso indebido; este mensaje puede sernos \'util
+tanto con fines jur\'{\i}dicos (as\'{\i} el atacante no podr\'a argumentar que
+desconoc\'{\i}a la finalidad del sistema) como con fines disuasorios: si el
+pirata se da cuenta de que nos preocupamos por la seguridad de nuestro servidor,
+es posible que lo abandone y busque otro menos protegido. Por ejemplo, si
+utilizamos {\it WU--ftpd}, en {\tt \~{}ftp/welcome.msg} podemos escribir el
+mensaje mostrado al conectar al sistema, y en diferentes ficheros {\tt 
+.message} el mensaje que se vuelca a acceder a un directorio (estos nombres son
+configurables en {\tt /etc/ftpaccess}). Un ejemplo del mensaje de entrada puede
+ser el siguiente:
+\begin{quote}
+\begin{verbatim}
+anita:~# cat /export/home/ftp/welcome.msg
+
+                  * * *         ANITA        * * *
+           -----------  Bienvenid@s a ANITA  ------------
+  Esta maquina es propiedad de la Universidad Politecnica de Valencia y
+  sus fines son exclusivamente academicos y de investigacion. Cualquier
+  otro uso sera perseguido y castigado con el maximo rigor.
+  Cualquier actividad realizada en, desde o hacia este sistema esta
+  sujeta a monitorizacion sin previo aviso.
+
+anita:~#
+\end{verbatim}
+\end{quote}
+\subsection{FTP invitado}
+Hasta ahora hemos visto dos formas de transferir ficheros desde una m\'aquina
+Unix mediante {\sc ftp}: o bien el usuario conecta utilizando su {\it login} y
+su clave al sistema y descarga de \'el cualquier archivo sobre el que tenga
+permiso de lectura, de {\it cualquier} parte del sistema de ficheros, o bien
+accede a un entorno restringido mediante {\tt chroot()} como usuario an\'onimo, 
+con un {\it login} gen\'erico y usando como contrase\~na una direcci\'on de 
+correo -- seguramente falsa --. En muchas ocasiones, estos modelos pueden 
+resultar insuficientes o al menos poco adecuados a nuestras necesidades.\\
+\\Imaginemos esta situaci\'on: un proveedor de acceso a Internet decide ofrecer
+a sus clientes la posibilidad de actualizar sus p\'aginas {\it web} personales
+mediante
+{\sc ftp}, de forma que cada uno de ellos no tiene m\'as que conectar con su
+nombre de usuario y su contrase\~na al servidor y subir sus ficheros {\sc 
+html}; dichos {\it login} y {\it password} ser\'an por supuesto diferentes para
+cada usuario, por lo que parece claro que un entorno de {\sc ftp} an\'onimo no 
+es aplicable -- al menos de forma inmediata -- en esta situaci\'on. El {\sc
+ftp} `normal' funcionar\'{\i}a correctamente, pero su utilizaci\'on tampoco es
+\'optima: si un usuario no necesita acceder m\'as que a su {\it \$HOME} para
+actualizar sus p\'aginas, >por qu\'e permitirle que vea todo nuestro sistema de 
+ficheros, aunque sea v\'{\i}a {\sc ftp}, y que pueda descargar archivos tan
+comprometedores como {\tt /etc/passwd}?\\
+\\Los potenciales problemas de seguridad que la situaci\'on anterior implica
+han dado lugar a un tercer tipo de acceso {\sc ftp} denominado {\bf invitado}
+({\it guest}), que se puede contemplar como una mezcla de los dos vistos hasta
+el momento. La idea de este mecanismo es muy sencilla: se trata de permitir que
+cada usuario conecte a la m\'aquina mediante su {\it login} y su contrase\~na, 
+pero evitando que tenga acceso a partes del sistema de ficheros que no necesita 
+para realizar su trabajo; conectar\'a a un entorno restringido mediante {\tt
+chroot()}, algo muy similar a lo que sucede en los accesos an\'onimos.\\
+\\Para poder crear f\'acilmente entornos {\sc ftp} restringidos a cada usuario
+es conveniente instalar {\it WU-ftpd} en la m\'aquina; este servidor est\'a
+disponible libremente a trav\'es de Internet, en la direcci\'on {\tt 
+ftp://ftp.wu-ftpd.org/pub/wu-ftpd/}. Otros servidores, como el distribuido con
+Solaris, permiten crear usuarios {\sc ftp} invitados pero de una forma m\'as
+compleja; en los ejemplos que veamos en este punto vamos a asumir que utilizamos
+{\it WU-ftpd}.\\
+\\Lo primero que necesitamos para configurar el entorno al que van a conectar
+este tipo de usuarios es una estructura de directorios y archivos muy similar
+a la que hemos estudiado para los accesos a trav\'es de {\sc ftp} an\'onimo, 
+pero esta vez colgando del directorio de conexi\'on del usuario invitado; con 
+unas peque\~nas variaciones, podemos utilizar para crear este entorno el 
+{\it shellscript} que hemos presentado en el punto anterior. As\'{\i}, si
+queremos que nuestro usuario {\tt toni} acceda como invitado v\'{\i}a {\sc
+ftp} podemos crear esta estructura en su {\it \$HOME}:
+\begin{quote}
+\begin{verbatim}
+anita:~# /usr/local/sbin/creaentorno /export/home/toni
+Creando estructura de directorios para SunOS
+Instalando programas y librerias...
+Generando /etc/passwd...
+Generando /etc/group...
+Generando pub/ e incoming...
+SunOS: Instalando librerias...
+SunOS: Generando dispositivos...
+FIN
+anita:~# 
+\end{verbatim}
+\end{quote}
+Realmente, son necesarias peque\~nas modificaciones sobre el esquema anterior
+para que todo funcione correctamente; por un lado, los directorios {\tt pub/}
+e {\tt incoming/} no son necesarios en los accesos como invitado, ya que {\it a
+priori} los usuarios que accedan de esta forma necesitar\'an escribir en
+varios directorios del entorno. Adem\'as, quiz\'as nos interese repasar los
+permisos de toda la jerarqu\'{\i}a de directorios creada, para afinar m\'as
+los lugares en los que se les permita escribir a los usuarios; por ejemplo,
+si s\'olo van a subir archivos a un directorio {\tt \$HOME/public$\_$html/},
+donde se ubicar\'an sus p\'aginas {\it web}, no tienen por qu\'e escribir en el
+resto del entorno. De la misma forma, si el directorio {\it \$HOME} es 
+propiedad de cada usuario quiz\'as pueda borrar archivos como {\tt lib}, que es
+un enlace a {\tt usr/lib/}, lo que puede llegar a comprometer nuestra 
+seguridad.\\
+\\Otro punto a tener en cuenta es qui\'en va a poseer ficheros dentro del 
+entorno restringido, ya que esos usuarios y sus grupos deber\'an tener una 
+entrada en los archivos {\tt etc/passwd} y {\tt etc/group}; como suced\'{\i}a 
+con los usuarios an\'onimos, estos ficheros no se van a usar aqu\'{\i} para
+realizar autenticaci\'on, sino simplemente para ver los nombres del usuario y
+grupo propietarios de cada fichero al realizar un listado, por lo que en
+ninguno de ellos es necesaria una contrase\~na real: basta con un asterisco en
+el campo correspondiente.\\
+\\Una vez que hemos creado correctamente el entorno es necesario configurar
+el acceso del usuario en cuesti\'on. Generalmente no nos interesar\'a que 
+acceda por {\tt telnet} o similar, por lo que su {\it shell} en {\tt 
+/etc/passwd} (el original de la m\'aquina, no el del entorno restringido) ha de 
+ser algo como {\tt /bin/false}. Es necesario que exista una entrada para este
+{\it shell} en {\tt /etc/shells}, ya que de lo contrario el usuario no podr\'a
+autenticarse; si este \'ultimo archivo no existe, es necesario crearlo. Su
+directorio {\it \$HOME}, indicado en {\tt /etc/passwd}, tambi\'en ha de ser 
+modificado de la siguiente forma:
+\begin{quote}
+\begin{verbatim}
+toni:x:1002:10:Toni at ANITA:/export/home/toni/./:/bin/sh
+\end{verbatim}
+\end{quote}
+Como vemos, se a\~nade {\tt `/./'} al directorio {\it \$HOME} del usuario. Esta 
+cadena 
+indica d\'onde se va a efectuar el {\tt chroot()} (por ejemplo, si quisi\'eramos
+que el {\tt chroot()} se hiciera sobre {\tt /export/home/} y tras esta llamada
+el usuario entrara a su directorio {\tt toni}, lo indicar\'{\i}amos como\\
+{\tt /export/home/./toni/}).\\
+\\Tras modificar {\tt /etc/passwd} hemos de modificar {\tt /etc/group} para
+incluir al usuario {\tt `toni'} en un grupo que luego definiremos como 
+invitado, por ejemplo {\tt `rftp'}:
+\begin{quote}
+\begin{verbatim}
+anita:~# grep toni /etc/group
+rftp::400:toni
+anita:~# 
+\end{verbatim}
+\end{quote}
+Ahora falta por configurar el archivo {\tt /etc/ftpaccess}; hemos de indicarle
+al demonio que utilice este fichero (por ejemplo, mediante la opci\'on {\tt 
+`-a'}). En \'el definimos el grupo {\tt `guest'} en las clases apropiadas:
+\begin{quote}
+\begin{verbatim}
+class   local   real,guest,anonymous *.domain 0.0.0.0
+class   remote  real,guest,anonymous *
+\end{verbatim}
+\end{quote}
+Tambi\'en le damos a los usuarios {\tt `guest'} los permisos que consideremos
+oportunos; habitualmente, interesar\'a que puedan borrar, sobreescribir y 
+renombrar sus archivos. Pero no es normal que necesiten ejecutar cambios en los
+modos de los ficheros o en su m\'ascara de permisos:
+\begin{quote}
+\begin{verbatim}
+delete     no   anonymous                     # delete permission?
+overwrite  no   anonymous                     # overwrite permission?
+rename     no   anonymous                     # rename permission?
+chmod      no   anonymous,guest               # chmod permission?
+umask      no   anonymous,guest               # umask permission?
+\end{verbatim}
+\end{quote}
+Y por \'ultimo, tambi\'en en {\tt /etc/ftpaccess}, definimos al grupo {\tt 
+`rftp'} como invitado:
+\begin{quote}
+\begin{verbatim}
+guestgroup rftp
+\end{verbatim}
+\end{quote}
+Una vez llegados a este punto el usuario ya est\'a en disposici\'on de 
+conectar como invitado v\'{\i}a {\sc ftp}; aunque realmente acceder\'a a su 
+{\it \$HOME}, para \'el ser\'a el directorio ra\'{\i}z, y no ver\'a ning\'un
+archivo del sistema que no se encuentre en este directorio.\\
+\\Antes de finalizar, un \'ultimo apunte: el entorno restringido que acabamos
+de ver s\'olo se aplica para accesos por {\sc ftp}; as\'{\i}, si el usuario
+tiene definido un {\it shell} est\'andar en {\tt /etc/passwd}, cuando conecte
+mediante {\it telnet} o similar seguir\'a teniendo acceso a todo el sistema de 
+ficheros, por lo que todo el trabajo que hemos realizado perder\'{\i}a su
+sentido. Aunque en el siguiente punto daremos alguna idea para crear entornos
+restringidos en los accesos por terminal remota, esta situaci\'on es mucho 
+m\'as extra\~na que la de los accesos invitados, por lo que normalmente (y esto
+es {\bf muy importante}) los {\it shells} de los usuarios invitados han de ser 
+del tipo {\tt /bin/false}, es decir, no les permitiremos una sesi\'on 
+interactiva en el sistema por terminal remota. Con un {\it shell} de este
+estilo, si intentan acceder a la m\'aquina (por ejemplo mediante {\it telnet}),
+nada m\'as introducir correctamente su {\it login} y su {\it password} ser\'an
+desconectados:
+\begin{quote}
+\begin{verbatim}
+luisa:~# telnet anita
+Trying 192.168.0.3...
+Connected to anita.
+Escape character is '^]'.
+
+SunOS 5.7
+
+login: toni
+Password: 
+Connection closed by foreign host.
+luisa:~# 
+\end{verbatim}
+\end{quote}
+\section{El servicio TELNET}
+El protocolo {\sc telnet} ({\sc tcp}, puerto 23) permite utilizar una m\'aquina 
+como terminal virtual de otra a trav\'es de la red, de forma que se crea un 
+canal virtual de comunicaciones similar -- pero mucho m\'as inseguro -- a 
+utilizar una terminal f\'{\i}sicamente conectada a un servidor; la idea es 
+sencilla: estamos accediendo remotamente en modo texto a un equipo -- en 
+principio potente -- igual que si
+estuvi\'eramos utilizando su consola o una de sus terminales f\'{\i}sicas, lo
+que nos permite aprovechar toda su potencia de c\'alculo si necesidad de 
+desplazarnos hasta la ubicaci\'on de ese servidor, sino trabajando c\'omodamente
+desde nuestro propio equipo.\\
+\\{\sc telnet} es el cl\'asico servicio que hasta hace unos a\~nos no se 
+sol\'{\i}a deshabilitar nunca: no es habitual adquirir una
+potente m\'aquina corriendo Unix y permitir que s\'olo se trabaje en ella desde
+su consola; lo m\'as normal es que este servicio est\'e disponible para que
+los usuarios puedan trabajar remotamente, al menos desde un conjunto de 
+m\'aquinas determinado. Evidentemente, reducir al m\'{\i}nimo imprescindible 
+el conjunto de sistemas desde donde es posible la conexi\'on es una primera
+medida de seguridad; no obstante, no suele ser suficiente: recordemos que {\sc
+telnet} no utiliza ning\'un tipo de cifrado, por lo que todo el tr\'afico entre
+equipos se realiza en texto claro. Cualquier atacante con un analizador de red
+(o un vulgar {\it sniffer}) puede capturar el {\it login} y el {\it password}
+utilizados en una conexi\'on; el {\it sniffing} siempre es peligroso, pero 
+m\'as a\'un en sesiones {\sc telnet} en las que transmitimos nombres de 
+usuarios y contrase\~nas: estamos otorgando a cualquiera que lea esos datos un
+acceso total a la m\'aquina destino, bajo nuestra identidad. Por tanto, es {\bf 
+muy recomendable} no utilizar 
+{\sc telnet} para conexiones remotas, sino sustituirlo por aplicaciones 
+equivalentes pero que utilicen cifrado para la transmisi\'on de datos: {\sc 
+ssh} o {\it SSL-Telnet} son las m\'as comunes. En estos casos necesitamos 
+adem\'as de la parte cliente en nuestro equipo, la parte servidora en la 
+m\'aquina remota escuchando en un puerto determinado.\\
+\\Aparte del problema de los atacantes esnifando claves, los demonios {\tt
+telnetd} han sido tambi\'en una fuente cl\'asica de problemas de programaci\'on
+(se puede encontrar un excelente repaso a algunos de ellos en el cap\'{\i}tulo
+29 de \cite{kn:ano97});
+b\'asicamente, cualquier versi\'on de este demonio que no est\'e actualizada 
+es una potencial fuente de problemas, por lo que conviene conseguir la \'ultima
+versi\'on de {\tt telnetd} para nuestro Unix particular, especialmente si a\'un 
+tenemos una versi\'on anterior a 1997. Otros problemas, como la posibilidad de
+que un atacante consiga recuperar una sesi\'on que no ha sido cerrada 
+correctamente, el uso de {\tt telnet} para determinar qu\'e puertos de un {\it
+host} est\'an abiertos, o la utilizaci\'on del servicio {\it telnet} (junto a 
+otros, como {\sc ftp}) para averiguar el clon de Unix concreto (versi\'on de 
+{\it kernel} incluida) que un servidor utiliza, tambi\'en han hecho famosa la
+inseguridad de este servicio.\\
+\\Antes hemos hablado de la configuraci\'on de un entorno restringido para
+usuarios {\sc ftp} invitados, que acced\'{\i}an mediante su {\it login} y su 
+contrase\~na pero que no ve\'{\i}an la totalidad del sistema de ficheros de
+nuestra m\'aquina. Es posible -- aunque ni de lejos tan habitual -- hacer algo
+parecido con ciertos usuarios interactivos, usuarios que conectar\'an al sistema
+mediante {\it telnet} utilizando tambi\'en su {\it login} y su {\it password},
+pero que no ver\'an el sistema de ficheros completo: s\'olo la parte que a 
+nosotros nos interese (en principio).\\
+\\Para que un usuario acceda mediante {\it telnet} a un entorno restringido con
+{\tt chroot()} necesitamos en primer lugar un entorno parecido al que hemos
+visto antes: a partir de su directorio {\it \$HOME}, una serie de 
+subdirectorios {\tt bin/}, {\tt lib/}, {\tt etc/}\ldots Dentro de este \'ultimo
+existir\'a al menos un fichero {\tt group} y otro {\tt passwd} (igual que 
+suced\'{\i}a antes, no se usan con prop\'ositos de autenticaci\'on, por lo que
+no es necesario -- ni recomendable -- que existan claves reales en ninguno de 
+ellos). En el directorio {\tt bin/} incluiremos los ejecutables que queremos
+que nuestro usuario pueda ejecutar, y en {\tt lib/} (o {\tt usr/lib/}) las
+librer\'{\i}as que necesiten; si usamos el {\it shellscript} anterior -- de
+nuevo, con alguna peque\~na modificaci\'on -- para 
+crear este entorno, en la variable {\it \$PROGS} podemos definir tales 
+ejecutables para que autom\'aticamente se copien junto a las librer\'{\i}as 
+necesarias en el directorio correspondiente:
+\begin{quote}
+\begin{verbatim}
+PROGS="/bin/ls /bin/sh"
+\end{verbatim}
+\end{quote}
+Finalmente, en el archivo {\tt /etc/passwd} real hemos de definir un {\it shell}
+para el usuario como el siguiente:
+\begin{quote}
+\begin{verbatim}
+luisa:~# cat /home/toni/prog/shell.c
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <pwd.h>
+
+#define SHELL "/bin/sh"
+
+int main(){
+struct passwd *entry=(struct passwd *)malloc(sizeof(struct passwd));
+char *const ARGS[2]={SHELL,NULL};
+while((entry=getpwent())->pw_uid!=getuid());
+endpwent();
+if(chdir(entry->pw_dir)<0) perror("chdir()");
+if(chroot(entry->pw_dir)<0) perror("chroot()");
+if(setuid(getuid())<0) perror("setuid()");
+if(execvp(SHELL,ARGS)<0) perror("execvp()");
+// No alcanzado
+return(0);
+}
+luisa:~# 
+\end{verbatim}
+\end{quote}
+Este c\'odigo, convenientemente compilado, ser\'a el {\it shell} real del
+usuario restringido; como vemos, obtiene el directorio {\it \$HOME} del mismo,
+hace un {\tt chroot()} a \'el, y ejecuta en este entorno el {\it shell} 
+secundario ({\tt bin/sh}, que realmente ser\'a {\tt \$HOME/bin/sh}). Para 
+que el {\tt chroot()} sea correcto el programa ha de estar {\it setuidado} bajo 
+la identidad de {\tt root} (s\'olo el superusuario puede realizar esta llamada),
+con los riesgos que esto implica; al contrario de lo que dir\'{\i}a Knuth, yo 
+s\'olo defiendo que el c\'odigo anterior funciona, no que sea correcto\ldots o 
+seguro :)\\
+\\Si tenemos que crear un entorno como este para usuarios interactivos hemos
+de tener en cuenta ciertas medidas de seguridad relativas a los ejecutables que
+situemos -- o que permitamos situar -- en dicho entorno. Para empezar, hemos de
+evitar a toda costa los ejecutables {\it setuidados}, as\'{\i} como las llamadas
+{\tt mknod()}, {\tt chmod()} o la propia {\tt chroot()}; adem\'as, no debe ser
+posible obtener privilegios de administrador dentro del entorno restringido, ya
+que para el {\tt root} estas restricciones pierden su sentido: no tenemos m\'as
+que pensar que si un usuario con privilegios de {\tt root} dentro del entorno 
+es capaz de generar un dispositivo que represente un disco duro, con algo
+tan sencillo como la utilidad {\tt mknod}, autom\'aticamente acceder\'a a la
+totalidad de ese disco, olvidando ya el {\tt chroot()} y la potencial 
+protecci\'on que pueda ofrecernos. Algo similar ocurre con la memoria del
+sistema, ciertos dispositivos f\'{\i}sicos, o estructuras de datos del n\'ucleo:
+si esto es accesible desde el entorno restringido, es muy probable que nuestra 
+seguridad se vea rota tarde o temprano (m\'as bien temprano). Tampoco es 
+aconsejable permitir la ejecuci\'on de compiladores de C o de int\'erpretes de
+Perl.\\
+\\Como hemos dicho, este tipo de entornos es mucho menos habitual
+que los de {\sc ftp}, aparte de bastante m\'as peligrosos. Una tarea tan
+habitual como cambiar la contrase\~na no es posible -- al menos de forma 
+trivial -- en este entorno (aunque podr\'{\i}amos modificar el c\'odigo anterior
+para que se ofrezca al usuario esta posibilidad antes de situarlo en el entorno
+restringido). >Y que sucede si necesitamos que el usuario acceda no a un s\'olo
+directorio, sino a dos? Las soluciones -- al menos las seguras -- no son 
+inmediatas.
+\section{El servicio SMTP}
+El servicio {\sc smtp} ({\it Simple Mail Transfer Protocol}, puerto 25 {\sc 
+tcp}) se utiliza para
+transferir correo electr\'onico entre equipos remotos; estas m\'aquinas pueden
+ubicarse f\'{\i}sicamente en la misma sala, en la misma universidad, o en la 
+otra parte del mundo, a miles de kil\'ometros de distancia. Este servicio suele
+ser atendido por un demonio denominado {\tt sendmail}, que ha sido uno de los 
+que m\'as problemas de seguridad ha tenido a lo largo de la historia de Unix;
+y no es para menos: se trata de un {\it software} muy complejo y potente -- 
+incluso demasiado para las necesidades de la mayor\'{\i}a de servidores --, por
+lo es inevitable que en su c\'odigo existan {\it bugs}; para hacernos una idea
+del grado de complejidad de {\tt sendmail} simplemente tenemos que echarle un
+vistazo a su fichero de configuracion principal, {\tt /etc/sendmail.cf}. Existen
+incluso libros casi dedicados exclusivamente a este archivo (\cite{kn:cos97a},
+\cite{kn:cos97b}\ldots).\\
+\\Una medida de protecci\'on b\'asica para nuestro servicio {\sc smtp}, y que
+muchos administradores desconocen, es la posibilidad de servir {\tt sendmail}
+desde {\tt inetd} en lugar de hacerlo como un demonio independiente, y por tanto
+poder restringir el acceso al mismo mediante {\it TCP Wrappers}. En la 
+mayor\'{\i}a de organizaciones 
+existe un servidor de correo principal que es el encargado de recoger el {\it
+mail} para todas las direcciones {\tt `*@*.upv.es'}; el resto de equipos s\'olo
+recibir\'an correo desde este equipo -- o desde otro que sirve s\'olo a un 
+subdominio, y que a su vez recibe s\'olo desde el principal --. Entonces, 
+parece claro que si nuestro {\tt sendmail} s\'olo recibe correo v\'alido desde
+una m\'aquina, lo l\'ogico es configurarlo para que s\'olo acepte peticiones
+desde ella: en lugar de lanzar el demonio al arrancar el sistema, en uno de
+los {\it scripts} de {\tt /etc/rc.d/} o similar, lo serviremos desde {\tt 
+inetd}. Para esto necesitamos en primer lugar modificar el {\it script} 
+correspondiente para que {\tt sendmail} no se lance como demonio en el 
+arranque: en lugar de
+invocarlo como {\tt `sendmail -bd -q15m'} lo haremos como {\tt `sendmail 
+-q15m'}. Ademas, es necesario identificar el servicio en {\tt /etc/services}, 
+con una l\'{\i}nea como la siguiente:
+\begin{quote}
+\begin{verbatim}
+luisa:~# grep smtp /etc/services
+smtp            25/tcp          mail
+luisa:~#
+\end{verbatim}
+\end{quote}
+Tras reconocer el servicio, hemos de a\~nadir una l\'{\i}nea en {\tt 
+/etc/inetd.conf} indicando c\'omo se ha de ejecutar {\tt sendmail} cuando {\tt
+inetd} reciba una petici\'on en el puerto 25; dicha l\'{\i}nea es similar a la
+siguiente:
+\begin{quote}
+\begin{verbatim}
+luisa:~# grep smtp /etc/inetd.conf
+smtp  stream  tcp     nowait  root    /usr/sbin/tcpd  sendmail -bs
+luisa:~#
+\end{verbatim}
+\end{quote}          
+Una vez realizados estos cambios podemos controlar el acceso a nuestro servicio
+{\sc smtp} mediante {\it TCP Wrappers}; por ejemplo, en el caso de la 
+Universidad Polit\'ecnica, el servidor de correo principal se denomina {\tt
+vega.cc.upv.es}. Para que s\'olo esta m\'aquina nos pueda enviar correo, 
+incluiremos una l\'{\i}nea como la siguiente en {\tt /etc/hosts.allow}:
+\begin{quote}
+\begin{verbatim}
+luisa:~# grep sendmail /etc/hosts.allow
+sendmail: vega.cc.upv.es
+luisa:~# 
+\end{verbatim}
+\end{quote}        
+El resto de sistemas no han de estar autorizados a conectar al puerto; esto
+incluye tambi\'en a la m\'aquina local: para un correcto funcionamiento de
+nuestro sistema de correo, ni siquiera hace falta que {\it localhost} tenga
+permiso para acceder a su puerto 25. En \cite{kn:gon97} se explica c\'omo 
+combinar estas restricciones ofrecidas por {\it TCP Wrappers} con un 
+cortafuegos como {\it TIS Firewall Toolkit}; en esta obra tambi\'en se habla
+con m\'as detalle de los problemas que puede implicar el correo electr\'onico,
+y por supuesto de c\'omo solucionarlos.\\
+\\Evidentemente, esto es aplicable a sistemas que reciban correo de un \'unico
+{\it mailer}; si debemos configurar el propio {\it mailer} de la organizaci\'on,
+que por lo general recibir\'a correo de un n\'umero indeterminado de m\'aquinas,
+no podemos bloquear el acceso a su {\tt sendmail} de esta forma. No obstante,
+en este caso podemos aplicar unas medidas de seguridad simples, como realizar
+una consulta inversa a DNS para asegurarnos de que s\'olo m\'aquinas registradas
+env\'{\i}an correo o no permitir que nuestro sistema reenv\'{\i}e correo que
+no provenga de direcciones registradas bajo su dominio. Estas medidas, b\'asicas
+para evitar problemas de {\it spam} y {\it mail bombing}, son necesarias en
+la configuraci\'on de los sistemas de cualquier entidad.
+\section{Servidores WWW}
+Hoy en d\'{\i}a las conexiones a servidores {\it web} son sin duda las m\'as
+extendidas entre usuarios de Internet, hasta el punto de que muchas personas
+piensan que este servicio ({\sc http}, puerto 80 {\sc tcp}) es el \'unico que 
+existe en
+la red -- junto al {\sc irc} --. Lo que en un principio se dise\~n\'o para
+que unos cuantos f\'{\i}sicos intercambiaran y consultaran art\'{\i}culos 
+f\'acilmente, en la actualidad mueve a diario millones de d\'olares y es uno de
+los pilares fundamentales de cualquier empresa: es por tanto un objetivo muy
+atractivo para cualquier pirata.\\
+\\Los problemas de seguridad relacionados con el protocolo {\sc http} se 
+dividen en tres grandes grupos en funci\'on de los datos a los que pueden 
+afectar (\cite{kn:gar97}):
+\begin{itemize}
+\item Seguridad en el servidor.\\
+Es necesario garantizar que la informaci\'on almacenada en la m\'aquina 
+servidora no pueda ser modificada sin autorizaci\'on, que permanezca disponible
+y que s\'olo pueda ser accedida por los usuarios a los que les est\'e 
+leg\'{\i}timamente permitido.
+\item Seguridad en la red.\\
+Cuando un usuario conecta a un servidor {\it web} se produce un intercambio de 
+informaci\'on entre ambos; es vital garantizar que los datos que recibe el
+cliente desde el servidor sean los mismos que se est\'an enviando (esto es, que
+no sufran modificaciones de terceros), y tambi\'en garantizar que
+la informaci\'on que el usuario env\'{\i}a hacia el servidor no sea capturada,
+destruida o modificada por un atacante. Esto es especialmente importante si la
+informaci\'on en tr\'ansito es secreta, como en el caso de los {\it passwords} 
+que el usuario teclea para autenticarse en el servidor, o en el comercio 
+electr\'onico y el intercambio de n\'umeros de tarjetas de cr\'edito.
+\item Seguridad en el cliente.\\
+Por \'ultimo es necesario garantizar al usuario que lo que descarga de un
+servidor no va a perjudicar a la seguridad de su equipo; sin llegar a extremos
+de {\it applets} maliciosos o programas con virus, si simplemente el navegador
+del usuario `se cuelga' al acceder al visitar las p\'aginas de una 
+organizaci\'on, seguramente esa persona dejar\'a de visitarlas, con la 
+consecuente p\'erdida de imagen -- y posiblemente de un futuro cliente -- para
+esa entidad.
+\end{itemize}
+Asegurar el servidor implica -- aparte de las medidas habituales para cualquier
+m\'aquina Unix -- medidas excepcionales dedicadas al demonio servidor de {\it
+web} y su entorno de trabajo; estas medidas son propias para cada programa
+servidor, por lo que aqu\'{\i} no entraremos en detalles concretos sobre 
+cada uno de ellos. No obstante, y sea cual sea el servidor utilizado (Apache,
+NCSA, Netscape\ldots), es necesario seguir un consejo b\'asico: minimizar el
+n\'umero de usuarios en la m\'aquina y minimizar el n\'umero de servicios 
+ofrecidos en ella; aunque lo normal es que una m\'aquina dedicada a cualquier
+tarea con decenas -- o con miles -- de usuarios sea tambi\'en el servidor {\it
+web}, es recomendable que dicho servidor sea un equipo dedicado a esa tarea.\\
+\\Los problemas relacionados con servidores {\it web} suelen proceder de errores
+de programaci\'on en los CGIs ubicados en el servidor. Un CGI ({\it Common
+Gateway Interface}) es un c\'odigo capaz de comunicarse con aplicaciones del
+servidor, de forma que desde una p\'agina se invoque a dichas aplicaciones 
+pas\'andoles argumentos y el resultado se muestre en el navegador de un cliente;
+cuando rellenamos un formulario, vemos una imagen sensible, o simplemente
+incrementamos el contador de cierta p\'agina, estamos utilizando CGIs. Esta 
+capacidad del CGI para comunicarse con el resto del sistema que alberga las 
+p\'aginas es lo que le otorga su potencia, pero tambi\'en lo que causa mayores
+problemas de seguridad: un fallo en estos programas suele permitir a cualquier
+visitante de las p\'aginas ejecutar \'ordenes en el sistema. Los errores m\'as
+habituales en un CGI provienen de los datos recibidos desde el navegador del
+cliente: un simple formulario, en el que el visitante rellena ciertos campos,
+puede ser una puerta de acceso a nuestro sistema; es necesario comprobar la
+validez de todos y cada uno de los datos le\'{\i}dos antes de que sean 
+procesados. Por ejemplo, imaginemos un CGI que pida un nombre de usuario por
+teclado y a continuaci\'on ejecute un {\tt finger} contra ese nombre de usuario
+y muestre el resultado en el navegador; >que suceder\'{\i}a si el visitante
+introduce como nombre de usuario {\tt `toni;cat /etc/passwd'}? Es posible que
+se ejecute el {\tt finger} a {\tt toni}, pero a continuaci\'on se vuelque el 
+fichero de contrase\~nas 
+simplemente porque no se ha tenido la precauci\'on de ignorar los caracteres
+especiales para el {\it shell} (recordemos que un {\tt `;'} en Unix separa
+varias \'ordenes en una misma l\'{\i}nea); este ejemplo, que hoy en d\'{\i}a
+parece absurdo, ha estado presente en algunos servidores durante mucho tiempo.
+Cualquier CGI es susceptible de presentar problemas de seguridad sin importar
+el lenguaje en que se haya escrito (\cite{kn:gun96}); por tanto, es muy
+importante preocuparse de mantener actualizado el \'arbol
+de CGIs (no copiarlo completamente al actualizar la versi\'on de demonio),
+e incluso revisar los programas m\'as importantes en busca de posibles {\it 
+bugs}. Otra medida de seguridad b\'asica es ejecutar el demonio servidor bajo
+la identidad de un usuario con privilegios m\'{\i}nimos para que todo funcione
+correctamente, pero nunca como {\tt root}; generalmente, el usuario {\tt
+nobody} suele ser m\'as que suficiente: recordemos que los CGIs se ejecutan 
+bajo la identidad del 
+usuario propietario del demonio, por lo que si ese propietario es el 
+administrador un potencial atacante podr\'{\i}a ejecutar cualquier aplicaci\'on
+como {\tt root} del sistema.\\
+\\Para garantizar la seguridad de los datos que circulan entre un cliente y
+el servidor es casi obligatorio cifrar dichos datos (otras medidas, como
+asegurar f\'{\i}sicamente la red, suelen ser impracticables) mediante SSL
+({\it Secure Socket Layer}), un protocolo desarrollado por Netscape 
+Communications para cifrar informaci\'on al enviarla por la red y descifrarla
+antes de ser utilizada en el cliente; en la actualidad, se est\'a viendo 
+relegado a un segundo plano a causa de los certificados digitales, aunque sigue
+siendo una excelente opci\'on para administraci\'on remota y para transmitir
+informaci\'on confidencial en redes de prop\'osito general.\\
+\\En \'ultimo lugar es necesario hablar de la seguridad desde el punto de
+vista del cliente que visita p\'aginas {\it web}; para el usuario, un servidor
+es seguro si protege la informaci\'on que recibe y env\'{\i}a hacia \'el,
+manteniendo su privacidad, y si no conduce al usuario a descargar programas 
+maliciosos -- generalmente virus -- en su equipo; si sucede lo contrario, la
+compa\~n\'{\i}a responsable de las p\'aginas se enfrenta a una importante
+p\'erdida de imagen -- aparte de posibles problemas judiciales -- de cara a
+sus usuarios: simplemente imaginemos que salta a los medios un fallo de 
+seguridad en la versi\'on electr\'onica de cierto banco; ser\'a dif\'{\i}cil
+que todos sus usuarios sigan manteniendo la suficiente confianza en \'el como
+para guardar all\'{\i} su dinero. Tambi\'en es necesario hablar de los {\it
+applets} hostiles -- o simplemente de los mal dise\~nados -- que en muchas
+ocasiones llegan a detener todas las copias del navegador en memoria; aunque
+sus implicaciones de seguridad no suelen ser muy graves, la p\'erdida de imagen
+de la compa\~n\'{\i}a es tambi\'en considerable en estos casos.\\
+\\En muy pocas m\'aquinas se pueden permitir el lujo de deshabilitar este 
+servicio, ya que como hemos dicho es de los m\'as utilizados actualmente; no
+obstante, por alguna extra\~na raz\'on -- personalmente no la llego a 
+comprender -- en algunos clones de Unix (por ejemplo, ciertas variantes de 
+Linux) el servicio {\sc http} est\'a activado por defecto a\'un a sabiendas de
+que muchos de los usuarios de este sistema van a utilizarlo en su casa o como
+estaci\'on de trabajo independiente, donde evidentemente no es habitual -- ni
+necesario en la mayor\'{\i}a de ocasiones -- ofrecerlo. Por supuesto, en estos
+casos es importante detener el demonio {\tt httpd} y evitar que se vuelva a 
+iniciar con el arranque de la m\'aquina, modificando el {\it script} 
+correspondiente. Siempre hemos de recordar que hemos de ofrecer s\'olo los
+servicios {\bf imprescindibles} en cada sistema.
+\section{Los servicios r-$\ast$}
+Los servicios {\tt r-*} de Unix BSD (aparecieron inicialmente en la versi\'on
+4.2 de esta variante de Unix) son herramientas con una parte cliente y 
+una servidora que permiten la conexi\'on remota entre m\'aquinas, principalmente
+para servicios de terminal remota y transferencia de ficheros. Las herramientas
+clientes son {\tt rsh}, {\tt rlogin} y {\tt rcp}, mientras que las servidoras
+son demonios como {\tt rexecd}, {\tt rshd} o {\tt rlogind} (en algunas versiones
+de Unix, con {\tt in.} delante del nombre del demonio); {\tt rdist} y {\tt 
+rdistd}, otro par de estas herramientas {\tt r-*}, no los vamos a tratar 
+aqu\'{\i}.\\
+\\{\tt rlogin} (puerto 513, {\sc tcp}) se utiliza como terminal virtual de un 
+sistema Unix , de una forma muy parecida a {\sc telnet}. {\tt rsh} (puerto 514,
+{\sc tcp}) es utilizado para ejecutar comandos en una m\'aquina remota sin 
+necesidad de acceder a ella, y {\tt rcp} (v\'{\i}a {\tt rsh}) para copiar
+ficheros entre diferentes m\'aquinas:
+\begin{quote}
+\begin{verbatim}
+luisa:~# rlogin -l toni rosita
+
+Overflow on /dev/null, please empty the bit bucket.
+
+rosita:~$ exit
+logout
+rlogin: connection closed.
+luisa:~# rsh -l toni rosita id
+uid=1000(toni) gid=100(users) groups=100(users)
+luisa:~# rcp prueba.tex toni@rosita:/tmp/
+luisa:~#
+\end{verbatim}
+\end{quote}
+Como vemos, la \'ultima orden no ha solicitado ninguna contrase\~na; ha
+copiado el fichero local {\tt `prueba.tex'} en el directorio {\tt /tmp/} del
+sistema remoto, bajo la identidad del usuario {\tt toni}. A continuaci\'on
+veremos por qu\'e no se ha pedido clave para realizar esta acci\'on.\\
+\\Estos servicios pretenden evitar el tr\'ansito de contrase\~nas por la red,
+ya que este movimiento de claves implica molestias a los usuarios y tambi\'en
+problemas de seguridad; para conseguirlo, entran en juego lo que los 
+dise\~nadores del sistema de red de Unix BSD denominaron `m\'aquinas fiables'
+y `usuarios fiables': cualquier usuario, puede hacer uso 
+de recursos de una m\'aquina remota sin necesidad de una clave si su conexi\'on 
+proviene de una m\'aquina {\it fiable} o su nombre de usuario es {\it 
+fiable}.\\ 
+\\Una m\'aquina se puede considerar {\it fiable} de dos formas: o bien su
+nombre se encuentra en {\tt \\/etc/hosts.equiv}, o bien se encuentra en un
+fichero denominado {\tt .rhosts} y situado en el {\it \$HOME} de alg\'un
+usuario. Si estamos en el primer caso, cualquier usuario (excepto el {\it root})
+del sistema remoto -- y {\it fiable} -- puede hacer acceder a nuestro equipo 
+bajo el mismo {\it login} que tiene en el primero, sin necesidad de claves. En
+el segundo caso, utilizando los ficheros {\tt .rhosts}, cualquier usuario del
+sistema remoto podr\'a conectar al nuestro pero s\'olo bajo el nombre de 
+usuario en cuyo {\it \$HOME} se encuentra el archivo. Por ejemplo, imaginemos
+la siguiente configuraci\'on:
+\begin{quote}
+\begin{verbatim}
+rosita:~# cat /etc/hosts.equiv
+luisa
+rosita:~# cat ~toni/.rhosts
+anita
+rosita:~#
+\end{verbatim}
+\end{quote}
+En esta situaci\'on, cualquier usuario de {\tt luisa} puede acceder a {\tt 
+rosita} si su nombre de usuario es el mismo; adem\'as, el usuario {\tt 
+toni} de {\tt anita} puede tambi\'en conectar a {\tt rosita} sin necesidad de 
+ninguna contrase\~na:
+\begin{quote}
+\begin{verbatim}
+anita:~$ rlogin rosita
+
+In the long run, every program becomes rococo, and then rubble.
+                -- Alan Perlis
+
+rosita:~$ id
+uid=1000(toni) gid=100(users) groups=100(users)
+rosita:~$
+\end{verbatim}
+\end{quote}
+Aparte de m\'aquinas fiables hab\'{\i}amos hablado de usuarios fiables; la
+idea es la misma que antes, pero aplic\'andola ahora a nombres de usuario junto
+a (o en lugar de) nombres de m\'aquina. Podemos indicar estos nombres tanto en 
+{\tt /etc/hosts.equiv} como en los archivos {\tt .rhosts}; no obstante, la 
+primera
+opci\'on {\bf no} es recomendable, ya que estar\'{\i}amos permitiendo al usuario
+fiable del sistema remoto acceder sin contrase\~na {\bf a cualquier cuenta de
+nuestra m\'aquina}. De esta forma, si deseamos crear usuarios fiables de 
+sistemas remotos, es necesario hacerlo en los archivos {\tt .rhosts}. Por 
+ejemplo, imaginemos que el usuario {\tt toni} de nuestra m\'aquina tiene un 
+nombre de usuario distinto ({\tt antonio}) en un sistema remoto, y desea 
+establecer una relaci\'on de confianza; para ello crear\'a en su {\it \$HOME}
+el siguiente archivo {\tt .rhosts}:
+\begin{quote}
+\begin{verbatim}
+rosita:~# cat ~toni/.rhosts
+amparo antonio
+rosita:~#
+\end{verbatim}
+\end{quote}
+Entonces, desde la m\'aquina {\tt amparo} el usuario {\tt antonio} podr\'a 
+acceder a la cuenta de {\tt toni} en nuestro sistema sin utilizar contrase\~nas:\begin{quote}
+\begin{verbatim}
+amparo:~$ id
+uid=102(antonio) gid=10(staff)
+amparo:~$ rlogin -l toni rosita
+
+It is practically impossible to teach good programming style to
+students that have had prior exposure to BASIC: as potential
+programmers they are mentally mutilated beyond hope of
+regeneration.
+                -- Dijkstra
+
+rosita:~$ id
+uid=1000(toni) gid=100(users) groups=100(users)
+rosita:~$
+\end{verbatim}
+\end{quote}
+Como podemos ver, las relaciones de confianza entre equipos Unix pueden ser
+muy \'utiles y c\'omodas, pero al mismo tiempo muy peligrosas: estamos confiando
+plenamente en sistemas remotos, por lo que si su seguridad se ve comprometida
+tambi\'en se ve la nuestra. Las m\'aquinas fiables se han de reducir a equipos
+de la misma organizaci\'on, y administrados por la misma persona; adem\'as, 
+es necesario tener siempre presente que si tenemos habilitados los servicios
+{\tt r-*} cualquier usuario puede establecer relaciones de confianza, lo que
+puede suponer una violaci\'on de nuestra pol\'{\i}tica de seguridad. Es 
+conveniente chequear los directorios {\it \$HOME} en busca de ficheros {\tt
+.rhosts} (en la secci\'on \ref{scriptrhosts} se presentaba un {\it shellscript}
+que convenientemente planificado puede ayudarnos en esta tarea); muchos 
+administradores prefieren no complicarse buscando estos ficheros, y configuran
+sus sistemas para que en cada {\it \$HOME} exista un fichero con este nombre,
+propiedad de {\tt root} y con modo 000: as\'{\i} los usuarios no tienen 
+ocasi\'on de otorgar confianza a sistemas remotos. Esto se puede conseguir 
+con el siguiente {\it shellscript}:
+\begin{quote}
+\begin{verbatim}
+#!/bin/sh
+for i in `cat /etc/passwd |awk -F: '{print $6}'`; do
+    cd $i
+    > .rhosts
+    chmod 0 .rhosts
+done
+\end{verbatim}
+\end{quote}
+Las relaciones de confianza son transitivas: si una m\'aquina conf\'{\i}a en
+otra, lo hace tambi\'en en todas en las que conf\'{\i}a ella. De esta forma
+se crean anillos de confianza entre m\'aquinas, y como las relaciones suelen
+estar basadas en el nombre del equipo se trata de objetivos ideales para un
+atacante mediante {\it IP Spoofing}: si un pirata consigue hacer pasar su equipo
+por uno de los confiables, autom\'aticamente ha conseguido acceso -- casi 
+ilimitado -- al resto de las m\'aquinas.
+\section{X­Window}
+El entorno {\it X Window} proporciona herramientas incre\'{\i}blemente potentes,
+pero que si no son correctamente configuradas pueden convertirse en peligrosas.
+Este sistema est\'a formado por una serie de piezas que trabajan 
+conjuntamente para ofrecer al usuario final un interfaz gr\'afico:
+\begin{itemize}
+\item La m\'as importante de ellas, sobre todo desde el punto de vista de la 
+seguridad es el {\bf servidor X}. Este programa generalmente se ejecuta en la 
+terminal de usuario, y tiene como funci\'on principal ofrecer unas primitivas 
+b\'asicas de dibujo (trazado de rectas, relleno de \'areas\ldots) sobre la 
+pantalla; adem\'as gestiona eventos de teclado y rat\'on.
+\item Las {\bf aplicaciones X} son programas de usuario que lanzan llamadas 
+contra un servidor {\it X}. Mientras que el servidor se ejecuta habitualmente 
+en la
+terminal desde donde conecta el usuario las aplicaciones se pueden lanzar desde
+el mismo equipo o tambi\'en desde una m\'aquina m\'as potente, de forma que
+aprovechamos la capacidad de procesamiento de ese equipo pero visualizamos el
+resultado en la terminal gr\'afica; en este caso se ha de indicar a los clientes
+la ubicaci\'on del servidor, mediante la variable de entorno {\it \$DISPLAY} o
+mediante la opci\'on de l\'{\i}nea de comandos {\tt `-display'}.
+\item El {\bf gestor de ventanas} es un caso particular de aplicaci\'on, ya que
+se encarga de ofrecer un entorno de trabajo m\'as amigable al usuario que est\'a
+trabajando en la terminal: dibujo de marcos, men\'us, cerrado de ventanas\ldots
+\end{itemize}
+Es el servidor {\it X Window} quien establece su pol\'{\i}tica de seguridad para
+permitir a determinados clientes utilizar sus servicios. Para ello existen dos
+mecanismos b\'asicos: la autenticaci\'on por testigo y la autenticaci\'on por
+m\'aquina (\cite{kn:fis95}; otros esquemas, como {\sc sun-des-1}, no los vamos
+a contemplar aqu\'{\i}.
+\subsection{Autenticaci\'on por m\'aquina}
+La autenticaci\'on por m\'aquina cliente ({\it host authentication}) es el
+mecanismo m\'as simple, pero la seguridad que proporciona es muy limitada; es
+\'util en entornos donde los clientes {\it X} se ejecutan o bien en estaciones 
+monousuarios o bien en equipos donde todos los usuarios son confiables 
+(\cite{kn:vic94}). Adem\'as, en sistemas antiguos es el \'unico modelo de 
+seguridad disponible, por lo que en ocasiones no queda m\'as remedio que 
+limitarse a \'el. Funciona configurando el servidor para permitir conexiones
+a \'el provenientes de una lista de m\'aquinas, por ejemplo con la orden {\tt
+xhosts}:
+\begin{quote}
+\begin{verbatim}
+anita:~# xhost +luisa
+luisa being added to access control list
+anita:~#
+\end{verbatim}
+\end{quote}
+Si ejecutamos la sentencia anterior en la m\'aquina donde se ejecuta el 
+servidor, {\bf cualquier usuario} del sistema remoto estar\'a autorizado a 
+lanzar aplicaciones contra \'el\footnote{En determinados casos, por ejemplo
+utilizando autenticaci\'on {\sc sun-des-1} o utilizando {\it Kerberos}, es 
+posible indicar nombres de usuario autorizados de cada sistema; no lo veremos
+aqu\'{\i} por no ser el caso m\'as habitual.}:
+\begin{quote}
+\begin{verbatim}
+luisa:~# xterm -display anita:0.0 &
+[1] 11974
+luisa:~#
+\end{verbatim}
+\end{quote}
+La orden {\tt xhost} sin opciones nos dar\'a una lista de los clientes que
+pueden lanzar aplicaciones contra el servidor, mientras que la opci\'on 
+especial {\tt `+'} deshabilitar\'a este control de acceso, algo que 
+evidentemente no es recomendable: cualquier usuario de cualquier sistema 
+podr\'a utilizar nuestro servidor:
+\begin{quote}
+\begin{verbatim}
+anita:~# xhost
+access control enabled, only authorized clients can connect
+LOCAL:
+INET:anita
+INET:localhost
+INET:luisa
+anita:~# xhost +
+access control disabled, clients can connect from any host
+anita:~# xhost 
+access control disabled, clients can connect from any host
+LOCAL:
+INET:anita
+INET:localhost
+INET:luisa
+anita:~#
+\end{verbatim}
+\end{quote}
+Una medida de seguridad b\'asica utilizando este modelo es habilitar la 
+m\'aquina en nuestra lista de {\it hosts} s\'olo el tiempo necesario para que
+el cliente arranque, y deshabilitarla despu\'es; as\'{\i} la ejecuci\'on de
+la aplicaci\'on cliente funcionar\'a normalmente, pero no se podr\'an lanzar
+nuevas peticiones al servidor. Tambi\'en para eliminar una direcci\'on de la
+lista utilizamos la orden {\tt xhost}:
+\begin{quote}
+\begin{verbatim}
+anita:~# xhost
+access control enabled, only authorized clients can connect
+LOCAL:
+INET:anita
+INET:localhost
+INET:luisa
+anita:~# xhost -luisa
+luisa being removed from access control list
+anita:~# xhost
+access control enabled, only authorized clients can connect
+LOCAL:
+INET:anita
+INET:localhost
+anita:~#
+\end{verbatim}
+\end{quote}
+De esta forma, cuando alguien intente lanzar una aplicaci\'on contra nuestro
+servidor desde un sistema no autorizado ver\'a un mensaje de error similar al
+siguiente:
+\begin{quote}
+\begin{verbatim}
+luisa:~# xterm -display anita:0.0 
+Xlib: connection to "anita:0.0" refused by server
+Xlib: Client is not authorized to connect to Server
+Error: Can't open display: anita:0.0
+luisa:~#
+\end{verbatim}
+\end{quote}
+Como hemos dicho, este modelo de seguridad es demasiado vulnerable; por un lado,
+estamos autenticando clientes en base a una direcci\'on o a un nombre de 
+m\'aquina, algo f\'acilmente falsificable por un atacante. Por otro, aunque 
+los usuarios de los sistemas a los que permitimos utilizar nuestro servidor sean
+conocidos, fiables, y amantes de la naturaleza, nada nos demuestra que sus 
+sistemas sean seguros, por lo que si sus equipos se ven comprometidos, nuestro
+servidor tambi\'en.
+\subsection{Autenticaci\'on por testigo}
+Este mecanismo de {\it X Window} es el m\'as seguro, y por tanto el m\'as
+recomendado; en \'el, el servidor controla el acceso de los clientes mediante
+una {\it `cookie'} {\sc mit-magic-cookie-1}, que no es m\'as que un c\'odigo 
+de acceso aleatorio de 128 bits en
+un formato legible por la m\'aquina: esta {\it cookie} actua como un {\it 
+password} temporal, de forma que s\'olo los clientes que conozcan ese {\it
+password} podr\'an acceder al servidor. La {\it cookie} es generada por {\tt
+xdm} o por el propio usuario al principio de cada sesi\'on, con {\tt xauth}, y
+guardada en el fichero {\tt \$HOME/.Xauthority}; a partir de ese momento, los
+programas clientes leer\'an su valor y lo enviar\'an al servidor cada vez que
+deseen conectar a \'el. Podemos comprobar que poseemos -- al menos -- la {\it 
+cookie} correspondiente a nuestro {\it display} con una orden como la
+siguiente:
+\begin{quote}
+\begin{verbatim}
+luisa:~# xauth list
+luisa:0  MIT-MAGIC-COOKIE-1  8c1d09aab44573a524467c4e8faaaeb5
+luisa/unix:0  MIT-MAGIC-COOKIE-1  8c1d09aab44573a524467c4e8faaaeb5
+luisa:~#
+\end{verbatim}
+\end{quote}
+El comando anterior, {\tt xauth}, se utiliza para manejar la informaci\'on de
+las {\it cookies} de cada usuario; por ejemplo, un uso muy habitual es la 
+transferencia de {\it cookies} a m\'aquinas remotas, para que puedan as\'{\i}
+conectar al servidor {\it X} de un determinado equipo. Para ello debemos 
+extraer la {\it cookie} de nuestro {\it \$DISPLAY} y enviarla al fichero 
+{\tt \$HOME/.Xauthority} del sistema remoto, con una orden como esta:
+\begin{quote}
+\begin{verbatim}
+luisa:~# xauth extract - $DISPLAY | ssh anita -l toni xauth merge -
+luisa:~#
+\end{verbatim}
+\end{quote}
+Este mecanismo tiene principalmente dos problemas de seguridad: por un
+lado, las {\it cookies} se transmiten en texto claro por la red, por lo que son
+susceptibles de ser interceptadas; por otro, al estar guardadas en el fichero
+{\tt \$HOME/.Xauthority}, cualquiera que lo pueda leer tendr\'a acceso a ellas:
+es muy importante que este archivo tenga permiso de lectura y escritura s\'olo
+para su propietario, y que tambi\'en tomemos precauciones si los directorios
+{\it \$HOME} de los usuarios son exportados v\'{\i}a NFS.

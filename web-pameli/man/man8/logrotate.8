@@ -1,0 +1,279 @@
+.\" Página traducida el 12 de febrero de 1999 por
+.\" Antonio Aneiros <aneiros1@arrakis.es>
+.\"
+.TH LOGROTATE 8 "Jueves 27 febrero 1997"
+.UC 4
+.SH NOMBRE
+\fBLogrotate\fR - cambia, comprime y envía por correo archivos de registro del
+sistema.
+.SH SINOPSIS
+\fBlogrotate\fR [-dv] [-s|--\fIarchivo\fR de estado]
+\fIarchivo_de_configuración\fR+ 
+.SH DESCRIPCIÓN
+\fBLogrotate\fR ha sido diseñado para facilitar la administración de sistemas
+que generan gran cantidad de archivos de registro (logs). El programa permite
+el cambio, compresión, eliminación y envío automático por correo de los
+archivos de registro. Cada archivo puede ser tratado diariamente,
+semanalmente, mensualmente o siempre que se haga demasiado grande.
+
+Normalmente, \fBlogrotate\fR se ejecuta como tarea diaria de tipo cron. El
+programa no modificará un archivo repetidas veces a no ser que el criterio
+para ese archivo se base en el tamaño del mismo y \fBlogrotate\fR se ejecute
+varias veces al día.
+
+En la línea de comandos pueden indicarse un número ilimitado de archivos de
+configuración. Más tarde, estos archivos de configuración pueden invalidar las
+opciones dadas en archivos de configuración anteriores, por lo tanto, el orden
+en que se listan los archivos de configuración de \fBlogrotate\fR es muy
+importante. Normalmente, debería usarse un sólo archivo de configuración que
+incluya tantos otros archivos de configuración como sean necesarios. Véase más
+abajo cómo usar la directiva \fIinclude\fR para conseguirlo. Si se proporciona
+un nombre de directorio en la línea de comandos, cada uno de los archivos que
+se encuentren en ese directorio se usará como archivo de configuración.
+
+.SH OPCIONES
+.TP
+\fB-d\fR
+Activa el modo de depuración e implica \fB-v\fR. En modo de depuración, no se
+efectuará ningún cambio a los archivos de registro ni al archivo de estado de
+\fBlogrotate\fR.
+
+.TP
+\fB-\-usage\fR
+Muestra un pequeño mensaje de uso, versión y copyright.
+
+.SH ARCHIVO DE CONFIGURACIÓN
+
+\fBlogrotate\fR lee toda la información necesaria sobre los archivos de
+registro que debe manejar de la serie de archivos de configuración que se
+especifiquen en la línea de comandos. Cada archivo de configuración puede
+establecer opciones globales (las definiciones locales anulan a las globales,
+y aquellas definiciones efectuadas en último lugar anulan siempre a las
+anteriores) y especificar el archivo de registro que se ha de cambiar. Un
+archivo de configuración simple sería el siguiente:
+
+.nf
+.ta +3i
+# sample logrotate configuration file
+errors sysadmin@my.org
+compress
+
+/var/log/messages {
+    rotate 5
+    weekly
+    postrotate
+	/sbin/killall -HUP syslogd
+    endscript
+}
+
+/var/log/httpd/access.log {
+    rotate 5
+    mail www@my.org
+    errors www@my.org
+    size=100k
+    postrotate
+	/sbin/killall -HUP httpd
+    endscript
+}
+
+/var/log/news/* {
+    monthly
+    rotate 2
+    errors newsadmin@my.org
+    postrotate
+	kill -HUP `cat /var/run/inn.pid`
+    endscript
+    nocompress
+}
+.fi
+
+.pp
+
+Las primeras líneas establecen opciones globales; cualquier error que ocurra
+durante el procesamiento de los archivos de registro se envía por correo a
+sysadmin.org y los archivos de registro se comprimen después de ser
+cambiados. Nótese que pueden aparecer comentarios en cualquier parte del
+archivo de configuración siempre y cuando el primer espacio que no está en
+blanco en la línea sea un #.
+
+La siguiente sección del archivo de configuración especifica la acción a
+realizar sobre el archivo de registro \fI/var/log/messages\fR. El archivo
+sufrirá cinco cambios semanales antes de ser eliminado. Después de que el
+archivo ha sido modificado (pero antes de haberse comprimido la versión
+antigua del mismo) se ejecutará el comando \fI/sbin/killall -HUP syslogd\fR.
+
+La siguiente sección define los parámetros de \fI/var/log/http/access.log\fR.
+Éste se cambia siempre y cuando excede los 100k de tamaño, y los archivos de
+registro antiguos se envían (sin comprimir) a www@my.org después de haber
+sufrido cinco cambios, en vez de ser eliminados. Del mismo modo, cualquier
+error que pueda ocurrir durante el procesamiento del archivo de registro se
+envía a www@my.org (anulando así la directiva global \fIerrors\fR)
+
+La última sección define los parámetros para todos lo archivos en
+\fI/var/log/news\fR. Cada archivo se cambia mensualmente y los errores se
+envían a newsadmin@my.org.Ésta se considera una directiva de cambio simple y
+si ocurre un error para más de un archivo se envía en un único mensaje. En
+este caso, los archivos de registro no se comprimirán.
+
+A continuación se proporciona más información sobre las directivas que se
+pueden incluir en un archivo de configuración de \fBlogrotate\fR:
+
+.TP
+\fBcompress\fR
+Las versiones antiguas de los archivos de registro se comprimen con
+\fBgzip\fR. Véase también \fBnocompress\fR.
+
+.TP
+\fBcopytruncate\fR
+Trunca el archivo de registro original en el lugar en el que se encuentre tras
+crear una copia, en vez de mover el archivo antiguo y crear una nuevo
+opcionalmente. Se puede usar cuando a algún programa no se le puede ordenar
+que cierre su archivo de registro y por lo tanto podría seguir escribiendo
+(añadiendo) continuamente en el archivo de registro anterior. Nótese que
+transcurre una fracción de tiempo muy pequeña entre el copiado del archivo y
+su truncado, por lo que se podrían perder algunos datos.
+Cuando se usa esta opción, no tendrá efecto la opción \fBcreate\fR, dado que
+el archivo antiguo permanecerá en su lugar.
+
+.TP
+\fBcreate \fImode\fR \fIowner\fR \fIgroup\fR
+Se crea el archivo de registro (con el mismo nombre del archivo de registro
+que se acaba de rotar) inmediatamente después del cambio (antes de que se
+ejecute el script \fBpostrotate\fR). \fImode\fR especifica el modo del archivo
+de registro en octal (al igual que \fBchmod (2)\fR), \fIowner\fR especifica el
+nombre del usuario al que pertenecerá el archivo de registro, y \fIgroup\fR
+especifica el grupo al que pertenecerá el archivo. Se puede omitir cualquiera
+de los atributos del archivo de registro, en cuyo caso, el nuevo archivo usará
+los valores del archivo antiguo para aquellos atributos que se hayan omitido.
+Esta opción se puede anular usando la opción \fBnocreate\fR.
+
+.TP
+\fBdaily\fR
+Los archivos de registro se cambian diariamente.
+
+.TP
+\fBdelaycompress\fR
+Pospone la compresión del archivo de registro anterior hasta el siguiente
+ciclo de rotación. Sólo tiene efecto cuando se usa en combinación con
+\fBcompress\fR. Se puede usar cuando no se puede ordenar a un programa que
+cierre su archivo de registro y podría continuar escribiendo en él durante
+algún tiempo.
+
+.TP
+\fBerrors \fIaddress\fR
+Cualquier error que ocurra durante el procesamiento de los registros se
+enviará a la dirección de correo que se especifique.
+
+.TP
+\fBifempty\fR
+Cambia el archivo de registro incluso si está vacío, anulando la opción
+\fBnotifempty\fR (opción por defecto).
+
+.TP
+\fBinclude \fIfile_or_directory\fR
+Lee el archivo dado como argumento como si se incluyese donde
+aparece la directiva \fBinclude\fR. Si se da un directorio, la mayoría de los
+archivos se leen antes de que continúe el procesamiento del archivo en el que
+se incluyen. Los únicos archivos que se ignoran son archivos que no son
+corrientes (tales como directorios y pipes con nombre) y aquellos archivos
+cuyos nombres terminan con una de las extensiones tabú según se especifica en
+la directiva \fBtabooext\fR. La directiva \fBinclude\fR puede no aparecer en
+la definición de un archivo de registro.
+.TP
+\fBmonthly\fR
+Los archivos de registro se cambian la primera vez que se ejecuta
+\fBlogrotate\fR en un mes (normalmente el primer día del mes).
+
+.TP
+\fBnocompress\fR
+Las versiones antiguas de los archivos de registro no se comprimen con
+\fBgzip\fR. Véase también \fBcompress\fR.
+
+.TP
+\fBnocopytruncate\fR
+No trunca el archivo de registro original en el lugar en el que se encuentre
+tras crear una copia. (Esto anula la opción \fBcopytruncate\fR).
+
+.TP
+\fBnocreate\fR
+No se crean archivos de registro nuevos (esto anula la opción \fBcreate\fR).
+
+.TP
+\fBnodelaycompress\fR
+No pospone la compresión del archivo de registro anterior hasta el próximo
+ciclo de cambio (esto anula la opción \fBdelaycompress\fR).
+
+.TP
+\fBnomail\fR
+No envían los archivos de registro antiguos a ninguna dirección de correo.
+
+.TP
+\fBnoolddir\fR
+Los archivos se cambian en el mismo directorio en el que el archivo reside
+normalmente (esto anula la opción \fBolddir\fR).
+
+.TP
+\fBnotifempty\fR
+No rota el archivo de registro si está vacío (esto anula la opción
+\fBifempty\fR).
+
+.TP
+\fBolddir \fIdirectory\fR
+Los archivos de registro se mueven a \fIdirectory\fR para su rotación. El
+\fIdirectory\fR debe encontrarse en el mismo dispositivo físico que el archivo
+de registro que se va a cambiar. Cuando se usa esta opción, todas las
+versiones antiguas del archivo de registro van a parar a \fIdirectory\fR. Esta
+opción puede anularse por medio de la opción \fBnoolddir\fR.
+
+.TP
+\fBpostrotate\fR/\fBendscript\fR
+Las líneas entre \fIpostrotate\fR y \fIendscript\fR (ambas deben aparecer en
+líneas por separado) se ejecutan una vez que el archivo de registro ha sido
+rotado. Estas directivas sólo pueden aparecer dentro de una definición de
+archivo de registro.
+Véase también \fBprerotate\fR.
+
+.TP
+\fBprerotate\fR/\fBendscript\fR
+Las líneas entre \fIprerotate\fR y \fIendscript\fR (ambas deben aparecer en
+líneas por separado) se ejecutan una vez que el archivo de registro ha sido
+rotado. Estas directivas sólo pueden aparecer dentro de una definición de
+archivo de registro.
+Véase también \fBpostrotate\fR.
+
+.TP
+\fBrotate \fIcount\fR
+Los archivos de registro se cambian <count> veces antes de ser eliminados o
+enviados a la dirección especificada en una directiva \fBmail\fR. Si
+\fIcount\fR es 0, las versiones antiguas se eliminarán en vez de ser cambiadas.
+
+.TP
+\fBsize \fIsize\fR
+Los archivos de registro se cambian cuando superan el tamaño de \fIsize\fR
+bytes. Si a \fIsize\fR le sigue \fIM\fR, se asume que se está indicando el
+tamaño en megabytes. Si se usa \fIk\fR, el tamaño será en kilobytes. Por lo
+tanto son válidos tanto \fBsize 100\fR como \fIsize 100k\fR y \fIsize 100M\fR.
+
+.TP
+\fBtabooext\fR [+] \fIlist\fR
+Se cambia la lista actual de extensiones tabú (véase la directiva
+\fBinclude\fR si se desea información sobre las extensiones tabú).
+Si un + precede a la lista de extensiones, la lista actual de extensiones tabú
+se aumenta, de otro modo se reemplaza. Al comienzo, la lista de extensiones
+tabú contiene .rpmorig, .rpmsave, ,v y ~.
+
+.TP
+\fBweekly\fR
+Los archivos de registro se cambian si el día de la semana actual es menor que
+el día de la semana del último cambio o si ha pasado más de una semana desde
+el último cambio. Normalmente, esto es lo mismo que cambiar los archivos el
+primer día de la semana, pero funciona mejor si \fIlogrotate\fR no se ejecuta
+todas las noches.
+
+.SH VÉASE TAMBIÉN
+.IR gzip (1)
+
+.SH AUTOR
+.nf
+Erik Troan <ewt@redhat.com>
+.fi

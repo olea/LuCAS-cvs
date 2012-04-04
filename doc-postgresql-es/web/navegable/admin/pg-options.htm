@@ -1,0 +1,627 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
+<HTML
+><HEAD
+><TITLE
+>Using pg_options</TITLE
+><META
+NAME="GENERATOR"
+CONTENT="Modular DocBook HTML Stylesheet version 1.18"><LINK
+REL="HOME"
+TITLE="PostgreSQL Administrator's Guide"
+HREF="admin.htm"><LINK
+REL="UP"
+TITLE="Runtime Environment"
+HREF="runtime.htm"><LINK
+REL="PREVIOUS"
+TITLE="Starting postmaster"
+HREF="postmaster.htm"><LINK
+REL="NEXT"
+TITLE="Security"
+HREF="security.htm"></HEAD
+><BODY
+BGCOLOR="#FFFFFF"
+TEXT="#000000"
+><DIV
+CLASS="NAVHEADER"
+><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TH
+COLSPAN="3"
+ALIGN="center"
+>PostgreSQL Administrator's Guide</TH
+></TR
+><TR
+><TD
+WIDTH="10%"
+ALIGN="left"
+VALIGN="bottom"
+><A
+HREF="postmaster.htm"
+>Prev</A
+></TD
+><TD
+WIDTH="80%"
+ALIGN="center"
+VALIGN="bottom"
+>Chapter 7. Runtime Environment</TD
+><TD
+WIDTH="10%"
+ALIGN="right"
+VALIGN="bottom"
+><A
+HREF="security.htm"
+>Next</A
+></TD
+></TR
+></TABLE
+><HR
+ALIGN="LEFT"
+WIDTH="100%"></DIV
+><H1
+CLASS="SECT1"
+><A
+NAME="PG-OPTIONS"
+>Using pg_options</A
+></H1
+><P
+>    <BLOCKQUOTE
+CLASS="NOTE"
+><P
+><B
+>Note: </B
+>      Contributed by <A
+HREF="mailto:dz@cs.unitn.it"
+TARGET="_top"
+>Massimo Dal Zotto</A
+>
+     </P
+></BLOCKQUOTE
+>
+   </P
+><P
+>    The optional file <TT
+CLASS="FILENAME"
+>data/pg_options</TT
+> contains runtime
+    options used by the backend to control trace messages and other backend
+    tunable parameters.
+    The file is re-read by a backend
+    when it receives a SIGHUP signal, making thus possible to change run-time
+    options on the fly without needing to restart 
+    <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+>.
+    The options specified in this file may be debugging flags used by the trace
+    package (<TT
+CLASS="FILENAME"
+>backend/utils/misc/trace.c</TT
+>) or numeric
+    parameters which can be used by the backend to control its behaviour.
+   </P
+><P
+>    All pg_options are initialized to zero at backend startup.
+    New or modified options will be read by all new backends when they are started.
+    To make effective any changes for all running backends we need to send a
+    SIGHUP to the postmaster. The signal will be automatically sent to all the
+    backends. We can also activate the changes only for a specific backend by
+    sending the SIGHUP directly to it.
+   </P
+><P
+>    pg_options can also be specified with the <SPAN
+CLASS="OPTION"
+>-T</SPAN
+> switch of 
+    <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+>:
+
+    <PRE
+CLASS="PROGRAMLISTING"
+>postgres <TT
+CLASS="REPLACEABLE"
+><I
+>options</I
+></TT
+> -T "verbose=2,query,hostlookup-"
+    </PRE
+>
+   </P
+><P
+>    The functions used for printing errors and debug messages can now make use
+    of the <I
+CLASS="CITETITLE"
+>syslog(2)</I
+> facility. Message printed to stdout
+    or stderr are prefixed by a timestamp containing also the backend pid:
+
+    <PRE
+CLASS="PROGRAMLISTING"
+>#timestamp          #pid    #message
+980127.17:52:14.173 [29271] StartTransactionCommand
+980127.17:52:14.174 [29271] ProcessUtility: drop table t;
+980127.17:52:14.186 [29271] SIIncNumEntries: table is 70% full
+980127.17:52:14.186 [29286] Async_NotifyHandler
+980127.17:52:14.186 [29286] Waking up sleeping backend process
+980127.19:52:14.292 [29286] Async_NotifyFrontEnd
+980127.19:52:14.413 [29286] Async_NotifyFrontEnd done
+980127.19:52:14.466 [29286] Async_NotifyHandler done
+    </PRE
+>
+   </P
+><P
+>    This format improves readability of the logs and allows people to understand
+    exactly which backend is doing what and at which time. It also makes
+    easier to write simple awk or perl scripts which monitor the log to
+    detect database errors or problem, or to compute transaction time statistics.
+   </P
+><P
+>    Messages printed to syslog use the log facility LOG_LOCAL0.
+    The use of syslog can be controlled with the syslog pg_option.
+    Unfortunately many functions call directly <TT
+CLASS="FUNCTION"
+>printf()</TT
+>
+    to print their messages to stdout or stderr and this output can't be
+    redirected to syslog or have timestamps in it. 
+    It would be advisable that all calls to printf would be replaced with the
+    PRINTF macro and output to stderr be changed to use EPRINTF instead so that
+    we can control all output in a uniform way.
+   </P
+><P
+>    The format of the <TT
+CLASS="FILENAME"
+>pg_options</TT
+> file is as follows:
+
+    <PRE
+CLASS="PROGRAMLISTING"
+># <TT
+CLASS="REPLACEABLE"
+><I
+>comment</I
+></TT
+>
+<TT
+CLASS="REPLACEABLE"
+><I
+>option</I
+></TT
+>=<TT
+CLASS="REPLACEABLE"
+><I
+>integer_value</I
+></TT
+>  # set value for <TT
+CLASS="REPLACEABLE"
+><I
+>option</I
+></TT
+>
+<TT
+CLASS="REPLACEABLE"
+><I
+>option</I
+></TT
+>                # set <TT
+CLASS="REPLACEABLE"
+><I
+>option</I
+></TT
+> = 1
+<TT
+CLASS="REPLACEABLE"
+><I
+>option</I
+></TT
+>+               # set <TT
+CLASS="REPLACEABLE"
+><I
+>option</I
+></TT
+> = 1
+<TT
+CLASS="REPLACEABLE"
+><I
+>option</I
+></TT
+>-               # set <TT
+CLASS="REPLACEABLE"
+><I
+>option</I
+></TT
+> = 0
+    </PRE
+>
+
+    Note that <TT
+CLASS="REPLACEABLE"
+><I
+>keyword</I
+></TT
+> can also be
+    an abbreviation of the option name defined in
+    <TT
+CLASS="FILENAME"
+>backend/utils/misc/trace.c</TT
+>.
+
+    <DIV
+CLASS="EXAMPLE"
+><P
+><B
+>Example 7-1. pg_options File</B
+></P
+><P
+>      For example my pg_options file contains the following values:
+
+      <PRE
+CLASS="PROGRAMLISTING"
+>verbose=2
+query
+hostlookup
+showportnumber
+      </PRE
+>
+     </P
+></DIV
+>
+   </P
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN1033"
+>Recognized Options</A
+></H2
+><P
+>     The options currently defined are:
+
+     <P
+></P
+><DL
+><DT
+>all</DT
+><DD
+><P
+>	 Global trace flag. Allowed values are:
+	</P
+><P
+></P
+><DL
+><DT
+>0</DT
+><DD
+><P
+>	   Trace messages enabled individually
+	  </P
+></DD
+><DT
+>1</DT
+><DD
+><P
+>	   Enable all trace messages
+	  </P
+></DD
+><DT
+>-1</DT
+><DD
+><P
+>	   Disable all trace messages
+	  </P
+></DD
+></DL
+></DD
+><DT
+>verbose</DT
+><DD
+><P
+>	Verbosity flag. Allowed values are:
+       </P
+><P
+></P
+><DL
+><DT
+>0</DT
+><DD
+><P
+>	   No messages. This is the default.
+	  </P
+></DD
+><DT
+>1</DT
+><DD
+><P
+>	   Print information messages.
+	  </P
+></DD
+><DT
+>2</DT
+><DD
+><P
+>	   Print more information messages.
+	  </P
+></DD
+></DL
+></DD
+><DT
+>query</DT
+><DD
+><P
+>	Query trace flag. Allowed values are:
+       </P
+><P
+></P
+><DL
+><DT
+>0</DT
+><DD
+><P
+>	   Don't print query.
+	  </P
+></DD
+><DT
+>1</DT
+><DD
+><P
+>	   Print a condensed query in one line.
+	  </P
+></DD
+><DT
+>4</DT
+><DD
+><P
+>	   Print the full query.
+	  </P
+></DD
+></DL
+></DD
+><DT
+>plan</DT
+><DD
+><P
+>	Print query plan.
+       </P
+></DD
+><DT
+>parse</DT
+><DD
+><P
+>	Print parser output.
+       </P
+></DD
+><DT
+>rewritten</DT
+><DD
+><P
+>	Print rewritten query.
+       </P
+></DD
+><DT
+>parserstats</DT
+><DD
+><P
+>	Print parser statistics.
+       </P
+></DD
+><DT
+>plannerstats</DT
+><DD
+><P
+>	Print planner statistics.
+       </P
+></DD
+><DT
+>executorstats</DT
+><DD
+><P
+>	Print executor statistics.
+       </P
+></DD
+><DT
+>shortlocks</DT
+><DD
+><P
+>	Currently unused but needed to enable features in the future.
+       </P
+></DD
+><DT
+>locks</DT
+><DD
+><P
+>	Trace locks.
+       </P
+></DD
+><DT
+>userlocks</DT
+><DD
+><P
+>	Trace user locks.
+       </P
+></DD
+><DT
+>spinlocks</DT
+><DD
+><P
+>	Trace spin locks.
+       </P
+></DD
+><DT
+>notify</DT
+><DD
+><P
+>	Trace notify functions.
+       </P
+></DD
+><DT
+>malloc</DT
+><DD
+><P
+>	Currently unused.
+       </P
+></DD
+><DT
+>palloc</DT
+><DD
+><P
+>	Currently unused.
+       </P
+></DD
+><DT
+>lock_debug_oidmin</DT
+><DD
+><P
+>	Minimum relation oid traced by locks.
+       </P
+></DD
+><DT
+>lock_debug_relid</DT
+><DD
+><P
+>	oid, if not zero, of relation traced by locks.
+       </P
+></DD
+><DT
+>lock_read_priority</DT
+><DD
+><P
+>	Currently unused.
+       </P
+></DD
+><DT
+>deadlock_timeout</DT
+><DD
+><P
+>	Deadlock check timer.
+       </P
+></DD
+><DT
+>syslog</DT
+><DD
+><P
+>	syslog flag. Allowed values are:
+       </P
+><P
+></P
+><DL
+><DT
+>0</DT
+><DD
+><P
+>	   Messages to stdout/stderr.
+	  </P
+></DD
+><DT
+>1</DT
+><DD
+><P
+>	   Messages to stdout/stderr and syslog.
+	  </P
+></DD
+><DT
+>2</DT
+><DD
+><P
+>	   Messages only to syslog.
+	  </P
+></DD
+></DL
+></DD
+><DT
+>hostlookup</DT
+><DD
+><P
+>	Enable hostname lookup in ps_status.
+       </P
+></DD
+><DT
+>showportnumber</DT
+><DD
+><P
+>	Show port number in ps_status.
+       </P
+></DD
+><DT
+>notifyunlock</DT
+><DD
+><P
+>	Unlock of pg_listener after notify.
+       </P
+></DD
+><DT
+>notifyhack</DT
+><DD
+><P
+>	Remove duplicate tuples from pg_listener.
+       </P
+></DD
+></DL
+>
+    </P
+><DIV
+CLASS="NAVFOOTER"
+><HR
+ALIGN="LEFT"
+WIDTH="100%"><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+><A
+HREF="postmaster.htm"
+>Prev</A
+></TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="admin.htm"
+>Home</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+><A
+HREF="security.htm"
+>Next</A
+></TD
+></TR
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+>Starting <SPAN
+CLASS="APPLICATION"
+>postmaster</SPAN
+></TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="runtime.htm"
+>Up</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+>Security</TD
+></TR
+></TABLE
+></DIV
+></BODY
+></HTML
+>

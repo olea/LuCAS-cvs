@@ -1,0 +1,489 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<HTML
+><HEAD
+><TITLE
+>Funciones Asociadas con el Comando COPY</TITLE
+><META
+NAME="GENERATOR"
+CONTENT="Modular DocBook HTML Stylesheet Version 1.59"><LINK
+REL="HOME"
+TITLE="Guia del Programador de PostgreSQL"
+HREF="programmer.html"><LINK
+REL="UP"
+TITLE="libpq"
+HREF="libpq-chapter.html"><LINK
+REL="PREVIOUS"
+TITLE="Notificación Asíncrona"
+HREF="x4000.html"><LINK
+REL="NEXT"
+TITLE="Funciones de Trazado de libpq"
+HREF="x4109.html"></HEAD
+><BODY
+CLASS="SECT1"
+BGCOLOR="#FFFFFF"
+TEXT="#000000"
+LINK="#0000FF"
+VLINK="#840084"
+ALINK="#0000FF"
+><DIV
+CLASS="NAVHEADER"
+><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TH
+COLSPAN="3"
+ALIGN="center"
+>Guia del Programador de PostgreSQL</TH
+></TR
+><TR
+><TD
+WIDTH="10%"
+ALIGN="left"
+VALIGN="bottom"
+><A
+HREF="x4000.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="80%"
+ALIGN="center"
+VALIGN="bottom"
+>libpq</TD
+><TD
+WIDTH="10%"
+ALIGN="right"
+VALIGN="bottom"
+><A
+HREF="x4109.html"
+>Siguiente</A
+></TD
+></TR
+></TABLE
+><HR
+ALIGN="LEFT"
+WIDTH="100%"></DIV
+><DIV
+CLASS="SECT1"
+><H1
+CLASS="SECT1"
+><A
+NAME="AEN4036"
+>Funciones Asociadas con el Comando COPY</A
+></H1
+><P
+> El comando COPY en <SPAN
+CLASS="PRODUCTNAME"
+>PostgreSQL</SPAN
+> tiene opciones para leer 
+ o escribir en la conexión de red utilizada para <TT
+CLASS="FILENAME"
+>libpq</TT
+>.
+ Por ello, se necesitan funciones para acceder a su conexión de red directamente,
+ de forma que las aplicaciones puedan obtener ventajas de esta capacidad.</P
+><P
+> Estas funciones sólo se deberían utilizar tras obtener un objeto resultado
+ <TT
+CLASS="LITERAL"
+>PGRES_COPY_OUT</TT
+> o <TT
+CLASS="LITERAL"
+>PGRES_COPY_IN</TT
+>
+ a partir de <TT
+CLASS="FUNCTION"
+>PQexec</TT
+> o <TT
+CLASS="FUNCTION"
+>PQgetResult</TT
+>.</P
+><P
+><P
+></P
+><UL
+><LI
+><P
+><TT
+CLASS="FUNCTION"
+>PQgetline</TT
+>
+          Lee una línea de caracteres terminada con un caracter "newline"
+          (transmitida por el servidor) en una cadena de almacenamiento de
+          tamaño "length".
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="90%"
+><TR
+><TD
+><PRE
+CLASS="SYNOPSIS"
+>int PQgetline(PGconn *conn,
+              char *string,
+              int length)</PRE
+></TD
+></TR
+></TABLE
+>
+De modo similar a <TT
+CLASS="FUNCTION"
+>fgets</TT
+>(3), esta rutina copia longitud-1 
+carácteres en una cadena. Es como <TT
+CLASS="FUNCTION"
+>gets</TT
+>(3), sin embargo, en 
+que el carácter "newline" de terminación en un carácter nulo. 
+<TT
+CLASS="FUNCTION"
+>PQgetline</TT
+> devuelve <TT
+CLASS="LITERAL"
+>EOF</TT
+> en el EOF, 
+0 si se ha leido la línea entera, y 1 si se ha llenado la zona de almacenamiento, 
+pero aún no se ha leido el fin de línea.</P
+><P
+>Observese que la aplicación deberá comprobar si la nueva línea consiste en los
+dos carácteres "\.", lo que indicaría que el servidor ha terminado de enviar los
+resultados del comando copy.
+Si la aplicación debería recibir líneas que son más largas de longitud-1, deberá
+tener cuidado de reconocer la línea "\." correctamente (y no confunde, por ejemplo,
+el final de una larga línea de datos con la línea de terminación).
+El código de
+<TT
+CLASS="FILENAME"
+>src/bin/psql/copy.c</TT
+>
+contiene rutinas de ejemplo que manipulan correctamente el protocolo copy.</P
+></LI
+><LI
+><P
+><TT
+CLASS="FUNCTION"
+>PQgetlineAsync</TT
+>
+          Lee una línea de carácteres terminada con "newline" 
+          (transmitida por el servidor) en una zona de almacenamiento 
+          sin bloquear.
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="90%"
+><TR
+><TD
+><PRE
+CLASS="SYNOPSIS"
+>int PQgetlineAsync(PGconn *conn,
+                   char *buffer,
+                   int bufsize)</PRE
+></TD
+></TR
+></TABLE
+>
+Esta rutina es similar a <TT
+CLASS="FUNCTION"
+>PQgetline</TT
+>, pero la pueden utilizar
+aplicaciones que leen datos de COPY asíncronamente, ya que es sin bloqueo. 
+Una vez realizado el comando COPY y obtenido una respuesta
+<TT
+CLASS="LITERAL"
+>PGRES_COPY_OUT</TT
+>, la aplicación debería llamar a 
+<TT
+CLASS="FUNCTION"
+>PQconsumeInput</TT
+> y <TT
+CLASS="FUNCTION"
+>PQgetlineAsync</TT
+> 
+hasta que se detecte la señal end-of-data. Contra <TT
+CLASS="FUNCTION"
+>PQgetline</TT
+>,
+esta rutina toma la responabilidad de detectar el EOF.
+En cada llamada, <TT
+CLASS="FUNCTION"
+>PQgetlineAsync</TT
+> 
+devolverá datos, siempre que tenga disponible una línea de datos completa 
+terminada en "newline" en el almacenamiento de entrada de libpq, o si la línea de 
+datos de entrada es demasiado larga para colocarla en el almacenamiento ofrecido
+por la aplicación de llamada. En otro caso, no se devuelve ningún dato hasta que
+llega el resto de la línea.</P
+><P
+>La rutina devuelve -1 si reconoce el marcador end-of-copy-data, 0 si no tiene datos
+disponibles, o un número positivo que la el número de bytes de datos devueltos.
+Si se devuelve -1, la aplicación que realiza la llamada deberá llamar a 
+<TT
+CLASS="FUNCTION"
+>PQendcopy</TT
+>, y volver después al procesado normal.
+Los datos devueltos no se extenderán más allá de un carácter "newline". Si es 
+posible, se devolverá una línea completa cada vez. Pero si el almacenamiento ofrecido
+por la aplicación que realiza la llamada es demasiado pequeño para recibir una
+línea enviada por el servidor, se devolverán datos parciales. Se puede detectar esto
+comprobando si el último byte devuelto es <SPAN
+CLASS="QUOTE"
+>"<TT
+CLASS="LITERAL"
+>\n</TT
+>"</SPAN
+> o no.
+La cadena devuelta no se termina con un carácter nulo. (Si quiere usted añadir un
+NULL de terminación, asegurese de pasar una longitud del almacenamiento más 
+pequeña que el tamaño del almacenamiento de que realmente dispone).</P
+></LI
+><LI
+><P
+><TT
+CLASS="FUNCTION"
+>PQputline</TT
+>
+Envía una cadena terminada en carácter nulo al servidor. Devuelve 0 si todo funciona
+bien, y <TT
+CLASS="LITERAL"
+>EOF</TT
+> si es incapaz de enviar la cadena.
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="90%"
+><TR
+><TD
+><PRE
+CLASS="SYNOPSIS"
+>int PQputline(PGconn *conn,
+              const char *string);</PRE
+></TD
+></TR
+></TABLE
+>
+Tenga en cuenta que la aplicación debe envíar explícitamente los dos caracteres
+<SPAN
+CLASS="QUOTE"
+>"<TT
+CLASS="LITERAL"
+>\.</TT
+>"</SPAN
+> en una línea de final para indicar al servidor
+que ha terminado de enviarle datos.</P
+></LI
+><LI
+><P
+><TT
+CLASS="FUNCTION"
+>PQputnbytes</TT
+>
+Envía una cadena terminada en un carácter no nulo al servidor.
+Devuelve 0 si todo va bien, y EOF si es incapaz de enviar la cadena.
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="90%"
+><TR
+><TD
+><PRE
+CLASS="SYNOPSIS"
+>int PQputnbytes(PGconn *conn,
+                const char *buffer,
+                int nbytes);</PRE
+></TD
+></TR
+></TABLE
+>
+Esta función es exactamente igual que <TT
+CLASS="FUNCTION"
+>PQputline</TT
+>, 
+excepto en que el almacenamiento de datos no necesita estar terminado en un carácter
+nulo, una vez que el número de bytes que se envían se especifica directamente.</P
+></LI
+><LI
+><P
+><TT
+CLASS="FUNCTION"
+>PQendcopy</TT
+>
+ Sincroniza con el servidor. Esta función espera hasta que el servidor ha terminado 
+ la copia. Debería utilizarse bien cuando se ha enviado la última cadena al servidor
+ utilizando <TT
+CLASS="FUNCTION"
+>PQputline</TT
+> o cuando se ha recibido la última cadena
+ desde el servidor utilizando <TT
+CLASS="FUNCTION"
+>PGgetline</TT
+>.  Debe utilizarse, o
+ el servidor puede recibir <SPAN
+CLASS="QUOTE"
+>"out of sync (fuera de sincronía)"</SPAN
+>
+ con el cliente. Una vez vuelve de esta función, el servidor está preparado para
+ recibir la siguiente consulta. El valor devuelto es 0 si se completa con éxito, o
+ diferente de cero en otro caso.
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="90%"
+><TR
+><TD
+><PRE
+CLASS="SYNOPSIS"
+>int PQendcopy(PGconn *conn);</PRE
+></TD
+></TR
+></TABLE
+></P
+><P
+>Como un ejemplo:
+
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="90%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>PQexec(conn, "create table foo (a int4, b char(16), d float8)");
+PQexec(conn, "copy foo from stdin");
+PQputline(conn, "3\thello world\t4.5\n");
+PQputline(conn,"4\tgoodbye world\t7.11\n");
+...
+PQputline(conn,"\\.\n");
+PQendcopy(conn);</PRE
+></TD
+></TR
+></TABLE
+></P
+></LI
+></UL
+></P
+><P
+>Cuando se está utilizando <TT
+CLASS="FUNCTION"
+>PQgetResult</TT
+>, la aplicación debería responder
+a un resultado <TT
+CLASS="LITERAL"
+>PGRES_COPY_OUT</TT
+> ejecutando repetidamente 
+<TT
+CLASS="FUNCTION"
+>PQgetline</TT
+>, seguido de <TT
+CLASS="FUNCTION"
+>PQendcopy</TT
+> una vez se
+detecta la línea de terminación. Debería entonces volver al bucle 
+<TT
+CLASS="FUNCTION"
+>PQgetResult</TT
+> loop until hasta que 
+<TT
+CLASS="FUNCTION"
+>PQgetResult</TT
+> devuelva NULL. Similarmente, un resultado 
+<TT
+CLASS="LITERAL"
+>PGRES_COPY_IN</TT
+> se procesa por una serie de llamadas a 
+<TT
+CLASS="FUNCTION"
+>PQputline</TT
+> seguidas por <TT
+CLASS="FUNCTION"
+>PQendcopy</TT
+>, y volviendo
+entonces al bucle <TT
+CLASS="FUNCTION"
+>PQgetResult</TT
+>. Esta organización asegurará que 
+un comando de copia de entrada o de salida embebido en una serie de comandos 
+<SPAN
+CLASS="ACRONYM"
+>SQL</SPAN
+> se ejecutará correctamente.</P
+><P
+>Las aplicaciones antiguas habitualmente emiten una copia de entrada o de salida a través de
+<TT
+CLASS="FUNCTION"
+>PQexec</TT
+> y asumen que la transacción ha terminado tras el 
+<TT
+CLASS="FUNCTION"
+>PQendcopy</TT
+>. Este mecanismo trabajará adecuadamente sólo si la copia
+de entrada/salida es el único comando <SPAN
+CLASS="ACRONYM"
+>SQL</SPAN
+> de la cadena de consulta.</P
+></DIV
+><DIV
+CLASS="NAVFOOTER"
+><HR
+ALIGN="LEFT"
+WIDTH="100%"><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+><A
+HREF="x4000.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="programmer.html"
+>Inicio</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+><A
+HREF="x4109.html"
+>Siguiente</A
+></TD
+></TR
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+>Notificación Asíncrona</TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="libpq-chapter.html"
+>Subir</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+>Funciones de Trazado de <TT
+CLASS="APPLICATION"
+>libpq</TT
+></TD
+></TR
+></TABLE
+></DIV
+></BODY
+></HTML
+>

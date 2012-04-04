@@ -1,0 +1,2250 @@
+<!DOCTYPE article PUBLIC "-//OASIS//DTD DocBook V4.1//EN">
+
+<article lang="es">
+  <articleinfo>
+
+    <title>Notas sobre el diseño de Bases de Datos</title>
+
+<AUTHOR>
+<FIRSTNAME>Roberto</firstname><surname>Santos</surname>
+</author>
+<PUBDATE>2001</pubdate>
+
+   
+   <copyright>
+        <year>2001</year>
+        <holder>Roberto Santos</holder>
+   </copyright>
+             
+<legalnotice>
+    <para>Se autoriza la copia y distribución de este documento
+    siempre que se haga de forma integra, adjuntando esta
+    nota.</para>
+</legalnotice>
+    <releaseinfo>Versión:0.5 beta</releaseinfo>
+  </articleinfo>
+
+
+
+<!--
+    <para>Se agradecerán los comentarios, correcciones,
+    aportaciones y ejemplos.</para>
+-->
+
+    <sect1>
+    	<title>Prólogo</title>
+
+    <para>Como todos sabemos las bases de datos comienzan siendo un
+    par de tablas, con una docena de campos y medio centenar de
+    registros para terminar convirtiéndose en dos docenas de tablas
+    con medio centenar de campos con varios pares de cientos de
+    miles de registros.</para>
+
+    <para>Al principio, y de forma intuitiva, somos capaces de
+    mantener las cosas más o menos controladas. Pero a medida que
+    se complica la Base de Datos es mas necesario estar tranquilo
+    de que nuestro buen hacer realmente lo es.</para>
+
+    <para>Quizá sea buena idea sentarnos y &quot;perder un poco de
+    nuestro preciado tiempo&quot; para saber si realmente no lo
+    estábamos perdiendo al intentar ganarlo.</para>
+
+    <para>Estas son unas pequeñas recomendaciones para tratar de
+    conseguirlo.</para>
+
+	</sect1>
+    <sect1>
+    	<title>Glosario:</title>
+
+    <para>SGBD: Sistema de Gestión de Bases de Datos Por
+    simplificar se hablara indistintamente de tabla o relación,
+    campo o columna o atributo, fila o registro.</para>
+
+	</sect1>
+	<sect1>
+    	<title>Conceptos y recomendaciones iniciales</title>
+
+	<sect2>
+	    <title>Tipos de Datos</title>
+
+      <para>La correcta elección de los tipos de datos a utilizar
+      en las tablas es a menudo una tarea que nos tomamos con gran
+      trivialidad y desdén a pesar de que es un paso fundamental
+      que conviene meditar.</para>
+
+      <para>La acotación de los valores que un campo puede tomar y
+      las operaciones que se efectuaran sobre este deberían ser
+      cuidadosamente pensadas (esta puede que sea una de las fases
+      en las que sentarnos a pensar durante unos tranquilos minutos
+      nos puede ahorrar unas azarosas horas de
+      desesperación)</para>
+
+        <para>Ejemplo</para>
+
+        <para>A la hora de decidir que tipos utilizar en el campo
+        DNI tenemos varias consideraciones</para>
+
+
+
+      <orderedlist>
+        <listitem>
+          <para>En principio el DNI es una forma de identificar a
+          las personas parece que lo mas adecuado en un primer
+          momento sería definirlo como una cadena de caracteres mas
+          o menos arbitraria (VARCHAR(<emphasis>n</emphasis>)
+          )</para>
+        </listitem>
+
+        <listitem>
+          <para>Sabemos que el DNI no superara nunca una
+          determinada longitud por lo que consideramos que una
+          cadena de caracteres de longitud fija es aún mejor (
+          CHAR(<emphasis>n</emphasis>) ).</para>
+        </listitem>
+
+        <listitem>
+          <para>Sin embargo aunque no tiene ningún sentido hacer
+          operaciones con él si hay una que resulta muy útil ;la
+          obtención del NIF por lo que puede que sea conveniente
+          que sea un numero entero ( INTEGER )</para>
+        </listitem>
+
+        <listitem>
+          <para>Tener el DNI en formato INTEGER supondría hacer una
+          operación cada vez que manejase el NIF por lo que
+          seguramente sería mas eficaz usar directamente el NIF
+          como CHAR(<emphasis>n</emphasis>)</para>
+        </listitem>
+
+        <listitem>
+          <para>Una persona queda identificada con solo conocer su
+          DNI (menos para Hacienda ;-) con lo que es una
+          <link linkend="c_candidata">Clave Candidata</link>
+          ,también el NIF es una Clave Candidata</para>
+        </listitem>
+
+        <listitem>
+          <para>Tener un índice sobre un campo
+          CHAR(<emphasis>n</emphasis>) es mucho mas ineficaz que
+          tenerlo sobre un INTEGER</para>
+        </listitem>
+      </orderedlist>
+
+
+        <para>Hay que decidirse llevamos cinco minutos ¡¡ y aún no
+        sabemos que hacer con el primer campo de la tabla !!
+        Tranquilo esto solo se va a hacer un par de veces a lo sumo
+        y el acceso a ese campo millones de veces por minuto. Una
+        elección correcta sería</para>
+
+
+      <para><emphasis>CREATE TABLE personas (DNI integer primary
+      key NIF char (13)not NULL nombre char (10) not NULL ,
+      apellido1 nom char (10) not NULL &hellip;)</emphasis></para>
+
+
+    <para>El NIF se puede calcular con un
+    <link linkend="trigger"><emphasis>trigger</emphasis></link>
+    <emphasis>en la introducción de datos lo que supondría que solo
+    se ejecutaría una vez por cada registro y el acceso sería
+    rápido por quedar almacenado, por otro lado tener
+    una</emphasis> <link linkend="c_primaria"><emphasis>Clave
+    Primaria</emphasis></link> <emphasis>que es un entero y además
+    inteligible es de lo mejor que nos puede
+    ocurrir.</emphasis></para>
+
+    <para>A continuación sigue una lista de algunos tipos de datos
+    soportados por SQL:</para>
+
+    <itemizedlist>
+      <listitem>
+        <para>INTEGER: entero binario con signo de palabra completa
+        (31 bits de precisión).</para>
+      </listitem>
+
+      <listitem>
+        <para>SMALLINT: entero binario con signo de media palabra
+        (15 bits de precisión).</para>
+      </listitem>
+
+      <listitem>
+        <para>DECIMAL
+        (<emphasis>p</emphasis>[,<emphasis>q</emphasis>]): número
+        decimal con signo de <emphasis>p</emphasis> dígitos de
+        precisión, asumiendo <emphasis>q</emphasis> a la derecha
+        para el punto decimal. (15 &ge; <emphasis>p</emphasis> &ge;
+        <emphasis>q</emphasis>q &ge; 0). Si <emphasis>q</emphasis>
+        se omite, se asume que vale 0.</para>
+      </listitem>
+
+      <listitem>
+        <para>FLOAT: numérico con signo de dobre palabra y coma
+        flotante.</para>
+      </listitem>
+
+      <listitem>
+        <para>CHAR(<emphasis>n</emphasis>): cadena de caracteres de
+        longitud fija, de longitud <emphasis>n</emphasis>.</para>
+      </listitem>
+
+      <listitem>
+        <para>VARCHAR(<emphasis>n</emphasis>): cadena de caracteres
+        de longitud variable, de longitud máxima
+        <emphasis>n</emphasis>.</para>
+      </listitem>
+    </itemizedlist>
+
+
+    <para>En principio introducir datos en una Base de Datos puede
+    ser un proceso automático o manual ,cuando el proceso es manual
+    siempre se esta sujeto a un posible error de la persona que lo
+    realiza por distintas causas y cuando es automático fallos
+    tanto del programador como del programa que lo realiza
+    (excepciones, roturas de hardware, etc.) esto puede hacer que
+    se desvirtúe la representación del problema que hemos querido
+    modelar en la Base de Datos.</para>
+
+    <para><emphasis><emphasis>Las ligaduras de
+    Integridad</emphasis></emphasis> proporcionan un medio para
+    asegurar que las modificaciones hechas en la Base de Datos no
+    provoque perdida de información o inconsistencia de la misma
+    (fin ultimo de una Base de Datos).</para>
+
+    <para>Para conseguirla tenemos varios mecanismos:</para>
+
+	</sect2>
+	<sect2>
+		<title>Ligaduras de los dominios</title>
+
+    <para>Asociar a cada atributo un dominio de valores posibles
+    (en aquellos SGBD que lo permiten) es la forma mas simple de
+    ligadura de integridad</para>
+
+    <para>Ejemplo</para>
+
+      <para><emphasis><emphasis>create domain</emphasis>
+      sueldo_por_hora numeric(7,1)</emphasis></para>
+
+
+    <para><emphasis>constraint</emphasis>
+    comprobación_valor_sueldo</para>
+
+    <para><emphasis>check</emphasis> (value &gt;800,0)</para>
+
+    <para><emphasis>check</emphasis> (value not NULL)</para>
+
+	</sect2>
+	<sect2>
+    	<title>Declaración de llaves,claves o keys</title>
+
+      <para>Superclave: es un conjunto de uno o mas atributos que
+      tomados colectivamente pueden identificar de forma única una
+      entidad en el conjunto de entidades (un registro en una
+      tabla).</para>
+
+      <para><emphasis><anchor id="c_candidata"/>Clave
+      Candidata:</emphasis> son aquellas Superclaves tales que los
+      subconjuntos propios de ellas no son superclaves (superclaves
+      con el menor numero de atributos posibles)</para>
+
+      <para><emphasis><anchor id="c_primaria"/>Clave Primaria
+      (Primary Key)</emphasis>: es una Clave Candidata elegida como
+      elemento principal para identificar entidades dentro del
+      conjunto.</para>
+
+      <para>Ninguna tabla debe carecer de clave principal (aunque
+      el SGBD lo permita)</para>
+
+        <para>Siempre que se declara un campo o campos como primary
+        key se crea automáticamente un índice sobre él que nos
+        acelerará los accesos sobre ese campo o campos así que
+        pensemos bien antes de elegirla cuales serán nuestras
+        consultas mas frecuentes</para>
+
+
+      <para><emphasis>Clave Externa (Foreing Key)</emphasis>: es
+      todo aquel atributo de una relación que es Clave Principal de
+      otra distinta (pero este índice creado automáticamente no es
+      sobre esta tabla sino sobre la que es clave primaria
+      ;-)</para>
+
+      <para><emphasis>La Integridad referencial</emphasis> es
+      <emphasis>fundamental</emphasis> y debe asegurar que ninguna
+      clave externa quede a NULL por lo tanto todas las foreing key
+      deben ser declaradas como UNIQUE y not NULL también en esta
+      tabla .</para>
+
+        <para>Cualquier campo declarado como UNIQUE también debería
+        declararse como not NULL puesto que con dos NULL violaría
+        la unicidad impuesta por UNIQUE.</para>
+
+
+      <para>Una combinación UNIQUE de campos no tiene nada que ver
+      con la identificación del registro (Primary Key). Es
+      simplemente una limitación para mantener la
+      integridad.</para>
+
+      <para>Ejem.</para>
+
+        <para>Yo tengo una colección de enlaces. Cada colección se
+        identifica mediante un número único, el cual es la clave
+        principal (infinitamente mas eficaz que si es un texto).
+        Esta clave es la que se utiliza en las relaciones.</para>
+
+        <para>Sin embargo, mi aplicación requiere que cada
+        colección tenga una nombre único. ¿Por qué? Para que
+        cualquier persona que quiera modificar una colección pueda
+        identificarla. Es mucho más difícil saber, si usted tiene
+        dos colecciones con el nombre &quot;linux&quot;, que la
+        marcada con el número 24433 es la que necesita, y la
+        marcada con el número 29882 no lo es.</para>
+
+        <para>Entonces, el usuario selecciona la colección por su
+        nombre. Nos aseguramos por consiguiente que, dentro de la
+        base de datos, los nombres son únicos. Sin embargo, ninguna
+        otra tabla en la base de datos se refiere a la colección
+        por su nombre. Eso sería muy ineficiente. Más aun, a pesar
+        de ser único, ¡el nombre no define realmente a la
+        colección! Por ejemplo, si alguien decide cambiar el nombre
+        de la colección de &quot;linux&quot; a
+        &quot;GNU/Linux&quot;, seguirá siendo la misma colección,
+        solo que con un nombre diferente. Mientras el nombre siga
+        siendo único todo irá bien.</para>
+
+
+      <para>También es muy recomendable prevenir las acciones que
+      se deben tomar en caso de actualización o borrado de una
+      primary key y como afecta a la tabla donde este campo es
+      foreing key</para>
+
+      <para>Ejem.</para>
+
+      <para><emphasis>create table clients (nom char (10) not NULL
+      , &hellip;, &hellip, &hellip;,
+      foreing key (num_tg_credito) reference pago , <emphasis>on
+      delete cascade</emphasis> <emphasis>on update
+      cascade</emphasis></emphasis></para>
+
+      <para>Aunque en las Primary Keys los not NULL son implícitos
+      declarar todos los campos en los que sea posible (por la
+      propia condición de las entidades que se están tratando) como
+      not NULL es <emphasis>,</emphasis>no ya aconsejable sino
+      incluso perentorio para la buena salud de nuestra base de
+      datos (y la de nuestra mente) ya que como regla
+      general:</para>
+
+
+      <itemizedlist>
+        <listitem>
+          <para>El resultado de una operación aritmética es NULL si
+          cualquiera de los valores de entrada lo es</para>
+        </listitem>
+
+        <listitem>
+          <para>El resultado de cualquier comparación que involucre
+          un NULL es FALSO (o DESCONOCIDO en SQL92)</para>
+        </listitem>
+
+        <listitem>
+          <para>Todas las funciones de agregación excepto
+          <emphasis>count(*)</emphasis> ignoran los valores NULL de
+          la colección de datos de entrada</para>
+        </listitem>
+      </itemizedlist>
+
+
+	</sect2>
+	<sect2 id="trigger">
+		<title>Triggers</title>
+
+      <para>Siguiendo con una de las máximas de la informática, <emphasis>si
+      se puede hacer automático no lo hagas manual</emphasis> algunos SGBD
+      (los mas avanzados) proveen de un mecanismo muy útil para mantener la
+      <emphasis>integridad</emphasis> y para quitarle trabajo a la
+      usuario/aplicación que maneja los datos</para>
+
+      <para>Los trigger son parte de lo que se conoce como
+      &quot;elementos activos&quot; de una BBDD. Así como lo son las
+      constraints tales como NOT NULL, FOREIGN KEY, PRIMARY KEY,
+      CHECK. Una vez definidas ellas &quot;se activaran&quot; solo
+      al ocurrir un evento que las viole, un valor nulo en un campo
+      con NOT NULL, etc. Con los triggers se quiso dar mas control
+      al programador sobre los eventos que desencadenan un elemento
+      activo, se le conoce en ingles como ECA rules o
+      event-condition-action rule. Es por ello que los triggers
+      tienen una clausula BEFORE, AFTER o INSTEAD y bajo que evento
+      (INSERT, UPDATE, DELETE) pero de esta forma el trigger se
+      ejecutara para tupla (o fila) sometido al evento (clausula
+      FOR EACH ROW) el standard dice que puede ser también FOR EACH
+      SENTENCE pero pocos SGBD han sido capaces de
+      implementarlo.Esto provoca que se ejecute el trigger para
+      toda la relación (o tabla) para la cual se define (clausula
+      ON).</para>
+
+      <para>Un ejemplo de utilización de este mecanismo es hacer
+      una función general que toma como argumentos dos nombres de
+      campo e inserta el nombre del usuario y la fecha (timestamp)
+      actuales en ellos. Esto permite, por ejemplo, utilizar los
+      triggers en los eventos INSERT para realizar un seguimiento
+      automático de la creación de registros en una tabla de
+      transacciones. Se podría utilizar también para registrar
+      actualizaciones si es utilizado en un evento UPDATE. Por
+      ejemplo para tener un campo que nos diga cuando fue la ultima
+      modificación de ese registro.</para>
+
+      <para>La sintaxis para la creación de triggers es la
+      siguiente (aunque puede variar entre
+      implementaciones):</para>
+
+      <para><emphasis>CREATE TRIGGER &lt; nombre_trigger&gt;
+      &lt;BEFORE|AFTER&gt; &lt;INSERT|DELETE|UPDATE&gt; ON &lt;
+      nombre_relacion&gt; FOR EACH &lt;ROW|STATEMENT&gt; EXECUTE
+      PROCEDURE &lt;nombre_procedimiento&gt; (&lt;funcion
+      args&gt;);</emphasis></para>
+
+      <para>La palabra siguiente determina si la función debe ser
+      llamada antes (BEFORE) o después (AFTER) del evento. El
+      siguiente elemento del comando determina en que evento/s será
+      llamada la función. Es posible especificar múltiples eventos
+      utilizado el operador OR. El nombre de la relación
+      (nombre_relacion ) determinará la tabla afectada por el
+      evento. La instrucción FOR EACH determina si el trigger se
+      ejecutará para cada fila afectada o bien antes (o después) de
+      que la secuencia se haya completado. El nombre del
+      procedimiento (nombre_procedimiento) es la función
+      llamada.</para>
+
+	</sect2>
+	</sect1>
+	<sect1>
+		<title>Dependencias y formas normales</title>
+
+    <para>¿Hasta qué punto podemos estar seguros de que la
+    representación de relaciones y entidades que hemos realizado
+    nos va a permitir resolver el problema?</para>
+
+    <example>
+    	<title>Ejem.</title>
+
+      <para>Supongamos un red de concesionarios de coches que se
+      quiere &quot;informatizar&quot; y en el que se disponen de
+      una tabla llamada contabilidad en la que se han ido apuntando
+      cosas sin mucho mas criterio que el de tenerlas
+      archivadas</para>
+
+
+    <para><emphasis>Contabilidad</emphasis></para>
+
+    <informaltable><tgroup cols=6>
+	<thead>
+      <row>
+        <entry>
+          Nombre_conc
+        </entry>
+
+        <entry>
+          Ciudad_conc
+        </entry>
+
+        <entry>
+          Facturación_conc
+        </entry>
+
+        <entry>
+          Nombre_cliente
+        </entry>
+
+        <entry>
+          Num_factura
+        </entry>
+
+        <entry>
+          importe
+        </entry>
+      </row>
+	</thead>
+    <tbody>
+
+      <row>
+        <entry>
+          Autos Pepe
+        </entry>
+
+        <entry>
+          León
+        </entry>
+
+        <entry>
+          1000000
+        </entry>
+
+        <entry>
+          Robertito
+        </entry>
+
+        <entry>
+          f-17
+        </entry>
+
+        <entry>
+          20000
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Autos Lolo
+        </entry>
+
+        <entry>
+          Palencia
+        </entry>
+
+        <entry>
+          1620000
+        </entry>
+
+        <entry>
+          Jorgito
+        </entry>
+
+        <entry>
+          f-23
+        </entry>
+
+        <entry>
+          92902
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Autos Goyo
+        </entry>
+
+        <entry>
+          Valladolid
+        </entry>
+
+        <entry>
+          830000
+        </entry>
+
+        <entry>
+          Juanito
+        </entry>
+
+        <entry>
+          f-15
+        </entry>
+
+        <entry>
+          95200
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Autos Pepe
+        </entry>
+
+        <entry>
+          León
+        </entry>
+
+        <entry>
+          1000000
+        </entry>
+
+        <entry>
+          Manolito
+        </entry>
+
+        <entry>
+          f-14
+        </entry>
+
+        <entry>
+          20039
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Autos Toño
+        </entry>
+
+        <entry>
+          Valladolid
+        </entry>
+
+        <entry>
+          1000000
+        </entry>
+
+        <entry>
+          Robertito
+        </entry>
+
+        <entry>
+          f-93
+        </entry>
+
+        <entry>
+          2854
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Autos Lelo
+        </entry>
+
+        <entry>
+          Valladolid
+        </entry>
+
+        <entry>
+          830000
+        </entry>
+
+        <entry>
+          Felipito
+        </entry>
+
+        <entry>
+          f-11
+        </entry>
+
+        <entry>
+          7780
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Autos Mino
+        </entry>
+
+        <entry>
+          Soria
+        </entry>
+
+        <entry>
+          1620000
+        </entry>
+
+        <entry>
+          Andresito
+        </entry>
+
+        <entry>
+          f-29
+        </entry>
+
+        <entry>
+          10000
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Autos Chiqui
+        </entry>
+
+        <entry>
+          Segovia
+        </entry>
+
+        <entry>
+          759000
+        </entry>
+
+        <entry>
+          Fulanito
+        </entry>
+
+        <entry>
+          f-16
+        </entry>
+
+        <entry>
+          79800
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Autos Pepe
+        </entry>
+
+        <entry>
+          León
+        </entry>
+
+        <entry>
+          1000000
+        </entry>
+
+        <entry>
+          Tanito
+        </entry>
+
+        <entry>
+          f-23
+        </entry>
+
+        <entry>
+          37327
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Autos Goyo
+        </entry>
+
+        <entry>
+          Valladolid
+        </entry>
+
+        <entry>
+          830000
+        </entry>
+
+        <entry>
+          Menganito
+        </entry>
+
+        <entry>
+          f-25
+        </entry>
+
+        <entry>
+          66700
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Autos Crash
+        </entry>
+
+        <entry>
+          León
+        </entry>
+
+        <entry>
+          1620000
+        </entry>
+
+        <entry>
+          Josito
+        </entry>
+
+        <entry>
+          f-10
+        </entry>
+
+        <entry>
+          56990
+        </entry>
+      </row>
+    </tbody></tgroup></informaltable>
+
+      <para>Supongamos que se quiere añadir una factura f-99 a
+      Tanito en el concesionario Autos Pepe por un importe de
+      23000ptas. Con este diseño se necesita un registro</para>
+
+
+    <informaltable><tgroup cols=6><tbody>
+      <row>
+        <entry>
+          Autos Pepe
+        </entry>
+
+        <entry>
+          León
+        </entry>
+
+        <entry>
+          1000000
+        </entry>
+
+        <entry>
+          Tanito
+        </entry>
+
+        <entry>
+          f-99
+        </entry>
+
+        <entry>
+          23000
+        </entry>
+      </row>
+    </tbody></tgroup></informaltable>
+
+    <para>Con lo que tenemos que repetir los datos de la
+    facturación del concesionario y la ciudad donde está
+    ubicado.</para>
+	</example>
+	
+    <para>Repetir información no es deseable:</para>
+
+      <itemizedlist>
+        <listitem>
+          <para>Gasta espacio (imagínate una red nacional con
+          millones de facturas )</para>
+        </listitem>
+
+        <listitem>
+          <para>Consume recursos en las modificaciones (imagina que
+          Autos Goyo se traslada a Palencia, todos los registros
+          donde aparezca una de sus facturas deben modificarse
+          porque si no la base de datos mostrará dos ciudades para
+          el concesionario de Goyo</para>
+        </listitem>
+      </itemizedlist>
+
+
+      <para>Por otro lado hasta que un determinado concesionario no
+      haga la primera reparación y emita la primera factura no
+      podremos ponerlo en la base de datos, a no ser que queramos
+      luchar con los valores nulos (cosa que ya dijimos que no era
+      recomendable) además la clave principal mas lógica parece ser
+      la de Num_factura. Para mas INRI si la contabilidad la
+      llevamos al día cada vez que tengamos todas las facturas de
+      un concesionario liquidadas desaparecerá de la base de
+      datos</para>
+
+
+    <para>En fin, como esto no nos convence vamos a dividir la
+    tabla en dos .</para>
+
+      <para>Como el hecho de que un concesionario este en un sitio
+      u otro y el hecho de que emita una factura son cosas
+      evidentemente independientes nuestra intuición nos dice que
+      es mejor separarlas .Por tanto hemos decidido crear dos
+      tablas :</para>
+
+
+    <para><emphasis>Cliente-concesionario</emphasis>
+    (nombre_cliente, nombre_conc, ciudad_conc,
+    facturación_conc)</para>
+
+    <informaltable><tgroup cols=4>
+    <thead>
+      <row>
+        <entry>
+          Nombre_cliente
+        </entry>
+
+        <entry>
+          Nombre_conc
+        </entry>
+
+        <entry>
+          Ciudad_conc
+        </entry>
+
+        <entry>
+          Facturación_conc
+        </entry>
+      </row>
+	</thead>
+    <tbody>
+	
+      <row>
+        <entry>
+          Robertito
+        </entry>
+
+        <entry>
+          Autos Pepe
+        </entry>
+
+        <entry>
+          León
+        </entry>
+
+        <entry>
+          1000000
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Jorgito
+        </entry>
+
+        <entry>
+          Autos Lolo
+        </entry>
+
+        <entry>
+          Palencia
+        </entry>
+
+        <entry>
+          1620000
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Juanito
+        </entry>
+
+        <entry>
+          Autos Goyo
+        </entry>
+
+        <entry>
+          Valladolid
+        </entry>
+
+        <entry>
+          830000
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Manolito
+        </entry>
+
+        <entry>
+          Autos Pepe
+        </entry>
+
+        <entry>
+          León
+        </entry>
+
+        <entry>
+          1000000
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Robertito
+        </entry>
+
+        <entry>
+          Autos Toño
+        </entry>
+
+        <entry>
+          Valladolid
+        </entry>
+
+        <entry>
+          1000000
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Felipito
+        </entry>
+
+        <entry>
+          Autos Lelo
+        </entry>
+
+        <entry>
+          Valladolid
+        </entry>
+
+        <entry>
+          830000
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Andresito
+        </entry>
+
+        <entry>
+          Autos Mino
+        </entry>
+
+        <entry>
+          Soria
+        </entry>
+
+        <entry>
+          1620000
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Fulanito
+        </entry>
+
+        <entry>
+          Autos Chiqui
+        </entry>
+
+        <entry>
+          Segovia
+        </entry>
+
+        <entry>
+          759000
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Tanito
+        </entry>
+
+        <entry>
+          Autos Pepe
+        </entry>
+
+        <entry>
+          León
+        </entry>
+
+        <entry>
+          1000000
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Menganito
+        </entry>
+
+        <entry>
+          Autos Goyo
+        </entry>
+
+        <entry>
+          Valladolid
+        </entry>
+
+        <entry>
+          830000
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Josito
+        </entry>
+
+        <entry>
+          Autos Crash
+        </entry>
+
+        <entry>
+          León
+        </entry>
+
+        <entry>
+          1620000
+        </entry>
+      </row>
+    </tbody></tgroup></informaltable>
+
+    <para><emphasis>Cliente-factura</emphasis>(nombre_cliente,
+    numero_factura, importe)</para>
+
+    <informaltable><tgroup cols=3>
+    <thead>
+      <row>
+        <entry>
+          Nombre_cliente
+        </entry>
+
+        <entry>
+          Num_factura
+        </entry>
+
+        <entry>
+          importe
+        </entry>
+      </row>
+	</thead>
+    <tbody>
+	
+      <row>
+        <entry>
+          Robertito
+        </entry>
+
+        <entry>
+          f-17r
+        </entry>
+
+        <entry>
+          20000r
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Jorgitor
+        </entry>
+
+        <entry>
+          f-23r
+        </entry>
+
+        <entry>
+          92902r
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Juanitor
+        </entry>
+
+        <entry>
+          f-15r
+        </entry>
+
+        <entry>
+          95200r
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Manolitor
+        </entry>
+
+        <entry>
+          f-14r
+        </entry>
+
+        <entry>
+          20039r
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Robertitor
+        </entry>
+
+        <entry>
+          f-93r
+        </entry>
+
+        <entry>
+          2854r
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Felipitor
+        </entry>
+
+        <entry>
+          f-11r
+        </entry>
+
+        <entry>
+          7780r
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Andresitor
+        </entry>
+
+        <entry>
+          f-29r
+        </entry>
+
+        <entry>
+          10000r
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Fulanitor
+        </entry>
+
+        <entry>
+          f-16r
+        </entry>
+
+        <entry>
+          79800r
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Tanitor
+        </entry>
+
+        <entry>
+          f-23r
+        </entry>
+
+        <entry>
+          37327r
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Menganitor
+        </entry>
+
+        <entry>
+          f-25r
+        </entry>
+
+        <entry>
+          66700r
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Jositor
+        </entry>
+
+        <entry>
+          f-10r
+        </entry>
+
+        <entry>
+          56990r
+        </entry>
+      </row>
+    </tbody></tgroup></informaltable>
+
+      <para>Ahora supongamos que necesitamos saber los
+      concesionarios con facturas que tengan un importe menor que
+      10000 pts</para>
+
+      <para>Para ello parece que lo mas recomendable es utilizar
+      una consulta sobre reunión natural de las dos tablas.</para>
+
+      <para><emphasis>Select</emphasis> temp.nombre_conc</para>
+
+      <para><emphasis>From</emphasis> Cliente-concesionario
+      <emphasis>natural inner join</emphasis> Cliente-factura
+      <emphasis>as</emphasis> Temp.</para>
+
+      <para><emphasis>Where</emphasis> Temp.importe &lt;
+      100000</para>
+
+      <para>Todos los registro que aparecían en la tabla
+      contabilidad aparecen ahora en Temp. pero algunos que
+      aparecen en temp no estaban en contabilidad (en rojo)</para>
+
+
+    <para><emphasis>Temp</emphasis>.</para>
+
+    <informaltable><tgroup cols=6>
+    <thead>
+      <row>
+        <entry>
+          Nombre_conc
+        </entry>
+
+        <entry>
+          Ciudad_conc
+        </entry>
+
+        <entry>
+          Facturación_conc
+        </entry>
+
+        <entry>
+          Nombre_cliente
+        </entry>
+
+        <entry>
+          Num_factura
+        </entry>
+
+        <entry>
+          importe
+        </entry>
+      </row>
+	</thead>
+    <tbody>
+      <row>
+        <entry>
+          Autos Pepe
+        </entry>
+
+        <entry>
+          León
+        </entry>
+
+        <entry>
+          1000000
+        </entry>
+
+        <entry>
+          Robertito
+        </entry>
+
+        <entry>
+          f-17
+        </entry>
+
+        <entry>
+          20000
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Autos Pepe
+        </entry>
+
+        <entry>
+          León
+        </entry>
+
+        <entry>
+          1000000
+        </entry>
+
+        <entry>
+          Robertito
+        </entry>
+
+        <entry>
+          f-93
+        </entry>
+
+        <entry>
+          2854
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Autos Lolo
+        </entry>
+
+        <entry>
+          Palencia
+        </entry>
+
+        <entry>
+          1620000
+        </entry>
+
+        <entry>
+          Jorgito
+        </entry>
+
+        <entry>
+          f-23
+        </entry>
+
+        <entry>
+          92902
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Autos Goyo
+        </entry>
+
+        <entry>
+          Valladolid
+        </entry>
+
+        <entry>
+          830000
+        </entry>
+
+        <entry>
+          Juanito
+        </entry>
+
+        <entry>
+          f-15
+        </entry>
+
+        <entry>
+          95200
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Autos Goyo
+        </entry>
+
+        <entry>
+          Valladolid
+        </entry>
+
+        <entry>
+          830000
+        </entry>
+
+        <entry>
+          Juanito
+        </entry>
+
+        <entry>
+          f-16
+        </entry>
+
+        <entry>
+          79800
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Autos Pepe
+        </entry>
+
+        <entry>
+          León
+        </entry>
+
+        <entry>
+          1000000
+        </entry>
+
+        <entry>
+          Manolito
+        </entry>
+
+        <entry>
+          f-14
+        </entry>
+
+        <entry>
+          20039
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Autos Toño
+        </entry>
+
+        <entry>
+          Valladolid
+        </entry>
+
+        <entry>
+          1000000
+        </entry>
+
+        <entry>
+          Robertito
+        </entry>
+
+        <entry>
+          f-17
+        </entry>
+
+        <entry>
+          20000
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Autos Toño
+        </entry>
+
+        <entry>
+          Valladolid
+        </entry>
+
+        <entry>
+          1000000
+        </entry>
+
+        <entry>
+          Robertito
+        </entry>
+
+        <entry>
+          f-93
+        </entry>
+
+        <entry>
+          2854
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Autos Lelo
+        </entry>
+
+        <entry>
+          Valladolid
+        </entry>
+
+        <entry>
+          830000
+        </entry>
+
+        <entry>
+          Felipito
+        </entry>
+
+        <entry>
+          f-11
+        </entry>
+
+        <entry>
+          7780
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Autos Mino
+        </entry>
+
+        <entry>
+          Soria
+        </entry>
+
+        <entry>
+          1620000
+        </entry>
+
+        <entry>
+          Andresito
+        </entry>
+
+        <entry>
+          f-29
+        </entry>
+
+        <entry>
+          10000
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Autos Chiqui
+        </entry>
+
+        <entry>
+          Segovia
+        </entry>
+
+        <entry>
+          759000
+        </entry>
+
+        <entry>
+          Fulanito
+        </entry>
+
+        <entry>
+          f-15
+        </entry>
+
+        <entry>
+          95200
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Autos Chiqui
+        </entry>
+
+        <entry>
+          Segovia
+        </entry>
+
+        <entry>
+          759000
+        </entry>
+
+        <entry>
+          Fulanito
+        </entry>
+
+        <entry>
+          f-16
+        </entry>
+
+        <entry>
+          79800
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Autos Pepe
+        </entry>
+
+        <entry>
+          León
+        </entry>
+
+        <entry>
+          1000000
+        </entry>
+
+        <entry>
+          Tanito
+        </entry>
+
+        <entry>
+          f-23
+        </entry>
+
+        <entry>
+          37327
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Autos Goyo
+        </entry>
+
+        <entry>
+          Valladolid
+        </entry>
+
+        <entry>
+          830000
+        </entry>
+
+        <entry>
+          Menganito
+        </entry>
+
+        <entry>
+          f-25
+        </entry>
+
+        <entry>
+          66700
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Autos Crash
+        </entry>
+
+        <entry>
+          León
+        </entry>
+
+        <entry>
+          1620000
+        </entry>
+
+        <entry>
+          Josito
+        </entry>
+
+        <entry>
+          f-10
+        </entry>
+
+        <entry>
+          56990
+        </entry>
+      </row>
+    </tbody></tgroup></informaltable>
+
+      <para>En la tabla contabilidad el resultado hubiera sido
+      Autos Toño y Autos Lelo pero en la nueva base de datos además
+      aparece Autos Pepe :-?</para>
+
+      <para>Si un cliente tiene varias facturas en varios
+      concesionarios no se puede decir que facturas pertenecen a
+      que concesionario. Por tanto, al reunir
+      <emphasis>cliente-concesionario</emphasis> y
+      <emphasis>cliente-prestamo</emphasis>, no solo se obtienen
+      los registros que se tenían en la tabla
+      <emphasis>contabilidad</emphasis> ,sino también varias tuplas
+      adicionales. Aunque se tenga mas registros en la tabla
+      <emphasis>Temp</emphasis>, realmente se tiene menos
+      información de que clientes tiene que facturas en que
+      concesionarios.</para>
+
+      <para>El hecho es que el único camino por el que puede
+      representarse una relación entre, por ejemplo num_factura y
+      nombre_conc es a través de nombre_cliente y esta
+      representación no es adecuada porque un cliente puede tener
+      varias facturas y estas facturas no tienen que haber sido
+      emitidas en el mismo concesionario, es decir tenemos una
+      reunión con perdida de información.</para>
+
+      <para>Parece ser que nuestra intuición no es tan clarividente
+      así que ahora imagínate tu intuición funcionando con JDS JDP
+      DIP NAS ETGAM RIMNA y todas las combinaciones con repetición
+      de grupos de n letras que pueden representar cualquier
+      entidad o relación ;-) y sus condicionantes.</para>
+
+
+
+    <para>Tener las tablas Normalizadas nos asegura que tendremos
+    todas las <emphasis><emphasis>reuniones sin
+    perdida</emphasis></emphasis> (joins) y de otra manera es
+    francamente difícil detectar si nuestras reuniones tienen o no
+    perdidas de datos.</para>
+
+
+    <para>Las formas normales son una serie de reglas que, de
+    cumplirse, aseguran que el esquema de Base de Datos diseñado
+    tendrá un buen comportamiento en cuanto a redundancia, perdida
+    de información y representación de la misma.</para>
+
+	<sect2>
+	    <title>Dependencias Funcionales</title>
+
+    <para>Dada una relación <emphasis>R</emphasis> (tabla) con
+    <emphasis>atributos (X,Y,Z&hellip)</emphasis> (campos) se dice
+    que el atributo <emphasis>Y</emphasis> de
+    <emphasis>R</emphasis> <emphasis><emphasis>depende
+    funcionalmente</emphasis></emphasis> del atributo
+    <emphasis>X</emphasis> de <emphasis>R</emphasis> si y solo si
+    (condición necesaria y suficiente) un solo valor de
+    <emphasis>Y</emphasis> en <emphasis>R</emphasis> está asociado
+    a cada valor de <emphasis>X</emphasis> en
+    <emphasis>R</emphasis> ,se representa</para>
+
+    <para>R.X à R.Y</para>
+
+    <para>Esto quiere decir que cada valor de X que aparezca en la
+    relación R siempre lleva asociado el mismo valor de Y.</para>
+
+    <para>Se dice que un atributo <emphasis>Y</emphasis> de la
+    relación <emphasis>R</emphasis> <emphasis>depende
+    <emphasis>funcionalmente de manera
+    completa</emphasis></emphasis> del atributo
+    <emphasis>X</emphasis> de <emphasis>R</emphasis> si depende
+    funcionalmente de <emphasis>X</emphasis> y no depende
+    funcionalmente de ningún otro subconjunto de propio de
+    <emphasis>X</emphasis> . se representa</para>
+
+    <para>R.X à &gt; R.Y</para>
+
+    <para>Ejem.</para>
+
+      <para>En una tabla con atributos (DNI, Codigo, Nombre,
+      Apellido1, Apellido2, Calle, Ciudad)</para>
+
+      <para>Los atributos Calle y Ciudad dependen funcionalmente de
+      (DNI, Codigo) pero no de manera completa puesto que también
+      dependen funcionalmente de un subconjunto (DNI)</para>
+
+      <para>Si alguien encuentra un ejemplo mejor ,que lo diga
+      ahora o que calle para siempre ;-)</para>
+
+
+	</sect2>
+	<sect2>
+		<title>Dependencias Multivaluadas</title>
+
+    <para>Dada una relación <emphasis>R</emphasis> con atributos
+    A,B y C una dependencia multivaluada se cumple en R si y solo
+    si el conjunto de valores correspondientes a un par dado (valor
+    de A, valor de C) en R, depende solo del valor de A y es
+    independiente del valor de C.(los atributos A, B y C pueden ser
+    simples o compuestos). Se representa</para>
+
+    <para>R.A à | R.B</para>
+
+    <para>Y se puede demostrar que R.A à | R.B se cumple si y solo
+    si se cumple R.A à | R.B</para>
+
+
+	</sect2>
+	<sect2>
+		<title>Dependencias de Reunión</title>
+
+    <para>Una <emphasis><emphasis>dependencia de
+    reunión</emphasis></emphasis> es una restricción sobre una
+    relación en cuestión.Se dice que la relación
+    <emphasis>R</emphasis> satisface la
+    <emphasis><emphasis>dependencia de
+    reunión</emphasis></emphasis> (<emphasis>X,Y,&hellip;,Z</emphasis>
+    ) si y solo si <emphasis>R</emphasis> es igual a la reunión de
+    sus proyecciones según X,Y,&hellip;,Z donde X,Y,&hellip,Z son subconjuntos
+    del conjunto de atributos de R.</para>
+
+    <para>Ejem</para>
+
+    <informaltable><tgroup cols=3>
+    <thead>
+      <row>
+        <entry>
+          Vendedor
+        </entry>
+
+        <entry>
+          Distro
+        </entry>
+
+        <entry>
+          Pais
+        </entry>
+      </row>
+	</thead>
+    <tbody>
+
+      <row>
+        <entry>
+          Pepe
+        </entry>
+
+        <entry>
+          Debian
+        </entry>
+
+        <entry>
+          España
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Pepe
+        </entry>
+
+        <entry>
+          Red Hat
+        </entry>
+
+        <entry>
+          Brasil
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Juan
+        </entry>
+
+        <entry>
+          Debian
+        </entry>
+
+        <entry>
+          Brasil
+        </entry>
+      </row>
+
+      <row>
+        <entry>
+          Pepe
+        </entry>
+
+        <entry>
+          Debian
+        </entry>
+
+        <entry>
+          Brasil
+        </entry>
+      </row>
+    </tbody></tgroup></informaltable>
+
+    <para>En la que se impone la siguiente restricción:</para>
+
+    <para>Si Pepe vende Debian , Las Debian se venden en Brasil y
+    Pepe vende en Brasil</para>
+
+    <para>ENTONCES Pepe vende Debian en Brasil</para>
+
+    <para>Lo cual supone que en una descomposición de tabla</para>
+
+    <para>Si aparece la pareja (Pepe, Debian) Y aparece la pareja
+    (Debian, Brasil) y aparece la pareja (Pepe, Brasil)</para>
+
+    <para>Entonces <emphasis>debe</emphasis> aparecer la tripleta
+    (Pepe, Debian, Brasil)</para>
+
+    <para>Esto hace que la relación anterior sea 3-descomponible,
+    es decir, es igual a la reunión de las proyecciones ( vendedor,
+    Distro ) ( Vendedor, Pais ) y (Distro, Pais) y que por tanto
+    existe la siguiente <emphasis><emphasis>Dependencia de
+    Reunión</emphasis> (( vendedor, Distro ) ( Vendedor, Pais ) y
+    (Distro, Pais))</emphasis></para>
+
+	</sect2>
+	<sect2>
+    <title>Primera Forma Normal</title>
+
+    <para>Una relación <emphasis>R</emphasis> se encuentra en
+    <emphasis>1FN</emphasis> si y solo si todos los dominios
+    simples subyacentes tienen valores atómicos .Es decir, el cruce
+    de una fila con una columna sólo tiene un dato el cual no puede
+    descomponerse en mas.</para>
+
+	</sect2>
+	<sect2>
+	   <title>Segunda Forma Normal</title>
+
+    <para>Una relación <emphasis>R</emphasis> se encuentra en
+    <emphasis>2FN</emphasis> si y solo si está en
+    <emphasis>1FN</emphasis> y todos los atributos no clave
+    dependen funcionalmente de manera completa de la clave
+    primaria.</para>
+
+    <para>Si una relación no se encuentra en 2FN se puede
+    descomponer en dos de forma que al menos una de ellas si se
+    encuentre en 2FN (recursivo)</para>
+
+    <itemizedlist>
+      <listitem>
+        <para><emphasis>Teorema</emphasis></para>
+      </listitem>
+    </itemizedlist>
+
+    <para>Sea una relación <emphasis>R</emphasis> con atributos (A,
+    B, C, D ) y con clave primaria (A, B) tal que R.A à &gt; R.D
+    .Entonces la relación R se puede descomponer en :</para>
+
+    <para>R1(A, D)</para>
+
+    <para>R2(A, B, C)</para>
+
+	</sect2>
+	<sect2>
+    	<title>Tercera Forma Normal</title>
+
+    <para>Una relación <emphasis>R</emphasis> se encuentra en
+    <emphasis>3FN</emphasis> si y solo si está en
+    <emphasis>2FN</emphasis> y todos los atributos no clave
+    dependen de manera no transitiva de la clave primaria.</para>
+
+    <para>Siendo una relación <emphasis>R</emphasis> con atributos
+    (A, B, C ) y con clave primaria (A) No se permite R.A à &gt;
+    R.C R.A à &gt; R.B R.B à &gt; R.C</para>
+
+    <para>Si una relación no se encuentra en 3FN se puede
+    descomponer en dos de forma que al menos una de ellas si se
+    encuentre en 3FN (recursivo)</para>
+
+    <itemizedlist>
+      <listitem>
+        <para><emphasis>Teorema</emphasis></para>
+      </listitem>
+    </itemizedlist>
+
+    <para>Sea una relación <emphasis>R</emphasis> con atributos (A,
+    B, C ) y con clave primaria (A) tal que R.B à &gt; R.C
+    .Entonces la relación R se puede descomponer en :</para>
+
+    <para>R1(A, B)</para>
+
+    <para>R2(B, C)</para>
+
+    <para><emphasis>Forma Normal de Boyce-codd</emphasis></para>
+
+    <para>Un <emphasis><emphasis>Determinante</emphasis></emphasis>
+    es un atributo del cual <emphasis>depende funcionalmente de
+    manera completa</emphasis> algún otro atributo</para>
+
+    <para>Una Relación esta en FNBC si y solo si todo determinante
+    es una clave candidata (una clave que podría haber sido
+    primaria pero no se ha elegido como tal)</para>
+
+    <para>En los pocos casos en los que una relación esta en 3FN y
+    no en FNBC se dan las siguientes circunstancias.</para>
+
+    <itemizedlist>
+      <listitem>
+        <para>Existen varias claves candidatas</para>
+      </listitem>
+
+      <listitem>
+        <para>Las claves candidatas son compuestas</para>
+      </listitem>
+
+      <listitem>
+        <para>Las claves candidatas se solapan (tiene por lo menos
+        un atributo común)</para>
+      </listitem>
+    </itemizedlist>
+
+    <para>Si una relación no se encuentra en FNBC se puede
+    descomponer en dos de forma que al menos una de ellas si se
+    encuentre en FNBC (recursivo)</para>
+
+    <itemizedlist>
+      <listitem>
+        <para><emphasis>Teorema</emphasis></para>
+      </listitem>
+    </itemizedlist>
+
+    <para>Sea una relación <emphasis>R</emphasis> con atributos (A,
+    B, C, D ) y con claves candidatas (A, B) y (B, C) tal que R.A
+    &lt;-à &gt; R.C .Entonces la relación R se puede descomponer en
+    cualquiera de estas dos formas :</para>
+
+    <para>R1(A, C) R1(A, C)</para>
+
+    <para>R2( B, C, D) R2(A, B, D)</para>
+
+	</sect2>
+    <sect2>
+    	<title>Cuarta Forma Normal</title>
+
+    <para>Una relación <emphasis>R</emphasis> se encuentra en
+    <emphasis>4FN</emphasis> si y solo si está en
+    <emphasis>FNBC</emphasis> y no existen dependencias
+    multivaluadas</para>
+
+    <para>Si una relación se encuentra en FNBC y con dependencias
+    multivaluadas se puede descomponer sin perdidas en dos de forma
+    que además se deshacen las dependencias multivaluadas.</para>
+
+    <itemizedlist>
+      <listitem>
+        <para><emphasis>Teorema</emphasis></para>
+      </listitem>
+    </itemizedlist>
+
+    <para>Sea una relación <emphasis>R(A, B, C)</emphasis> con las
+    siguientes dependencias multivaluadas:</para>
+
+    <para>R.A à |R.B</para>
+
+    <para>R.A à |R.C</para>
+
+    <para>Entonces puede descomponerse como</para>
+
+    <para>R1(A, B)</para>
+
+    <para>R2(A, C)</para>
+
+    </sect2>
+    <sect2>
+    	<title>Quinta Forma Normal</title>
+
+    <para>Una relación <emphasis>R</emphasis> se encuentra en
+    <emphasis>5FN</emphasis> si y solo si toda
+    <emphasis>dependencia de reunión</emphasis> en R es una
+    consecuencia de las claves candidatas</para>
+
+    <para>Cuando una tabla esta en 4FN y no en 5FN la solución es n
+    descomponerla para deshacer las <emphasis>dependencias de
+    reunión</emphasis></para>
+	
+	</sect2>
+	</sect1>
+	<sect1>
+		<title>Mejorando lo presente</title>
+
+    <para>Para conseguir que una base de datos sea algo mas que un
+    almacén de datos mas o menos organizado y conseguir que una
+    gran parte de la lógica de la aplicación la realice el SGBD y
+    con el fin de optimizar las operaciones que debe realizar
+    contamos con otra serie de mecanismos de lo mas variados</para>
+
+	<sect2>
+		<title>Índices</title>
+
+    <para>Los índices permiten realizar un acceso mas eficaz a los
+    registros de una tabla si son correctamente utilizados, Si una
+    relación R tiene un índice en el atributo A podremos recuperar
+    todas la tuplas <emphasis>t</emphasis> que tienen
+    <emphasis>t</emphasis>(A) = <emphasis>a</emphasis> en un tiempo
+    aproximadamente proporcional al número de tales tuplas
+    <emphasis>t</emphasis> más que en un tiempo proporcional al
+    tamaño de R.</para>
+
+    <para>El índice creado se mantiene automáticamente. es decir,
+    cada vez que una nueva tupla se inserte en una relación R, se
+    adaptará el índice I (algunos famosos SGBD no son capaces de
+    hacer esto y hay que reorganizarlos mediante comando)</para>
+
+    <para>Se pueden crear índices sobre cualquier campo (según en
+    que SGBD puesto que algunos no lo permiten sobre algunos tipos
+    como <emphasis>memo</emphasis>) , no tienen porque contener
+    valores únicos pero su abuso ralentizará el sistema al tratar
+    de actualizar los índices en caso de modificaciones masivas o
+    frecuentes de datos (tratando de conseguir mayor velocidad
+    podemos conseguir todo lo contrario)</para>
+
+    <para>Sin entrar en mas disquisiciones de implementación
+    (puesto que cada SGBD lo hace a su manera) se recomienda
+    evaluar cuidadosamente las estadísticas de las consultas y
+    modificaciones en las tablas para hacerlo de la forma mas
+    correcta.</para>
+
+    <para>Para crear un índice en SQL se utiliza el comando CREATE
+    INDEX. La sintaxis es:</para>
+
+    <para>CREATE INDEX
+    <emphasis>nombre_del_indice</emphasis></para>
+
+    <para>ON <emphasis>nombre_tabla</emphasis> (
+    <emphasis>nombre_de_atributo</emphasis> );</para>
+
+    <para>Algunos SGBD permiten elegir el tipo de indice que se va
+    a crear:</para>
+
+    <itemizedlist>
+      <listitem>
+        <para>Para las consultas del tipo
+        <emphasis><emphasis>select</emphasis>
+        A1,A2,A3,&hellip;An</emphasis> from R
+        <emphasis>where</emphasis> Ai=Valor se recomienda usar
+        índices de tipo HASH</para>
+      </listitem>
+
+      <listitem>
+        <para>Para las consultas del tipo
+        <emphasis><emphasis>select</emphasis>
+        A1,A2,A3,&hellip;An</emphasis> from R
+        <emphasis>where</emphasis> Ai&lt;= Valor 1 and Ai&gt;=
+        Valor 2 se recomienda usar índices de tipo CLUSTER o
+        BTREE</para>
+      </listitem>
+
+      <listitem>
+        <para>Para las consultas del tipo
+        <emphasis><emphasis>select</emphasis>
+        A1,A2,A3,&hellip;An</emphasis> from R
+        <emphasis>where</emphasis> Ai= Valor 1 and Aj= Valor 2 se
+        recomienda usar un íindice sobre los dos atributos Ai,Aj
+        (generalmente solo se dispone de BTREE para el caso de
+        atributos múltiples)</para>
+      </listitem>
+    </itemizedlist>
+
+	</sect2>
+	<sect2>
+    	<title>Vistas</title>
+
+    <para>Se puede ver una vista como una <emphasis>tabla
+    virtual</emphasis>, es decir, una tabla que no existe
+    <emphasis>físicamente</emphasis> en la base de datos, pero
+    aparece al usuario como si existiese. Por contraste, cuando
+    hablamos de una <emphasis>tabla base</emphasis>, hay realmente
+    una contraparte físicamente almacenada para cada fila en la
+    tabla en algún sitio del almacenamiento físico.</para>
+
+    <para>Las vistas no tiene datos almacenados propios,
+    distinguibles y físicamente almacenados. En su lugar, el
+    sistema almacena la definición de la vista (es decir, las
+    reglas para acceder a las tablas base físicamente almacenadas
+    para materializar la vista) en algún lugar de los catálogos del
+    sistema.</para>
+
+    <para>Las vistas son muy útiles en políticas de seguridad y
+    para implementar interfaces &quot;personalizados&quot; además
+    de para ahorrarle código al programador en algunos SGBD (los
+    mas avanzados) incluso se consigue una pequeña optimización ya
+    que la traducción solo es realizada una vez por el
+    <emphasis>traductor</emphasis> y el
+    <emphasis>planificador</emphasis> solo tiene pasársela al
+    <emphasis>ejecutor</emphasis> puesto que permanece almacenada
+    .</para>
+
+    <para>En SQL se utiliza el comando CREATE VIEW para definir una
+    vista. La sintaxis es:</para>
+
+    <para>CREATE VIEW
+    <emphasis>nombre_de_la_vista</emphasis></para>
+
+    <para>AS <emphasis>consulta</emphasis></para>
+
+    <para>donde <emphasis>consulta</emphasis> es una instrucción
+    select válida,. Nótese que <emphasis>consulta</emphasis> no se
+    ejecuta cuando se crea la vista. Simplemente es almacenada en
+    los <emphasis>catálogos del sistema</emphasis> y se ejecuta
+    cada vez que se realiza una consulta contra la vista.</para>
+
+    <para>En general las modificaciones en una vista no están
+    permitidas por cuestiones de integridad aunque existen SGBD que
+    lo permiten a través de un sistema de reglas</para>
+
+    <para>Existe también en algunos SGBD una forma no estándar
+    llamada <emphasis>Vista Almacenada</emphasis> donde si hay
+    datos (es mucho mas eficaz) y se actualizan en run-time.</para>
+
+	</sect2>
+	<sect2>
+    	<title>Funciones y procedimientos</title>
+
+    <para>En general se pueden utilizar además de SQL distintos
+    lenguajes procedurales para crear funciones como C PL/SQL o
+    incluso PERL</para>
+
+    <para>Las funciones SQL ejecutan una lista arbitraria de
+    consultas SQL, devolviendo los resultados de la última consulta
+    de la lista. Las funciones SQL en general devuelven conjuntos.
+    Si su tipo de retorno no se especifica como un setof, entonces
+    un elemento arbitrario del resultado de la última consulta será
+    devuelto.</para>
+
+    <para>Ejem</para>
+
+    <para>Se podría usar para cargar en una cuenta bancaria:</para>
+
+      <para><emphasis>create function TP1 (int4, float8) returns
+      int4 as</emphasis></para>
+
+      <para>&#39;update BANCO set balance = BANCO.balance - $2
+      where BANCO.acctountno = $1 select(x = 1)&#39; language
+      &#39;sql&#39;;</para>
+
+      <para>Un usuario podría ejecutar esta función para cargar
+      100.000ptas en la cuenta 17426272727 de la siguiente
+      forma:</para>
+
+      <para><emphasis>select (x =
+      TP1(17426272727,100000.0));</emphasis></para>
+
+
+    </sect2>
+    <sect2>
+    	<title>Catálogo del Sistema</title>
+
+    <para>En todo sistema de base de datos SQL se emplean
+    <emphasis>catálogos de sistema</emphasis> para mantener el
+    control de qué tablas, vistas, índices, etc están definidas en
+    la base de datos. Estos catálogos del sistema se pueden
+    investigar como si de cualquier otra relación normal se
+    tratase. Por ejemplo, hay un catálogo utilizado para la
+    definición de vistas. Este catálogo almacena la consulta de la
+    definición de la vista. Siempre que se hace una consulta contra la
+    vista, el sistema toma primero la <emphasis>consulta de definición
+    de la vista</emphasis> del catálogo y materializa la vista
+    antes de proceder con la consulta del usuario.</para>
+
+    <para>También existen tablas con estadísticas que son muy
+    convenientes para averiguar cual pueden ser los índices mas
+    adecuados ;-)</para>
+	</sect2>
+	</sect1>
+	
+	
+    <sect1 id="Agradecimientos"><title>Agradecimientos</title>
+
+    <para>A mi santa esposa por su inmensa paciencia.</para>
+
+</sect1></article>
+

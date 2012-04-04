@@ -1,0 +1,655 @@
+<?xml version='1.0' encoding='ISO-8859-1'?>
+<!DOCTYPE book PUBLIC "-//OASIS//DTD DocBook XML V4.2//EN" 
+              "http://www.oasis-open.org/docbook/xml/4.2/docbookx.dtd"
+[<!ENTITY procfsexample SYSTEM "ejemplo_procfs.xml">]>
+
+<book id="GuoaProcfsNL" lang="es">
+  <bookinfo>
+    <title>Guía del Procfs del Núcleo Linux</title>
+
+    <authorgroup>
+      <author>
+	<firstname>Erik</firstname>
+	<othername>(J.A.K.)</othername>
+	<surname>Mouw</surname>
+	<affiliation>
+	  <orgname>Universidad de Tecnología Delft</orgname>
+	  <orgdiv>Facultad de Sistemas y Tecnología de la Información</orgdiv>
+	  <address>
+            <email>J.A.K.Mouw@its.tudelft.nl</email>
+            <pob>PO BOX 5031</pob>
+            <postcode>2600 GA</postcode>
+            <city>Delft</city>
+            <country>Holanda</country>
+          </address>
+	</affiliation>
+      </author>
+    </authorgroup>
+
+    <revhistory>
+      <revision>
+	<revnumber>1.0&nbsp;</revnumber>
+	<date>30 de Mayo, 2001</date>
+	<revremark>Revisión Inicial mandada a linux-kernel</revremark>
+      </revision>
+      <revision>
+	<revnumber>1.1&nbsp;</revnumber>
+	<date>3 de Junio, 2001</date>
+	<revremark>Revisada después de los comentarios de linux-kernel</revremark>
+      </revision>
+    </revhistory>
+
+    <copyright>
+      <year>2001</year>
+      <holder>Erik Mouw</holder>
+    </copyright>
+
+
+    <legalnotice>
+  <para>
+     Esta documentación es software libre; puedes redistrubuirla
+     y/o modificarla bajo los términos de la GNU General Public
+     License tal como ha sido publicada por la Free Software
+     Foundation; por la versión 2 de la licencia, o (a tu elección)
+     por cualquier versión posterior.
+   </para>
+
+   <para>
+    Este programa es distribuido con la esperanza de que sea útil,
+    pero SIN NINGUNA GARANTIA; sin incluso la garantía implicada
+    de COMERCIABILIDAD o ADECUACCION PARA UN PROPOSITO PARTICULAR.
+    Para más detalles refiérase a la GNU General Public License.
+   </para>
+
+   <para>
+     Debería de haber recibido una copia de la GNU General Public
+     License con este programa; si no es así, escriba a la Free
+     Software Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+     MA 02111-1307 USA
+   </para>
+
+   <para>
+     Para más detalles véase el archivo COPYING en la
+     distribución fuente de Linux.
+   </para>
+
+    </legalnotice>
+  </bookinfo>
+
+
+
+
+  <toc>
+  </toc>
+
+
+
+
+  <preface>
+    <title>Prefacio</title>
+
+    <para>
+      Esta guía describe el uso del sistema de archivos procfs del
+      Núcleo Linux. La idea de escribir esta guía vino del canal de IRC
+      kernelnewbies (ver <ulink
+      url="http://www.kernelnewbies.org/">http://www.kernelnewbies.org/</ulink>),
+      cuando Jeff Garzik explicó el uso de procfs y me envió un
+      mensaje de Alexander Viro que escribió a la lista de correo linux-kernel.
+      Estuve de acuerdo en escribirla de forma más bonita, por lo tanto aquí está.
+    </para>
+
+    <para>
+      Me gustaría dar las gracias a Jeff Garzik
+      <email>jgarzik@mandrakesoft.com</email> y Alexander Viro
+      <email>viro@math.psu.edu</email> por su entrada, a Tim Waugh
+      <email>twaugh@redhat.com</email> por su <ulink
+      url="http://people.redhat.com/twaugh/docbook/selfdocbook/">Selfdocbook</ulink>,
+      y a Marc Joosen <email>marcj@historia.et.tudelft.nl</email> por la profunda
+      lectura.
+    </para>
+
+    <para>
+      Esta documentación fue escrita mientras trabajaba en el LART
+      computing board (<ulink
+      url="http://www.lart.tudelft.nl/">http://www.lart.tudelft.nl/</ulink>),
+      que es patrocinada por los proyectos Mobile Multi-media Communications
+      (<ulink
+      url="http://www.mmc.tudelft.nl/">http://www.mmc.tudelft.nl/</ulink>)
+      y Ubiquitous Communications (<ulink
+      url="http://www.ubicom.tudelft.nl/">http://www.ubicom.tudelft.nl/</ulink>).
+    </para>
+
+    <para>
+      Erik
+    </para>
+  </preface>
+
+
+
+
+  <chapter id="intro">
+    <title>Introducción</title>
+
+    <para>
+      El sistema de archivos <filename class="directory">/proc</filename>
+      (procfs) es un sistema de archivos especial en el núcleo Linux. Es
+      un sistema de archivos virtual; no está asociado con un dispositivo
+      de bloque ya que existe sólo en memoria. Los archivos en el procfs 
+      están allí para permitir a los programas de usuario acceder a cierta
+      información del núcleo (como información sobre los procesos en
+      <filename class="directory">/proc/[0-9]+/</filename>), y también
+      para propósitos de depuración (como <filename>/proc/ksyms</filename>).
+    </para>
+
+    <para>
+      Esta guía describe el uso del sistema de archivos procfs del 
+      núcleo Linux. Empieza introduciendo todas las funciones
+      relevantes para administar los archivos en el sistema de archivos.
+      Después de esto muestra cómo se comunica con los programas de usuario, 
+      y algunos trucos y propinas serán apuntados. Finalmente, será mostrado 
+      un ejemplo completo.
+    </para>
+
+    <para>
+      Destacar que los archivos en <filename class="directory">/proc/sys</filename>
+      son archivos sysctl: no pertenecen al procfs y son gobernados
+      por una API completamente diferente descrita en el libro de la API del Núcleo.
+    </para>
+  </chapter>
+
+
+
+
+  <chapter id="managing">
+    <title>Administrando entradas procfs</title>
+    
+    <para>
+      Este capítulo describe las funciones de varios componentes del
+      núcleo usadas para propagar el procfs con archivos, enlaces simbólicos,
+      nodos de dispositivos, y directorios.
+    </para>
+
+    <para>
+      Una pequeña nota antes de empezar: si quieres usar alguna de las
+      funciones procfs, ¡asegúrate de incluir el archivo de cabeceras 
+      correspondiente! Esta debería de ser una de las primeras líneas
+      en tu código:
+    </para>
+
+    <programlisting>
+#include &lt;linux/proc_fs.h&gt;
+    </programlisting>
+
+
+
+
+    <sect1 id="regularfile">
+      <title>Creando un archivo normal</title>
+
+      <funcsynopsis>
+	<funcprototype>
+	  <funcdef>struct proc_dir_entry* <function>create_proc_entry</function></funcdef>
+	  <paramdef>const char* <parameter>name</parameter></paramdef>
+	  <paramdef>mode_t <parameter>mode</parameter></paramdef>
+	  <paramdef>struct proc_dir_entry* <parameter>parent</parameter></paramdef>
+	</funcprototype>
+      </funcsynopsis>
+
+      <para>
+        Esta función crea un archivo normal con el nombre
+        <parameter>name</parameter>, el modo del archivo
+        <parameter>mode</parameter> en el directorio
+        <parameter>parent</parameter>. Para crear un archivo en el
+        directorio raíz, usa <constant>NULL</constant> como parámetro
+        a <parameter>parent</parameter> Cuando tenga éxito, la función
+        retornará un puntero a la nueva <structname>struct
+        proc_dir_entry</structname> creada; en otro caso retornará
+        <constant>NULL</constant>. <xref linkend="userland"/> describe
+        cómo hacer algo útil con los archivos normales.
+      </para>
+
+      <para>
+        Destacar que está específicamente soportado el poder pasarle un
+        camino que se extienda a través de múltiples directorios. Por ejemplo,
+        <function>create_proc_entry</function>(<parameter>"drivers/via0/info"</parameter>)
+	creará el directorio <filename class="directory">via0</filename> si
+ 	es necesario, con los permisos estándar <constant>0755</constant>.
+      </para>
+
+    <para>
+      Si sólo quieres ser capaz de leer el archivo, la función
+      <function>create_proc_read_entry</function> descrita en <xref
+      linkend="convenience"/> puede ser usada para crear e inicializar la entrada en el
+      procfs con una simple llamada.
+    </para>
+    </sect1>
+
+
+
+
+    <sect1>
+      <title>Creando un enlace simbólico</title>
+
+      <funcsynopsis>
+	<funcprototype>
+	  <funcdef>struct proc_dir_entry*
+	  <function>proc_symlink</function></funcdef> <paramdef>const
+	  char* <parameter>name</parameter></paramdef>
+	  <paramdef>struct proc_dir_entry*
+	  <parameter>parent</parameter></paramdef> <paramdef>const
+	  char* <parameter>dest</parameter></paramdef>
+	</funcprototype>
+      </funcsynopsis>
+      
+      <para>
+        Esto crea un enlace simbólico en el directorio procfs
+        <parameter>parent</parameter> que apunta a 
+        <parameter>name</parameter> en
+        <parameter>dest</parameter>. Esto se traduce en los programas
+        de usuario en <literal>ln -s</literal> <parameter>dest</parameter>
+        <parameter>name</parameter>.
+      </para>
+    </sect1>
+
+
+
+
+    <sect1>
+      <title>Creando un dispositivo</title>
+
+      <funcsynopsis>
+	<funcprototype>
+	  <funcdef>struct proc_dir_entry* <function>proc_mknod</function></funcdef>
+	  <paramdef>const char* <parameter>name</parameter></paramdef>
+	  <paramdef>mode_t <parameter>mode</parameter></paramdef>
+	  <paramdef>struct proc_dir_entry* <parameter>parent</parameter></paramdef>
+	  <paramdef>kdev_t <parameter>rdev</parameter></paramdef>
+	</funcprototype>
+      </funcsynopsis>
+      
+      <para>
+       	Crea un archivo de dispositivo <parameter>name</parameter>
+	con el modo <parameter>mode</parameter> en el directorio procfs
+        <parameter>parent</parameter>. El archivo del dispositivo
+	trabajará en el dispositivo <parameter>rdev</parameter>, que 
+	puede ser generado usando la macro <literal>MKDEV</literal>
+	desde <literal>linux/kdev_t.h</literal>.
+	El parámetro <parameter>mode</parameter> <emphasis>debe</emphasis>
+ 	de contener <constant>S_IFBLK</constant> o <constant>S_IFCHR</constant>
+	para crear un nodo de dispositivo. Compáralo con el programa
+ 	de usuario <literal>mknod --mode=</literal><parameter>mode</parameter>
+        <parameter>name</parameter> <parameter>rdev</parameter>.
+      </para>
+    </sect1>
+
+
+
+
+    <sect1>
+      <title>Creando un directorio</title>
+      
+      <funcsynopsis>
+	<funcprototype>
+	  <funcdef>struct proc_dir_entry* <function>proc_mkdir</function></funcdef>
+	  <paramdef>const char* <parameter>name</parameter></paramdef>
+	  <paramdef>struct proc_dir_entry* <parameter>parent</parameter></paramdef>
+	</funcprototype>
+      </funcsynopsis>
+
+      <para>
+	Crea un directorio <parameter>name</parameter> en el directorio
+	procfs <parameter>parent</parameter>.
+      </para>
+    </sect1>
+
+
+
+
+    <sect1>
+      <title>Borrando una entrada</title>
+      
+      <funcsynopsis>
+	<funcprototype>
+	  <funcdef>void <function>remove_proc_entry</function></funcdef>
+	  <paramdef>const char* <parameter>name</parameter></paramdef>
+	  <paramdef>struct proc_dir_entry* <parameter>parent</parameter></paramdef>
+	</funcprototype>
+      </funcsynopsis>
+
+      <para>
+        Borra la entrada <parameter>name</parameter> en el directorio
+ 	<parameter>parent</parameter> del procfs. Las entradas son
+	quitadas por su <emphasis>name</emphasis>, no por la
+        <structname>struct proc_dir_entry</structname> retornada por las
+	diversas funciones de creación. Destacar que esta función no borra
+   	recursivamente las entradas.
+      </para>
+
+      <para>
+	Asegúrate de liberar la entrada
+	<structfield>data</structfield> de <structname>struct
+	proc_dir_entry</structname> antes de que sea llamado
+	<function>remove_proc_entry</function> (esto es: si había
+	alguna <structfield>data</structfield> asignada, por
+	supuesto).  Ver <xref linkend="usingdata"/> para más
+	información sobre el uso de la entrada
+	<structfield>data</structfield>.
+      </para>
+    </sect1>
+  </chapter>
+
+
+
+
+  <chapter id="userland">
+    <title>Comunicación con los Procesos de Usuario</title>
+    
+    <para>
+       En vez de leer (o escribir) información directamente desde
+       la memoria del núcleo, procfs trabaja con <emphasis>funciones
+       de retrollamada</emphasis> para los archivos: funciones que son
+       llamadas cuando un archivo específico está siendo leído o 
+       escrito. Tales funciones tienen que ser inicializadas después
+       de que el archivo procfs sea creado estableciendo los campos
+       <structfield>read_proc</structfield> y/o <structfield>write_proc</structfield> 
+       en la <structname>struct proc_dir_entry*</structname> que
+       retorna la función <function>create_proc_entry</function>:
+    </para>
+
+    <programlisting>
+struct proc_dir_entry* entry;
+
+entry->read_proc = read_proc_foo;
+entry->write_proc = write_proc_foo;
+    </programlisting>
+
+    <para>
+      Si sólo quieres usar la <structfield>read_proc</structfield>,
+      la función <function>create_proc_read_entry</function>
+      descrita en <xref linkend="convenience"/> puede ser utilizada para
+      crear e inicializar la entrada procfs con una simple llamada.
+    </para>
+
+
+
+    <sect1>
+      <title>Leyendo Datos</title>
+
+      <para>
+ 	La función de lectura es una función de retrollamada que 
+	permite a los procesos de usuario leer datos del núcleo. La
+        función de lectura debe de tener el siguiente formato:
+      </para>
+
+      <funcsynopsis>
+	<funcprototype>
+	  <funcdef>int <function>read_func</function></funcdef>
+	  <paramdef>char* <parameter>page</parameter></paramdef>
+	  <paramdef>char** <parameter>start</parameter></paramdef>
+	  <paramdef>off_t <parameter>off</parameter></paramdef>
+	  <paramdef>int <parameter>count</parameter></paramdef>
+	  <paramdef>int* <parameter>eof</parameter></paramdef>
+	  <paramdef>void* <parameter>data</parameter></paramdef>
+	</funcprototype>
+      </funcsynopsis>
+
+      <para>
+	La función de lectura debería de escribir su información 
+	en <parameter>page</parameter>. Para un uso adecuado, la
+	función debería de empezar escribiendo en un desplazamiento
+	de <parameter>off</parameter> en <parameter>page</parameter>
+	y escribir al menos <parameter>count</parameter> bytes, como
+	la mayoría de las funciones de lectura son bastante simples y sólo
+	retornarán una pequeña cantidad de información, estos dos
+	parámetros son usualmente ignorados (y rompe paginadores
+ 	como <literal>more</literal> y <literal>less</literal>, pero
+	<literal>cat</literal> todavía trabaja).
+      </para>
+
+      <para>
+	Si los parámetros <parameter>off</parameter> y
+	<parameter>count</parameter> son usados de una forma adecuada, 
+	<parameter>eof</parameter> debería de ser utilizado para señalar que
+	el final del archivo ha llegado escribiendo <literal>1</literal>
+	en la localización de memoria a donde apunta <parameter>eof</parameter>.
+      </para>
+
+      <para>
+	El parámetro <parameter>start</parameter> no parece ser
+	usado en ningún sitio en el núcleo. El parámetro 
+	<parameter>data</parameter> puede ser usado para crear una
+	función simple de retrollamada para varios archivos, ver
+        <xref linkend="usingdata"/>.
+      </para>
+
+      <para>
+	La función <function>read_func</function> debe de retornar el 
+	número de bytes escritos en <parameter>page</parameter>.
+      </para>
+
+      <para>
+        <xref linkend="example"/> muestra cómo usar la función de
+        retrollamada de lectura.
+      </para>
+    </sect1>
+
+
+
+
+    <sect1>
+      <title>Escribiendo Datos</title>
+
+      <para>
+	La función de retrollamada de escritura permite a los procesos
+	de usuario escribir datos en el núcleo, por lo tanto tiene cierta
+	clase de control sobre el núcleo. La función de escritura
+	debería de tener el siguiente formato:
+      </para>
+
+      <funcsynopsis>
+	<funcprototype>
+	  <funcdef>int <function>write_func</function></funcdef>
+	  <paramdef>struct file* <parameter>file</parameter></paramdef>
+	  <paramdef>const char* <parameter>buffer</parameter></paramdef>
+	  <paramdef>unsigned long <parameter>count</parameter></paramdef>
+	  <paramdef>void* <parameter>data</parameter></paramdef>
+	</funcprototype>
+      </funcsynopsis>
+
+      <para>
+	La función de escritura lee <parameter>count</parameter>
+	bytes como máximo del <parameter>buffer</parameter>. Destacar
+	que <parameter>buffer</parameter> no reside en el espacio
+	de memoria del núcleo, por lo tanto debería de ser primero 
+	copiado al espacio del núcleo con <function>copy_from_user</function>.
+	El parámetro <parameter>file</parameter> es usualmente ignorado.
+        <xref linkend="usingdata"/> muestra como usar el parámetro
+        <parameter>data</parameter>.
+      </para>
+
+      <para>
+        Otra vez, <xref linkend="example"/> muestra cómo usar esta función de
+	retrollamada.
+      </para>
+    </sect1>
+
+
+
+
+    <sect1 id="usingdata">
+      <title>Una simple retrollamada para varios archivos</title>
+
+      <para>
+	 Cuando es usado un gran número de archivos casi idénticos, es
+	 bastante conveniente usar una función de retrollamada separada
+	 para cada archivo. Una mejor aproximación es tener una función 
+	 simple de retrollamada que distinga entre los archivos usando 
+	 el campo <structfield>data</structfield> en <structname>struct
+	 proc_dir_entry</structname>. Lo primero de todo, el campo
+	 <structfield>data</structfield> tiene que estar inicializado:
+      </para>
+
+      <programlisting>
+struct proc_dir_entry* entry;
+struct my_file_data *file_data;
+
+file_data = kmalloc(sizeof(struct my_file_data), GFP_KERNEL);
+entry->data = file_data;
+      </programlisting>
+     
+      <para>
+          El campo <structfield>data</structfield> es un <type>void
+          *</type>, por lo tanto puede ser inicializado con cualquier cosa.
+      </para>
+
+      <para>
+	Ahora que el campo <structfield>data</structfield> está establecido, 
+	<function>read_proc</function> y <function>write_proc</function>
+	pueden utilizarlo para distinguir entre archivos, porque ellos
+	son pasados en sus parámetros <parameter>data</parameter>:
+      </para>
+
+      <programlisting>
+int foo_read_func(char *page, char **start, off_t off,
+                  int count, int *eof, void *data)
+{
+        int len;
+
+        if(data == file_data) {
+                /* caso especial para este archivo */
+        } else {
+                /* procesamiento normal */
+        }
+
+        return len;
+}
+      </programlisting>
+
+      <para>
+	Asegúrate de liberar el campo de datos <structfield>data</structfield>
+	cuando quites la entrada procfs.
+      </para>
+    </sect1>
+  </chapter>
+
+
+
+
+  <chapter id="tips">
+    <title>Trucos y Propinas</title>
+
+
+
+
+    <sect1 id="convenience">
+      <title>Funciones Convenientes</title>
+
+      <funcsynopsis>
+	<funcprototype>
+	  <funcdef>struct proc_dir_entry* <function>create_proc_read_entry</function></funcdef>
+	  <paramdef>const char* <parameter>name</parameter></paramdef>
+	  <paramdef>mode_t <parameter>mode</parameter></paramdef>
+	  <paramdef>struct proc_dir_entry* <parameter>parent</parameter></paramdef>
+	  <paramdef>read_proc_t* <parameter>read_proc</parameter></paramdef>
+	  <paramdef>void* <parameter>data</parameter></paramdef>
+	</funcprototype>
+      </funcsynopsis>
+      
+      <para>
+	Esta función crea un archivo normal exactamente de la misma
+	forma que lo hace <function>create_proc_entry</function> desde
+	<xref linkend="regularfile"/>, pero también permite
+	establecer la función de lectura <parameter>read_proc</parameter>
+	en una llamada. Esta función puede establecer también el parámetro
+	<parameter>data</parameter>, como ya ha sido explicado en
+        <xref linkend="usingdata"/>.
+      </para>
+    </sect1>
+
+
+
+    <sect1>
+      <title>Módulos</title>
+
+      <para>
+        SI procfs está siendo usado desde un módulo, asegúrate de establecer
+	el campo <structfield>owner</structfield> en <structname>struct
+	proc_dir_entry</structname> a <constant>THIS_MODULE</constant>.
+      </para>
+
+      <programlisting>
+struct proc_dir_entry* entry;
+
+entry->owner = THIS_MODULE;
+      </programlisting>
+    </sect1>
+
+
+
+
+    <sect1>
+      <title>Modo y Dueño</title>
+
+      <para>
+	Algunas veces es útil cambiar el modo y/o dueño de una entrada procfs. 
+	Aquí hay un ejemplo que muestra cómo realizar esto:
+      </para>
+
+      <programlisting>
+struct proc_dir_entry* entry;
+
+entry->mode =  S_IWUSR |S_IRUSR | S_IRGRP | S_IROTH;
+entry->uid = 0;
+entry->gid = 100;
+      </programlisting>
+
+    </sect1>
+  </chapter>
+
+
+
+
+  <chapter id="example">
+    <title>Ejemplo</title>
+	
+	<para> 
+	Para compilar este módulo utiliza:
+	</para>
+	<para>
+ gcc -I/usr/src/linux-2.4/include -Wall -DMODULE -D__KERNEL__ -DLINUX -c ejemplo_procfs.c
+ 	</para>
+
+    <!-- ten cuidado con el código de ejemplo: no debería de ser más 
+    ancho de aproximadamente 60 columnas, o en otro caso no cogerá
+    de forma adecuada en una página
+    -->
+
+&procfsexample;
+
+  </chapter>
+
+<chapter id="traduccion">
+     <title>Sobre la Traducción</title>
+        <para>
+        Este documento es la traducción de "Linux Kernel Procfs
+	Guide", documento que acompaña al código del núcleo de Linux,
+	versión 2.4.18.
+        </para>
+
+        <para>
+        Este documento ha sido traducido por Rubén Melcón <email>melkon@terra.es</email>; y
+        es publicado por <ulink url="http://es.tldp.org">TLDP-ES</ulink>
+        </para>
+
+        <para>
+        Versión de la tradución 0.04 ( Julio de 2002 ).
+        </para>
+
+        <para>
+        Si tienes comentarios sobre la traducción, ponte en contacto con Rubén Melcón
+        <email>melkon@terra.es</email>
+        </para>
+
+  </chapter>
+
+</book>

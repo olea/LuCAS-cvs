@@ -1,0 +1,228 @@
+Soporte para el chip OPTi 82C931 chip
+-------------------------------------
+Nota: partes de este fichero LEAME se aplican también a otras
+tarjetas que usan el controlador mad16.
+
+Algunos artículos de este fichero LEEME están basados en
+características añadidas al controlador de sonido después
+de que el núcleo Linux-2.1.91 saliese.
+Cuando escribí esto no sabía que número de núcleo oficial
+incluiría estas características. Por favor no informe de
+inconsistencias en núcleos Linux más viejos.
+
+La OPTi 82C931 está soportada en su modo no-PnP.
+Normalmente no necesita activar puentes, etc. El controlador de sonido
+comprobará el estado de la tarjeta y si lo requiere forzará la tarjeta
+a algún modo en el cual pueda ser programada.
+
+Si tiene otro SO instalado en su ordenador es recomendable que Linux 
+y el otro SO usen los mismos recursos.
+
+También, es recomendable que los recursos especificados en /etc/conf.modules
+y los recursos especificados en /etc/isapnp.conf concuerden.
+
+Como compilar el controlador de sonido
+--------------------------------------
+
+Recomiendo encarecidamente que compile un controlador de sonido modularizado.
+Este documento no cubre el controlador de sonido compilado dentro del núcleo.
+
+El soporte para tarjeta de sonido debe ser activado como módulo (elija m).
+Responda 'm' a estas opciones:
+  Generic OPL2/OPL3 FM synthesizer support			(CONFIG_ADLIB)
+  Microsoft Sound System support				(CONFIG_MSS)
+  Support for OPTi MAD16 and/or Mozart based cards	 	(CONFIG_MAD16)
+  FM synthesizer (YM3812/OPL-3) support				(CONFIG_YM3812)
+
+El menú de configuración puede preguntar acerca de direcciones E/S, líneas IRQ o
+canales DMA. Si la tarjeta es usada como módulo, las opciones de  carga del 
+módulo invalidarán estos valores.
+
+Para la OPTi 931 puede responder 'n' a:
+  Support MIDI in older MAD16 based cards (requires SB)		(CONFIG_MAD16_OLDCARD)
+Si necesita soporte MIDI en una tarjeta basada en un chip Mozart o C928
+necesita responder 'm' a la pregunta superior. En ese caso necesitará responder
+también 'm' a:
+  '100% Sound Blaster compatibles (SB16/32/64, ESS, Jazz16) support' (CONFIG_SB)
+
+Vaya y compile el núcleo y los módulos. Instale los módulos. Ejecute depmod -a.
+
+Como usar isapnptools
+---------------------
+
+En la mayoría de sistemas con BIOS PnP no necesita usar isapnp. La
+inicialización provista por la BIOS es suficiente para que el driver
+reconozca la tarjeta y continue la inicialización.
+
+Si esto falla, o si tiene otras trajeta PnP, necesita usar ispnp para
+inicializar la tarjeta.
+Esto fue comprobado con isapnptools-1.11 pero recomiendo que use
+isapnptools-1.13 (o superior). Ejecute pnpdump para volcar la información
+de sus tarjetas PnP. Edite el fichero resultante y seleccione las
+opciones de su elección. Este fichero normalmente se instala en 
+/etc/isapnp.conf.
+
+El controlador tiene una limitación respecto a los recursos de E/S:
+la dirección base IO3 base debe ser 0x0E0C.  Aunque isapnp permite usar otros
+puertos, esta dirección está codificada dentro del controlador.
+
+Como usar kmod y la auto-carga del controlador de sonido
+--------------------------------------------------------
+
+Comentario: desde linux-2.1.90 kmod reemplaza a kerneld.
+El fichero de configuración '/etc/conf.modules' se usa como antes.
+
+Esta es la parte de la tarjeta de sonido de mi fichero /etc/conf.modules.
+Después de esto explicaré cada línea.
+
+alias mixer0 mad16
+alias audio0 mad16
+alias midi0  mad16
+alias synth0 opl3
+options sb mad16=1
+options mad16 irq=10 dma=0 dma16=1 io=0x530 joystick=1 cdtype=0
+options opl3 io=0x388
+post-install mad16 /sbin/ad1848_mixer_reroute 14 8 15 3 16 6
+
+Si tiene una tarjeta hija MPU o MPU integrada quizá quiera añadir la siguiente
+opción a la línea "options mad16"
+
+options mad16 irq=5 dma=0 dma16=3 io=0x530 mpu_io=0x330 mpu_irq=9
+
+Para activar la E/S e IRQ de la MPU.
+
+
+Explicación:
+
+alias mixer0 mad16
+alias audio0 mad16
+alias midi0  mad16
+alias synth0 opl3
+
+Cuando se abre cualquier dispositivo de sonido el núcleo pide la auto-carga de
+char-major-14. Hay un alias integrado que traduce esta petición y que carga el
+módulo principal. El módulo principal de sonido contiene solo código común que
+es necesario para todos los controladores de sonido, y el controlador para
+/dev/sndstat
+
+El módulo de sonido en este turno pedirá la carga del sub-controlador para el
+mezclador, sonido, midi o dispositivo sintetizador. Los primeros 3 están
+soportado por el controlador mad16. El dispositivo sintetizador está soportado
+por el controlador opl3.
+
+Actualmente no hay forma de cargar el controlador de sonido si hay instalada
+más de una tarjeta.
+
+options sb mad16=1
+
+Esto se deja por razones históricas. Si activa la opción de configuración
+'Support MIDI in older MAD16 based cards (requires SB)'
+o si usa el controlador viejo de mad16 forzará la carga del controlador
+SoundBlaster. Esta opción le dice al controlador SB que no busque una tarjeta
+SB sino que espere al controlador mad16.
+
+options mad16 irq=10 dma=0 dma16=1 io=0x530 joystick=1 cdtype=0
+options opl3 io=0x388
+
+post-install mad16 /sbin/ad1848_mixer_reroute 14 8 15 3 16 6
+
+Esto activa los recursos y opciones para los controladores mad16 y opl3.
+Yo uso dos canales DMA (solo se requiere uno) para activa el full dúplex.
+joystick=1 activa el puerto del joystick. cdtype=0 desactiva el puerto del CD.
+También puede activar mpu_io y mpu_irq en las opciones de mad16 para el
+controlador uart401.
+
+Esto le dice a modprobe que ejecute /sbin/ad1848_mixer_reroute después
+de que mad16 se halla cargado e inicializado satisfactoriamente. 
+El código fuente de ad1848_mixer_reroute está añadido al final de este
+documento. Es imposible para el controlador de sonido conocer las
+conexiones con el mezclador. Las 3 entradas para el CD, sintetizador y
+Entrada de Línea están mapeadas a las entradas genéricas line1, line2
+y line3. Este programa redirige estos canales del mezclador a sus
+nombres reales (note que el mapeo correcto depende de la tarjeta de
+sonido que use).
+Los parámetros numéricos significan:
+ 14=line1 8=cd    - redirije line1 a la entrada del CD.
+ 15=line2 3=synth - redirije line2 a la entrada del sintetizador.
+ 16=line3 6=line  - redirije line3 a la entrada de Línea.
+Para referencias cobre otros nombres de entrada mire el fichero
+/usr/include/linux/soundcard.h.
+
+Como usar un joystick
+---------------------
+Debe activar el joystick en las opciones de mad16. (también en
+/etc/isapnp.conf si lo usa).
+Comprobado con joysticks analógicos estándar.
+
+UN CDROM conectado a la tarjeta de sonido
+-----------------------------------------
+El chip 82C931 tiene sólo soporte para el cdrom ATAPI secundario.
+(cdtype=8). La carga del controlador mad16 inicializa el chip C931
+y si el cdrom estaba ya montado puede causar un cuelgue completo del sistema.
+No use la tarjeta de sonido si tiene otra alternativa.
+Si usa la tarjeta de sonido es importante que cargue el controlador mad16
+(use "modprobe mad16" para prevenir la auto-carga) antes de que acceda al
+cdrom por primera vez.
+
+Si usa el controlador de sonido compilado en el núcleo puede ayudar, pero...
+la mayoría de los sistemas nuevos tienen una BIOS PnP y dos controladoras IDE.
+La controlador IDE de la tarjeta de sonido puede que sólo se necesite en
+sistemas viejos (que sólo tienen una controladora IDE) pero estos sistemas
+tampoco tiene BIOS PnP - requiriendo isapnptools y un controlador modularizado.
+
+Problemas conocidos
+-------------------
+1. Vea la sección acerca de "UN CDROM conectado a la tarjeta de sonido".
+
+2. En mi sistema el codec no puede capturar muestras de sonido "companded"
+   (p.e., grabando de /dev/audio). Cuando pido una captura "companded" obtengo
+   muestras estéreo de 16 bits. La reproducción de muestras "companded"
+   funciona bien. Aparentemente este problema no es común a todas las tarjetas
+   basadas en el C931. No sé como identificar las tarjetas que tienen este
+   problema.
+
+Código para ad1848_mixer_reroute.c
+---------------------------------
+#include <stdio.h>
+#include <fcntl.h>
+#include <linux/soundcard.h>
+
+static char *mixer_names[SOUND_MIXER_NRDEVICES] =
+	SOUND_DEVICE_LABELS;
+
+int
+main(int argc, char **argv) {
+	int val, from, to;
+	int i, fd;
+
+	fd = open("/dev/mixer", O_RDWR);
+	if(fd < 0) {
+		perror("/dev/mixer");
+		return 1;
+	}
+
+	for(i = 2; i < argc; i += 2) {
+		from = atoi(argv[i-1]);
+		to = atoi(argv[i]);
+
+		if(to == SOUND_MIXER_NONE)
+			fprintf(stderr, "%s: turning off mixer %s\n",
+				argv[0], mixer_names[to]);
+		else
+			fprintf(stderr, "%s: rerouting mixer %s to %s\n",
+				argv[0], mixer_names[from], mixer_names[to]);
+
+		val = from << 8 | to;
+
+		if(ioctl(fd, SOUND_MIXER_PRIVATE2, &val)) {
+			perror("AD1848 mixer reroute");
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+
+"Traducido para el proyecto NuLies por
+ Gorka Olaizola Sánchez <olsago@jet.es>"

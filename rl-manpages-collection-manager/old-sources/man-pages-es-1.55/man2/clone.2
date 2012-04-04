@@ -1,0 +1,454 @@
+.\" Hey Emacs! This file is -*- nroff -*- source.
+.\"
+.\" Copyright (c) 1992 Drew Eckhardt (drew@cs.colorado.edu), March 28, 1992
+.\" May be distributed under the GNU General Public License.
+.\" Modified by Michael Haardt <michael@moria.de>
+.\" Modified Sat Jul 24 13:22:07 1993 by Rik Faith (faith@cs.unc.edu)
+.\" Modified 21 Aug 1994 by Michael Chastain (mec@shell.portal.com):
+.\"   New man page (copied from 'fork.2').
+.\" Modified 10 June 1995 by Andries Brouwer (aeb@cwi.nl)
+.\" Translated 20 Dec 1995 Miguel A. Sepulveda (miguel@typhoon.harvard.edu)
+.\" Modified 1 Jul 1996 Miguel A. Sepulveda (angel@vivaldi.princeton.edu)
+.\" Modified 25 april 1998 by Xavier Leroy <Xavier.Leroy@inria.fr>
+.\" Modified 26 Jun 2001 by Michael Kerrisk
+.\"     Mostly upgraded to 2.4.x
+.\"     Added prototype for sys_clone() plus description
+.\"	Added CLONE_THREAD with a brief description of thread groups
+.\"	Added CLONE_PARENT and revised entire page remove ambiguity 
+.\"		between "calling process" and "parent process"
+.\"	Added CLONE_PTRACE and CLONE_VFORK
+.\"	Added EPERM and EINVAL error codes
+.\"	Renamed "__clone" to "clone" (which is the protype in <sched.h>)
+.\"	various other minor tidy ups and clarifications.
+.\" Modified 26 Jun 2001 by Michael Kerrisk <mtk16@ext.canterbiry.ac.nz>
+.\"	Updated notes for 2.4.7+ behaviour of CLONE_THREAD
+.\" Modified 15 Oct 2002 by Michael Kerrisk <mtk16@ext.canterbiry.ac.nz>
+.\"	Added description for CLONE_NEWNS, which was added in 2.4.19
+.\" Slightly rephrased, aeb.
+.\" Modified 1 Feb 2003 - added CLONE_SIGHAND restriction, aeb.
+.\"
+.\" Revisado Tue May 12 10:15:41 1998 por:
+.\"          Cesar D. Lobejon (cesar@alien.mec.es)            
+.\" Translation revised Tue Aug 18 1998 by Juan Piernas <piernas@ditec.um.es>
+.\" Revisado por Miguel Pérez Ibars <mpi79470@alu.um.es> el 29-septiembre-2004
+.\"
+.TH CLONE 2 "31 diciembre 2001" "Linux 2.4" "Manual del Programador de Linux"
+.SH NOMBRE
+clone \- crea un proceso hijo
+.SH SINOPSIS
+.B #include <sched.h>
+.sp
+.BI "int clone(int (*" "fn" ")(void *), void *" "child_stack" ", int " "flags" ", void *" "arg" );
+.sp
+.BI "_syscall2(int, " "clone" ", int, " "flags" ", void *, " "child_stack" )
+
+.SH DESCRIPCIÓN
+.B clone
+crea un nuevo proceso como lo hace
+.BR fork (2).
+.B clone
+es una función de biblioteca situada encima
+de la llamada al sistema subyacente
+.BR clone
+, de aquí en adelante referida como
+.BR sys_clone .
+Una descripción de
+.BR sys_clone
+se da hacia el final de esta página.
+
+A diferencia de
+.BR fork (2),
+estas llamadas
+permiten al proceso hijo compartir partes de su contexto de ejecución con el
+proceso invocador, tales como el espacio de memoria, la tabla de descriptores de
+fichero y la tabla de manejadores de señal.  (Observe que en esta página de manual,
+"proceso invocador" normalmente se corresponde con "proceso padre". Vea la 
+descripción de 
+.B CLONE_PARENT
+más abajo.)
+
+El principal uso de
+.B clone
+es para implementar los hilos: múltiples hilos de control en un programa que
+se ejecutan concurrentemente en un espacio de memoria compartido.
+
+Cuando se crea el proceso hijo con
+.BR clone , 
+éste ejecuta la función
+.IR fn ( arg ).
+(Eso difiere de
+.BR fork (2), 
+en donde la ejecución continúa en el hijo desde el punto
+en el que se encuentra la llamada
+.BR fork (2) 
+.)
+El argumento
+.I fn
+es un puntero a una función que es ejecutada por el proceso hijo al comienzo
+de su ejecución.
+El argumento
+.I arg
+se pasa a la función
+.IR fn .
+
+Cuando la función
+.IR fn ( arg )
+regresa, el proceso hijo termina. El entero devuelto por
+.I fn
+es el código de salida del proceso hijo. El proceso hijo también puede
+terminar explícitamente ejecutando
+.BR exit (2)
+o después de recibir una señal fatal.
+
+El argumento
+.I child_stack
+indica la posición de la pila utilizada por el proceso hijo. Puesto que los
+procesos hijo e invocador pueden compartir la memoria, no es posible, en
+general, para el proceso hijo ejecutarse usando la misma pila que
+el proceso invocador. Por tanto, el proceso invocador debe preparar un
+área de memoria para la pila del hijo y pasar un puntero a dicha área a
+.BR clone .
+Las pilas crecen hacia abajo en todos los procesadores en los que se ejecuta
+Linux (excepto en el procesador HP PA), por lo que
+.I child_stack
+apunta normalmente a la dirección más alta de la zona de memoria preparada
+para la pila del hijo.
+
+El byte bajo de 
+.I flags
+contiene el número de la señal enviada al padre cuando el hijo muere.  
+Si la señal especificada es cualquiera distinta de
+.BR SIGCHLD ,
+el proceso padre debe especificar las opciones
+.B __WALL 
+o
+.B __WCLONE
+cuando espera al hijo con
+.BR wait (2).  
+Si no se indica ninguna señal, el proceso padre no es notificado
+cuando el hijo termina.
+
+.I flags
+puede también ser operado con un OR a nivel de bits (bitwise or) con
+una o varias de las siguientes constantes, para así especificar qué van a
+compartir los procesos invocador e hijo:
+
+.TP
+.B CLONE_PARENT
+(Linux 2.4 en adelante) Si
+.B CLONE_PARENT
+está presente, el padre del nuevo hijo (valor devuelto por
+.BR getppid (2))
+será el mismo que el del proceso invocador.
+
+Si
+.B CLONE_PARENT
+no está presente, (al igual que ocurre con
+.BR fork (2))
+el padre del hijo es el proceso invocador.
+
+Observe que es el proceso padre, tal como informa
+.BR getppid (2),
+el que es notificado cuando el hijo termina, así que si
+se especifica la opción
+.B CLONE_PARENT
+, será notificado el padre del proceso invocador, en lugar
+del propio proceso invocador.
+
+.TP
+.B CLONE_FS
+Si se pone
+.BR CLONE_FS ,
+los procesos invocador e hijo comparten la misma información del sistema de
+ficheros. Ésta incluye la raíz del sistema de ficheros, el directorio de
+trabajo actual y el valor de umask. Cualquier llamada a
+.BR chroot (2),
+.BR chdir (2)
+o
+.BR umask (2)
+realizada por el proceso invocador o hijo también afecta al otro proceso.
+
+Si no se pone
+.BR CLONE_FS ,
+el proceso hijo trabaja con una copia de la información del sistema de
+ficheros del proceso invocador en el momento de ejecutar la llamada
+.BR clone .
+Las llamadas a
+.BR chroot (2),
+.BR chdir (2)
+o
+.BR umask (2)
+realizadas después por uno de los procesos no afectan al otro.
+
+.TP
+.B CLONE_FILES
+Si se pone
+.BR CLONE_FILES ,
+los procesos invocador e hijo comparten la misma tabla de descriptores de
+fichero. Los descriptores de fichero siempre se refieren a los mismos
+ficheros en el invocador y en el proceso hijo. Cualquier descriptor de fichero
+creado por el proceso invocador o por el proceso hijo también es válido en el
+otro proceso. De igual forma, si uno de los procesos cierra un descriptor de
+fichero o cambia sus banderas (flags) asociadas, el otro proceso también se
+verá afectado.
+
+Si no se pone
+.BR CLONE_FILES ,
+el proceso hijo hereda una copia de todos los descriptores de fichero
+abiertos en el proceso invocador en el momento de ejecutar
+.BR clone .
+Las operaciones sobre los descriptores de fichero realizadas después por uno
+de los procesos invocador o hijo no afectan al otro.
+
+.TP
+.B CLONE_NEWNS
+(Linux 2.4.19 en adelante)
+Comienza el hijo en un nuevo espacio de nombres.
+
+Cada proceso vive en un espacio de nombres. El
+.I espacio de nombres
+de un proceso viene dado por los datos (el conjunto de montajes) que describen
+la jerarquía de ficheros tal como la ve ese proceso. Después de una llamada a
+.BR fork (2)
+o
+.BR clone (2)
+con la bandera
+.B CLONE_NEWNS
+desactivada, el hijo vive en el mismo espacio de nombres que el padre.
+Las llamadas al sistema
+.BR mount (2)
+y
+.BR umount (2)
+cambian el espacio de nombres del proceso invocador, y por tanto
+afectan a todos los procesos que viven en el mismo espacio de nombres,
+pero no a los que están en un espacio de nombres diferente.
+
+Tras una llamada a
+.BR clone (2)
+con la bandera
+.B CLONE_NEWNS
+activada, el hijo clonado comienza su ejecución en un nuevo espacio de nombres,
+inicializado con una copia del espacio de nombres del padre.
+
+Solamente un proceso privilegiado puede indicar la bandera
+.B CLONE_NEWNS.
+.\" La capacidad requerida es CAP_SYS_ADMIN. -- MTK, 15 Oct 02
+No está permitido especificar 
+.B CLONE_NEWNS
+y
+.B CLONE_FS
+en la misma llamada a
+.BR clone.
+
+.TP
+.B CLONE_SIGHAND
+Si se pone
+.BR CLONE_SIGHAND ,
+los procesos invocador e hijo comparten la misma tabla de manejadores de señal.
+Si el proceso invocador o hijo llama a
+.BR sigaction (2)
+para cambiar el comportamiento asociado a una señal, el comportamiento
+también se cambia en el otro proceso. Sin embargo, los procesos invocador e hijo
+todavía tienen diferentes máscaras de señales y conjuntos de señales
+pendientes. Por tanto, uno de ellos puede bloquear o desbloquear algunas
+señales usando
+.BR sigprocmask (2)
+sin afectar al otro proceso.
+
+Si no se pone
+.BR CLONE_SIGHAND ,
+el proceso hijo hereda una copia de los manejadores de señal del proceso
+invocador en el momento de ejecutar
+.BR clone .
+Las llamadas a
+.BR sigaction (2)
+realizadas después por uno de los procesos no tendrán efecto sobre el otro
+proceso.
+
+.TP
+.B CLONE_PTRACE
+Si se especifica la opción
+.B CLONE_PTRACE
+, y el proceso invocador está siendo rastreado, también se rastrea al hijo (vea
+.BR ptrace (2)).
+
+.TP
+.B CLONE_VFORK
+Si la opción
+.B CLONE_VFORK
+está presente, la ejecución del proceso invocador se suspende
+hasta que el hijo libere sus recursos de memoria virtual
+mediante una llamada a
+.BR execve (2)
+o
+.BR _exit (2)
+(al igual que con 
+.BR vfork (2)).
+
+Si
+.B CLONE_VFORK
+no está presente tanto el proceso invocador como el hijo son
+planificables tras la llamada, y una aplicación no debería confiar
+en que se ejecuten en un determinado orden.
+
+.TP
+.B CLONE_VM
+Si
+.B CLONE_VM
+está presente, el proceso invocador y el proceso hijo se ejecutan en el
+mismo espacio de memoria. En particular, las escrituras en memoria realizadas
+por el proceso invocador o el hijo son visibles también en el otro proceso.
+Además, cualquier ubicación o eliminación de memoria realizada con
+.BR mmap (2)
+o
+.BR munmap (2)
+por el proceso hijo o invocador también afecta al otro proceso.
+
+Si
+.B CLONE_VM
+no está presente, el proceso hijo se ejecuta en una copia separada del
+espacio de memoria del proceso invocador en el momento de la llamada a
+.BR clone .
+Las escrituras en memoria o las ubicaciones/eliminaciones de ficheros 
+realizadas por uno de los procesos no afecta al otro, al igual que con
+.BR fork (2).
+
+.TP
+.B CLONE_PID
+Si se pone
+.BR CLONE_PID ,
+se crea el proceso hijo con el mismo identificador de proceso que el proceso
+invocador.
+
+Si no se pone
+.BR CLONE_PID ,
+el proceso hijo posee un identificador de proceso único, distinto del
+identificador del invocador.
+
+Esta bandera sólo puede ser especificada por el proceso de arranque del sistema (PID 0).
+
+.TP 
+.B CLONE_THREAD
+(Linux 2.4 en adelante)  
+Si
+.B CLONE_THREAD
+está presente, el proceso hijo se pone en el mismo grupo de hilos que el proceso invocador.
+
+Si
+.B CLONE_THREAD
+no está presente, el proceso hijo se pone en su propio (nuevo)
+grupo de hilos, cuyo identificador es el mismo que el identificador de proceso.
+
+(Los grupos de hilos son una característica añadida en Linux 2.4 para soportar la noción
+de un conjunto de hilos compartiendo un solo PID impuesta por los hilos POSIX. En Linux
+2.4, las llamadas a
+.BR getpid (2)
+devuelven el identificador de grupo de hilos del invocador.)
+
+.PP
+La llamada al sistema
+.B sys_clone
+se corresponde más estrechamente con
+.BR fork (2)
+en el hecho de que la ejecución en el proceso hijo continúa desde el punto
+de la llamada. Así,
+.B sys_clone
+solamente requiere los argumentos
+.I flags
+y 
+.I child_stack
+, que tienen el mismo significado que para
+.BR clone .  
+(Observe que el orden de estos argumentos difiere de
+.BR clone .)  
+
+Otra diferencia de
+.B sys_clone
+es que el argumento
+.I child_stack
+puede ser cero, en cuyo caso la semántica de copia-en-escritura (copy-on-write)
+asegura que el proceso hijo obtendrá copias de las páginas de pila cuando
+cualquiera de los dos procesos modifique la pila. En este caso, para una operación correcta, debería
+especificarse la opción 
+.B CLONE_VM.
+
+.SH "VALOR DEVUELTO"
+En caso de éxito, se devuelve el PID del hijo en el
+hilo de ejecución del invocador. En caso de fallo, se devuelve \-1 
+en el contexto del invocador, no se creará
+ningún proceso hijo y se asignará a la variable 
+.I errno
+un valor apropiado.
+.SH ERRORES
+.TP
+.B EAGAIN
+Se están ejecutando ya demasiados procesos.
+.TP
+.B ENOMEM
+.B __clone
+no puede reservar suficiente memoria para obtener una estructura de tarea
+(task structure) para el hijo o para copiar aquellas partes del contexto del
+padre que necesitan ser copiadas.
+.TP
+.B EINVAL
+Devuelto por 
+.B clone 
+cuando se especifica un valor cero para
+.IR child_stack .
+.TP
+.B EINVAL
+Se especificaron ambas opciones
+.B CLONE_FS
+y
+.B CLONE_NEWNS
+en
+.IR flags .
+.TP
+.B EINVAL
+Se especificó
+.B CLONE_THREAD
+, pero no
+.B CLONE_SIGHAND.
+(Desde Linux 2.5.35.)
+.TP 
+.B EPERM
+Se especificó
+.B CLONE_PID
+por un proceso cuyo PID es distinto de cero.
+
+.SH FALLOS
+
+Desde la versión 2.1.97 del núcleo, no se debe usar la bandera
+.B CLONE_PID
+ya que otras partes del núcleo y la mayoría del software del sistema todavía
+asumen que los identificadores de proceso son únicos.
+
+No hay una entrada para
+.B clone
+en la versión 5 de libc. libc 6 (o sea, glibc 2) proporciona una llamada
+.B clone
+tal como la que se ha descrito en esta página de manual.
+
+.SH OBSERVACIONES
+Para las versiones del núcleo 2.4.7-2.4.18 la bandera CLONE_THREAD implica la bandera
+CLONE_PARENT.
+
+.SH CONFORME A
+Las llamadas
+.B clone
+y
+.B sys_clone
+son específicas de Linux y no deberían usarse en aquellos programas que
+pretendan se portables. Para programar aplicaciones con hilos (múltiples
+hilos de control en el mismo espacio de memoria) es mejor usar una
+biblioteca que implemente la API de hilos POSIX 1003.1c, como la biblioteca
+LinuxThreads (incluida en glibc2). Vea
+.BR pthread_create (3).
+
+Esta página de manual se corresponde con los núcleos 2.0.x, 2.1.x, 2.2.x, 2.4.x,
+y con las versiones 2.0.x y 2.1.x de glibc.
+
+.SH "VÉASE TAMBIÉN"
+.BR fork (2),
+.BR wait (2),
+.BR pthread_create (3)

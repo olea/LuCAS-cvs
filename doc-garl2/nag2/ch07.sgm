@@ -1,0 +1,996 @@
+<!-- $Id: ch07.sgm,v 1.6 2002/11/03 10:17:42 jjamor Exp $ -->
+<!--
+Nota legal:
+
+   Linux Network Administration Guide, por Olaf Kirch et al.
+
+   La traducción al español se publica bajo la licencia GFDL,
+siendo texto de portada el siguiente:
+
+Linux Network Administrator's Guide
+by Olaf Kirch and Terry Dawson
+Copyright  (c) 1993 Olaf Kirch
+Copyright  (c) 2000 Terry Dawson
+Copyright on O'Reilly printed version (c) 2000 O'Reilly & Associates
+
+y siendo secciones invariantes, la sección de Agradecimientos,
+la sección titulada «La traducción al español», el apéndice C; así
+como esta nota.
+
+Capítulo traducido por:
+
+     Gabriel Ceravolo (cosmo@sion.com)
+Revisión 1 por Francisco javier Fernández Serrador
+-->
+<chapter id="X-087-2-slip"><title>SLIP: IP por línea serie</title>
+<indexterm><primary>IP (Protocolo de Internet)</primary><secondary>conexión telefónica</secondary></indexterm>
+<indexterm><primary>IP (Protocolo de Internet)</primary><secondary>conexión serie</secondary></indexterm>
+<indexterm><primary>IP telefónicamente</primary></indexterm>
+<INDEXTERM><PRIMARY>teléfonos</PRIMARY><SECONDARY>enviando datos por</SECONDARY></INDEXTERM>
+<indexterm><primary>Internet</primary><secondary>conectándose a</secondary></indexterm>
+<indexterm id="idx-configuringSLIP-1" class="startofrange"><primary>configurando</primary><secondary>SLIP</secondary></indexterm>
+
+<para>
+Los servidores y terminales que manejan protocolos tales como IP o SLIP, en
+los cuales los datos están empaquetados, necesitan saber dónde empieza y
+dónde termina cada uno de esos paquetes en la cadena de datos.
+El mecanismo para marcar y detectar el comienzo y el fin de cada 
+paquete, se denomina delimitación<emphasis> (delimitation)</emphasis>.
+El protocolo Ethernet utiliza este mecanismo en entornos de redes de área 
+local, y los protocolos SLIP y PPP lo utilizan en comunicaciones del tipo serie.
+</para>
+
+<para>
+El bajo costo de los modems y de las comunicaciones telefónicas, han hecho
+al protocolo serial IP inmensamente popular, especialmente proveyendo a
+los usuarios un acceso de bajo costo a Internet. El hardware requerido para
+utilizar SLIP o PPP es de fácil instalación y bajo costo. Lo único que se
+requiere es un módem conectado a un puerto serie con búffer FIFO.
+</para>
+
+<para>
+El protocolo SLIP es fácil de implementar y al mismo tiempo es el más común
+de los dos, pero PPP viene ganando terreno rápidamente. El protocolo PPP
+agrega muchas y sofisticadas opciones que contribuyen a su creciente
+popularidad en el presente y que lo convertirán en un protocolo más
+importante en el futuro.
+</para>
+
+<para>
+El núcleo básico Linux soporta SLIP y PPP de forma muy estable y segura.
+En este capítulo y el siguiente, se discutirán ambos protocolos y cómo configurarlos.
+</para>
+
+<sect1 id="X-087-2-slip.general"><title>Requerimientos Generales</title>
+<indexterm id="idx-SLIP-1" class="startofrange"><primary>Protocolo SLIP (IP por línea serie )</primary></indexterm>
+<indexterm><primary>PPP (Protocolo Punto-a-Punto)</primary><secondary>principios del</secondary></indexterm>
+
+<para>
+Para utilizar SLIP o PPP, se requieren algunas configuraciones básicas de
+red ya descritas en capítulos anteriores. Usted debe configurar la
+interfaz de bucle<emphasis> (loopback)</emphasis> y el sistema de traducción
+de nombres. Cuando se conecta a Internet, querrá utilizar el servidor DNS.
+Sus opciones aquí son las mismas que en PPP: Se puede interrogar a los 
+servidores DNS de su proveedor de Internet, colocando sus direcciones 
+en el fichero <filename>/etc/resolv.conf</filename>, o instalar y configurar
+un servidor de nombres sólo con caché como se describe en
+<xref linkend="X-087-2-resolv.named-cachingonly">,&rdquo; en <xref linkend="X-087-2-resolv">.
+</para>
+
+</sect1>
+
+<sect1 id="X-087-2-slip.operation"><title>Operación de SLIP</title>
+<indexterm><primary>Protocolo SLIP (IP por línea serie)</primary><secondary>operación</secondary></indexterm> 
+<indexterm><primary>protocolos</primary><secondary>SLIP</secondary></indexterm> 
+<indexterm><primary>SLIPDISC (diciplina de línea)</primary></indexterm>
+<indexterm><primary>ttys</primary><secondary>disciplina de línea</secondary></indexterm>
+<indexterm><primary>disciplina de línea</primary></indexterm>
+
+<para>
+Los servidores IP que ofrecen enlaces telefónicos vía SLIP, por lo general,
+utilizan cuentas de usuario especiales. Una vez iniciada exitosamente la 
+sesión, el servidor comienza a ejecutar un guión <emphasis>(script)</emphasis> para la activación
+del manejador SLIP y las interfaces de red apropiadas. Al mismo tiempo, en su terminal debe ocurrir
+exactamente lo mismo.
+</para>
+
+<para>
+En algunos sistemas operativos, el gestor SLIP es un programa de usuario.
+Bajo Linux, es parte del núcleo del sistema, cosa que lo hace mucho más rápido.
+Esta ventaja, sin embargo, requiere que la línea sea convertida a modo SLIP 
+de forma explícita. Esta conversión, es llevada a cabo mediante una disciplina 
+de terminal (tty) especial llamada SLIPDISC. Mientras que un terminal (tty) trabaja en forma 
+normal (DSIC0), los datos intercambiados entre los procesos del usuario, se realizan 
+mediante las llamadas <function>read(2)</function> y
+<function>write(2)</function> estándar, y el manejador SLIP es incapaz de leer
+o escribir en este modo. En SLIPDISC se invierten los roles: ahora ningún
+proceso de usuario podrá escribir o leer desde un terminal (tty), ya que son
+dirigidos desde el puerto serie al gestor de SLIP.
+</para>
+
+<para>
+<indexterm><primary>compresión de cabeceras Van Jacobson </primary></indexterm>
+<indexterm><primary>TCP/IP (Protocolo de Nivel de Transporte / Protocolo de
+Internet)</primary><secondary>compresión de paquetes</secondary></indexterm>
+<indexterm><primary>Protocolo CSLIP (Comprimiendo IP por líneas serie)
+</primary></indexterm> El gestor SLIP entiende por sí mismo distintas
+variantes del protocolo SLIP. Además, de las variantes ordinarias, es capaz de
+interpretar una variante del protocolo llamada CSLIP, cuya particularidad es la
+de utilizar el método de compresión de cabeceras de Van Jacobson<emphasis>
+(descritas en el RFC-1144)</emphasis> para los paquetes IP salientes. Este método
+aumenta el rendimiento de las sesiones interactivas. 
+Además, existen versiones de seis bits de cada uno de estos protocolos.
+</para>
+
+<para>
+<indexterm><primary>El programa slattch</primary></indexterm>
+Una forma simple de convertir una línea serie al modo SLIP es usando la herramienta
+<command>slattach</command>. Suponiendo que su módem está en 
+<filename>/dev/ttyS3</filename> y que ha podido acceder correctamente al servidor SLIP
+de forma correcta, deberá ejecutar:
+
+<screen>
+# <userinput>slattach /dev/ttyS3 &amp;</userinput>
+</screen>
+</para>
+
+<para>
+Esta herramienta cambiará la disciplina de línea de  <filename>ttyS3</filename> a
+<literal>SLIPDISC</literal> y lo enlazará a una de las interfaces SLIP. 
+Si este es el primer enlace activo SLIP, será enlazado a  <filename>sl0</filename>&thinsp;; 
+el segundo, será enlazado a <filename>sl1</filename> y así, sucesivamente.
+Los núcleos actuales soportan hasta un máximo de 256 enlaces SLIP simultáneamente.
+</para>
+
+<para>
+<indexterm><primary>CSLIP (Comprimir IP en líneas serie),protocolo</primary></indexterm>
+Por omisión <command>slattach</command>usa CSLIP como método de compresión de cabeceras.
+Con el parámetro <option>&ndash;p</option>, usted puede seleccionar cualquier otra disciplina de línea. 
+Para utilizar SLIP de forma normal (sin compresión) se debe teclear:
+<screen>
+# <userinput>slattach -p slip /dev/ttyS3 &amp;</userinput>
+</screen>
+</para>
+
+<para>
+Las disciplinas disponibles se muestran en la<xref
+linkend="X-087-2-slip.line.disciplines">. Una seudo-disciplina disponible llamada <literal>adaptive</literal>, (adaptativa) 
+deja al núcleo averiguar que tipo de encapsulado SLIP se está utilizando.
+</para>
+
+<table id="X-087-2-slip.line.disciplines">
+<title>Disciplinas de línea SLIP bajo Linux</title>
+<tgroup cols=2>
+<colspec colwidth="1.27cm">
+<colspec colwidth="10.16cm">
+<thead>
+<row>
+	<entry><para>
+Disciplina
+</para></entry>
+	<entry>Descripción</entry>
+</row>
+</thead>
+<tbody>
+<row>
+	<entry>slip</entry>
+	<entry><para>
+Encapsulación tradicional.
+</para></entry>
+</row>
+<row>
+	<entry>cslip</entry>
+	<entry><para>
+Encapsulación SLIP con compresión de cabeceras Van Jacobsen.
+</para></entry>
+</row>
+<row>
+	<entry>slip6</entry>
+	<entry><para>
+Encapsulación SLIP con codificación a 6 bits. Este método de codificación es similar al usado por la orden
+	<command>uuencode</command>, y causa que los datagramas SLIP sean convertidos a caracteres ASCII.
+	Esta conversión es útil cuando no se poseen enlaces en serie con el octavo bit vacío.
+</para></entry>
+</row>
+<row>
+	<entry>cslip6</entry>
+	<entry><para>
+Encapsulación SLIP con compresión tipo Van Jacobsen de cabeceras y
+	y codificado a 6 bits.
+</para></entry>
+</row>
+<row>
+	<entry>adaptive</entry>
+	<entry><para>
+No es una disciplina de línea real, y posibilita que el núcleo intente identificar la 
+	disciplina de línea usada en la máquina remota y hacer que concuerden.
+</para></entry>
+</row>
+</tbody>
+</tgroup>
+</table>
+
+<para>
+Observe que debe utilizarse el mismo sistema de encapsulación que la máquina 
+remota. Por ejemplo, si <systemitem role="sitename">cowslip</systemitem> usara
+CSLIP, tendría que usarlo usted también. Si su conexión SLIP no funciona, lo primero que 
+hay que saber es si en los dos puntos de conexión, se está utilizando compresión 
+de cabeceras o no. Si no está seguro, intente configurar el gestor SLIP para que 
+trabaje de forma adaptativa y que el núcleo se tome el trabajo de averiguarlo por usted.
+</para>
+
+<para>
+<command>slattach</command> no sólamente configura el protocolo, sino también PPP 
+o KISS (otro protocolo utilizado en redes tipo  ham radio). Hacer esto no es común, ya que existen
+mejores herramientas para gestionar estos protocolos.
+Para más detalles, consulte las páginas man de <filename>slattach(8)</filename>.
+</para>
+
+<para>
+Teniendo al gestor SLIP funcionando correctamente, se debe configurar la 
+interfaz de red. Nuevamente, puede utilizar las órdenes
+<command>ifconfig</command> y <command>route</command> para configurar
+la interfaz. Asumiendo que ya estableció una conexión telefónica con un servidor llamado
+<systemitem role="sitename">cowslip</systemitem> desde <systemitem
+role="sitename">vlager</systemitem>. En <emphasis role="bold">vlager</emphasis> se debe ejecutar:
+
+<indexterm><primary>orden ifconfig</primary></indexterm> 
+<screen>
+# <userinput>ifconfig sl0 vlager-slip pointopoint cowslip</userinput>
+# <userinput>route add cowslip</userinput>
+# <userinput>route add default gw cowslip</userinput>
+</screen>
+</para>
+
+<para>
+La  primera orden realiza un enlace punto a punto con
+<systemitem role="sitename">cowslip</systemitem>, mientras que la  segunda y la tercera
+ orden sirven para añadir la ruta correspondiente a 
+<systemitem role="sitename">cowslip</systemitem> como ruta predeterminada y configurar a 
+<systemitem role="sitename">cowslip</systemitem> como pasarela <emphasis> (gateway)</emphasis>.
+</para>
+
+<para>
+Dos cosas que no tienen nada que ver con la invocación de 
+<command>ifconfig</command>: La opción <systemitem role="keyword">pointopoint</systemitem>
+especifica la dirección del servidor remoto en nuestro enlace punto a punto y <systemitem
+role="sitename">vlager-slip</systemitem> es la dirección local de la interfase SLIP.
+</para>
+
+<para>
+Ya se ha mencionado que se puede utilizar la misma dirección asignada para la 
+interfaz Ethernet <systemitem role="sitename">vlager</systemitem>como para su 
+enlace SLIP. En este caso, <systemitem role="sitename">vlager-slip</systemitem> 
+necesita otro alias para la dirección <systemitem role="sitename">172.16.1.1</systemitem>.
+Sin embargo, es posible tener una dirección completamente distinta para su enlace SLIP.
+Este es el caso cuando no se tienen direcciones IP registradas como con Cervecera.
+En la próxima sección se hablará con más detalle de este tipo de escenario.
+</para>
+
+<para>
+Como referencia, siempre se usará <systemitem role="sitename">vlager-slip</systemitem>
+para referirse a su interfase local SLIP.
+</para>
+
+<para>
+Cuando se quiera terminar el enlace SLIP, debe empezarse por eliminar todas las rutas 
+que pasan por <systemitem role="sitename">cowslip</systemitem> usando la orden
+<command>route</command> con la opción <option>del</option>, luego desactivar la interfaz,
+y enviar al proceso <command>slattach</command> la señal de colgar.
+Después se podrá colgar el módem usando el terminal:
+
+<screen>
+# <userinput>route del default</userinput>
+# <userinput>route del cowslip</userinput>
+# <userinput>ifconfig sl0 down</userinput>
+# <userinput>kill -HUP <replaceable>516</replaceable></userinput>
+</screen>
+
+Nota: el número <replaceable>516</replaceable> deberá ser reemplazado por el
+correspondiente identificador de proceso (como muestran las salidas de las 
+órdenes <userinput>ps ax</userinput>) para el proceso <command>slattach</command> 
+que controla al gestor SLIP que se quiera desconectar.
+</para>
+
+</sect1>
+
+<sect1><title>Trabajando con direcciones de red IP privadas</title>
+<indexterm><primary>redes</primary><secondary>privadas</secondary></indexterm>
+<para>
+Como usted recordará del <xref linkend="X-087-2-iface">, donde la Cervecera 
+Virtual era una red Ethernet basada en direcciones IP usando números de red sin registrar que 
+se usaban para uso interno, los paquetes de o desde esa red no estaban encaminados hacia Internet; 
+si se quiere que <systemitem role="sitename">vlager</systemitem> llame a través de
+<systemitem role="sitename">cowslip</systemitem> y actúe como encaminador para la 
+red en la Cervecera Virtual, las máquinas pertenecientes a la red de la cervecera no podrán acceder
+directamente a Internet ya que los paquetes serán descartados por el encaminador principal.
+</para>
+
+<para>
+Para trabajar alrededor de este dilema, se tendrá que configurar a <systemitem
+role="sitename">vlager</systemitem> para que actúe como plataforma de lanzamiento para el acceso a Internet.
+Para el resto del mundo, esta conexión 
+se presenta como un enlace normal SLIP, accediendo a los servidores con una dirección 
+IP registrada (probablemente asignada por el proveedor de servicios corriendo <systemitem
+role="sitename">cowslip</systemitem>). Cualquier usuario conectado a <systemitem
+role="sitename">vlager</systemitem> puede usar clientes basados en texto como
+<command>ftp</command>, <command>telnet</command>, o incluso
+<command>lynx</command> para usarlos en Internet. Un  usuario de la Cervecera Virtual 
+puede invocar a telnet y teclear a <systemitem role="sitename">vlager</systemitem>
+para usar dichos clientes de forma normal. Para algunas aplicaciones, existen algunas soluciones para 
+evitar el proceso de registro e identificación de los usuarios que accedan a <systemitem 
+role="sitename">vlager</systemitem>. Para usuarios de Web, por ejemplo, se puede activar 
+un servidor llamado <emphasis>proxy</emphasis> en
+<systemitem role="sitename">vlager</systemitem>, que encaminará todas las peticiones 
+de los usuarios hacia los servidores respectivos.
+</para>
+
+
+<indexterm><primary>Cortafuegos</primary></indexterm> 
+<para>
+El proceso de autenticación en
+<systemitem role="sitename">vlager</systemitem> para poder acceder a los servicios de Internet, 
+no tiene mucho sentido. Pero aparte de eliminar el papeleo y el costo de registrar una dirección IP, se tiene  el 
+beneficio de poder instalar un cortafuegos. Los cortafuegos son servidores dedicados usados para proveer acceso 
+limitado a los usuarios de una red sin exponer a los servidores internos a ataques desde fuera.
+Configuraciones simples de cortafuegos se explican al detalle en  <xref linkend="X-087-2-firewall">.
+En el <xref linkend="X-087-2-ipmasq">, se discute una característica de Linux llamada
+&ldquo;IP masquerade (enmascaramiento de IP)&rdquo; esto provee una alternativa poderosa comparada
+a los servidores proxy.
+</para>
+
+<para>
+Asumiendo que la cervecera ha sido asignada a la dirección IP <systemitem
+role="sitename">192.168.5.74</systemitem> para acceso a SLIP. 
+Todo lo que usted debe realizar para la puesta en marcha discutida anteriormente es teclear 
+la dirección en el fichero <filename>/etc/hosts</filename>, nombrándolo como
+<systemitem role="sitename">vlager-slip</systemitem>. Este procedimiento  no cambiará su enlace SLIP.
+</para>
+</sect1>
+
+<sect1 id="X-087-2-slip.dip"><title>Usando dip</title>
+<indexterm><primary>configurando</primary><secondary>el programa dip</secondary></indexterm>
+<indexterm id="idx-commanddipcommand-1" class="startofrange"><primary>el programa dip</primary></indexterm>
+<para>
+Lo visto anteriormente es simple. Sin embargo, se pueden automatizar estas tareas.
+Es mucho más práctico tener solamente un orden que realice los pasos necesarios para
+activar la línea serie, que el módem llame al proveedor de Internet, comenzar la sesión, 
+activar la disciplina de línea SLIP, y por último, configurar la interfaz de red. 
+Para todo esto esta la orden <command>dip</command>.
+</para>
+
+<para>
+<command>dip</command> significa <emphasis>Dialup IP</emphasis> (enlace IP telefónico). Fue 
+escrito por Fred van Kempen y ha sufrido bastantes modificaciones de mucha gente.
+Es actualmente utilizado por todo el mundo. La versión <literal>dip337p-uri</literal>, se encuentra en
+casi todas las distribuciones de GNU/Linux actuales, o también a través de FTP en
+<systemitem role="sitename">metalab.unc.edu</systemitem>.
+</para>
+
+<para>
+<command>dip</command> provee un intérprete para un lenguaje de guiones simple que puede
+manejar el módem , convertir la línea a modo SLIP y configurar las interfaces.
+Este lenguaje de guiones es poderoso a la hora de manejar diferentes configuraciones.
+</para>
+
+<para>
+<indexterm><primary>SLIP (Serial Line IP),
+protocolo</primary><secondary>dejar a los usuarios iniciar</secondary></indexterm>
+<indexterm><primary>acceso</primary><secondary>concediendo</secondary></indexterm>
+<indexterm><primary>seguridad</primary><secondary>SLIP</secondary></indexterm>
+
+Para poder configurar la interfaz SLIP, <command>dip</command>
+requiere privilegios de superusuario. Puede hacerse cambiando al programa <command>dip</command> 
+el bit setuid como <systemitem role="userid">root</systemitem> para que todos los usuarios puedan 
+conectarse a cualquier servidor SLIP sin tener privilegios de superusuario. Esto es muy peligroso, ya que una 
+configuración incorrecta del encaminamiento de <command>dip</command> puede estropear el encaminamiento 
+en su red. Aun peor, esto dará a los usuarios la posibilidad de conectarse a <emphasis>cualquier</emphasis>
+servidor SLIP y lanzar desde allí, peligrosos ataques a su red.
+Si desea que los usuarios puedan activar conexiones SLIP, escriba pequeños programas empaquetados por cada perspectiva
+de conexión a los diferentes servidores SLIP y que esos pequeños programas invoquen a <command>dip</command>
+con guiones (scripts) específicos para establecer las conexiones.
+Bien escritos, estos programas pueden ser fácilmente habilitados con el bit setuid de superusuario <systemitem
+role="userid">(root)</systemitem>.<footnote id="X-087-2-FNSL1"><para><command>diplogin</command>
+debe activarse con el bit setuid como <systemitem role="userid">root</systemitem>.
+Examine la sección al final de este capítulo. </para></footnote> Una alternativa un poco más flexible, es darle a los usuarios,
+acceso verdadero a <command>dip</command> como superusuario, utilizando alguna herramienta como por ejemplo
+<command>sudo</command>.
+<indexterm><primary>orden sudo</primary></indexterm>
+</para>
+
+<sect2 id="X-087-2-slip.dip.sample"><title>Un guión de ejemplo</title>
+<para>
+Asumiendo que el servidor al cual nos queremos conectar vía SLIP se llama 
+<systemitem role="sitename">cowslip</systemitem>, y que se ha escrito un guión para que <command>dip</command>
+ lo interprete llamado <filename>cowslip.dip</filename>, el cual hará la conexión.
+Al programa  <command>dip</command>,  hay que pasarle como argumento, el nombre del guión:
+
+<screen>
+# <userinput>dip cowslip.dip</userinput>
+DIP: Dialup IP Protocol Driver version 3.3.7 (12/13/93)
+Written by Fred N. van Kempen, MicroWalt Corporation.
+connected to cowslip.moo.com with addr 192.168.5.74
+#
+</screen>
+</para>
+
+<para>
+El codigo del guión es mostrado en el <xref linkend="X-087-2-slip.fig.script">.
+</para>
+
+<example id="X-087-2-slip.fig.script">
+<title>Un ejemplo de guión para dip</title>
+<screen>
+# Ejemplo de guión en dip para conectarse al servidor cowslip
+# Configurar los nombres locales y remotos  y las direcciones
+	get $local vlager-slip
+	get $remote cowslip
+	port ttyS3               # Selección del puerto serie
+	speed 38400              # Configurar la velocidad máxima
+	modem HAYES              # Selección del modelo del Módem 
+	reset                    # reiniciar el módem y la terminal
+	flush                    # limpiar el búffer de respuesta del módem 
+# Prepararse para marcar.
+	send ATQ0V1E1X1\r
+	wait OK 2
+	if $errlvl != 0 goto error
+	dial 41988
+	if $errlvl != 0 goto error
+	wait CONNECT 60
+	if $errlvl != 0 goto error
+
+# Bien, se estableció la conexión
+	sleep 3
+	send \r\n\r\n
+	wait ogin: 10
+	if $errlvl != 0 goto error
+	send Svlager\n
+	wait ssword: 5
+	if $errlvl != 0 goto error
+	send knockknock\n
+	wait running 30
+	if $errlvl != 0 goto error
+# Se comenzó la sesión, y del extremo remoto se activó SLIP.
+	print Conectado a $remote con dirección $rmtip
+	default                  # hacer que este enlace sea la ruta predeterminada
+	mode SLIP                # Pasemos a modo SLIP
+# en caso de error se ejecuta lo siguiente
+error:
+	print La onexión SLIP a $remote ha fallado.
+</screen>
+</example>
+
+<para>
+<indexterm><primary sortas="etc/dip.pid file">/etc/dip.pid file</primary></indexterm>
+
+Una vez conectado a <systemitem role="sitename">cowslip</systemitem>
+y activo el SLIP, <command>dip</command> pasará a ejecutarse en segundo plano.
+Ahora puede empezar a trabajar con sus los programas habituales de red a través del enlace SLIP.
+Para terminar la conexión, simplemente invoque a <command>dip</command> con el parámetro
+<option>&ndash;k</option>. Esto envía la señal de cortar (hangup) a
+<command>dip</command>, junto con  el identificador de proceso que <command>dip</command>
+escribió en el fichero <filename>/etc/dip.pid</filename> al comenzar:
+
+<screen>
+# <userinput>dip -k</userinput>
+</screen>
+</para>
+
+<para>
+En el lenguaje  de guiones que <command>dip</command> interpreta, las palabras clave precedidas con el signo 
+de dólar significan nombre de variables. <command>dip</command> tiene un conjunto de variables que están
+listadas a continuación. <systemitem role="keyword">$remote</systemitem> y
+<systemitem role="keyword">$local</systemitem>, por ejemplo, contienen los nombres de
+los computadores remoto y local involucrados en la conexión SLIP.
+</para>
+
+<para>
+Las dos primeras declaraciones en el ejemplo, son órdenes <command>get</command>,
+que es la forma en que <command>dip</command> declara una variable. Aquí, los nombres de las 
+computadoras local y remota son <systemitem role="sitename">vlager</systemitem> y
+<systemitem role="sitename">cowslip</systemitem>, respectivamente.
+</para>
+
+<para>
+<indexterm><primary>programas de chat</primary><secondary>SLIP</secondary></indexterm>
+las cinco declaraciones siguientes preparan la terminal de línea y el módem . la orden
+<systemitem role="keyword">reset</systemitem> envía la cadena de reinicio al módem.
+La siguiente sentencia limpia el búffer de salida del módem , para conseguir que el
+diálogo de  registro (login) en las siguientes líneas trabaje correctamente. 
+Este dialogo es extremadamente simple: simplemente marca 41988, el número telefónico 
+de <systemitem role="sitename">cowslip</systemitem>, y ae regiatra en la cuenta
+<systemitem role="keyword">Svlager</systemitem> usando la contraseña
+<systemitem role="keyword">knockknock</systemitem>. La orden
+<systemitem role="keyword">wait</systemitem> hace que <command>dip</command>
+espere una cadena dada como primer argumento; el número dado como segundo argumento es el tiempo (en segundos)
+que se debe esperar por esa cadena. la orden <systemitem role="keyword">if</systemitem> ,en 
+el proceso de entrada, revisa que no se produzcan errores.
+</para>
+
+<para>
+Las órdenes finales, tras un correcto registro, son <systemitem role="keyword">default</systemitem>,
+que hace que el enlace SLIP sea la ruta predeterminada a todos los servidores, y <systemitem role="keyword">mode</systemitem>,
+que activa el modo SLIP en la línea y configura la interfaz y la tabla de rutas.
+</para>
+</sect2>
+<?troff .wcon_off>
+<sect2 id="X-087-2-slip.dip.reference"><title>Referencia de dip</title>
+<para>
+En esta sección, se hará referencia a las órdenes de <command>dip</command> más usadas.
+usted puede obtener un vistazo de todos los órdenes reconocidos invocando a <command>dip</command> en modo prueba
+e introduciendo la orden <systemitem role="keyword">help</systemitem>.
+Para conocer más sobre la sintaxis de una orden, se  debe teclear <?troff .ne 10>
+sin argumentos. Recuerde que esto no funcionará con órdenes que no aceptan argumentos.
+El siguiente ejemplo ilustra el funcionamiento de la orden <systemitem role="keyword">help</systemitem>:
+</para>
+
+<para>
+<screen>
+# <userinput>dip -t</userinput>
+DIP: Dialup IP Protocol Driver version 3.3.7p-uri (25 Dec 96)
+Written by Fred N. van Kempen, MicroWalt Corporation.
+Debian version 3.3.7p-2 (debian).
+
+DIP> <userinput>help</userinput>
+DIP knows about the following commands:
+
+	beep         bootp        break        chatkey      config       
+	databits     dec          default      dial         echo         
+	flush        get          goto         help         if           
+	inc          init         mode         modem        netmask      
+	onexit       parity       password     proxyarp     print        
+	psend        port         quit         reset        securidfixed 
+	securid      send         shell        skey         sleep        
+	speed        stopbits     term         timeout      wait         
+
+DIP> <userinput>echo</userinput>
+Usage: echo on|off
+DIP>
+</screen>
+</para>
+
+<para>
+En los párrafos siguientes, los ejemplos que muestran el cursor <command>DIP&thinsp;></command> 
+indican como teclear un orden en modo prueba y cual será su respuesta. 
+Los ejemplos mostrados sin el cursor, deben tomarse como trozos de guiones.
+</para>
+
+<sect3><title>Las órdenes del módem </title>
+<para>
+<indexterm><primary>modems</primary><secondary>enlaces</secondary><tertiary>configurando vía dip</tertiary></indexterm> 
+<command>dip</command> provee algunas órdenes para configurar el puerto serie y el modem .
+Algunos son obvios como la orden
+<systemitem role="keyword">port</systemitem>, que selecciona el puerto serie, y
+<systemitem role="keyword">speed</systemitem>,
+<systemitem role="keyword">databits</systemitem>,
+<systemitem role="keyword">stopbits</systemitem>, y
+<systemitem role="keyword">parity</systemitem>, que configura los parámetros más 
+comunes de la línea.
+
+La orden <systemitem role="keyword">módem </systemitem> selecciona el tipo de módem .
+Actualmente, sólo esta soportado el tipo <systemitem role="keyword">HAYES</systemitem> (en mayúsculas).
+Se debe proveer a  <command>dip</command> con el tipo de módem , o éste se negará a ejecutar las órdenes
+<systemitem role="keyword">dial</systemitem> y
+<systemitem role="keyword">reset</systemitem>. La orden
+<systemitem role="keyword">reset</systemitem> envía la cadena de reinicio (reset) al módem;
+el tipo de cadena depende del modelo y marca del módem. Para modems compatibles con Hayes, esta cadena es 
+<systemitem role="keyword">ATZ</systemitem>.
+</para>
+
+<para>
+la orden <systemitem role="keyword">flush</systemitem> puede usarse para vaciar todas las 
+respuestas que el módem envió hasta ese momento. De otro modo, un guión de diálogo que ejecute un
+<systemitem role="keyword">reset</systemitem> podría confundirse si leyese un
+<systemitem role="keyword">OK</systemitem> como respuesta de algún orden anterior.
+</para>
+
+<para>
+La orden <systemitem role="keyword">init</systemitem> selecciona la cadena de 
+inicialización enviada al módem antes de marcar.
+predeterminada, para modems Hayes es &ldquo;<systemitem role="keyword">ATE0 Q0
+V1 X1</systemitem>&rdquo;, que activa el eco de las órdenes y los códigos de retorno, además
+selecciona el modo de marcado a ciegas (no comprueba si la línea tiene tono).
+Los modems modernos, vienen con una buena configuración de fabrica, así que esto es 
+un poco innecesario, pero no hace daño alguno.
+</para>
+<?troff .Nd 10>
+
+<para>
+La orden <systemitem role="keyword">dial</systemitem> envía la cadena de inicialización 
+al módem y llama al sistema remoto. La orden predeterminada para modems tipo Hayes es <systemitem
+role="keyword">ATD</systemitem>.
+</para>
+</sect3>
+
+<sect3><title>La Orden echo </title>
+<para>
+La orden <systemitem role="keyword">echo</systemitem> sirve como depurador.
+Invocar <systemitem role="keyword">echo on</systemitem> hace que
+<command>dip</command> copie en la consola todo lo que se envía por el puerto serie.
+Este modo puede desactivarse invocando <systemitem role="keyword">echo off</systemitem>.
+</para>
+
+<para>
+<command>dip</command>  Puede salir del modo guión temporalmente para entrar en modo terminal.
+En este modo, usted puede usar a <command>dip</command> como cualquier programa de terminal ordinario,
+enviando caracteres a través de la línea serie, leyéndolos y mostrarlos. Para abandonar este modo, presione Ctrl-].
+</para>
+</sect3>
+
+<sect3><title>La Orden get</title>
+<para>
+<indexterm><primary>orden get</primary></indexterm> 
+la orden <systemitem role="keyword">get</systemitem> es la forma en que
+<command>dip</command> carga una variable. Su uso más simple es inicializar una constante,
+como se vió en el ejemplo de <filename>cowslip.dip</filename>.
+usted también puede utilizarlo desde la consola en conjunto con <systemitem role="keyword">ask</systemitem>:
+
+<screen>
+DIP> <userinput>get $local ask</userinput>
+Enter the value for $local: _
+</screen>
+</para>
+
+<para>
+Un tercer método, es usado para obtener el nombre del servidor remoto.
+Aunque extraño parezca al principio, es muy útil en algunos casos.
+Algunos servidores, no permiten que usted use su propia dirección IP en un enlace SLIP,
+sino que le asignará una de un conjunto ya establecido cuando se establezca la conexión,
+mostrando un mensaje que le informe que dirección le fue asignada. 
+Si el mensaje luce parecido a &ldquo;<literal>Your address: 192.168.5.74</literal>&rdquo;,
+el siguiente ejemplo hará que <command>dip</command> use la dirección asignada:
+
+<screen>
+# finish login
+wait address: 10
+get $locip remote
+</screen>
+</para>
+</sect3>
+
+<sect3><title>La Orden print</title>
+<para>
+<indexterm><primary>orden print</primary></indexterm> 
+Esta orden es usado para enviar cualquier texto a la consola cuando se invoque a
+<command>dip</command>. Cualquier variable usada por <command>dip</command>
+puede ser utilizada para enviar mensajes, como por ejemplo:
+
+<screen>
+DIP> <userinput>print Usando puerto $port a la velocidad de $speed baudios</userinput>
+Usando puerto ttyS3 a la velocidad de 38400 baudios
+</screen>
+</para>
+</sect3>
+
+<sect3><title>Nombres de variables</title>
+<para>
+<command>dip</command> entiende solamente un grupo predefinido de variables. Un 
+nombre de variable siempre debe comenzar con el signo de dólar y debe estar en minúsculas.
+</para>
+
+<para>
+Las variables <systemitem role="keyword">$local</systemitem> y <systemitem
+role="keyword">$locip</systemitem> contienen el nombre de la máquina local y su dirección IP.
+Cuando se guarda el nombre canónico de la máquina local en <systemitem role="keyword">$local</systemitem>,
+<command>dip</command> intentará resolverlo para conseguir la dirección IP y 
+guardarla en la variable <systemitem role="keyword">$locip</systemitem>.
+Un proceso similar, pero al revés, sucede cuando se guarda la dirección IP en la variable
+<systemitem role="keyword">$locip</systemitem>;
+<command>dip</command> intentará resolver el nombre de la máquina local a partir de la dirección IP
+y guardarlo en la variable <systemitem role="keyword">$local</systemitem>.
+</para>
+
+<para>
+Las variables <systemitem role="keyword">$remote</systemitem> y
+<systemitem role="keyword">$rmtip</systemitem> operan de la misma manera,
+pero con el nombre y la dirección IP de la máquina remota.
+la variable <systemitem role="keyword">$mtu</systemitem> contiene el valor MTU 
+para la conexión actual.
+</para>
+
+<para>
+Estas cinco variables son las únicas que pueden ser asignadas con valores usando la orden
+<systemitem role="keyword">get</systemitem>. El contenido de algunas variables,
+son el resultado de configuraciones realizadas por órdenes que llevan el mismo nombre, 
+pero pueden ser utilizadas junto con la orden <systemitem role="keyword">print</systemitem>;
+Estas variables son <systemitem role="keyword">$modem</systemitem>,
+<systemitem role="keyword">$port</systemitem>, y
+<systemitem role="keyword">$speed</systemitem>.
+</para>
+
+<para>
+La variable <systemitem role="keyword">$errlvl</systemitem> contiene el resultado
+de la última orden ejecutada.
+Un nivel de error 0 indica que la orden se ejecutó satisfactoriamente, si este número 
+es mayor o menor, indica que hubo algún problema en la ejecución.
+</para>
+</sect3>
+
+<sect3><title>Órdenes if y goto</title>
+<para>la orden <systemitem role="keyword">if</systemitem> ejecuta un salto condicional,
+y se comporta de la misma manera que su par usado en programación. 
+Su sintaxis es:
+
+<screen>
+if <replaceable>var</replaceable> <replaceable>op</replaceable> <replaceable>number</replaceable> goto <replaceable>label</replaceable>
+</screen>
+</para>
+
+<para>
+La expresión, realiza una simple comparación entre una de estas variables
+<systemitem role="keyword">$errlvl</systemitem>,
+<systemitem role="keyword">$locip</systemitem>, y
+<systemitem role="keyword">$rmtip</systemitem>.
+<replaceable>var</replaceable> debe ser un numero entero (integer); el operador
+<replaceable>op</replaceable> debe ser uno de estos: <literal>==</literal>,
+<literal>!=</literal>, <literal>&lt;</literal>, <literal>&gt;</literal>,
+<literal>&lt;=</literal>, y <literal>&gt;=</literal>.
+</para>
+
+<para>
+La orden <systemitem role="keyword">goto</systemitem> (ir a) hace que la ejecución del guión
+continúe donde se encuentra definida la etiqueta pasada como parámetro a la orden
+(<replaceable>label</replaceable>).
+Una etiqueta (label) debe ser la primer palabra en una línea, seguida de dos puntos(:)
+</para>
+</sect3>
+
+<sect3><title>Órdenes send, wait, y sleep</title>
+<para>
+Estas órdenes ayudan a implementar sencillos guiones de diálogo en <command>dip</command>.
+la orden <systemitem role="keyword">send</systemitem> envía sus argumentos 
+a la línea serie. No soporta el uso de variables, pero entiende todas las secuencias de escape al 
+estilo del lenguaje C, como <systemitem role="keyword">\n</systemitem> para nueva línea y <systemitem
+role="keyword">\b</systemitem> para retroceso. El carácter de tilde (~)
+puede ser usada como una abreviatura del carácter de retorno de carro / nueva línea.
+</para>
+
+<para>
+La orden <systemitem role="keyword">wait</systemitem> toma una palabra como
+argumento y leerá todo lo que entre por la línea serie hasta que detecte una secuencia de caracteres
+que coincida con esa palabra. Esa palabra no puede contener caracteres en blanco.
+Opcionalmente, se le puede pasar a <systemitem
+role="keyword">wait</systemitem> un tiempo de espera como segundo argumento;
+Si la palabra esperada, no es recibida en ese tiempo de espera la variable <systemitem
+role="keyword">$errlvl</systemitem> se cargará con un 1. Esta orden se usa 
+generalmente en la detección de registros (login) y otros símbolos de espera.
+</para>
+
+<para>
+La orden <systemitem role="keyword">sleep</systemitem> puede usarse para esperar
+una determinada cantidad de tiempo; Por ejemplo, esperar pacientemente a que la secuencia de 
+ingreso se complete. Nuevamente, el intervalo se expresa en segundos.
+</para>
+</sect3>
+
+<sect3><title>Órdenes mode y default</title>
+<para>Estas órdenes se usan para pasar la línea de modo serie a modo 
+SLIP y para configurar la interfaz. 
+</para>
+
+<para>
+La orden <systemitem role="keyword">mode</systemitem> es la última ejecutada por
+<command>dip</command> antes de pasar al modo demonio. A menos que ocurra un error, 
+esta orden no retorna.
+</para>
+
+<para>
+<systemitem role="keyword">mode</systemitem> toma el nombre del protocolo como argumento.
+La versión actual de <command>dip</command> reconoce los siguientes:
+<systemitem role="keyword">SLIP</systemitem>,
+<systemitem role="keyword">CSLIP</systemitem>,
+<systemitem role="keyword">SLIP6</systemitem>,
+<systemitem role="keyword">CSLIP6</systemitem>,
+<systemitem role="keyword">PPP</systemitem>,
+y <systemitem role="keyword">TERM</systemitem> como nombres válidos.
+Esta versión de <command>dip</command> no entiende SLIP adaptable.
+</para>
+
+<para>
+Después de poner la línea en modo SLIP, <command>dip</command> ejecuta
+<command>ifconfig</command> para configurar la interfaz como enlace punto a punto,
+e invocar a <command>route</command> para cambiar el 
+encaminamiento hacia el servidor remoto.
+</para>
+
+<para>
+Si, además, el guión se ejecutase la orden <systemitem
+role="keyword">default</systemitem> antes que <systemitem
+role="keyword">mode</systemitem>, <command>dip</command> hará 
+que el camino predeterminado de los paquetes sea encaminado al enlace SLIP.
+</para>
+</sect3>
+</sect2>
+</sect1>
+
+<sect1 id="X-087-2-slip.server"><title>Funcionamiento en modo Servidor</title>
+<indexterm><primary>orden diplogin</primary></indexterm>
+<indexterm><primary>configuración</primary><secondary>SLIP</secondary><tertiary>servidor</tertiary></indexterm>
+<para>
+Configurar el cliente SLIP fue la parte difícil. Configurar su máquina para que actúe 
+como servidor SLIP, es mucho más fácil
+</para>
+
+<para>
+<indexterm><primary>Dent, Arthur</primary></indexterm> Existen dos formas de configurar al servidor
+SLIP. Las dos requieren que se cree una cuenta de acceso por cada cliente SLIP.
+Asuma, por ejemplo, que le desea conceder acceso al servicio SLIP a Arthur Dent en <systemitem
+role="sitename">dent.beta.com</systemitem>. Debería crearse una cuenta llamada 
+<systemitem role="userid">dent</systemitem> añadiendo la siguiente línea al fichero
+<filename>passwd</filename>:
+
+<screen>
+dent:*:501:60:Arthur Dent's SLIP account:/tmp:/usr/sbin/diplogin
+</screen>
+</para>
+
+<para>
+Luego, se puede establecer la contraseña de <systemitem role="userid">dent</systemitem>
+utilizando la herramienta <command>passwd</command>.
+</para>
+
+<para>
+<indexterm><primary sortas="etc/diphosts file">/etc/diphosts, fichero</primary></indexterm> 
+<indexterm><primary>programa sliplogin</primary></indexterm>
+
+La orden <command>dip</command> puede usarse en modo servidor invocando <command>diplogin</command>.
+Usualmente <command>diplogin</command> es un enlace a <command>dip</command>. Su fichero de configuración principal es
+<filename>/etc/diphosts</filename>, donde se especifican las direcciones IP que serán asignadas a los 
+usuarios cuando se conecten vía SLIP. De forma alternativa, se puede usar la orden
+<command>sliplogin</command>, una herramienta derivada de BSD que contiene muchos y más flexibles esquemas
+ de configuración posibilitando la ejecución se guiones cuando el servidor se conecta y desconecta.
+</para>
+<?troff .wcon_off>
+
+<para>
+<indexterm><primary>diphosts, fichero</primary></indexterm> Cuando
+ <systemitem role="userid">dent</systemitem> se conecta usando SLIP vía,
+<command>dip</command> activa el servidor. Para saber si tiene acceso al uso de SLIP,
+el servidor se fija en el fichero <filename>/etc/diphosts</filename>. 
+En este fichero se detallan <?troff .ne 10> los derechos de acceso y algunos parámetros
+de conexión por cada usuario que accede vía SLIP. El formato general para el fichero 
+<filename>/etc/diphosts</filename> es el siguiente:
+
+<screen>
+# /etc/diphosts
+<replaceable>user</replaceable>:<replaceable>password</replaceable>:<replaceable>rem-addr</replaceable>:<replaceable>loc-addr</replaceable>:<replaceable>netmask</replaceable>:<replaceable>comments</replaceable>:<replaceable>protocol</replaceable>,<replaceable>MTU</replaceable>
+#
+</screen>
+
+Cada uno de los campos es descrito en la
+<xref linkend="X-087-2-slip.diphosts.fields">.
+</para>
+
+<table id="X-087-2-slip.diphosts.fields">
+<title>Descripción de campos en /etc/diphosts</title>
+<tgroup cols=2>
+<colspec colwidth="1.905cm">
+<colspec colwidth="8.89cm">
+
+<thead>
+<row>
+	<entry>Campo</entry>
+	<entry>Descripción</entry>
+</row>
+</thead>
+<tbody>
+<row>
+	<entry><literal>user</literal></entry>
+	<entry><para>
+El nombre de usuario que invoca a <command>dip</command>.
+</para></entry>
+</row>
+<row>
+	<entry>password</entry>
+	<entry><para>
+	El segundo campo en <filename>/etc/diphosts</filename> sirve para darle una capa extra 
+	de seguridad basada en una segunda contraseña a la conexión. Se puede teclear una contraseña 
+	encriptada aquí (como en <filename>/etc/passwd</filename>&thinsp;) y <command>diplogin</command>
+	se la preguntará al usuario antes del inicio de conexión SLIP. Tenga en cuenta que esta contraseña es adicional al 
+	proceso de ingreso estándar (<command>login</command>).</para></entry>
+</row>
+<row>
+	<entry><literal>rem-addr</literal></entry>
+	<entry><para>
+        La dirección que se le asignará al cliente remoto. Esta dirección se puede especificar mediante el nombre 
+	de la máquina (que debe ser resuelto) o por medio del formato numérico tradicional
+    </para></entry>
+</row>
+<row>
+	<entry><literal>loc-addr</literal></entry>
+	<entry><para>
+    La dirección que es usada por el servidor en el enlace SLIP. Como la anterior, puede ser 
+	escrita como nombre de máquina o como dirección de IP.
+    </para></entry>
+</row>
+<row>
+	<entry><literal>netmask</literal></entry>
+	<entry><para>
+        La máscara de red (netmask) es usada para propósitos de enrutamiento. Mucha gente se confunde con este campo. La 
+	máscara de red no es aplicada al enlace SLIP en si mismo, pero es usada en combinación con el campo
+	<literal>rem-addr</literal> para producir una ruta a la máquina remota.
+	La máscara de red sólo debe usarse para dar soporte de red al cliente remoto.
+    </para></entry>
+</row>
+<row>
+	<entry><literal>comments</literal></entry>
+	<entry><para>
+    Este es un campo donde puede anotar comentarios acerca del usuario, no tiene otro propósito.
+    </para></entry>
+</row>
+<row>
+	<entry><literal>protocol</literal></entry>
+	<entry><para>
+	Este es el campo donde se especifica el protocolo o la disciplina de línea que se desea aplicar a la conexión. 
+	Son entradas válidas aquí de la misma forma que el parámetro <option>&ndash;p</option> en la orden
+	<command>slattach</command>.
+    </para></entry>
+</row>
+<row>
+	<entry><literal>MTU</literal></entry>
+	<entry><para>
+    Es la máxima unidad de transmisión que el enlace puede manejar. Este campo describe el tamaño máximo 
+	del datagrama que puede ser transmitido por ese enlace.
+	Cualquier datagrama enviado a ese enlace SLIP que sea más grande que los especificado 
+	en el valor MTU, será fragmentado en trozos más pequeños. 
+	Usualmente, el valor MTU es idéntico en ambos extremos del enlace.
+    </para></entry>
+</row>
+</tbody>
+</tgroup>
+</table>
+
+<para>
+Un ejemplo para el usuario
+<systemitem role="userid">dent</systemitem> se vería de esta manera::
+
+<screen>
+dent::dent.beta.com:vbrew.com:255.255.255.0:Arthur Dent:CSLIP,296
+</screen>
+</para>
+
+<para>
+<indexterm><primary>CSLIP (IP por línea serie comprimido),
+protocolo</primary></indexterm> Este ejemplo le da al usuario <systemitem
+role="userid">dent</systemitem> acceso a SLIP sin contraseña adicional.
+Es asociado con la dirección IP de
+<systemitem role="sitename">dent.beta.com</systemitem>,y la máscara de red
+<literal>255.255.255.0</literal>. Por omisión será encaminado por <systemitem
+role="sitename">vbrew.com</systemitem>, , y se usará CSLIP como protocolo con un MTU de 296 bytes.
+</para>
+
+<para>
+Cuando <systemitem role="userid">dent</systemitem> entra en su cuenta,
+<command>diplogin</command> extrae la información de él desde el fichero
+<filename>diphosts</filename>. Si el segundo campo contiene algún valor,
+<command>diplogin</command> le preguntará la &ldquo;segunda contraseña de seguridad.&rdquo;
+La cadena introducida por el usuario, se encripta y  se compara con la que existe en el fichero
+<filename>diphosts</filename>.
+Si éstas no coinciden, el intento de registro se rechazao. Si la cadena de contraseña usa el método <systemitem
+role="keyword">s/key</systemitem>, y <command>dip</command>
+fue compilado para dar soporte a S/Key,  el proceso de autenticación tendrá lugar. Este proceso de autenticación, 
+se describe en la documentación que acompaña a los fuentes de <command>dip</command>.
+</para>
+
+<para>
+Tras un registro exitoso, <command>diplogin</command> procede a convertir la línea serie en modo CSLIP o SLIP 
+y prepara la interfaz y el encaminamiento. Esta conexión permanecerá activa hasta que el usuario decida cortarla, con lo cual
+<command>diplogin</command> restaurará la disciplina de línea y terminará.
+</para>
+
+<para>
+<indexterm><primary>acceso</primary><secondary>concediendo</secondary></indexterm>
+<indexterm><primary>seguridad</primary></indexterm>
+<command>diplogin</command> requiere privilegios de superusuario. Si no tiene a
+<command>dip</command> con el  setuid de
+<systemitem role="userid">root</systemitem>, se debe hacer que
+<command>diplogin</command> sea una copia separada de <command>dip</command>
+o un enlace. <command>diplogin</command> puede tener este privilegio de forma segura,
+sin afectar a <command>dip</command> en sí mismo.
+
+<indexterm class="endofrange" startref="idx-commanddipcommand-1">
+<indexterm class="endofrange" startref="idx-configuringSLIP-1">
+<indexterm class="endofrange" startref="idx-SLIP-1">
+</para>
+</sect1>
+</chapter>

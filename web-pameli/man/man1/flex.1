@@ -1,0 +1,4182 @@
+.\" Traducción realizada por Adrián Pérez Jorge (alu1415@csi.ull.es)
+.\" y finalizada el miércoles, 17 de febrero de 1999.
+.\" Traducción revisada el viernes, 9 de abril de 1999 por
+.\" 	Adrián Pérez Jorge (alu1415@csi.ull.es)
+.\"
+.TH FLEX 1 "Abril 1995" "Versión 2.5"
+.SH NOMBRE
+flex \- generador de analizadores léxicos rápidos
+.SH SINOPSIS
+.B flex
+.B [\-bcdfhilnpstvwBFILTV78+? \-C[aefFmr] \-osalida \-Pprefijo \-Sesqueleto]
+.B [\-\-help \-\-version]
+.I [nombrefichero ...]
+.SH INTRODUCCIÓN
+Este manual describe
+.I flex,
+una herramienta para la generación de programas que realizan
+concordancia de patrones en texto.  El manual incluye a la vez
+secciones de tutorial y de referencia:
+.nf
+
+    Descripción
+        una breve introducción a la herramienta
+
+    Algunos Ejemplos Simples
+
+    Formato del Fichero de Entrada
+
+    Patrones
+        las expresiones regulares extendidas que utiliza flex
+
+    Cómo se Empareja la Entrada
+        las reglas para determinar lo que ha concordado
+
+    Acciones
+        cómo especificar qué hacer cuando concuerde un patrón
+
+    El Escáner Generado
+        detalles respecto al escáner que produce flex;
+        cómo controlar la fuente de entrada
+
+    Condiciones de Arranque
+        la introdución de contexto en sus escáneres, y
+        conseguir "mini-escáneres"
+
+    Múltiples Buffers de Entrada
+        cómo manipular varias fuentes de entrada; cómo
+        analizar cadenas en lugar de ficheros.
+
+    Reglas de Fin-de-Fichero
+        reglas especiales para reconocer el final de la entrada
+
+    Macros Misceláneas
+        un sumario de macros disponibles para las acciones
+
+    Valores Disponibles para el Usuario
+        un sumario de valores disponibles para las acciones
+
+    Interfaz con Yacc
+        conectando escáneres de flex junto con analizadores de yacc
+
+    Opciones
+        opciones de línea de comando de flex, y la directiva
+        "%option"
+
+    Consideraciones de Rendimiento
+        cómo hacer que sus analizadores vayan tan rápido
+        como sea posible
+
+    Generando Escáneres en C++
+        la facilidad (experimental) para generar analizadores
+        léxicos como clases de C++
+
+    Incompatibilidades con Lex y POSIX
+        cómo flex difiere del lex de AT&T y del lex estándar
+        de POSIX 
+
+    Diagnósticos
+        esos mensajes de error producidos por flex (o por
+        los escáneres que este genera) cuyo significado podría
+        no ser evidente
+
+    Ficheros
+        los ficheros usados por flex
+
+    Deficiencias / Errores
+        problemas de flex conocidos
+
+    Ver También
+        otra documentación, herramientas relacionadas
+
+    Autor
+        incluye información de contacto
+
+.fi
+.SH DESCRIPCIÓN
+.I flex
+es una herramienta para generar
+.I escáneres:
+programas que reconocen patrones léxicos en un texto.
+.I flex
+lee los ficheros de entrada dados, o la entrada estándar si no se le
+ha indicado ningún nombre de fichero, con la descripción de un escáner
+a generar.  La descripción se encuentra en forma de parejas de
+expresiones regulares y código C, denominadas
+.I reglas.  flex
+genera como salida un fichero fuente en C,
+.B lex.yy.c,
+que define una rutina
+.B yylex().
+Este fichero se compila y se enlaza con la librería
+.B \-lfl
+para producir un ejecutable.  Cuando se arranca el fichero ejecutable,
+este analiza su entrada en busca de casos de las expresiones
+regulares.  Siempre que encuentra uno, ejecuta el código C
+correspondiente.
+.SH ALGUNOS EJEMPLOS SIMPLES
+.PP
+En primer lugar veremos algunos ejemplos simples para una toma de
+contacto con el uso de
+.I flex.
+La siguiente entrada de 
+.I flex
+especifica un escáner que siempre que encuentre la cadena "username"
+la reemplazará por el nombre de entrada al sistema del usuario:
+.nf
+
+    %%
+    username    printf( "%s", getlogin() );
+
+.fi
+Por defecto, cualquier texto que no reconozca el analizador léxico de
+.I flex
+se copia a la salida, así que el efecto neto de este escáner es copiar
+su fichero de entrada a la salida con cada aparición de "username"
+expandida.
+En esta entrada, hay solamente una regla.  "username" es el
+.I patrón
+y el "printf" es la
+.I acción.
+El "%%" marca el comienzo de las reglas.
+.PP
+Aquí hay otro ejemplo simple:
+.nf
+
+            int num_lineas = 0, num_caracteres = 0;
+
+    %%
+    \\n      ++num_lineas; ++num_caracteres;
+    .       ++num_caracteres;
+
+    %%
+    main()
+            {
+            yylex();
+            printf( "# de líneas = %d, # de caracteres. = %d\\n",
+                    num_lineas, num_caracteres );
+            }
+
+.fi
+Este analizador cuenta el número de caracteres y el número de líneas
+en su entrada (no produce otra salida que el informe final de la
+cuenta).  La primera línea declara dos variables globales,
+"num_lineas" y "num_caracteres", que son visibles al mismo tiempo
+dentro de 
+.B yylex()
+y en la rutina
+.B main()
+declarada después del segundo "%%".  Hay dos reglas, una que
+empareja una línea nueva ("\\n") e incrementa la cuenta de líneas y la
+cuenta de caracteres, y la que empareja cualquier caracter que no sea
+una línea nueva (indicado por la expresión regular ".").
+.PP
+Un ejemplo algo más complicado:
+.nf
+
+    /* escáner para un lenguaje de juguete al estilo de Pascal */
+
+    %{
+    /* se necesita esto para la llamada a atof() más abajo */
+    #include <math.h>
+    %}
+
+    DIGITO   [0-9]
+    ID       [a-z][a-z0-9]*
+
+    %%
+
+    {DIGITO}+   {
+                printf( "Un entero: %s (%d)\\n", yytext,
+                        atoi( yytext ) );
+                }
+
+    {DIGITO}+"."{DIGITO}*      {
+                printf( "Un real: %s (%g)\\n", yytext,
+                        atof( yytext ) );
+                }
+
+    if|then|begin|end|procedure|function        {
+                printf( "Una palabra clave: %s\\n", yytext );
+                }
+
+    {ID}        printf( "Un identificador: %s\\n", yytext );
+
+    "+"|"-"|"*"|"/"   printf( "Un operador: %s\\n", yytext );
+
+    "{"[^}\\n]*"}"     /* se come una linea de comentarios */
+
+    [ \\t\\n]+          /* se come los espacios en blanco */
+
+    .           printf( "Caracter no reconocido: %s\\n", yytext );
+
+    %%
+
+    main( argc, argv )
+    int argc;
+    char **argv;
+        {
+        ++argv, --argc;  /* se salta el nombre del programa */
+        if ( argc > 0 )
+                yyin = fopen( argv[0], "r" );
+        else
+                yyin = stdin;
+        
+        yylex();
+        }
+
+.fi
+Esto podría ser los comienzos de un escáner simple para un lenguaje
+como Pascal.  Este identifica diferentes tipos de
+.I tokens
+e informa a cerca de lo que ha visto.
+.PP
+Los detalles de este ejemplo se explicarán en las secciones
+siguientes.
+.SH FORMATO DEL FICHERO DE ENTRADA
+El fichero de entrada de
+.I flex
+está compuesto de tres secciones, separadas por una línea donde
+aparece únicamente un
+.B %%
+en esta:
+.nf
+
+    definiciones
+    %%
+    reglas
+    %%
+    código de usuario
+
+.fi
+La sección de
+.I definiciones
+contiene declaraciones de definiciones de
+.I nombres
+sencillas para simplificar la especificación del escáner,
+y declaraciones de 
+.I condiciones de arranque,
+que se explicarán en una sección posterior.
+.PP
+Las definiciones de nombre tienen la forma:
+.nf
+
+    nombre definición
+
+.fi
+El "nombre" es una palabra que comienza con una letra o un subrayado
+('_') seguido por cero o más letras, dígitos, '_', o '-' (guión).
+La definición se considera que comienza en el primer caracter que no
+sea un espacio en blanco siguiendo al nombre y continuando hasta el
+final de la línea.
+Posteriormente se puede hacer referencia a la definición utilizando
+"{nombre}", que se expandirá a "(definición)".  Por ejemplo,
+.nf
+
+    DIGITO   [0-9]
+    ID       [a-z][a-z0-9]*
+
+.fi
+define "DIGITO" como una expresión regular que empareja un dígito
+sencillo, e "ID" como una expresión regular que empareja una letra
+seguida por cero o más letras o dígitos.
+Una referencia posterior a
+.nf
+
+    {DIGITO}+"."{DIGITO}*
+
+.fi
+es idéntica a
+.nf
+
+    ([0-9])+"."([0-9])*
+
+.fi
+y empareja uno o más dígitos seguido por un '.' seguido por cero o más
+dígitos.
+.PP
+La sección de
+.I reglas
+en la entrada de
+.I flex
+contiene una serie de reglas de la forma:
+.nf
+
+    patrón   acción
+
+.fi
+donde el patrón debe estar sin sangrar y la acción debe comenzar en la
+misma línea.
+.PP
+Ver más abajo para una descripción más amplia sobre patrones y
+acciones.
+.PP
+Finalmente, la sección de código de usuario simplemente se copia a
+.B lex.yy.c
+literalmente.
+Esta sección se utiliza para rutinas de complemento que llaman al
+escáner o son llamadas por este.  La presencia de esta sección es
+opcional; Si se omite, el segundo
+.B %%
+en el fichero de entrada se podría omitir también.
+.PP
+En las secciones de definiciones y reglas, cualquier texto
+.I sangrado
+o encerrado entre
+.B %{
+y
+.B %}
+se copia íntegramente a la salida (sin los %{}'s).
+Los %{}'s deben aparecer sin sangrar en líneas ocupadas únicamente por
+estos.
+.PP
+En la sección de reglas,
+cualquier texto o %{} sangrado que aparezca antes de la primera regla
+podría utilizarse para declarar variables que son locales a la rutina
+de análisis y (después de las declaraciones)
+al código que debe ejecutarse siempre que se entra a la rutina de
+análisis.
+Cualquier otro texto sangrado o %{} en la sección de reglas sigue
+copiándose a la salida, pero su significado no está bien definido y
+bien podría causar errores en tiempo de compilación (esta propiedad se
+presenta para conformidad con
+.I POSIX 
+; ver más abajo para otras características similares)
+.PP
+En la sección de definiciones (pero no en la sección de reglas),
+un comentario sin sangría (es decir, una línea comenzando con "/*")
+también se copia literalmente a la salida hasta el próximo "*/".
+.SH PATRONES
+Los patrones en la entrada se escriben utilizando un conjunto extendido
+de expresiones regulares.  Estas son:
+.nf
+
+    x          empareja el caracter 'x'
+    .          cualquier caracter (byte) excepto una línea nueva
+    [xyz]      una "clase de caracteres"; en este caso, el patrón
+                 empareja una 'x', una 'y', o una 'z'
+    [abj-oZ]   una "clase de caracteres" con un rango; empareja
+                 una 'a', una 'b', cualquier letra desde la 'j'
+                 hasta la 'o', o una 'Z'
+    [^A-Z]     una "clase de caracteres negada", es decir, cualquier
+                 caracter menos los que aparecen en la clase.  En 
+                 este caso, cualquier caracter EXCEPTO una letra
+                 mayúscula.
+    [^A-Z\\n]   cualquier caracter EXCEPTO una letra mayúscula o
+                 una línea nueva
+    r*         cero o más r's, donde r es cualquier expresión regular
+    r+         una o más r's
+    r?         cero o una r (es decir, "una r opcional")
+    r{2,5}     donde sea de dos a cinco r's
+    r{2,}      dos o más r's
+    r{4}       exactamente 4 r's
+    {nombre}   la expansión de la definición de "nombre"
+               (ver más abajo)
+    "[xyz]\\"foo"
+               la cadena literal: [xyz]"foo
+    \\X         si X es una 'a', 'b', 'f', 'n', 'r', 't', o 'v',
+                 entonces la interpretación ANSI-C de \\x.
+                 En otro caso, un literal 'X' (usado para
+                 indicar operadores tales como '*')
+    \\0         un caracter NUL (código ASCII 0)
+    \\123       el caracter con valor octal 123
+    \\x2a       el caracter con valor hexadecimal 2a
+    (r)        empareja una r; los paréntesis se utilizan para
+                 anular la precedencia (ver más abajo)
+
+
+    rs         la expresión regular r seguida por la expresión
+                 regular s; se denomina "concatenación"
+
+
+    r|s        bien una r o una s
+
+
+    r/s        una r pero sólo si va seguida por una s.  El
+                 texto emparejado por s se incluye cuando se
+                 determina si esta regla es el "emparejamiento
+                 más largo", pero se devuelve entonces a la
+                 entrada antes que se ejecute la acción.  Así
+                 que la acción sólo ve el texto emparejado
+                 por r.  Este tipo de patrones se llama
+                 "de contexto posterior".
+                 (Hay algunas combinaciones de r/s que flex
+                 no puede emparejar correctamente; vea las notas
+                 en la sección Deficiencias / Errores más abajo
+                 respecto al "contexto posterior peligroso".)
+    ^r         una r, pero sólo al comienzo de una línea (es
+                 decir, justo al comienzo del análisis, o a la
+                 derecha después de que se haya analizado una
+                 línea nueva).
+    r$         una r, pero sólo al final de una línea (es decir,
+                 justo antes de una línea nueva).  Equivalente
+                 a "r/\\n".
+
+               Fíjese que la noción de flex de una "línea nueva"
+               es exáctamente lo que el compilador de C utilizado
+               para compilar flex interprete como '\\n'; en
+               particular, en algunos sistemas DOS debe filtrar
+               los \\r's de la entrada used mismo, o explícitamente
+               usar r/\\r\\n para "r$".
+
+
+    <s>r       una r, pero sólo en la condición de arranque s
+                 (ver más abajo para una discusión sobre las
+                 condiciones de arranque)
+    <s1,s2,s3>r
+               lo mismo, pero en cualquiera de las condiciones
+                 de arranque s1, s2, o s3
+    <*>r       una r en cualquier condición de arranque, incluso
+                 una exclusiva.
+
+
+    <<EOF>>    un fin-de-fichero
+    <s1,s2><<EOF>>
+               un fin-de-fichero en una condición de arranque s1 o s2
+
+.fi
+Fíjese que dentro de una clase de caracteres, todos los operadores de
+expresiones regulares pierden su significado especial excepto el
+caracter de escape ('\\') y los operadores de clase de caracteres, '-',
+']', y, al principio de la clase, '^'.
+.PP
+Las expresiones regulares en el listado anterior están agrupadas de
+acuerdo a la precedencia, desde la precedencia más alta en la cabeza a
+la más baja al final.
+Aquellas agrupadas conjuntamente tienen la misma precedencia.  Por
+ejemplo,
+.nf
+
+    foo|bar*
+
+.fi
+es lo mismo que
+.nf
+
+    (foo)|(ba(r*))
+
+.fi
+ya que el operador '*' tiene mayor precedencia que la concatenación, y
+la concatenación más alta que el operador '|'.  Este patrón por
+lo tanto empareja
+.I bien
+la cadena "foo"
+.I o
+la cadena "ba" seguida de cero o más r's.
+Para emparejar "foo" o, cero o más "bar"'s, use:
+.nf
+
+    foo|(bar)*
+
+.fi
+y para emparejar cero o más "foo"'s o "bar"'s:
+.nf
+
+    (foo|bar)*
+
+.fi
+.PP
+Además de caracteres y rangos de caracteres, las clases de caracteres
+pueden también contener
+.I expresiones
+de clases de caracteres.
+Son expresiones encerradas entre los delimitadores
+.B [:
+y
+.B :]
+(que también deben aparecer entre el '[' y el ']' de la clase de
+caracteres; además pueden darse otros elementos dentro de la clase de
+caracteres).
+Las expresiones válidas son:
+.nf
+
+    [:alnum:] [:alpha:] [:blank:]
+    [:cntrl:] [:digit:] [:graph:]
+    [:lower:] [:print:] [:punct:]
+    [:space:] [:upper:] [:xdigit:]
+
+.fi
+Todas estas expresiones designan un conjunto de caracteres
+equivalentes a la correspondiente función estándar
+.B isXXX
+de C.  Por ejemplo,
+.B [:alnum:]
+designa aquellos caracteres para los cuales
+.B isalnum()
+devuelve verdadero - esto es, cualquier caracter alfabético o numérico.
+Algunos sistemas no ofrecen
+.B isblank(),
+así que flex define
+.B [:blank:]
+como un espacio en blanco o un tabulador.
+.PP
+Por ejemplo, las siguientes clases de caracteres son todas equivalentes:
+.nf
+
+    [[:alnum:]]
+    [[:alpha:][:digit:]]
+    [[:alpha:]0-9]
+    [a-zA-Z0-9]
+
+.fi
+Si su escáner ignora la distinción entre mayúsculas y minúsculas (la bandera
+.B \-i
+), entonces
+.B [:upper:]
+y
+.B [:lower:]
+son equivalentes a
+.B [:alpha:].
+.PP
+Algunas notas sobre los patrones:
+.IP -
+Una clase de caracteres negada tal como el ejemplo "[^A-Z]" anterior
+.I emparejará una línea nueva
+a menos que "\\n" (o una secuencia de escape equivalente) sea uno de
+los caracteres presentes explícitamente en la clase de caracteres
+negada (p.ej., "[^A-Z\\n]").  Esto es diferente a cómo muchas de
+las otras herramientas de expresiones regulares tratan las clases de
+caracteres negadas, pero desafortunadamente la inconsistencia está
+fervientemente enrraizada históricamente.
+Emparejar líneas nuevas significa que un patrón como [^"]* puede
+emparejar la entrada completa a menos que haya otra comilla en la
+entrada.
+.IP -
+Una regla puede tener lo más una instancia del contexto posterior (el
+operador '/' o el operador '$').  La condición de arranque, los
+patrones '^', y "<<EOF>>" pueden aparecer solamente al principio de un
+patrón, y, al igual que con '/' y '$', no pueden agruparse dentro de
+paréntesis.  Un '^' que no aparezca al principio de una regla o un '$'
+que no aparezca al final de una regla pierde sus propiedades especiales y
+es tratado como un caracter normal.
+.IP
+Lo siguiente no está permitido:
+.nf
+
+    foo/bar$
+    <sc1>foo<sc2>bar
+
+.fi
+Fíjese que la primera regla se puede escribir como "foo/bar\\n".
+.IP
+En el siguiente ejemplo un '$' o un '^' es tratado como un caracter
+normal:
+.nf
+
+    foo|(bar$)
+    foo|^bar
+
+.fi
+Si lo que se desea es un "foo" o un "bar" seguido de una línea nueva,
+puede usarse lo siguiente (la acción especial '|' se explica más
+abajo):
+.nf
+
+    foo      |
+    bar$     /* la acción va aquí */
+
+.fi
+Un truco parecido funcionará para emparejar un "foo" o, un "bar" al
+principio de una línea.
+.SH CÓMO SE EMPAREJA LA ENTRADA
+Cuando el escáner generado está funcionando, este analiza su entrada
+buscando cadenas que concuerden con cualquiera de sus patrones.  Si
+encuentra más de un emparejamiento, toma el que empareje más
+texto (para reglas de contexto posterior, se incluye la longitud de
+la parte posterior, incluso si se devuelve a la entrada).  Si encuentra
+dos o más emparejamientos de la misma longitud, se escoge la
+regla listada en primer lugar en el fichero de entrada de
+.I flex.
+.PP
+Una vez que se determina el emparejamiento, el texto correspondiente
+al emparejamiento (denominado el
+.I token)
+está disponible en el puntero a caracter global
+.B yytext,
+y su longitud en la variable global entera
+.B yyleng.
+Entonces la
+.I acción
+correspondiente al patrón emparejado se ejecuta (una
+descripción más detallada de las acciones viene a continuación), y
+entonces la entrada restante se analiza para otro emparejamiento.
+.PP
+Si no se encuentra un emparejamiento, entonces se ejecuta la
+.I regla por defecto:
+el siguiente caracter en la entrada se considera reconocido y se copia
+a la salida estándar.  Así, la entrada válida más simple de
+.I flex
+es:
+.nf
+
+    %%
+
+.fi
+que genera un escáner que simplemente copia su entrada (un caracter a
+la vez) a la salida.
+.PP
+Fíjese que
+.B yytext
+se puede definir de dos maneras diferentes: bien como un
+.I puntero
+a caracter o como un
+.I array
+de caracteres.
+Usted puede controlar la definición que usa
+.I flex
+incluyendo una de las directivas especiales
+.B %pointer
+o
+.B %array
+en la primera sección (definiciones) de su entrada de flex.  Por defecto es
+.B %pointer,
+a menos que use la opción de compatibilidad
+.B -l,
+en cuyo caso
+.B yytext
+será un array.
+La ventaja de usar
+.B %pointer
+es un análisis substancialmente más rápido y la ausencia de
+desbordamiento del buffer cuando se emparejen tokens muy grandes (a
+menos que se agote la memoria dinámica).  La desventaja es que se
+encuentra restringido en cómo sus acciones pueden modificar
+.B yytext
+(vea la siguiente sección), y las llamadas a la función
+.B unput()
+destruyen el contenido actual de
+.B yytext,
+que puede convertirse en un considerable quebradero de cabeza de
+portabilidad al cambiar entre diferentes versiones de
+.I lex.
+.PP
+La ventaja de
+.B %array
+es que entoces puede modificar
+.B yytext
+todo lo que usted quiera, las llamadas a
+.B unput()
+no destruyen
+.B yytext
+(ver más abajo).  Además, los programas de
+.I lex
+existentes a veces acceden a
+.B yytext
+externamente utilizando declaraciones de la forma:
+.nf
+    extern char yytext[];
+.fi
+Esta definición es errónea cuando se utiliza
+.B %pointer,
+pero correcta para
+.B %array.
+.PP
+.B %array
+define a
+.B yytext
+como un array de
+.B YYLMAX
+caracteres, que por defecto es un valor bastante grande.  Usted puede
+cambiar el tamaño símplemente definiendo con #define a
+.B YYLMAX
+con un valor diferente en la primera sección de su entrada de
+.I flex.
+Como se mencionó antes, con
+.B %pointer
+yytext crece dinámicamente para acomodar tokens grandes.  Aunque
+esto signifique que con
+.B %pointer
+su escáner puede acomodar tokens muy grandes (tales como emparejar
+bloques enteros de comentarios), tenga presente que cada vez que el
+escáner deba cambiar el tamaño de
+.B yytext
+también debe reiniciar el análisis del token entero desde el
+principio, así que emparejar tales tokens puede resultar lento.
+Ahora
+.B yytext
+.I no
+crece dinámicamente si una llamada a
+.B unput()
+hace que se deba devolver demasiado texto; en su lugar, se
+produce un error en tiempo de ejecución.
+.PP
+También tenga en cuenta que no puede usar
+.B %array
+en los analizadores generados como clases de C++
+(la opción
+.B c++;
+vea más abajo).
+.SH ACCIONES
+Cada patrón en una regla tiene una acción asociada, que puede
+ser cualquier sentencia en C.  El patrón finaliza en el primer caracter
+de espacio en blanco que no sea una secuencia de escape; lo que queda
+de la línea es su acción.  Si la acción está vacía, entonces cuando el
+patrón se empareje el token de entrada simplemente se descarta.  Por
+ejemplo, aquí está la especificación de un programa que borra todas
+las apariciones de "zap me" en su entrada:
+.nf
+
+    %%
+    "zap me"
+
+.fi
+(Este copiará el resto de caracteres de la entrada a la salida ya
+que serán emparejados por la regla por defecto.)
+.PP
+Aquí hay un programa que comprime varios espacios en blanco y tabuladores a un
+solo espacio en blanco, y desecha los espacios que se encuentren al
+final de una línea:
+.nf
+
+    %%
+    [ \\t]+        putchar( ' ' );
+    [ \\t]+$       /* ignora este token */
+
+.fi
+.PP
+Si la acción contiene un '{', entonces la acción abarca hasta que se
+encuentre el correspondiente '}', y la acción podría entonces cruzar
+varias líneas.
+.I flex 
+es capaz de reconocer las cadenas y comentarios de C y no se dejará
+engañar por las llaves que encuentre dentro de estos, pero aun así
+también permite que las acciones comiencen con
+.B %{
+y considerará que la acción es todo el texto hasta el siguiente
+.B %}
+(sin tener en cuenta las llaves ordinarias dentro de la acción).
+.PP
+Una acción que consista sólamente de una barra vertical ('|')
+significa "lo mismo que la acción para la siguiente regla."  Vea más
+abajo para una ilustración.
+.PP
+Las acciones pueden incluir código C arbitrario, incuyendo sentencias
+.B return
+para devolver un valor desde cualquier rutina llamada 
+.B yylex().
+Cada vez que se llama a
+.B yylex()
+esta continúa procesando tokens desde donde lo dejó la última vez
+hasta que o bien llegue al final del fichero o ejecute un return.
+.PP
+Las acciones tienen libertad para modificar
+.B yytext
+excepto para alargarla (añadiendo caracteres al final--esto
+sobreescribirá más tarde caracteres en el flujo de entrada).  Sin
+embargo esto no se aplica cuando se utiliza
+.B %array
+(ver arriba); en ese caso,
+.B yytext
+podría modificarse libremente de cualquier manera.
+.PP
+Las acciones tienen libertad para modificar
+.B yyleng
+excepto que estas no deberían hacerlo si la acción también incluye el
+uso de
+.B yymore()
+(ver más abajo).
+.PP
+Hay un número de directivas especiales que pueden incluirse dentro de
+una acción:
+.IP -
+.B ECHO
+copia yytext a la salida del escáner.
+.IP -
+.B BEGIN
+seguido del nombre de la condición de arranque pone al escáner en la
+condición de arranque correspondiente (ver más abajo).
+.IP -
+.B REJECT
+ordena al escáner a que proceda con la "segunda mejor" regla que
+concuerde con la entrada (o un prefijo de la entrada).  La regla se escoge
+como se describió anteriormente en "Cómo se Empareja la Entrada", y
+.B yytext
+e
+.B yyleng
+se ajustan de forma apropiada.
+Podría ser una que empareje tanto texto como la regla escogida
+originalmente pero que viene más tarde en el fichero de entrada de
+.I flex,
+o una que empareje menos texto.
+Por ejemplo, lo que viene a continuación contará las palabras en la
+entrada y llamará a la rutina especial() siempre que vea "frob":
+.nf
+
+            int contador_palabras = 0;
+    %%
+
+    frob        especial(); REJECT;
+    [^ \\t\\n]+   ++contador_palabras;
+
+.fi
+Sin el
+.B REJECT,
+cualquier número de "frob"'s en la entrada no serían contados como
+palabras, ya que el escáner normalmente ejecuta solo una acción por
+token.
+Se permite el uso de múltiples
+.B REJECT's,
+cada uno buscando la siguiente mejor elección a la regla que
+actualmente esté activa.  Por ejemplo, cuando el siguiente escáner
+analice el token "abcd", este escribirá "abcdabcaba" a la salida:
+.nf
+
+    %%
+    a        |
+    ab       |
+    abc      |
+    abcd     ECHO; REJECT;
+    .|\\n     /* se come caracteres sin emparejar */
+
+.fi
+(Las primeras tres reglas comparten la acción de la cuarta ya que
+estas usan la acción especial '|'.)
+.B REJECT
+es una propiedad particularmente cara en términos de rendimiento del
+escáner; si se usa en
+.I cualquiera
+de las acciones del escáner esta ralentizará
+.I todo
+el proceso de emparejamiento del escáner.  Además,
+.B REJECT
+no puede usarse con las opciones
+.I -Cf
+o
+.I -CF
+(ver más abajo).
+.IP
+Fíjese también que a diferencia de las otras acciones especiales,
+.B REJECT
+es una
+.I bifurcación;
+el código que la siga inmediatamente en la acción 
+.I no
+será ejecutado.
+.IP -
+.B yymore()
+dice al escáner que la próxima vez que empareje una regla, el token
+correspondiente debe ser
+.I añadido
+tras el valor actual de
+.B yytext
+en lugar de reemplazarlo.  Por ejemplo, dada la entrada "mega-klugde" lo
+que viene a continuación escribirá "mega-mega-kludge" a la salida:
+.nf
+
+    %%
+    mega-    ECHO; yymore();
+    kludge   ECHO;
+
+.fi
+El primer "mega-" se empareja y se repite a la salida.  Entonces se
+empareja "kludge", pero el "mega-" previo aún está esperando al inicio
+de
+.B yytext
+asi que el
+.B ECHO
+para la regla del "kludge" realmente escribirá "mega-kludge".
+.PP
+Dos notas respecto al uso de
+.B yymore().
+Primero,
+.B yymore()
+depende de que el valor de
+.I yyleng
+refleje correctamente el tamaño del token actual, así que no debe
+modificar
+.I yyleng
+si está utilizando
+.B yymore().
+Segundo, la presencia de
+.B yymore()
+en la acción del escáner implica una pequeña penalización de
+rendimiento en la velocidad de emparejamiento del escáner.
+.IP -
+.B yyless(n)
+devuelve todos excepto los primeros
+.I n
+caracteres del token actual de nuevo al flujo de entrada, donde serán
+reanalizados cuando el escáner busque el siguiente emparejamiento.
+.B yytext
+e
+.B yyleng
+se ajustan de forma adecuada (p.ej.,
+.B yyleng
+no será igual a
+.I n
+).  Por ejemplo, con la entrada "foobar" lo que viene a continuación
+escribirá "foobarbar":
+.nf
+
+    %%
+    foobar    ECHO; yyless(3);
+    [a-z]+    ECHO;
+
+.fi
+Un argumento de 0 para
+.B yyless
+hará que la cadena de entrada actual sea analizada por completo
+de nuevo.  A menos que haya cambiado la manera en la que el escáner
+procese de ahora en adelante su entrada (utilizando
+.B BEGIN,
+por ejemplo), esto producirá un bucle sin fin.
+.PP
+Fíjese que
+.B yyless
+es una macro y puede ser utilizada solamente en el fichero de entrada
+de flex, no desde otros ficheros fuente.
+.IP -
+.B unput(c)
+pone el caracter
+.I c
+de nuevo en el flujo de entrada.  Este será el próximo caracter
+analizado.  La siguiente acción tomará el token actual y hará que se
+vuelva a analizar pero encerrado entre paréntesis.
+.nf
+
+    {
+    int i;
+    /* Copia yytext porque unput() desecha yytext */
+    char *yycopia = strdup( yytext );
+    unput( ')' );
+    for ( i = yyleng - 1; i >= 0; --i )
+        unput( yycopia[i] );
+    unput( '(' );
+    free( yycopia );
+    }
+
+.fi
+Fíjese que ya que cada
+.B unput()
+pone el caracter dado de nuevo al
+.I principio
+del flujo de entrada, al devolver cadenas de caracteres se debe hacer
+de atrás hacia delante.
+.PP
+Un problema potencial importante cuando se utiliza
+.B unput()
+es que si está usando
+.B %pointer
+(por defecto), una llamada a
+.B unput()
+.I destruye
+el contenido de
+.I yytext,
+comenzando con su caracter más a la derecha y devorando un caracter a
+la izquierda con cada llamada.  Si necesita que se preserve el valor
+de yytext después de una llamada a
+.B unput()
+(como en el ejemplo anterior),
+usted debe o bien copiarlo primero en cualquier lugar, o construir su
+escáner usando
+.B %array
+ (ver Cómo se Empareja la Entrada).
+.PP
+Finalmente, note que no puede devolver
+.B EOF
+para intentar marcar el flujo de entrada con un fin-de-fichero.
+.IP -
+.B input()
+lee el próximo caracter del flujo de entrada.  Por ejemplo,
+lo que viene a continuación es una manera de comerse los comentarios
+en C:
+.nf
+
+    %%
+    "/*"        {
+                register int c;
+
+                for ( ; ; )
+                    {
+                    while ( (c = input()) != '*' &&
+                            c != EOF )
+                        ;    /* se come el texto del comentario */
+
+                    if ( c == '*' )
+                        {
+                        while ( (c = input()) == '*' )
+                            ;
+                        if ( c == '/' )
+                            break;    /* encontró el final */
+                        }
+
+                    if ( c == EOF )
+                        {
+                        error( "EOF en comentario" );
+                        break;
+                        }
+                    }
+                }
+
+.fi
+(Fíjese que si el escáner se compila usando
+.B C++,
+entonces a
+.B input()
+se le hace referencia con
+.B yyinput(),
+para evitar una colisión de nombre con el flujo de
+.B C++
+por el nombre
+.I input.)
+.IP -
+.B YY_FLUSH_BUFFER
+vacía el buffer interno del escáner
+de manera que la próxima vez que el escáner intente emparejar un
+token, este primero rellenará el buffer usando
+.B YY_INPUT
+(ver El Escáner Generado, más abajo).  Esta acción es un caso especial
+de la función más general
+.B yy_flush_buffer(),
+descrita más abajo en la sección Múltiples Buffers de Entrada.
+.IP -
+.B yyterminate()
+se puede utilizar en lugar de una sentencia de retorno en una acción.
+Esta hace que finalice el escáner y retorne un 0 a quien haya llamado
+al escáner, indicando que "todo está hecho".  Por defecto, también se
+llama a
+.B yyterminate()
+cuando se encuentra un fin-de-fichero.  Esta es una macro y podría ser
+redefinida.
+.SH El Escáner Generado
+La salida de
+.I flex
+es el fichero
+.B lex.yy.c,
+que contiene la rutina de análisis
+.B yylex(),
+un número de tablas usadas por esta para emparejar tokens, y un número
+de rutinas auxiliares y macros.  Por defecto,
+.B yylex()
+se declara así
+.nf
+
+    int yylex()
+        {
+        ... aquí van varias definiciones y las acciones ...
+        }
+
+.fi
+(Si su entorno acepta prototipos de funciones, entonces este será
+"int yylex( void )").  Esta definición podría modificarse definiendo
+la macro "YY_DECL".  Por ejemplo, podría utilizar:
+.nf
+
+    #define YY_DECL float lexscan( a, b ) float a, b;
+
+.fi
+para darle a la rutina de análisis el nombre
+.I lexscan,
+que devuelve un real, y toma dos reales como argumentos.  Fíjese que
+si pone argumentos a la rutina de análisis usando una declaración de
+función no-prototipada/tipo-K&R, debe hacer terminar la definición con
+un punto y coma (;).
+.PP
+Siempre que se llame a
+.B yylex(),
+este analiza tokens desde el fichero de entrada global
+.I yyin
+(que por defecto es igual a stdin).  La función continúa hasta que
+alcance el final del fichero (punto en el que devuelve el valor 0) o
+una de sus acciones ejecute una sentencia
+.I return.
+.PP
+Si el escáner alcanza un fin-de-fichero, entonces el comportamiento
+en las llamadas posteriores está indefinido a menos que o bien
+.I yyin
+apunte a un nuevo fichero de entrada (en cuyo caso el análisis
+continúa a partir de ese fichero), o se llame a
+.B yyrestart().
+.B yyrestart()
+toma un argumento, un puntero
+.B FILE *
+(que puede ser nulo, si ha preparado a
+.B YY_INPUT
+para que analice una fuente distinta a
+.I yyin),
+e inicializa 
+.I yyin
+para que escanee ese fichero.  Esencialmente no hay diferencia
+entre la asignación a
+.I yyin
+de un nuevo fichero de entrada o el uso de
+.B yyrestart()
+para hacerlo; esto último está disponible por compatibilidad con
+versiones anteriores de
+.I flex,
+y porque puede utilizarse para conmutar ficheros de entrada en medio
+del análisis.  También se puede utilizar para desechar el buffer de
+entrada actual, invocándola con un argumento igual a
+.I yyin;
+pero mejor es usar
+.B YY_FLUSH_BUFFER
+(ver más arriba).
+Fíjese que
+.B yyrestart()
+.I no
+reinicializa la condición de arranque a
+.B INITIAL
+(ver Condiciones de Arranque, más abajo).
+.PP
+Si
+.B yylex()
+para el análisis debido a la ejecución de una sentencia
+.I return
+en una de las acciones, el analizador podría ser llamado de nuevo y
+este reanudaría el análisis donde lo dejó.
+.PP
+Por defecto (y por razones de eficiencia), el analizador usa
+lecturas por bloques en lugar de simples llamadas a
+.I getc()
+para leer caracteres desde
+.I yyin.
+La manera en la que toma su entrada se puede controlar definienfo la
+macro
+.B YY_INPUT.
+La secuencia de llamada para YY_INPUT es
+"YY_INPUT(buf,result,max_size)".  Su acción es poner hasta
+.I max_size
+caracteres en el array de caracteres
+.I buf
+y devolver en la variable entera
+.I result
+bien o el número de caracteres leídos o la constante YY_NULL (0 en
+sistemas Unix) para indicar EOF.  Por defecto YY_INPUT lee desde la
+variable global puntero a fichero "yyin".
+.PP
+Una definición de ejemplo para YY_INPUT (en la sección de definiciones
+del fichero de entrada) es:
+.nf
+
+    %{
+    #define YY_INPUT(buf,result,max_size) \\
+        { \\
+        int c = getchar(); \\
+        result = (c == EOF) ? YY_NULL : (buf[0] = c, 1); \\
+        }
+    %}
+
+.fi
+Esta definición cambiará el procesamiento de la entrada para que
+suceda un caracter a la vez.
+.PP
+Cuando el analizador reciba una indicación de fin-de-fichero desde
+YY_INPUT, entonces esta comprueba la función
+.B yywrap().
+Si
+.B yywrap()
+devuelve falso (cero), entonces se asume que la función ha ido más allá
+y ha preparado
+.I yyin
+para que apunte a otro fichero de entrada, y el análisis continúa.  Si
+este retorna verdadero (no-cero), entonces el analizador termina,
+devolviendo un 0 a su invocador.  Fíjese que en cualquier caso, la
+condición de arranque permanece sin cambios;
+esta
+.I no
+vuelve a ser
+.B INITIAL.
+.PP
+Si no proporciona su propia versión de
+.B yywrap(),
+entonces debe bien o usar
+.B %option noyywrap
+(en cuyo caso el analizador se comporta como si
+.B yywrap()
+devolviera un 1), o debe enlazar con
+.B \-lfl
+para obtener la versión por defecto de la rutina, que siempre devuelve
+un 1.
+.PP
+Hay disponibles tres rutinas para analizar desde buffers de memoria en
+lugar de desde ficheros:
+.B yy_scan_string(), yy_scan_bytes(),
+e
+.B yy_scan_buffer().
+Las trataremos en la sección Múltiples Buffers de Entrada.
+.PP
+El analizador escribe su salida con
+.B ECHO
+a la variable global
+.I yyout
+(por defecto, stdout), que el usuario podría redefinir asignándole
+cualquier otro puntero a
+.B FILE.
+.SH CONDICIONES DE ARRANQUE
+.I flex
+dispone de un mecanismo para activar reglas condicionalmente.
+Cualquier regla cuyo patrón se prefije con "<sc>" únicamente estará
+activa cuando el analizador se encuentre en la condición de arranque
+llamada "sc".  Por ejemplo,
+.nf
+
+    <STRING>[^"]*        { /* se come el cuerpo de la cadena ... */
+                ...
+                }
+
+.fi
+estará activa solamente cuando el analizador esté en la condición de
+arranque "STRING", y
+.nf
+
+    <INITIAL,STRING,QUOTE>\\. { /* trata una secuencia de escape ... */
+                ...
+                }
+
+.fi
+estará activa solamente cuando la condición de arranque actual sea
+o bien "INITIAL", "STRING", o "QUOTE".
+.PP
+Las condiciones de arranque se declaran en la (primera) sección de
+definiciones de la entrada usando líneas sin sangrar comenzando con
+.B %s
+o
+.B %x
+seguida por una lista de nombres.
+Lo primero declara condiciones de arranque
+.I inclusivas,
+lo último condiciones de arranque
+.I exclusivas.
+Una condición de arranque se activa utilizando la acción
+.B BEGIN.
+Hasta que se ejecute la próxima acción
+.B BEGIN,
+las reglas con la condición de arranque dada estarán activas y las
+reglas con otras condiciones de arranque estarán inactivas.
+Si la condición de arranque es
+.I inclusiva,
+entonces las reglas sin condiciones de arranque también estarán
+activas. Si es
+.I exclusiva,
+entonces
+.I sólamente
+las reglas calificadas con la condición de arranque estarán
+activas. Un conjunto de reglas dependientes de la misma condición de
+arranque exclusiva describe un analizador que es independiente de
+cualquiera de las otras reglas en la entrada de
+.I flex.
+Debido a esto, las condiciones de arranque exclusivas hacen fácil la
+especificación de "mini-escáneres" que analizan porciones de la entrada
+que son sintácticamente diferentes al resto (p.ej., comentarios).
+.PP
+Si la distinción entre condiciones de arranque inclusivas o exclusivas
+es aún un poco vaga, aquí hay un ejemplo simple que ilustra la
+conexión entre las dos.  El conjunto de reglas:
+.nf
+
+    %s ejemplo
+    %%
+
+    <ejemplo>foo   hacer_algo();
+
+    bar            algo_mas();
+
+.fi
+es equivalente a
+.nf
+
+    %x ejemplo
+    %%
+
+    <ejemplo>foo   hacer_algo();
+
+    <INITIAL,ejemplo>bar    algo_mas();
+
+.fi
+Sin el calificador
+.B <INITIAL,example>,
+el patrón
+.I bar
+en el segundo ejemplo no estará activo (es decir, no puede emparejarse)
+cuando se encuentre en la condición de arranque
+.B example.
+Si hemos usado
+.B <example>
+para calificar
+.I bar,
+aunque, entonces este únicamente estará activo en
+.B example
+y no en
+.B INITIAL,
+mientras que en el primer ejemplo está activo en ambas, porque en el
+primer ejemplo la condición de arranque
+.B example
+es una condición de arranque
+.I inclusiva
+.B (%s).
+.PP
+Fíjese también que el especificador especial de la condición de arranque
+.B <*>
+empareja todas las condiciones de arranque.  Así, el ejemplo anterior
+también pudo haberse escrito;
+.nf
+
+    %x ejemplo
+    %%
+
+    <ejemplo>foo   hacer_algo();
+
+    <*>bar    algo_mas();
+
+.fi
+.PP
+La regla por defecto (hacer un
+.B ECHO
+con cualquier caracter sin emparejar) permanece activa en las
+condiciones de arranque.  Esta es equivalente a:
+.nf
+
+    <*>.|\\n     ECHO;
+
+.fi
+.PP
+.B BEGIN(0)
+retorna al estado original donde solo las reglas sin condiciones de
+arranque están activas.  Este estado también puede referirse a la
+condición de arranque "INITIAL", así que
+.B BEGIN(INITIAL)
+es equivalente a
+.B BEGIN(0).
+(No se requieren los paréntesis alrededor del nombre de la condición
+de arranque pero se considera de buen estilo.)
+.PP
+Las acciones
+.B BEGIN
+pueden darse también como código sangrado al comienzo de la sección
+de reglas.  Por ejemplo, lo que viene a continuación hará que el
+analizador entre en la condición de arranque "ESPECIAL" siempre que se
+llame a 
+.B yylex()
+y la variable global
+.I entra_en_especial
+sea verdadera:
+.nf
+
+            int entra_en_especial;
+
+    %x ESPECIAL
+    %%
+            if ( entra_en_especial )
+                BEGIN(ESPECIAL);
+
+    <ESPECIAL>blablabla
+    ...más reglas a continuación...
+
+.fi
+.PP
+Para ilustrar los usos de las condiciones de arranque, aquí hay un
+analizador que ofrece dos interpretaciones diferentes para una cadena
+como "123.456".  Por defecto este la tratará como tres tokens, el
+entero "123", un punto ('.'), y el entero "456".  Pero si la cadena
+viene precedida en la línea por la cadena "espera-reales" este la
+tratará como un único token, el número en coma flotante 123.456:
+.nf
+
+    %{
+    #include <math.h>
+    %}
+    %s espera
+
+    %%
+    espera-reales        BEGIN(espera);
+
+    <espera>[0-9]+"."[0-9]+      {
+                printf( "encontró un real, = %f\\n",
+                        atof( yytext ) );
+                }
+    <espera>\\n           {
+                /* este es el final de la línea,
+                 * así que necesitamos otro
+                 * "espera-numero" antes de
+                 * que volvamos a reconocer más
+                 * números
+                 */
+                BEGIN(INITIAL);
+                }
+
+    [0-9]+      {
+                printf( "encontró un entero, = %d\\n",
+                        atoi( yytext ) );
+                }
+
+    "."         printf( "encontró un punto\\n" );
+
+.fi
+Aquí está un analizador que reconoce (y descarta) comentarios de C
+mientras mantiene una cuenta de la línea actual de entrada.
+.nf
+
+    %x comentario
+    %%
+            int num_linea = 1;
+
+    "/*"         BEGIN(comentario);
+
+    <comentario>[^*\\n]*       /* come todo lo que no sea '*' */
+    <comentario>"*"+[^*/\\n]*  /* come '*'s no seguidos por '/' */
+    <comentario>\\n            ++num_linea;
+    <comentario>"*"+"/"       BEGIN(INITIAL);
+
+.fi
+Este analizador se complica un poco para emparejar tanto texto
+como le sea posible en cada regla.  En general, cuando se intenta
+escribir un analizador de alta velocidad haga que cada regla empareje
+lo más que pueda, ya que esto es un buen logro.
+.PP
+Fíjese que los nombres de las condiciones de arranque son realmente
+valores enteros y pueden ser almacenados como tales.  Así, lo anterior
+podría extenderse de la siguiente manera:
+.nf
+
+    %x comentario foo
+    %%
+            int num_linea = 1;
+            int invocador_comentario;
+
+    "/*"         {
+                 invocador_comentario = INITIAL;
+                 BEGIN(comentario);
+                 }
+
+    ...
+
+    <foo>"/*"    {
+                 invocador_comentario = foo;
+                 BEGIN(comentario);
+                 }
+
+    <comentario>[^*\\n]*        /* se come cualquier cosa que no sea un '*' */
+    <comentario>"*"+[^*/\\n]*   /* se come '*'s que no continuen con '/'s */
+    <comentario>\\n             ++num_linea;
+    <comentario>"*"+"/"        BEGIN(invocador_comentario);
+
+.fi
+Además, puede acceder a la condición de arranque actual usando la
+macro de valor entero
+.B YY_START.
+Por ejemplo, las asignaciones anteriores a
+.I invocador_comentario
+podrían escribirse en su lugar como
+.nf
+
+    invocador_comentario = YY_START;
+
+.fi
+Flex ofrece
+.B YYSTATE
+como un alias para
+.B YY_START
+(ya que es lo que usa
+.I lex
+de AT&T).
+.PP
+Fíjese que las condiciones de arranque no tienen su propio espacio de
+nombres; los %s's y %x's declaran nombres de la misma manera que con
+#define's.
+.PP
+Finalmente, aquí hay un ejemplo de cómo emparejar cadenas entre
+comillas al estilo de C usando condiciones de arranque exclusivas,
+incluyendo secuencias de escape expandidas (pero sin incluir la
+comprobación de cadenas que son demasiado largas):
+.nf
+
+    %x str
+
+    %%
+            char string_buf[MAX_STR_CONST];
+            char *string_buf_ptr;
+
+
+    \\"      string_buf_ptr = string_buf; BEGIN(str);
+
+    <str>\\"        { /* se vio la comilla que cierra - todo está hecho */
+            BEGIN(INITIAL);
+            *string_buf_ptr = '\\0';
+            /* devuelve un tipo de token de cadena constante y
+             * el valor para el analizador sintáctico
+             */
+            }
+
+    <str>\\n        {
+            /* error - cadena constante sin finalizar */
+            /* genera un mensaje de error */
+            }
+
+    <str>\\\\[0-7]{1,3} {
+            /* secuencia de escape en octal */
+            int resultado;
+
+            (void) sscanf( yytext + 1, "%o", &resultado );
+
+            if ( resultado > 0xff )
+                    /* error, constante fuera de rango */
+
+            *string_buf_ptr++ = resultado;
+            }
+
+    <str>\\\\[0-9]+ {
+            /* genera un error - secuencia de escape errónea;
+             * algo como '\\48' o '\\0777777'
+             */
+            }
+
+    <str>\\\\n  *string_buf_ptr++ = '\\n';
+    <str>\\\\t  *string_buf_ptr++ = '\\t';
+    <str>\\\\r  *string_buf_ptr++ = '\\r';
+    <str>\\\\b  *string_buf_ptr++ = '\\b';
+    <str>\\\\f  *string_buf_ptr++ = '\\f';
+
+    <str>\\\\(.|\\n)  *string_buf_ptr++ = yytext[1];
+
+    <str>[^\\\\\\n\\"]+        {
+            char *yptr = yytext;
+
+            while ( *yptr )
+                    *string_buf_ptr++ = *yptr++;
+            }
+
+.fi
+.PP
+A menudo, como en alguno de los ejemplos anteriores, uno acaba
+escribiendo un buen número de reglas todas precedidas por la(s) misma(s)
+condición(es) de arranque.  Flex hace esto un poco más fácil y claro
+introduciendo la noción de
+.I ámbito
+de la condición de arranque.  Un ámbito de condición de arranque
+comienza con:
+.nf
+
+    <SCs>{
+
+.fi
+Donde
+.I SCs
+es una lista de una o más condiciones de arranque.  Dentro del ámbito
+de la condición de arranque, cada regla automáticamente tiene el
+prefijo
+.I <SCs>
+aplicado a esta, hasta un
+.I '}'
+que corresponda con el
+.I '{'
+inicial.
+Así, por ejemplo,
+.nf
+
+    <ESC>{
+        "\\\\n"   return '\\n';
+        "\\\\r"   return '\\r';
+        "\\\\f"   return '\\f';
+        "\\\\0"   return '\\0';
+    }
+
+.fi
+es equivalente a:
+.nf
+
+    <ESC>"\\\\n"  return '\\n';
+    <ESC>"\\\\r"  return '\\r';
+    <ESC>"\\\\f"  return '\\f';
+    <ESC>"\\\\0"  return '\\0';
+
+.fi
+Los ámbitos de las condiciones de arranque pueden anidarse.
+.PP
+Están disponibles tres rutinas para manipular pilas de condiciones de
+arranque:
+.TP
+.B void yy_push_state(int new_state)
+empuja la condición de arranque actual al tope de la pila de las
+condiciones de arranque y cambia a
+.I new_state
+como si hubiera utilizado
+.B BEGIN new_state
+(recuerde que los nombres de las condiciones de arranque también son
+enteros).
+.TP
+.B void yy_pop_state()
+extrae el tope de la pila y cambia a este mediante un
+.B BEGIN.
+.TP
+.B int yy_top_state()
+devuelve el tope de la pila sin alterar el contenido de la pila.
+.PP
+La pila de las condiciones de arranque crece dinámicamente y por ello
+no tiene asociada ninguna limitación de tamaño.  Si la memoria se
+agota, se aborta la ejecución del programa.
+.PP
+Para usar pilas de condiciones de arranque, su analizador debe incluir
+una directiva
+.B %option stack
+(ver Opciones más abajo).
+.SH MÚLTIPLES BUFFERS DE ENTRADA
+Algunos analizadores (tales como aquellos que aceptan ficheros
+"incluidos") requieren la lectura de varios flujos de entrada.  Ya que
+los analizadores de 
+.I flex
+hacen mucho uso de buffers, uno no puede controlar de dónde
+será leída la siguiente entrada escribiendo símplemente un
+.B YY_INPUT
+que sea sensible al contexto del análisis.
+A
+.B YY_INPUT
+sólo se le llama cuando el analizador alcanza el final de su buffer,
+que podría ser bastante tiempo después de haber analizado una
+sentencia como un "include" que requiere el cambio de la fuente de
+entrada.
+.PP
+Para solventar este tipo de problemas,
+.I flex
+provee un mecanismo para crear y conmutar entre varios buffers de
+entrada.  Un buffer de entrada se crea usando:
+.nf
+
+    YY_BUFFER_STATE yy_create_buffer( FILE *file, int size )
+
+.fi
+que toma un puntero a
+.I FILE
+y un tamaño "size" y crea un buffer asociado con el fichero dado y lo
+suficientemente grande para mantener 
+.I size
+caracteres (cuando dude, use
+.B YY_BUF_SIZE
+para el tamaño).  Este devuelve un handle
+.B YY_BUFFER_STATE,
+que podría pasarse a otras rutinas (ver más abajo).  El tipo de
+.B YY_BUFFER_STATE
+es un puntero a una estructura opaca
+.B struct yy_buffer_state,
+de manera que podría inicializar de forma segura variables
+YY_BUFFER_STATE a
+.B ((YY_BUFFER_STATE) 0)
+si lo desea, y también hacer referencia a la estructura opaca para
+declarar correctamente buffers de entrada en otros ficheros fuente
+además de los de su analizador.  Fíjese que el puntero a
+.I FILE
+en la llamada a
+.B yy_create_buffer
+se usa solamente como el valor de
+.I yyin
+visto por
+.B YY_INPUT;
+si usted redefine
+.B YY_INPUT
+de manera que no use más a
+.I yyin,
+entonces puede pasar de forma segura un puntero
+.I FILE
+nulo a
+.B yy_create_buffer.
+Se selecciona un buffer en particular a analizar utilizando:
+.nf
+
+    void yy_switch_to_buffer( YY_BUFFER_STATE nuevo_buffer )
+
+.fi
+conmuta el buffer de entrada del analizador de manera que los tokens
+posteriores provienen de
+.I nuevo_buffer.
+Fíjese que
+.B yy_switch_to_buffer()
+podría usarlo yywrap() para arreglar las cosas para un análisis
+continuo, en lugar de abrir un nuevo fichero y que
+.I yyin
+apunte a este.  Fíjese también que cambiar las fuentes de entrada ya
+sea por medio de
+.B yy_switch_to_buffer()
+o de
+.B yywrap()
+.I no
+cambia la condición de arranque.
+.nf
+
+    void yy_delete_buffer( YY_BUFFER_STATE buffer )
+
+.fi
+se usa para recuperar el almacenamiento asociado a un buffer.  (El
+.B buffer
+puede ser nulo, en cuyo caso la rutina no hace nada.)
+Puede también limpiar el contenido actual de un buffer usando:
+.nf
+
+    void yy_flush_buffer( YY_BUFFER_STATE buffer )
+
+.fi
+Esta función descarta el contenido del buffer, de manera que la
+próxima vez que el analizador intente emparejar un token desde el
+buffer, este primero rellenará el buffer utilizando
+.B YY_INPUT.
+.PP
+.B yy_new_buffer()
+es un alias de
+.B yy_create_buffer(),
+que se ofrece por compatibilidad con el uso en C++ de
+.I new
+y
+.I delete
+para crear y destruir objetos dinámicos.
+.PP
+Finalmente, la macro
+.B YY_CURRENT_BUFFER
+retorna un handle
+.B YY_BUFFER_STATE
+al buffer actual.
+.PP
+Aquí hay un ejemplo del uso de estas propiedades para escribir un
+analizador que expande ficheros incluidos (la propiedad
+.B <<EOF>>
+se comenta más abajo):
+.nf
+
+    /* el estado "incl" se utiliza para obtener el nombre
+     * del fichero a incluir.
+     */
+    %x incl
+
+    %{
+    #define MAX_INCLUDE_DEPTH 10
+    YY_BUFFER_STATE include_stack[MAX_INCLUDE_DEPTH];
+    int include_stack_ptr = 0;
+    %}
+
+    %%
+    include             BEGIN(incl);
+
+    [a-z]+              ECHO;
+    [^a-z\\n]*\\n?        ECHO;
+
+    <incl>[ \\t]*      /* se come los espacios en blanco */
+    <incl>[^ \\t\\n]+   { /* obtiene el nombre de fichero a incluir */
+            if ( include_stack_ptr >= MAX_INCLUDE_DEPTH )
+                {
+                fprintf( stderr, "Demasiados include anidados" );
+                exit( 1 );
+                }
+
+            include_stack[include_stack_ptr++] =
+                YY_CURRENT_BUFFER;
+
+            yyin = fopen( yytext, "r" );
+
+            if ( ! yyin )
+                error( ... );
+
+            yy_switch_to_buffer(
+                yy_create_buffer( yyin, YY_BUF_SIZE ) );
+
+            BEGIN(INITIAL);
+            }
+
+    <<EOF>> {
+            if ( --include_stack_ptr < 0 )
+                {
+                yyterminate();
+                }
+
+            else
+                {
+                yy_delete_buffer( YY_CURRENT_BUFFER );
+                yy_switch_to_buffer(
+                     include_stack[include_stack_ptr] );
+                }
+            }
+
+.fi
+Se dispone de tres rutinas para preparar buffers de entrada para el
+análisis de cadenas en memoria en lugar de archivos.  Todas estas
+crean un nuevo buffer de entrada para analizar la cadena, y devuelven
+el correspondiente handle
+.B YY_BUFFER_STATE
+(que usted debería borrar con
+.B yy_delete_buffer()
+cuando termine con él).  Estas también conmutan el nuevo buffer usando
+.B yy_switch_to_buffer(),
+de manera que la próxima llamada a
+.B yylex()
+comenzará analizando la cadena.
+.TP
+.B yy_scan_string(const char *str)
+analiza una cadena terminada en nulo.
+.TP
+.B yy_scan_bytes(const char *bytes, int len)
+analiza
+.I len
+bytes (incluyendo posibles NUL's)
+comenzando desde el punto
+.I bytes.
+.PP
+Fíjese que ambas de estas funciones crean y analizan una
+.I copia
+de la cadena o bytes.  (Esto podría ser deseable, ya que
+.B yylex()
+modifica el contenido del buffer que está analizado.)  Usted puede
+evitar la copia utilizando:
+.TP
+.B yy_scan_buffer(char *base, yy_size_t size)
+que analiza in situ el buffer comenzando en
+.I base,
+que consiste de
+.I size
+bytes, donde los dos últimos bytes
+.I deben
+ser
+.B YY_END_OF_BUFFER_CHAR
+(ASCII NUL).
+Estos dos últimos bytes no se analizan; así, el análisis consta de
+.B base[0]
+hasta
+.B base[size-2],
+inclusive.
+.IP
+Si se equivoca al disponer
+.I base
+de esta manera (es decir, olvidar los dos
+.B YY_END_OF_BUFFER_CHAR
+bytes finales), entonces
+.B yy_scan_buffer()
+devuelve un puntero nulo en lugar de crear un nuevo buffer de entrada.
+.IP
+El tipo
+.B yy_size_t
+es un tipo entero con el que puede hacer una conversión a una expresión
+entera para reflejar el tamaño del buffer.
+.SH REGLAS DE FIN-DE-FICHERO
+La regla especial "<<EOF>>" indica las acciones que deben tomarse
+cuando se encuentre un fin-de-fichero e yywrap() retorne un valor
+distinto de cero
+(es decir, indica que no quedan ficheros por procesar).  La acción
+debe finalizar haciendo una de estas cuatro cosas:
+.IP -
+asignando a
+.I yyin
+un nuevo fichero de entrada (en versiones anteriores de flex, después
+de hacer la asignación debía llamar a la acción especial
+.B YY_NEW_FILE;
+esto ya no es necesario);
+.IP -
+ejecutando una sentencia
+.I return;
+.IP -
+ejecutando la acción especial
+.B yyterminate();
+.IP -
+o, conmutando a un nuevo buffer usando
+.B yy_switch_to_buffer()
+como se mostró en el ejemplo anterior.
+.PP
+Las reglas <<EOF>> no deberían usarse con otros patrones; estas
+deberían calificarse con una lista de condiciones de arranque.  Si se
+da una regla <<EOF>> sin calificar, esta se aplica a
+.I todas
+las condiciones de arranque que no tengan ya acciones <<EOF>>.  Para
+especificar una regla <<EOF>> solamente para la condición de arranque
+inicial, use
+.nf
+
+    <INITIAL><<EOF>>
+
+.fi
+.PP
+Estas reglas son útiles para atrapar cosas tales como comentarios sin
+final.
+Un ejemplo:
+.nf
+
+    %x comilla
+    %%
+
+    ...otras reglas que tengan que ver con comillas...
+
+    <comilla><<EOF>>   {
+             error( "comilla sin cerrar" );
+             yyterminate();
+             }
+    <<EOF>>  {
+             if ( *++filelist )
+                 yyin = fopen( *filelist, "r" );
+             else
+                yyterminate();
+             }
+
+.fi
+.SH MACROS MISCELÁNEAS
+La macro
+.B YY_USER_ACTION
+puede definirse para indicar una acción que siempre se ejecuta antes
+de la acción de la regla emparejada.  Por ejemplo, podría declararse con
+#define para que llame a una rutina que convierta yytext a minúsculas.
+Cuando se invoca a
+.B YY_USER_ACTION,
+la variable
+.I yy_act
+da el número de la regla emparejada (las reglas están numeradas
+comenzando en 1).  Suponga que quiere medir la frecuencia con la que
+sus reglas son emparejadas.  Lo que viene a continuación podría hacer
+este truco:
+.nf
+
+    #define YY_USER_ACTION ++ctr[yy_act]
+
+.fi
+donde
+.I ctr
+en un vector que mantiene la cuenta para las diferentes reglas.  Fíjese
+que la macro
+.B YY_NUM_RULES
+da el número total de reglas (incluyendo la regla por defecto, incluso
+si usted usa
+.B \-s),
+así que una declaración correcta para
+.I ctr
+es:
+.nf
+
+    int ctr[YY_NUM_RULES];
+
+.fi
+.PP
+La macro
+.B YY_USER_INIT
+podría definirse para indicar una acción que siempre se ejecuta antes
+del primer análisis (y antes de que se haga la inicialización interna
+del analizador).  Por ejemplo, este podría usarse para llamar a una
+rutina que lea una tabla de datos o abrir un fichero de registro.
+.PP
+La macro
+.B yy_set_interactive(is_interactive)
+se puede usar para controlar si el buffer actual se considera
+.I interactivo.
+Un buffer interactivo se procesa más lentamente, pero debe usarse
+cuando la fuente de entrada del analizador es realmente interactiva
+para evitar problemas debidos a la espera para el llenado de los
+buffers (ver el comentario de la bandera
+.B \-I
+más abajo).  Un valor distinto de cero
+en la invocación de la macro marcará el buffer como interactivo, un
+valor de cero como no-interactivo.  Fíjese que el uso de esta macro no
+tiene en cuenta
+.B %option always-interactive
+o
+.B %option never-interactive
+(ver Opciones más abajo).
+.B yy_set_interactive()
+debe invocarse antes del comienzo del análisis del buffer que es
+considerado (o no) interactivo.
+.PP
+La macro
+.B yy_set_bol(at_bol)
+puede usarse para controlar si el contexto del buffer de análisis
+actual para el próximo emparejamiento de token se hace como si se
+encontrara al principio de una línea.  Un argumento de la macro
+distinto de cero hace activas a las reglas sujetas a '^', mientras que
+un argumento igual a cero hacer inactivas a las reglas con '^'.
+.PP
+La macro
+.B YY_AT_BOL()
+devuelve verdadero si el próximo token analizado a partir del buffer
+actual tendrá activas las reglas '^', de otra manera falso.
+.PP
+En el analizador generado, las acciones están recogidas en una gran
+sentencia switch y separadas usando
+.B YY_BREAK,
+que puede ser redefinida.  Por defecto, este es símplemente un
+"break", para separar la acción de cada regla de las reglas que le
+siguen.
+Redefiniendo
+.B YY_BREAK
+permite, por ejemplo, a los usuarios de C++ que #define YY_BREAK no
+haga nada (¡mientras tengan cuidado para que cada regla finalice con un
+"break" o un "return"!) para evitar que sufran los avisos de
+sentencias inalcanzables cuando debido a que la acción de la regla
+finaliza con un "return", el
+.B YY_BREAK
+es inaccesible.
+.SH VALORES DISPONIBLES AL USUARIO
+Esta sección resume los diferentes valores disponibles al usuario en
+las acciones de la regla.
+.IP -
+.B char *yytext
+apunta al texto del token actual.  Este puede modificarse pero no
+alargarse (no puede añadir caracteres al final).
+.IP
+Si aparece la directiva especial
+.B %array
+en la primera sección de la descripción del analizador, entonces
+.B yytext
+se declara en su lugar como
+.B char yytext[YYLMAX],
+donde
+.B YYLMAX
+es la definicion de una macro que puede redefinir en la primera
+sección si no le gusta el valor por defecto (generalmente 8KB).  El
+uso de
+.B %array
+produce analizadores algo más lentos, pero el valor de
+.B yytext
+se vuelve inmune a las llamadas a
+.I input()
+y
+.I unput(),
+que potencialmente destruyen su valor cuando
+.B yytext
+es un puntero a caracter.  El opuesto de
+.B %array
+es
+.B %pointer,
+que se encuentra por defecto.
+.IP
+Usted no puede utilizar
+.B %array
+cuando genera analizadores como clases de C++
+(la bandera
+.B \-+
+).
+.IP -
+.B int yyleng
+contiene la longitud del token actual.
+.IP -
+.B FILE *yyin
+es el fichero por el que
+.I flex
+lee por defecto.  Este podría redefinirse pero hacerlo solo tiene
+sentido antes de que el análisis comience o después de que se haya
+encontrado un EOF.  Cambiándolo en medio del análisis tendrá resultados
+inesperados ya que
+.I flex
+utiliza buffers en su entrada; use
+.B yyrestart()
+en su lugar.
+Una vez que el análisis termina debido a que se ha visto un
+fin-de-fichero, puede asignarle a
+.I yyin
+el nuevo fichero de entrada y entonces llamar al analizador de nuevo
+para continuar analizando.
+.IP -
+.B void yyrestart( FILE *new_file )
+podría ser llamada para que
+.I yyin
+apunte al nuevo fichero de entrada.  El cambio al nuevo fichero es
+inmediato (cualquier entrada contenida en el buffer previamente se
+pierde).  Fíjese que llamando a
+.B yyrestart()
+con
+.I yyin
+como argumento de esta manera elimina el buffer de entradda actual y
+continúa analizando el mismo fichero de entrada.
+.IP -
+.B FILE *yyout
+es el fichero sobre el que se hacen las acciones
+.B ECHO.
+Este puede ser reasignado por el usuario.
+.IP -
+.B YY_CURRENT_BUFFER
+devuelve un handle
+.B YY_BUFFER_STATE
+al buffer actual.
+.IP -
+.B YY_START
+devuelve un valor entero correspondiente a la condición de arranque
+actual.  Posteriormente puede usar este valor con
+.B BEGIN
+para retornar a la condición de arranque.
+.SH INTERFAZ CON YACC
+Uno de los usos principales de
+.I flex
+es como compañero del generador de analizadores sintácticos
+.I yacc.
+Los analizadores de
+.I yacc
+esperan invocar a una rutina llamada
+.B yylex()
+para encontrar el próximo token de entrada.  La rutina se supone que
+devuelve el tipo del próximo token además de poner cualquier valor
+asociado en la variable global
+.B yylval.
+Para usar
+.I flex
+con
+.I yacc,
+uno especifica la opción
+.B \-d
+de
+.I yacc
+para intruirle a que genere el fichero
+.B y.tab.h
+que contiene las definiciones de todos los
+.B %tokens
+que aparecen en la entrada de
+.I yacc.
+Entonces este archivo se incluye en el analizador de
+.I flex
+Por ejemplo, si uno de los tokens es "TOK_NUMERO", parte del
+analizador podría parecerse a:
+.nf
+
+    %{
+    #include "y.tab.h"
+    %}
+
+    %%
+
+    [0-9]+        yylval = atoi( yytext ); return TOK_NUMERO;
+
+.fi
+.SH OPCIONES
+.I flex
+tiene las siguientes opciones:
+.TP
+.B \-b
+Genera información de retroceso en
+.I lex.backup.
+Esta es una lista de estados del analizador que requieren retroceso
+y los caracteres de entrada con los que la hace.  Añadiendo reglas uno
+puede eliminar estados de retroceso.  Si
+.I todos
+los estados de retroceso se eliminan y se usa
+.B \-Cf
+o
+.B \-CF,
+el analizador generado funcionará más rápido (ver la bandera
+.B \-p).
+Únicamente los usuarios que desean exprimir hasta el último ciclo de sus
+analizadores necesitan preocuparse de esta opción.  (Ver la sección
+sobre Consideraciones de Rendimiento más abajo.)
+.TP
+.B \-c
+es una opción que no hace nada, incluída para cumplir con POSIX.
+.TP
+.B \-d
+hace que el analizador generado se ejecute en modo de
+.I depuración.
+Siempre que se reconoce un patrón y la variable global
+.B yy_flex_debug
+no es cero (que por defecto no lo es),
+el analizador escribirá en
+.I stderr
+una línea de la forma:
+.nf
+
+    --accepting rule at line 53 ("el texto emparejado")
+
+.fi
+El número de línea hace referencia al lugar de la regla en el fichero
+que define al analizador (es decir, el fichero que se le introdujo a
+flex).  Los mensajes también se generan cuando el analizador
+retrocede, acepta la regla por defecto, alcanza el final de su buffer
+de entrada (o encuentra un NUL; en este punto, los dos parecen lo
+mismo en lo que le concierne al analizador), o alcance el
+fin-de-fichero.
+.TP
+.B \-f
+especifica un
+.I analizador rápido.
+No se realiza una compresión de tablas y se evita el uso de stdio.
+El resultado es grande pero rápido.  Esta opción es equivalente a
+.B \-Cfr
+(ver más abajo).
+.TP
+.B \-h
+genera un sumario de "ayuda" de las opciones de
+.I flex
+por
+.I stdout 
+y entonces finaliza.
+.B \-?
+y
+.B \-\-help
+son sinónimos de
+.B \-h.
+.TP
+.B \-i
+indica a
+.I flex
+que genere un analizador
+.I case-insensitive.
+Se ignorará si las letras en los patrones de entrada de
+.I flex
+son en mayúsculas o en minúsculas, y los tokens en la entrada serán
+emparejados sin tenerlo en cuenta.  El texto emparejado dado en
+.I yytext
+tendrá las mayúsculas y minúsculas preservadas (es decir, no se
+convertirán).
+.TP
+.B \-l
+activa el modo de máxima compatibilidad con la implementación original
+de
+.I lex
+de AT&T.
+Fíjese que esto no significa una compatibilidad
+.I completa.
+El uso de esta opción cuesta una cantidad considerable de
+rendimiento, y no puede usarse con las opciones
+.B \-+, -f, -F, -Cf,
+o
+.B -CF.
+Para los detalles a cerca de la compatibilidad que se ofrece, vea la
+sección "Incompatibilidades con Lex y POSIX" más abajo.  Esta opción
+también hace que se defina el nombre
+.B YY_FLEX_LEX_COMPAT
+en el analizador generado.
+.TP
+.B \-n
+es otra opción que no hace nada, incluída para cumplir con POSIX.
+.TP
+.B \-p
+genera un informe de rendimiento en stderr.  El informe consta de
+comentarios que tratan de las propiedades del fichero de entrada de
+.I flex
+que provocarán pérdidas serias de rendimiento en el analizador
+resultante.  Si indica esta bandera dos veces, también obtendrá
+comentarios que tratan de las propiedades que producen pérdidas
+menores de rendimiento.
+.IP
+Fíjese que el uso de
+.B REJECT,
+.B %option yylineno,
+y el contexto posterior variable (vea la sección Deficiencias /
+Errores más abajo) supone una penalización substancial del
+rendimiento;  el uso de
+.I yymore(),
+el operador
+.B ^,
+y la bandera
+.B \-I
+supone penalizaciones del rendimiento menores.
+.TP
+.B \-s
+hace que la
+.I regla por defecto
+(que la entrada sin emparejar del analizador se repita por
+.I stdout)
+se suprima.  Si el analizador encuentra entrada que no es reconocida
+por ninguna de sus reglas, este aborta con un error.  Esta opción es
+útil para encontrar agujeros en el conjunto de reglas del analizador.
+.TP
+.B \-t
+indica a
+.I flex
+que escriba el analizador que genera a la salida estándar en lugar de en
+.B lex.yy.c.
+.TP
+.B \-v
+especifica que
+.I flex
+debería escribir en
+.I stderr
+un sumario de estadísticas respecto al analizador que genera.
+La mayoría de las estadísticas no tienen significado para el usuario
+casual de
+.I flex,
+pero la primera línea identifica la versión de
+.I flex
+(la misma que se informa con
+.B \-V),
+y la próxima línea las banderas utilizadas cuando se genera el
+analizador, incluyendo aquellas que se encuentran activadas por defecto.
+.TP
+.B \-w
+suprime los mensajes de aviso.
+.TP
+.B \-B
+dice a
+.I flex
+que genere un analizador
+.I batch,
+que es lo opuesto al analizador 
+.I interactivo
+generador por
+.B \-I
+(ver más abajo).  En general, use
+.B \-B
+cuando esté
+.I seguro
+de que su analizador nunca se usará de forma interactiva, y quiere
+con esto exprimir un
+.I poco
+más el rendimiento.  Si por el contrario su objetivo es
+exprimirlo
+.I mucho
+más, debería estar utilizando la opción
+.B \-Cf
+o
+.B \-CF
+(comentadas más abajo), que activa
+.B \-B
+automáticamente de todas maneras.
+.TP
+.B \-F
+especifica que se debe utilizar la representación de la tabla
+.ul
+rápida
+(y elimina referencias a stdio).  Esta representación es aproximadamente tan
+rápida como la representación completa de la tabla
+.B (-f),
+y para algunos conjuntos de patrones será considerablemente más
+pequeña (y para otros, mayor).  En general, si el conjunto de patrones
+contiene "palabras clave" y una regla "identificador" atrápalo-todo,
+como la del conjunto:
+.nf
+
+    "case"    return TOK_CASE;
+    "switch"  return TOK_SWITCH;
+    ...
+    "default" return TOK_DEFAULT;
+    [a-z]+    return TOK_ID;
+
+.fi
+entonces será mejor que utilice la representación de la tabla
+completa.  Si sólo está presente la regla "identificador" y utiliza
+una tabla hash o algo parecido para detectar palabras clave, mejor
+utilice
+.B -F.
+.IP
+Esta opción es equivalente a
+.B \-CFr
+(ver más abajo).  Esta opción no puede utilizarse con
+.B \-+.
+.TP
+.B \-I
+ordena a
+.I flex
+que genere un analizador
+.I interactivo
+Un analizador interactivo es uno que solo mira hacia delante
+para decidir que token ha sido reconocido únicamente si debe hacerlo.
+Resulta que mirando siempre un caracter extra hacia delante, incluso
+si el analizador ya ha visto suficiente texto para eliminar la
+ambigüedad del token actual, se es un poco más rápido que mirando
+solamente cuando es necesario.  Pero los analizadores que siempre
+miran hacia delante producen un comportamiento interactivo malísimo; por
+ejemplo, cuando un usuario teclea una línea nueva, esta no se reconoce
+como un token de línea nueva hasta que introduzca
+.I otro
+token, que a menudo significa introducir otra línea completa.
+.IP
+Los analizadores de
+.I flex
+por defecto son
+.I interactivos
+a menos que use la opción
+.B \-Cf
+o
+.B \-CF
+de compresión de tablas (ver más abajo).  Esto es debido a que si está
+buscando un rendimiento alto tendría que estar utilizando una de estas
+opciones, así que si no lo ha hecho
+.I flex
+asume que prefiere cambiar un poco de rendimiento en tiempo de
+ejecución en beneficio de un comportamiento iteractivo intuitivo.
+Fíjese también que
+.I no puede
+utilizar
+.B \-I
+conjuntamente con
+.B \-Cf
+o
+.B \-CF.
+Así, esta opción no se necesita realmente; está activa por defecto
+para todos esos casos en los que se permite.
+.IP
+Usted puede forzar al analizador que
+.I no
+sea interactivo usando
+.B \-B
+(ver más arriba).
+.TP
+.B \-L
+ordena a
+.I flex
+que no genere directivas
+.B #line.
+Sin esta opción, 
+.I flex
+acribilla al analizador generado con directivas #line para que los
+mensajes de error en las acciones estén localizadas correctamente
+respecto al fichero original de
+.I flex
+(si los errores son debidos al código en el fichero de entrada), o a
+.B lex.yy.c
+(si los errores son fallos de
+.I flex
+-- debería informar de este tipo de errores a la dirección de correo
+dada más abajo).
+.TP
+.B \-T
+hace que
+.I flex
+se ejecute en modo de
+.I traza.
+Este generará un montón de mensajes en
+.I stderr
+relativos a la forma de la entrada y el autómata finito no-determinista o
+determinista resultante.  Esta opción generalmente es para usarla en
+el mantenimiento de
+.I flex.
+.TP
+.B \-V
+imprime el número de la versión en
+.I stdout
+y sale.
+.B \-\-version
+es un sinónimo de
+.B \-V.
+.TP
+.B \-7
+ordena a
+.I flex
+que genere un analizador de 7-bits, es decir, uno que sólo puede
+reconocer caracteres de 7-bits en su entrada.  La ventaja de usar
+.B \-7
+es que las tablas del analizador pueden ser hasta la mitad del tamaño
+de aquellas generadas usando la opción
+.B \-8
+(ver más abajo).  La desventaja es que tales analizadores a menudo se
+cuelgan o revientan si su entrada contiene caracteres de 8-bits.
+.IP
+Fíjese, sin embargo, que a menos que genere su analizador utilizando
+las opciones de compresión de tablas
+.B \-Cf
+o
+.B \-CF,
+el uso de
+.B \-7
+ahorrará solamente una pequeña cantidad de espacio en la tabla, y hará
+su analizador considerablemente menos portable.
+El comportamiento por defecto de
+.I flex
+es generar un analizador de 8-bits a menos que use
+.B \-Cf
+o
+.B \-CF,
+en cuyo caso
+.I flex
+por defecto genera analizadores de 7-bits a menos que su sistema
+siempre esté configurado para generar analizadores de 8-bits (a menudo
+este será el caso de los sistemas fuera de EEUU).  Puede decir si flex
+generó un analizador de 7 u 8 bits inspeccionando el sumario de
+banderas en la salida de
+.B \-v
+como se describió anteriormente.
+.IP
+Fíjese que si usa
+.B \-Cfe
+o
+.B \-CFe
+(esas opciones de compresión de tablas, pero también el uso de clases
+de equivalencia como se comentará más abajo), flex genera aún por
+defecto un analizador de 8-bits, ya que normalmente con estas opciones
+de compresión las tablas de 8-bits completas no son mucho más caras
+que las tablas de 7-bits.
+.TP
+.B \-8
+ordena a
+.I flex
+que genere un analizador de 8-bits, es decir, uno que puede reconocer
+caracteres de 8-bits.  Esta bandera sólo es necesaria para
+analizadores generados usando
+.B \-Cf
+o
+.B \-CF,
+ya que de otra manera flex por defecto genera un analizador de 8-bits
+de todas formas.
+.IP
+Vea el comentario sobre
+.B \-7
+más arriba a cerca del comportamiento por defecto de flex y la
+discusión entre los analizadores de 7-bits y 8-bits.
+.TP
+.B \-+
+especifica que quiere que flex genere un analizador como una clase de
+C++.  Vea la sección Generando Escáners en C++ más abajo para los
+detalles.
+.TP 
+.B \-C[aefFmr]
+controla el grado de compresión de la tabla y, más generalmente,
+el compromiso entre analizadores pequeños y analizadores rápidos.
+.IP
+.B \-Ca
+("alinea") ordena a flex que negocie tablas más grandes en el
+analizador generado para un comportamiento más rápido porque los
+elementos de las tablas están mejor alineados para el acceso a
+memoria y computación.  En algunas arquitecturas RISC, la búsqueda y
+manipulación de palabras largas es más eficiente que con unidades más
+pequeñas tales como palabras cortas.  Esta opción puede doblar el
+tamaño de las tablas usadas en su analizador.
+.IP
+.B \-Ce
+ordena a
+.I flex
+que construya
+.I clases de equivalencia,
+es decir, conjunto de caracteres
+que tienen identicas propiedades léxicas (por ejemplo, si la única
+aparición de dígitos en la entrada de
+.I flex
+es en la clase de caracteres
+"[0-9]" entonces los dígitos '0', '1', ..., '9' se pondrán todos en la
+misma clase de equivalencia).  Las clases de equivalencia normalmente
+ofrecen notables reducciones en los tamaños de los ficheros finales de
+tabla/objeto (típicamente un factor de 2-5) y son juiciosamente
+bastante baratos en cuanto al rendimiento (una localización en un
+vector por caracter analizado).
+.IP
+.B \-Cf
+especifica que se deben generar las tablas del analizador
+.I completas
+-
+.I flex
+no debería comprimir las tablas tomando ventaja de las funciones de
+transición similares para diferentes estados.
+.IP
+.B \-CF
+especifica que debería usarse la representación del analizador rápido
+alternativo (descrito anteriormente en la bandera
+.B \-F
+)
+Esta opción no puede usarse con
+.B \-+.
+.IP
+.B \-Cm
+ordena a
+.I flex
+a que construya
+.I clases de meta-equivalencias,
+que son conjuntos de clases de equivalencia (o caracteres, si las
+clases de equivalencia no se están usando) que comunmente se usan de forma
+conjunta.  Las clases de meta-equivalencias son a menudo un gran
+ahorro cuando se usan tablas comprimidas, pero tienen un impacto
+moderado en el rendimiento (uno o dos tests "if" y una localización en
+un array por caracter analizado).
+.IP
+.B \-Cr
+hace que el analizador generado
+.I elimine
+el uso de la librería de E/S estándar para la entrada.  En lugar de
+llamar a
+.B fread()
+o
+.B getc(),
+el analizador utilizará la llamada al sistema
+.B read(),
+produciendo una ganancia en el rendimiento que varía de sistema en
+sistema, pero en general probablemente es insignificante a menos que
+también esté usando
+.B \-Cf
+o
+.B \-CF.
+El uso de
+.B \-Cr
+puede producir un comportamiento extraño si, por ejemplo, lee de
+.I yyin
+usando stdio antes de llamar al analizador (porque el analizador
+perderá cualquier texto que sus lecturas anteriores dejaron en el
+buffer de entrada de stdio).
+.IP
+.B \-Cr
+no tiene efecto si usted define
+.B YY_INPUT
+(ver El Escáner Generado más arriba).
+.IP
+Con solamente
+.B \-C
+se especifica que las tablas del analizador deberían comprimirse
+pero no debería utilizarse ni las clases de equivalencia ni las clases
+de meta-equivalencias.
+.IP
+Las opciones
+.B \-Cf
+o
+.B \-CF
+y
+.B \-Cm
+no tienen sentido juntas - no hay oportunidad para las clases de
+meta-equivalencias si la tabla no está siendo comprimida.  De otra
+forma las opciones podrían mezclarse líbremente, y son acumulativas.
+.IP
+La configuración por defecto es
+.B \-Cem,
+que especifica que
+.I flex
+debería generar clases de equivalencia y clases de meta-equivalencias.
+Esta configuración provee el mayor grado de compresión.  Puede
+llegarse a un compromiso entre analizadores de ejecución más rápida
+con el coste de tablas mayores siendo generalmente verdadero lo siguiente:
+.nf
+
+    lo más lento y pequeño
+          -Cem
+          -Cm
+          -Ce
+          -C
+          -C{f,F}e
+          -C{f,F}
+          -C{f,F}a
+    lo más rápido y grande
+
+.fi
+Fíjese que los analizadores con tablas más pequeñas normalmente se
+generan y compilan de la forma más rápida posible, así que durante el
+desarrollo usted normalmente querrá usar como viene por defecto,
+compresión máxima.
+.IP
+.B \-Cfe
+a menudo es un buen compromiso entre velocidad y tamaño para la
+producción de analizadores.
+.TP
+.B \-osalida
+ordena a flex que escriba el analizador al fichero
+.B salida
+en lugar de a
+.B lex.yy.c.
+Si combina
+.B \-o
+con la opción
+.B \-t,
+entonces el analizador se escribe en
+.I stdout
+pero sus directivas
+.B #line
+(vea la opción
+.B \\-L
+más arriba) hacen referencia al fichero
+.B salida.
+.TP
+.B \-Pprefijo
+cambia el prefijo
+.I "yy"
+usado por defecto por
+.I flex
+para todas las variables visibles globalmente y nombres de funciones
+para que sea
+.I prefijo.
+Por ejemplo,
+.B \-Pfoo
+cambia el nombre de
+.B yytext
+a
+.B footext.
+Este también cambia el nombre por defecto del fichero de salida de
+.B lex.yy.c
+a
+.B lex.foo.c.
+Aquí están todos los nombres afectados:
+.nf
+
+    yy_create_buffer
+    yy_delete_buffer
+    yy_flex_debug
+    yy_init_buffer
+    yy_flush_buffer
+    yy_load_buffer_state
+    yy_switch_to_buffer
+    yyin
+    yyleng
+    yylex
+    yylineno
+    yyout
+    yyrestart
+    yytext
+    yywrap
+
+.fi
+(Si usted está utilizando un analizador en C++, entonces únicamente
+.B yywrap
+y
+.B yyFlexLexer
+se ven afectados.)
+Dentro de su analizador, puede aún hacer referencia a las variables
+globales y funciones usando cualquier versión de su nombre; pero
+externamente, estas tienen el nombre modificado.
+.IP
+Esta opción le deja enlazar fácilmente múltiples programas
+.I flex
+conjuntamente en el mismo ejecutable.  Fíjese, sin embargo, que usando
+esta opción también se renombra
+.B yywrap(),
+de manera que ahora
+.I debe
+o bien proveer su propia versión de la rutina (con el nombre
+apropiado) para su analizador, o usar
+.B %option noyywrap,
+ya que enlazar con
+.B \-lfl
+no podrá proveerle una por defecto.
+.TP
+.B \-Sfichero_esqueleto
+ignora el fichero de esqueleteo por defecto con el que
+.I flex
+construye sus analizadores.  Usted probablemente nunca necesitará
+utilizar esta opción a menos que este haciendo mantenimiento o
+un desarrollo de
+.I flex.
+.PP
+.I flex
+también ofrece un mecanismo para controlar las opciones dentro de la
+propia especificación del analizador, en vez de a partir de la línea
+de comando.  Esto se hace incluyendo las directivas
+.B %option
+en la primera sección de la especificación del analizador.  Usted
+puede especificar varias opciones con una sola directiva
+.B %option,
+y varias directivas en la primera sección de su fichero de entrada de
+flex.
+.PP
+La mayoría de las opciones vienen dadas simplemente como nombres,
+opcionalmente precedidos por la palabra "no" (sin intervenir un
+espacio) para negar su significado.  Las banderas de flex o su negación
+son equivalentes a un número:
+.nf
+
+    7bit            opción -7
+    8bit            opción -8
+    align           opción -Ca
+    backup          opción -b
+    batch           opción -B
+    c++             opción -+
+
+    caseful o
+    case-sensitive  opuesto de -i (por defecto)
+
+    case-insensitive o
+    caseless        opción -i
+
+    debug           opción -d
+    default         opuesto de la opción -s
+    ecs             opción -Ce
+    fast            opción -F
+    full            opción -f
+    interactive     opción -I
+    lex-compat      opción -l
+    meta-ecs        opción -Cm
+    perf-report     opción -p
+    read            opción -Cr
+    stdout          opción -t
+    verbose         opción -v
+    warn            opuesto de la opción -w
+                    (use "%option nowarn" para -w)
+
+    array           equivalente a "%array"
+    pointer         equivalente a "%pointer" (por defecto)
+
+.fi
+Algunas directivas
+.B %option
+ofrecen propiedades que de otra manera no están disponibles:
+.TP
+.B always-interactive
+ordena a flex que genere un analizador que siempre considere su
+entrada como "interactiva".  Normalmente, sobre cada fichero de
+entrada nuevo el analizador llama a
+.B isatty()
+como intento para determinar si la entrada del analizador es
+interactiva y por lo tanto debería leer un caracter a la vez.  Cuando
+esta opción se utilice, sin embargo, entonces no se hace tal llamada.
+.TP
+.B main
+ordena a flex que facilite un programa
+.B main()
+por defecto para el analizador, que simplemente llame a
+.B yylex().
+Esta opción implica
+.B noyywrap
+(ver más abajo).
+.TP
+.B never-interactive
+ordena a flex que genere un analizador que nunca considere su
+entrada como "interactiva" (de nuevo, no se hace ninguna llamada a
+.B isatty()).
+Esta es la opuesta a
+.B always-interactive.
+.TP
+.B stack
+activa el uso de pilas de condiciones de arranque (ver Condiciones de
+Arranque más arriba).
+.TP
+.B stdinit
+si se establece (es decir,
+.B %option stdinit)
+inicializa
+.I yyin
+e
+.I yyout
+a
+.I stdin
+y
+.I stdout,
+en lugar del que viene por defecto que es
+.I nil.
+Algunos pogramas de
+.I lex
+existentes dependen de este comportamiento, incluso si no sigue el ANSI
+C, que no requiere que
+.I stdin
+y
+.I stdout
+sean constantes en tiempo de compilación.
+.TP
+.B yylineno
+ordena a
+.I flex
+a generar un analizador que mantenga el número de la línea actual
+leída desde su entrada en la variable global
+.B yylineno.
+Esta opción viene implícita con
+.B %option lex-compat.
+.TP
+.B yywrap
+si no se establece (es decir,
+.B %option noyywrap),
+hace que el analizador no llame a
+.B yywrap()
+hasta el fin-de-fichero, pero simplemente asume que no hay más
+ficheros que analizar (hasta que el usuario haga apuntar
+.I yyin
+a un nuevo fichero y llame a
+.B yylex()
+otra vez).
+.PP
+.I flex
+analiza las acciones de sus reglas para determinar si utiliza las
+propiedades 
+.B REJECT
+o
+.B yymore()
+Las opciones
+.B reject
+e
+.B yymore
+están disponibles para ignorar sus decisiones siempre que use las
+opciones, o bien estableciendolas (p.ej.,
+.B %option reject)
+para indicar que la propiedad se utiliza realmente, o desactivándolas
+para indicar que no es utilizada
+(p.ej.,
+.B %option noyymore).
+.PP
+Tres opciones toman valores delimitados por cadenas, separadas por '=':
+.nf
+
+    %option outfile="ABC"
+
+.fi
+es equivalente a
+.B -oABC,
+y
+.nf
+
+    %option prefix="XYZ"
+
+.fi
+es equivalente a
+.B -PXYZ.
+Finalmente,
+.nf
+
+    %option yyclass="foo"
+
+.fi
+sólo se aplica cuando se genera un analizador en C++ (opción
+.B \-+).
+Este informa a
+.I flex
+que ha derivado a
+.B foo
+como una subclase de
+.B yyFlexLexer,
+así que
+.I flex
+pondrá sus acciones en la función miembro
+.B foo::yylex()
+en lugar de
+.B yyFlexLexer::yylex().
+Este también genera una función miembro
+.B yyFlexLexer::yylex()
+que emite un error en tiempo de ejecución (invocando a
+.B yyFlexLexer::LexerError())
+si es llamada.
+Ver Generando Escáners en C++, más abajo, para información adicional.
+.PP
+Están disponibles un número de opciones para los puristas de lint que
+desean suprimir la aparición de rutinas no necesarias en el analizador
+generado.  Cada una de la siguientes, si se desactivan (p.ej.,
+.B %option nounput
+), hace que la rutina correspondiente no aparezca en el analizador
+generado:
+.nf
+
+    input, unput
+    yy_push_state, yy_pop_state, yy_top_state
+    yy_scan_buffer, yy_scan_bytes, yy_scan_string
+
+.fi
+(aunque
+.B yy_push_state()
+y sus amigas no aparecerán de todas manera a menos que use
+.B %option stack).
+.SH CONSIDERACIONES DE RENDIMIENTO
+El principal objetivo de diseño de
+.I flex
+es que genere analizadores de alto rendimiento.  Este ha sido
+optimizado para comportarse bien con conjuntos grandes de reglas.
+Aparte de los efectos sobre la velocidad del analizador con las
+opciones de compresión de tablas
+.B \-C
+anteriormente introducidas, hay un número de opciones/acciones que
+degradan el rendimiento.  Estas son, desde la más costosa a la menos:
+.nf
+
+    REJECT
+    %option yylineno
+    contexto posterior arbitrario
+
+    conjunto de patrones que requieren retroceso
+    %array
+    %option interactive
+    %option always-interactive
+
+    '^' operador de comienzo de línea
+    yymore()
+
+.fi
+siendo las tres primeras bastante costosas y las dos últimas bastante
+económicas.  Fíjese también que
+.B unput()
+se implementa como una llamada de rutina que potencialmente hace
+bastante trabajo, mientras que
+.B yyless()
+es una macro bastante económica; así que si está devolviendo algún
+texto excedente que ha analizado, use
+.B yyless().
+.PP
+.B REJECT
+debería evitarse a cualquier precio cuando el rendimiento es
+importante.  Esta es una opción particularmente cara.
+.PP
+Es lioso deshacerse del retroceso y a menudo podría ser una cantidad
+de trabajo enorme para un analizador complicado.  En principio, uno
+comienza utilizando la bandera
+.B \-b 
+para generar un archivo
+.I lex.backup.
+Por ejemplo, sobre la entrada
+.nf
+
+    %%
+    foo        return TOK_KEYWORD;
+    foobar     return TOK_KEYWORD;
+
+.fi
+el fichero tiene el siguiente aspecto:
+.nf
+
+    El estado #6 es no-aceptar -
+     números de línea asociados a la regla:
+           2       3
+     fin de transiciones: [ o ]
+     transiciones de bloqueo: fin de archivo (EOF) [ \\001-n  p-\\177 ]
+
+    El estado #8 es no-aceptar -
+     números de línea asociados a la regla:
+           3
+     fin de transiciones: [ a ]
+     transiciones de bloqueo: fin de archivo (EOF) [ \\001-`  b-\\177 ]
+
+    El estado #9 es no-aceptar -
+     números de línea asociados a la regla:
+           3
+     fin de transiciones: [ r ]
+     transiciones de bloqueo: fin de archivo (EOF) [ \\001-q  s-\\177 ]
+
+    Las tablas comprimidas siempre implican un retroceso.
+
+.fi
+Las primeras líneas nos dicen que hay un estado del analizador en el
+que se puede hacer una transición con una 'o' pero no sobre cualquier
+otro caracter, y que en ese estado el texto recientemente analizado no
+empareja con ninguna regla.  El estado ocurre cuando se intenta
+emparejar las reglas encontradas en las líneas 2 y 3 en el fichero de
+entrada.  Si el analizador está en ese estado y entoces lee cualquier
+cosa que no sea una 'o', tendrá que retroceder para encontrar una
+regla que empareje.  Con un poco de análisis uno puede ver que
+este debe ser el estado en el que se está cuando se ha visto "fo".
+Cuando haya ocurrido, si se ve cualquier cosa que no sea una 'o', el
+analizador tendrá que retroceder para simplemente emparejar la 'f'
+(por la regla por defecto).
+.PP
+El comentario que tiene que ver con el Estado #8 indica que hay un
+problema cuando se analiza "foob".  En efecto, con cualquier caracter
+que no sea una 'a', el analizador tendrá que retroceder para aceptar
+"foo".  De forma similar, el comentario para el Estado #9 tiene que
+ver cuando se ha analizado "fooba" y no le sigue una 'r'.
+.PP
+El comentario final nos recuerda que no mecere la pena todo el trabajo
+para eliminar el retroceso de las reglas a menos que estemos usando
+.B \-Cf
+o
+.B \-CF,
+y que no hay ninguna mejora del rendimiento haciéndolo con
+analizadores comprimidos.
+.PP
+La manera de quitar los retrocesos es añadiendo reglas de "error":
+.nf
+
+    %%
+    foo         return TOK_KEYWORD;
+    foobar      return TOK_KEYWORD;
+
+    fooba       |
+    foob        |
+    fo          {
+                /* falsa alarma, realmente no es una palabra clave */
+                return TOK_ID;
+                }
+
+.fi
+.PP
+La eliminación de retroceso en una lista de palabras clave también
+puede hacerse utilizando una regla "atrápalo-todo":
+.nf
+
+    %%
+    foo         return TOK_KEYWORD;
+    foobar      return TOK_KEYWORD;
+
+    [a-z]+      return TOK_ID;
+
+.fi
+Normalmente esta es la mejor solución cuando sea adecuada.
+.PP
+Los mensajes sobre retrocesos tienden a aparecer en cascada.
+Con un conjunto complicado de reglas no es poco común obtener cientos
+de mensajes.  Si uno puede descifrarlos, sin embargo, a menudo sólo
+hay que tomar una docena de reglas o algo así para eliminar los
+retrocesos (ya que es fácil cometer una equivocación y tener una regla de
+error que reconozca un token válido.  Una posible característica
+futura de 
+.I flex
+será añadir reglas automáticamente para eliminar el retroceso).
+.PP
+Es importante tener en cuenta que se obtienen los beneficios de
+eliminar el retroceso sólo si elimina
+.I cada
+instancia del retroceso.  Dejar solamente una significa que no ha
+ganado absolutamente nada.
+.PP
+El contexto posterior
+.I variable
+(donde la parte delantera y posterior no tienen una longitud fija)
+supone casi la misma pérdida de rendimiento que
+.B REJECT
+(es decir, substanciales).  Así que cuando sea posible una regla como
+esta:
+.nf
+
+    %%
+    raton|rata/(gato|perro)   correr();
+
+.fi
+es mejor escribirla así:
+.nf
+
+    %%
+    raton/gato|perro          correr();
+    rata/gato|perro           correr();
+
+.fi
+o así
+.nf
+
+    %%
+    raton|rata/gato           correr();
+    raton|rata/perro          correr();
+
+.fi
+Fíjese que aquí la acción especial '|'
+.I no
+ofrece ningún ahorro, y puede incluso hacer las cosas peor (ver
+Deficiencias / Errores más abajo).
+.LP
+Otro área donde el usuario puede incrementar el rendimiento del
+analizador (y una que es más fácil de implementar) surge del hecho que
+cuanto más tarde se empareje un token, más rápido irá el analizador.
+Esto es debido a que con tokens grandes el procesamiento de la mayoría
+de los caracteres de entrada tiene lugar en el (corto) bucle de
+análisis más interno, y no tiene que ir tan a menudo a hacer el
+trabajo de más para constituir el entorno del analizador (p.ej.,
+.B yytext)
+para la acción.  Recuerde el analizador para los comentarios en C:
+.nf
+
+    %x comentario
+    %%
+            int num_linea = 1;
+
+    "/*"         BEGIN(comentario);
+
+    <comentario>[^*\\n]*
+    <comentario>"*"+[^*/\\n]*
+    <comentario>\\n             ++num_linea;
+    <comentario>"*"+"/"        BEGIN(INITIAL);
+
+.fi
+Esto podría acelerarse escribiéndolo como:
+.nf
+
+    %x comentario
+    %%
+            int num_linea = 1;
+
+    "/*"         BEGIN(comentario);
+
+    <comentario>[^*\\n]*
+    <comentario>[^*\\n]*\\n      ++num_linea;
+    <comentario>"*"+[^*/\\n]*
+    <comentario>"*"+[^*/\\n]*\\n ++num_linea;
+    <comentario>"*"+"/"        BEGIN(INITIAL);
+
+.fi
+Ahora en lugar de que cada línea nueva requiera el procesamiento de
+otra regla, el reconocimiento de las líneas nuevas se "distribuye"
+sobre las otras reglas para mantener el texto reconocido tan largo
+como sea posible.  ¡Fíjese que el
+.I añadir
+reglas
+.I no
+ralentiza el analizador!  La velocidad del analizador es independiente
+del número de reglas o (dadas las consideraciones dadas al inicio
+de esta sección) cuán complicadas sean las reglas respecto a
+operadores tales como '*' y '|'.
+.PP
+Un ejemplo final sobre la aceleración de un analizador: suponga que
+quiere analizar un fichero que contiene identificadores y
+palabras clave, una por línea y sin ningún caracter extraño, y
+reconocer todas las palabras clave.  Una primera aproximación natural
+es:
+.nf
+
+    %%
+    asm      |
+    auto     |
+    break    |
+    ... etc ...
+    volatile |
+    while    /* es una palabra clave */
+
+    .|\\n     /* no es una palabra clave */
+
+.fi
+Para eliminar el retroceso, introduzca una regla atrápalo-todo:
+.nf
+
+    %%
+    asm      |
+    auto     |
+    break    |
+    ... etc ...
+    volatile |
+    while    /* es una palabra clave */
+
+    [a-z]+   |
+    .|\\n     /* no es una palabra clave */
+
+.fi
+Ahora, si se garantiza que hay exáctamente una palabra por línea,
+entonces podemos reducir el número total de emparejamientos por la
+mitad mezclando el reconocimiento de líneas nuevas con las de los
+otros tokens:
+.nf
+
+    %%
+    asm\\n    |
+    auto\\n   |
+    break\\n  |
+    ... etc ...
+    volatile\\n |
+    while\\n  /* es una palabra clave */
+
+    [a-z]+\\n |
+    .|\\n     /* no es una palabra clave */
+
+.fi
+Uno tiene que ser cuidadoso aquí, ya que hemos reintroducido retroceso
+en el analizador.  En particular, aunque
+.I nosotros
+sepamos que ahí nunca habrán otros caracteres en el flujo de entrada
+que no sean letras o líneas nuevas,
+.I flex
+no puede figurarse eso, y planeará la posible necesidad de
+retroceder cuando haya analizado un token como "auto" y el próximo
+caracter sea algo distinto a una línea nueva o una letra.  Previamente
+este podría entonces emparejar la regla "auto" y estar todo hecho, pero
+ahora este no tiene una regla "auto", solamente una regla "auto\\n".
+Para eliminar la posibilidad de retroceso, podríamos o bien duplicar
+todas las reglas pero sin línea nueva al final, o, ya que nunca
+esperamos encontrar tal entrada y por lo tanto ni cómo es clasificada,
+podemos introducir una regla atrápalo-todo más, esta que no incluye
+una línea nueva:
+.nf
+
+    %%
+    asm\\n    |
+    auto\\n   |
+    break\\n  |
+    ... etc ...
+    volatile\\n |
+    while\\n  /* es una palabra clave */
+
+    [a-z]+\\n |
+    [a-z]+   |
+    .|\\n     /* no es una palabra clave */
+
+.fi
+Compilado con
+.B \-Cf,
+esto es casi tan rápido como lo que uno puede obtener de un analizador
+de
+.I flex
+para este problema en particular.
+.PP
+Una nota final:
+.I flex
+es lento cuando empareja NUL's, particularmente cuando un token
+contiene múltiples NUL's.
+Es mejor escribir reglas que emparejen
+.I cortas
+cantidades de texto si se anticipa que el texto incluirá NUL's a
+menudo.
+.PP
+Otra nota final en relación con el rendimiento: tal y como se mencionó
+en la sección Cómo se Reconoce la Entrada, el reajuste dinámico de
+.B yytext
+para acomodar tokens enormes es un proceso lento porque ahora requiere
+que el token (inmenso) sea reanalizado desde el principio.  De esta
+manera si el rendimiento es vital, debería intentar emparejar
+"grandes" cantidades de texto pero no "inmensas" cantidades, donde el
+punto medio está en torno a los 8K caracteres/token.
+.SH GENERANDO ESCÁNERES EN C++
+.I flex
+ofrece dos maneras distintas de generar analizadores para usar con
+C++.  La primera manera es simplemente compilar un analizador generado
+por
+.I flex
+usando un compilador de C++ en lugar de un compilador de C.  No
+debería encontrarse ante ningún error de compilación (por favor
+informe de cualquier error que encuentre a la dirección de correo
+electrónico dada en la sección Autores más abajo).  Puede entonces
+usar código C++ en sus acciones de las reglas en lugar de código C.
+Fíjese que la fuente de entrada por defecto para su analizador permanece
+como
+.I yyin,
+y la repetición por defecto se hace aún a
+.I yyout.
+Ambos permanecen como variables
+.I FILE *
+y no como 
+.I flujos
+de C++.
+.PP
+También puede utilizar
+.I flex
+para generar un analizador como una clase de C++, utilizando la opción
+.B \-+
+(o, equivalentemente,
+.B %option c++),
+que se especifica automáticamente si el nombre del ejecutable de flex
+finaliza con un '+', tal como
+.I flex++.
+Cuando se usa esta opcióx, flex establece por defecto la generación
+del analizador al fichero
+.B lex.yy.cc
+en vez de
+.B lex.yy.c.
+El analizador generado incluye el fichero de cabecera
+.I FlexLexer.h,
+que define el interfaz con las dos clases de C++.
+.PP
+La primera clase,
+.B FlexLexer,
+ofrece una clase base abstracta definiendo la interfaz a la clase del
+analizador general.  Este provee las siguientes funciones miembro:
+.TP
+.B const char* YYText()
+retorna el texto del token reconocido más recientemente, el equivalente
+a
+.B yytext.
+.TP
+.B int YYLeng()
+retorna la longitud del token reconocido más recientemente, el
+equivalente a
+.B yyleng.
+.TP
+.B int lineno() const
+retorna el número de línea de entrada actual
+(ver
+.B %option yylineno),
+o
+.B 1
+si no se usó
+.B %option yylineno.
+.TP
+.B void set_debug( int flag )
+activa la bandera de depuración para el analizador, equivalente a
+la asignación de
+.B yy_flex_debug
+(ver la sección Opciones más arriba).  Fíjese que debe construir el
+analizador utilizando
+.B %option debug
+para incluir información de depuración en este.
+.TP
+.B int debug() const
+retorna el estado actual de la bandera de depuración.
+.PP
+También se proveen funciones miembro equivalentes a
+.B yy_switch_to_buffer(),
+.B yy_create_buffer()
+(aunque el primer argumento es un puntero a objeto
+.B istream*
+y no un
+.B FILE*),
+.B yy_flush_buffer(),
+.B yy_delete_buffer(),
+y
+.B yyrestart()
+(de nuevo, el primer argumento es un puntero a objeto
+.B istream*
+).
+.PP
+La segunda clase definida en
+.I FlexLexer.h
+es
+.B yyFlexLexer,
+que se deriva de
+.B FlexLexer.
+Esta define las siguientes funciones miembro adicionales:
+.TP
+.B
+yyFlexLexer( istream* arg_yyin = 0, ostream* arg_yyout = 0 )
+construye un objeto
+.B yyFlexLexer
+usando los flujos dados para la entrada y salida.  Si no se
+especifica, los flujos se establecen por defecto a
+.B cin
+y
+.B cout,
+respectivamente.
+.TP
+.B virtual int yylex()
+hace el mismo papel que
+.B yylex()
+en los analizadores de flex ordinarios: analiza el flujo de entrada,
+consumiendo tokens, hasta que la acción de una regla retorne un
+valor.  Si usted deriva una subclase
+.B S
+a partir de
+.B yyFlexLexer
+y quiere acceder a las funciones y variables miembro de
+.B S
+dentro de
+.B yylex(),
+entonces necesita utilizar
+.B %option yyclass="S"
+para informar a
+.I flex
+que estará utilizando esa subclase en lugar de
+.B yyFlexLexer.
+Es este caso, en vez de generar
+.B yyFlexLexer::yylex(),
+.I flex
+genera
+.B S::yylex()
+(y también genera un substituto
+.B yyFlexLexer::yylex()
+que llama a
+.B yyFlexLexer::LexerError()
+si se invoca).
+.TP
+.B
+virtual void switch_streams(istream* new_in = 0,
+.B
+ostream* new_out = 0)
+reasigna
+.B yyin
+a
+.B new_in
+(si no es nulo)
+e
+.B yyout
+a
+.B new_out
+(idem), borrando el buffer de entrada anterior si se reasigna
+.B yyin.
+.TP
+.B
+int yylex( istream* new_in, ostream* new_out = 0 )
+primero conmuta el flujo de entrada via
+.B switch_streams( new_in, new_out )
+y entonces retorna el valor de
+.B yylex().
+.PP
+Además,
+.B yyFlexLexer
+define las siguientes funciones virtuales protegidas que puede
+redefinir en clases derivadas para adaptar el analizador:
+.TP
+.B
+virtual int LexerInput( char* buf, int max_size )
+lee hasta
+.B max_size
+caracteres en
+.B buf
+y devuelve el número de caracteres leídos.  Para indicar el
+fin-de-la-entrada, devuelve 0 caracteres.  Fíjese que los analizadores
+"interactivos" (ver las banderas
+.B \-B
+y
+.B \-I
+) definen la macro
+.B YY_INTERACTIVE.
+Si usted redefine
+.B LexerInput()
+y necesita tomar acciones distintas dependiendo de si el analizador
+está analizando una fuente de entrada interactivo o no, puede
+comprobar la presencia de este nombre mediante
+.B #ifdef.
+.TP
+.B
+virtual void LexerOutput( const char* buf, int size )
+escribe a la salida
+.B size
+caracteres desde el buffer
+.B buf,
+que, mientras termine en NUL, puede contener también NUL's "internos"
+si las reglas del analizador pueden emparejar texto con NUL's dentro
+de este.
+.TP
+.B
+virtual void LexerError( const char* msg )
+informa con un mensaje de error fatal.  La versión por defecto de esta
+función escribe el mensaje al flujo
+.B cerr
+y finaliza.
+.PP
+Fíjese que un objeto
+.B yyFlexLexer
+contiene su estado de análisis
+.I completo.
+Así puede utilizar tales objetos para crear analizadore reentrantes.
+Puede hacer varias instancias de la misma clase
+.B yyFlexLexer,
+y puede combinar varias clases de analizadores en C++ conjuntamente en
+el mismo programa usando la opción
+.B \-P
+comentada anteriormente.
+.PP
+Finalmente, note que la característica
+.B %array
+no está disponible en clases de analizadores en C++; debe utilizar
+.B %pointer
+(por defecto).
+.PP
+Aquí hay un ejemplo de un analizador en C++ simple:
+.nf
+
+    // Un ejemplo del uso de la clase analizador en C++ de flex.
+
+    %{
+    int mylineno = 0;
+    %}
+
+    string  \\"[^\\n"]+\\"
+
+    ws      [ \\t]+
+
+    alpha   [A-Za-z]
+    dig     [0-9]
+    name    ({alpha}|{dig}|\\$)({alpha}|{dig}|[_.\\-/$])*
+    num1    [-+]?{dig}+\\.?([eE][-+]?{dig}+)?
+    num2    [-+]?{dig}*\\.{dig}+([eE][-+]?{dig}+)?
+    number  {num1}|{num2}
+
+    %%
+
+    {ws}    /* evita los espacios en blanco y tabuladores */
+
+    "/*"    {
+            int c;
+
+            while((c = yyinput()) != 0)
+                {
+                if(c == '\\n')
+                    ++mylineno;
+
+                else if(c == '*')
+                    {
+                    if((c = yyinput()) == '/')
+                        break;
+                    else
+                        unput(c);
+                    }
+                }
+            }
+
+    {number}  cout << "número " << YYText() << '\\n';
+
+    \\n        mylineno++;
+
+    {name}    cout << "nombre " << YYText() << '\\n';
+
+    {string}  cout << "cadena " << YYText() << '\\n';
+
+    %%
+
+    int main( int /* argc */, char** /* argv */ )
+        {
+        FlexLexer* lexer = new yyFlexLexer;
+        while(lexer->yylex() != 0)
+            ;
+        return 0;
+        }
+.fi
+Si desea crear varias (diferentes) clases analizadoras, use la bandera
+.B \-P
+(o la opción
+.B prefix=
+) para renombrar cada
+.B yyFlexLexer
+a algún otro
+.B xxFlexLexer.
+Entonces puede incluir
+.B <FlexLexer.h>
+en los otros ficheros fuente una vez por clase analizadora, primero
+renombrando 
+.B yyFlexLexer
+como se presenta a continuación:
+.nf
+
+    #undef yyFlexLexer
+    #define yyFlexLexer xxFlexLexer
+    #include <FlexLexer.h>
+
+    #undef yyFlexLexer
+    #define yyFlexLexer zzFlexLexer
+    #include <FlexLexer.h>
+
+.fi
+si, por ejemplo, usted utilizó
+.B %option prefix="xx"
+para uno de sus analizadores y
+.B %option prefix="zz"
+para el otro.
+.PP
+IMPORTANTE: la forma actual de la clase analizadora es
+.I experimental
+y podría cambiar considerablemente entre versiones principales.
+.SH INCOMPATIBILIDADES CON LEX Y POSIX
+.I flex
+es una reescritura de la herramienta
+.I lex
+del Unix de AT&T
+(aunque las dos implementaciones no comparten ningún código),
+con algunas extensiones e incompatibilidades, de las que ambas
+conciernen a aquellos que desean escribir analizadores aceptables por
+cualquier implementación.  Flex sigue completamente la especificación
+POSIX de
+.I lex,
+excepto que cuando se utiliza
+.B %pointer
+(por defecto), una llamada a
+.B unput()
+destruye el contenido de
+.B yytext,
+que va en contra de la especificación POSIX.
+.PP
+En esta sección comentaremos todas las áreas conocidas de
+incompatibilidades entre flex, lex de AT&T, y la especificación POSIX.
+.PP
+La opción
+.B \-l
+de
+.I flex
+activa la máxima compatibilidad con la implementación original de
+.I lex
+de AT&T, con el coste de una mayor pérdida de rendimiento en el
+analizador generado.  Indicamos más abajo qué incompatibilidades
+pueden superarse usando la opción
+.B \-l.
+.PP
+.I flex
+es totalmente compatible con
+.I lex
+con las siguientes excepciones:
+.IP -
+La variable interna del analizador de
+.I lex
+sin documentar
+.B yylineno
+no se ofrece a menos que se use
+.B \-l
+o
+.B %option yylineno.
+.IP
+.B yylineno
+debería gestionarse por buffer, en lugar de por analizador (simple
+variable global).
+.IP
+.B yylineno
+no es parte de la especificación POSIX.
+.IP -
+La rutina
+.B input()
+no es redefinible, aunque podría invocarse para leer los caracteres
+que siguen a continuación de lo que haya sido reconocido por una
+regla.  Si
+.B input()
+se encuentra con un fin-de-fichero se realiza el procesamiento de
+.B yywrap()
+normal.
+.B input()
+retorna un fin-de-fichero ``real'' como
+.I EOF.
+.IP
+La entrada en su lugar se controla definiendo la macro
+.B YY_INPUT.
+.IP
+La restricción de
+.I flex
+de que
+.B input()
+no puede redefinirse va de acuerdo a la especificación POSIX, que
+simplemente no especifica ninguna manera de controlar la entrada del
+analizador que no sea haciendo una asignación inicial a
+.I yyin.
+.IP -
+La rutina
+.B unput()
+no es redefinible.  Esta restricción va de acuerdo a POSIX.
+.IP -
+Los analizadores de
+.I flex
+no son tan reentrantes como los analizadores de
+.I lex.
+En particular, si tiene un analizador interactivo y un gestor de
+interrupción con long-jumps fuera del analizador, y el analizador a
+continuación se invoca de nuevo, podría obtener el siguiente mensaje:
+.nf
+
+    fatal flex scanner internal error--end of buffer missed
+
+.fi
+Para volver al analizador, primero utilice
+.nf
+
+    yyrestart( yyin );
+
+.fi
+Vea que esta llamada eliminará cualquier entrada en el buffer;
+normalmente esto no es un problema con un analizador interactivo.
+.IP
+Dese cuenta también de que las clases analizadoras en C++
+.I son
+reentrantes, así que si usar C++ es una opción para usted, debería
+utilizarla.  Vea "Generando Escáners en C++" más arriba para los
+detalles.
+.IP -
+.B output()
+no se provee.
+La salida desde la macro
+.B ECHO
+se hace al puntero de fichero
+.I yyout
+(por defecto a
+.I stdout).
+.IP
+.B output()
+no es parte de la especificación POSIX.
+.IP -
+.I lex
+no acepta condiciones de arranque exclusivas (%x), aunque están en la
+especificación POSIX.
+.IP -
+Cuando se expanden las definiciones,
+.I flex
+las encierra entre paréntesis.
+Con lex, lo siguiente:
+.nf
+
+    NOMBRE    [A-Z][A-Z0-9]*
+    %%
+    foo{NOMBRE}?      printf( "Lo encontró\\n" );
+    %%
+
+.fi
+no reconocerá la cadena "foo" porque cuando la macro se expanda la
+regla es equivalente a "foo[A-Z][A-Z0-9]*?" y la precedencia es tal
+que el '?' se asocia con
+"[A-Z0-9]*".  Con
+.I flex,
+la regla se expandirá a
+"foo([A-Z][A-Z0-9]*)?" y así la cadena "foo" se reconocerá.
+.IP
+Fíjese que si la definición comienza con
+.B ^
+o finaliza con
+.B $
+entonces
+.I no
+se expande con paréntesis, para permitir que estos operadores
+aparezcan en las definiciones sin perder su significado especial.
+Pero los operadores
+.B <s>, /,
+y
+.B <<EOF>>
+no pueden utilizarse en una definición de
+.I flex.
+.IP
+El uso de
+.B \-l
+produce en el comportamiendo de
+.I lex
+el no poner paréntesis alrededor de la definición.
+.IP
+La especificación de POSIX dice que la definición debe ser encerrada
+entre paréntesis.
+.IP -
+Algunas implementaciones de
+.I lex
+permiten que la acción de una regla comience en una línea separada, si
+el patrón de la regla tiene espacios en blanco al final:
+.nf
+
+    %%
+    foo|bar<espacio aquí>
+      { foobar_action(); }
+
+.fi
+.I flex
+no dispone de esta propiedad.
+.IP -
+La opción
+.B %r
+de
+.I lex
+(generar un analizador Ratfor) no se ofrece.  No es parte de la
+especificación de POSIX.
+.IP -
+Después de una llamada a
+.B unput(),
+el contenido de
+.I yytext
+está indefinido hasta que se reconozca el próximo token, a menos que
+el analizador se haya construido usando
+.B %array.
+Este no es el caso de
+.I lex
+o la especificación de POSIX.  La opción
+.B \-l
+elimina esta incompatibilidad.
+.IP -
+La precedencia del operador
+.B {}
+(rango numérico) es diferente.
+.I lex
+interpreta "abc{1,3}" como "empareja uno, dos, o tres apariciones de
+ 'abc'", mientras que
+.I flex
+lo interpreta como "empareja 'ab' seguida de una, dos o tres
+apariciones de 'c'".  Lo último va de acuerdo con la especificación de
+POSIX.
+.IP -
+La precedencia del operador
+.B ^
+es diferente.
+.I lex
+interpreta "^foo|bar" como "empareja bien 'foo' al principio de una
+línea, o 'bar' en cualquier lugar", mientras que
+.I flex
+lo interpreta como "empareja 'foo' o 'bar' si vienen al principio de
+una línea".  Lo último va de acuerdo con la especificación de POSIX.
+.IP -
+Las declaraciones especiales del tamaño de las tablas tal como
+.B %a
+que reconoce
+.I lex
+no se requieren en los analizadores de
+.I flex;
+.I flex
+los ignora.
+.IP -
+El identificador
+.bd
+FLEX_SCANNER
+se #define de manera que los analizadores podrían escribirse para
+ser procesados con
+.I flex
+o con
+.I lex.
+Los analizadores también incluyen
+.B YY_FLEX_MAJOR_VERSION
+y
+.B YY_FLEX_MINOR_VERSION
+indicando qué versión de
+.I flex
+generó el analizador
+(por ejemplo, para la versión 2.5, estas definiciones serán 2 y 5
+respectivamente).
+.PP
+Las siguientes propiedades de
+.I flex
+no se incluyen en
+.I lex
+o la especificación POSIX:
+.nf
+
+    analizadores en C++
+    %option
+    ámbitos de condiciones de arranque
+    pilas de condiciones de arranque
+    analizadores interactivos/no-interactivos
+    yy_scan_string() y sus amigas
+    yyterminate()
+    yy_set_interactive()
+    yy_set_bol()
+    YY_AT_BOL()
+    <<EOF>>
+    <*>
+    YY_DECL
+    YY_START
+    YY_USER_ACTION
+    YY_USER_INIT
+    directivas #line
+    %{}'s alrededor de acciones
+    varias acciones en una línea
+
+.fi
+más casi todas las banderas de flex.
+La última propiedad en la lista se refiere al hecho de que con
+.I flex
+puede poner varias acciones en la misma línea, sepradas con punto y
+coma, mientras que con
+.I lex,
+lo siguiente
+.nf
+
+    foo    handle_foo(); ++num_foos_seen;
+
+.fi
+se trunca (sorprendentemente) a
+.nf
+
+    foo    handle_foo();
+
+.fi
+.I flex
+no trunca la acción.  Las acciones que no se encierran en llaves
+simplemente se terminan al final de la línea.
+.SH DIAGNÓSTICOS
+.PP
+.I aviso, la regla no se puede aplicar
+indica que la regla dada
+no puede emparejarse porque sigue a otras reglas que siempre
+emparejarán el mismo texto que el de esta.  Por ejemplo, en el
+siguiente ejemplo "foo" no puede emparejarse porque viene después de
+una regla "atrápalo-todo" para identificadores:
+.nf
+
+    [a-z]+    obtuvo_identificador();
+    foo       obtuvo_foo();
+
+.fi
+El uso de
+.B REJECT
+en un analizador suprime este aviso.
+.PP
+.I aviso,
+.I se ha especificado la opción 
+.B -s
+.I pero se puede aplicar la regla por defecto
+significa que es posible (tal vez únicamente en una condición de
+arranque en particular) que la regla por defecto (emparejar cualquier
+caracter simple) sea la única que emparejará una entrada particular.
+Ya que se indicó
+.B \-s,
+presumiblemente esto no es lo que se pretendía.
+.PP
+.I definición no definida {reject_used_but_not_detected}
+o
+.I definición no definida {yymore_used_but_not_detected} -
+Estos errores pueden suceder en tiempo de compilación.  Indican que el
+analizador usa
+.B REJECT
+o
+.B yymore()
+pero que
+.I flex
+falló en darse cuenta del hecho, queriendo decir que
+.I flex
+analizó las dos primeras secciones buscando apariciones de estas
+acciones y falló en encontrar alguna, pero que de algún modo se le han
+colado (por medio de un archivo #include, por ejemplo).  Use
+.B %option reject
+o
+.B %option yymore
+para indicar a flex que realmente usa esta funcionalidad.
+.PP
+.I flex scanner jammed -
+un analizador compilado con
+.B \-s
+ha encontrado una cadena de entrada que no fue reconocida por niguna
+de sus reglas.  Este error puede suceder también debido a problemas
+internos.
+.PP
+.I token too large, exceeds YYLMAX -
+su analizador usa
+.B %array
+y una de sus reglas reconoció una cadena más grande que la constante
+.B YYLMAX
+(8K bytes por defecto).  Usted puede incrementar el valor haciendo un
+#define
+.B YYLMAX
+en la sección de definiciones de su entrada de
+.I flex.
+.PP
+.I el analizador requiere la opción -8 para
+.I poder usar el carácter 'x' -
+La especificación de su analizador incluye el reconocimiento del
+caracter de 8-bits
+.I 'x'
+y no ha especificado la bandera \-8, y su analizador por defecto está
+a 7-bits porque ha usado las opciones
+.B \-Cf
+o
+.B \-CF
+de compresión de tablas.  Vea el comentario de la bandera
+.B \-7
+para los detalles.
+.PP
+.I flex scanner push-back overflow -
+usted utilizó
+.B unput()
+para devolver tanto texto que el buffer del analizador no pudo
+mantener el texto devuelto y el token actual en
+.B yytext.
+Idealmente el analizador debería ajustar dinámicamente el buffer en
+este caso, pero actualmente no lo hace.
+.PP
+.I
+input buffer overflow, can't enlarge buffer because scanner uses REJECT -
+el analizador estaba intentando reconocer un token extremadamente
+largo y necesitó expandir el buffer de entrada.  Esto no funciona con
+analizadores que usan
+.B
+REJECT.
+.PP
+.I
+fatal flex scanner internal error--end of buffer missed -
+Esto puede suceder en un analizador que se reintroduce después de que
+un long-jump haya saltado fuera (o sobre) el registro de activación del
+analizador.  Antes de reintroducir el analizador, use:
+.nf
+
+    yyrestart( yyin );
+
+.fi
+o, como se comentó más arriba, cambie y use el analizador como clase
+de C++.
+.PP
+.I too many start conditions in <> construct! -
+ha listado más condiciones de arranque en una construcción <> que las
+que existen (así que tuvo que haber listado al menos una de ellas dos
+veces).
+.SH FICHEROS
+.TP
+.B \-lfl
+librería con la que los analizadores deben enlazarse.
+.TP
+.I lex.yy.c
+analizador generado (llamado
+.I lexyy.c
+en algunos sistemas).
+.TP
+.I lex.yy.cc
+clase generada en C++ con el analizador, cuando se utiliza
+.B -+.
+.TP
+.I <FlexLexer.h>
+fichero de cabecera definiendo la clase base del analizador en C++,
+.B FlexLexer,
+y su clase derivada,
+.B yyFlexLexer.
+.TP
+.I flex.skl
+esqueleto del analizador.  Este fichero se utiliza únicamente cuando
+se construye flex, no cuando flex se ejecuta.
+.TP
+.I lex.backup
+información de los retrocesos para la bandera
+.B \-b
+(llamada
+.I lex.bck
+en algunos sistemas).
+.SH DEFICIENCIAS / ERRORES
+.PP
+Algunos patrones de contexto posterior no pueden reconocerse
+correctamente y generan mensajes de aviso ("contexto posterior
+peligroso").  Estos son patrones donde el final de la primera parte
+de la regla reconoce el comienzo de la segunda parte, tal como
+"zx*/xy*", donde el 'x*' reconoce la 'x' al comienzo del contexto
+posterior. (Fíjese que el borrador de POSIX establece que el texto
+reconocido por tales patrones no está definido.)
+.PP
+Para algunas reglas de contexto posterior, partes que son de hecho de
+longitud fija no se reconocen como tales, resultando en la pérdida de
+rendimiento mencionada anteriormente.  En particular, las partes que
+usan '|' o {n} (tales como "foo{3}") siempre se consideran de longitud
+variable.
+.PP
+La combinación de contexto posterior con la acción especial '|' puede
+producir que el contexto posterior
+.I fijo
+se convierta en contexto posterior
+.I variable
+que es más caro.  Por ejemplo, en lo que viene a continuación:
+.nf
+
+    %%
+    abc      |
+    xyz/def
+
+.fi
+.PP
+El uso de
+.B unput()
+invalida yytext e yyleng, a menos que se use la directiva
+.B %array
+o la opción
+.B \-l.
+.PP
+La concordancia de patrones de NUL's es substancialmente más lento
+que el reconocimiento de otros caracteres.
+.PP
+El ajuste dinámico del buffer de entrada es lento, ya que conlleva el
+reanálisis de todo el texto reconocido hasta entonces por el
+(generalmente enorme) token actual.
+.PP
+Debido al uso simultáneo de buffers de entrada y lecturas por
+adelantado, no puede entremezclar llamadas a rutinas de <stdio.h>,
+tales como, por ejemplo,
+.B getchar(),
+con reglas de
+.I flex
+y esperar que funcione.  Llame a
+.B input()
+en su lugar.
+.PP
+La totalidad de las entradas de la tabla listada por la bandera
+.B \-v
+excluye el número de entradas en la tabla necesarias para determinar
+qué regla ha sido emparejada.  El número de entradas es igual al número
+de estados del DFA si el analizador no usa 
+.B REJECT,
+y algo mayor que el número de estados si se usa.
+.PP
+.B REJECT
+no puede usarse con las opciones
+.B \-f
+o
+.B \-F.
+.PP
+El algoritmo interno de
+.I flex
+necesita documentación.
+.SH VER TAMBIÉN
+.PP
+lex(1), yacc(1), sed(1), awk(1).
+.PP
+John Levine, Tony Mason, and Doug Brown,
+.I Lex & Yacc,
+O'Reilly and Associates.  Esté seguro de obtener la 2ª edición.
+.PP
+M. E. Lesk and E. Schmidt,
+.I LEX \- Lexical Analyzer Generator
+.PP
+Alfred Aho, Ravi Sethi and Jeffrey Ullman,
+.I Compilers: Principles, Techniques and Tools,
+Addison-Wesley (1986)
+(Edición en castellano:
+.I Compiladores: Principios, Técnicas y Herramientas,
+Addison-Wesley Iberoamericana, S.A. (1990))  Describe las técnicas de
+concordancia de patrones usadas por
+.I flex
+(autómata finito determinista).
+.SH AUTOR
+Vern Paxson, con la ayuda de muchas ideas e inspiración de
+Van Jacobson.  Versión original por Jef Poskanzer.  La representación
+de tablas rápidas es una implementación parcial de un diseño hecho por
+Van Jacobson.  La implementación fue hecha por Kevin Gong y Vern Paxson.
+.PP
+Agradecimientos a los muchos
+.I flex
+beta-testers, feedbackers, y contribuidores, especialmente a Francois Pinard,
+Casey Leedom,
+Robert Abramovitz,
+Stan Adermann, Terry Allen, David Barker-Plummer, John Basrai,
+Neal Becker, Nelson H.F. Beebe, benson@odi.com,
+Karl Berry, Peter A. Bigot, Simon Blanchard,
+Keith Bostic, Frederic Brehm, Ian Brockbank, Kin Cho, Nick Christopher,
+Brian Clapper, J.T. Conklin,
+Jason Coughlin, Bill Cox, Nick Cropper, Dave Curtis, Scott David
+Daniels, Chris G. Demetriou, Theo Deraadt,
+Mike Donahue, Chuck Doucette, Tom Epperly, Leo Eskin,
+Chris Faylor, Chris Flatters, Jon Forrest, Jeffrey Friedl,
+Joe Gayda, Kaveh R. Ghazi, Wolfgang Glunz,
+Eric Goldman, Christopher M. Gould, Ulrich Grepel, Peer Griebel,
+Jan Hajic, Charles Hemphill, NORO Hideo,
+Jarkko Hietaniemi, Scott Hofmann,
+Jeff Honig, Dana Hudes, Eric Hughes, John Interrante,
+Ceriel Jacobs, Michal Jaegermann, Sakari Jalovaara, Jeffrey R. Jones,
+Henry Juengst, Klaus Kaempf, Jonathan I. Kamens, Terrence O Kane,
+Amir Katz, ken@ken.hilco.com, Kevin B. Kenny,
+Steve Kirsch, Winfried Koenig, Marq Kole, Ronald Lamprecht,
+Greg Lee, Rohan Lenard, Craig Leres, John Levine, Steve Liddle,
+David Loffredo, Mike Long,
+Mohamed el Lozy, Brian Madsen, Malte, Joe Marshall,
+Bengt Martensson, Chris Metcalf,
+Luke Mewburn, Jim Meyering, R. Alexander Milowski, Erik Naggum,
+G.T. Nicol, Landon Noll, James Nordby, Marc Nozell,
+Richard Ohnemus, Karsten Pahnke,
+Sven Panne, Roland Pesch, Walter Pelissero, Gaumond
+Pierre, Esmond Pitt, Jef Poskanzer, Joe Rahmeh, Jarmo Raiha,
+Frederic Raimbault, Pat Rankin, Rick Richardson,
+Kevin Rodgers, Kai Uwe Rommel, Jim Roskind, Alberto Santini,
+Andreas Scherer, Darrell Schiebel, Raf Schietekat,
+Doug Schmidt, Philippe Schnoebelen, Andreas Schwab,
+Larry Schwimmer, Alex Siegel, Eckehard Stolz, Jan-Erik Strvmquist,
+Mike Stump, Paul Stuart, Dave Tallman, Ian Lance Taylor,
+Chris Thewalt, Richard M. Timoney, Jodi Tsai,
+Paul Tuinenga, Gary Weik, Frank Whaley, Gerhard Wilhelms, Kent Williams, Ken
+Yap, Ron Zellar, Nathan Zelle, David Zuhn,
+y aquellos cuyos nombres han caído bajo mis escasas dotes de
+archivador de correo pero cuyas contribuciones son apreciadas todas
+por igual.
+
+.PP
+Agradecimientos a Keith Bostic, Jon Forrest, Noah Friedman,
+John Gilmore, Craig Leres, John Levine, Bob Mulcahy, G.T.
+Nicol, Francois Pinard, Rich Salz, y a Richard Stallman por la ayuda con
+diversos quebraderos de cabeza con la distribución.
+.PP
+Agradecimientos a Esmond Pitt y Earle Horton por el soporte de
+caracteres de 8-bits; a Benson Margulies y a Fred Burke por el soporte
+de C++; a Kent Williams y a Tom Epperly por el soporte de la clase de
+C++; a Ove Ewerlid por el soporte de NUL's; y a Eric Hughes por el
+soporte de múltiples buffers.
+.PP
+Este trabajo fue hecho principalmente cuando yo estaba con el Grupo de
+Sistemas de Tiempo Real en el Lawrence Berkeley Laboratory en
+Berkeley, CA.  Muchas gracias a todos allí por el apoyo que recibí.
+.PP
+Enviar comentarios a vern@ee.lbl.gov.
+.PP
+Sobre esta traducción enviar comentarios a Adrián Pérez
+Jorge (alu1415@csi.ull.es).

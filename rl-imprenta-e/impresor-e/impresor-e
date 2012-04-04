@@ -1,0 +1,355 @@
+#!/usr/bin/perl
+
+# impresor-e.in
+#
+# Author: Gaspar Oriol	gaspar.oriol@hispalinux.es
+#
+# This program is free software; you can redistribute it and/or 
+# modify it under the terms of the GNU General Public License as 
+# published by the Free Software Foundation; either version 2 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307
+# USA
+#
+
+
+use strict;
+
+use lib "/usr/local/lib/imprenta-e-tools";
+
+
+use Printer;
+
+#########################
+#  Variables  Globales  #
+#########################
+
+my $ps; # Contendran un texto si estan en los parametros
+my $pdf;
+my $html;
+my $htmltgz;
+my $help;
+my $format;
+my $images; # Si hay imagenes sueltas
+my $imagesdir; #Si las imagenes estan en un directorio 
+my $fig; # Directorio de las imagenes
+my $samplesdir; # si los ejemplos están en un directorio
+my $sdir; # Directorio de los ejemplos
+my $ext;  # extensión del archivo a procesar
+my $stylesheet; #si se utilza una hoja de estilo diferente para el docbook XML
+my $style; # hoja de estilo a aplicar
+
+##########
+#  Main  #
+##########
+
+my @options = @ARGV;
+
+&comprobar_parametros (@options);
+
+my $filePath = getFileName (@options);
+
+my ($volume,$path,$fileName) = File::Spec->splitpath($filePath);
+
+my $dir; # contiene el nombre del archivo sin extensión
+
+# obtiene la extensión del archivo a procesar
+if ($fileName =~/\./) {
+	$ext = $';
+	while ($ext =~/\./) {
+		$ext = $';
+	}
+}
+
+if ($fileName =~ /\.$ext/) {
+	$dir = $`;
+}
+
+
+&makeDir ($dir);
+
+&makeDoc ($fileName);
+
+exit 0;
+################
+#	Funciones  #
+################
+
+# Función que muestra un mensaje de error
+sub errorMessage {
+	print "Es necesario especificar alguna opción\n";	
+	print "Pruebe impresor-e --help\n", "\n";
+	}
+	
+# Muestra mensaje de ayuda
+sub helpMessage
+	{
+	print "Impresor-e v0.2\n\n";
+	print "Uso: impresor-e --opciones archivo.sgml\n\n";
+	print "Opciones:\n"; 
+	print "\t--help\t\t muestra este mensaje\n";
+	print "\t--format\t\t formato del documento DocBook, Linuxdoc o DocbookXML\n";	
+	print "\t--ps\t\t genera fichero postscript\n";
+	print "\t--pdf\t\t genera fichero pdf\n";
+	print "\t--html\t\t genera fichero html\n";
+	print "\t--htmltgz\t\t genera fichero html, y html comprimido\n";
+	print "\t--images\t\t incluye las imágenes en el mismo directorio\n";
+	print "\t--imagesdir nombre\t\t incluye las imágenes en un directorio aparte con el nombre especificado\n";
+	print "\t--stylesheet\t\t especifica una hoja de estilo a aplicar al documento DocBook XML\n";		
+	print "\n";
+	exit 0;
+	}		
+
+# Función para comprobar la existencia de parametros
+sub comprobar_parametros {
+
+	# Declaración de variables
+	my @param = @_;
+	my $aux; # Auxiliar	
+	my $cont = 0;
+	
+	if (!@param) {
+		&errorMessage;
+		exit 0;
+		}
+
+	foreach $aux  (@param) {
+		
+		$cont++;			
+		
+		if ($aux eq '--format') {
+			$format = @param[$cont];
+			
+			if (($format ne "Linuxdoc") and ($format ne "DocBook") and ($format ne "DocBookXML")) {
+				die "\nEl formato especificado no es válido\nLos formatos válidos son:\n\nDocBook\nLinuxdoc\nDocbookXML\n\n";
+			}
+		}
+			
+		if ($aux eq '--ps') {
+			$ps = $aux;
+		}
+		
+		if ($aux eq '--pdf') {
+			$pdf = $aux;
+		}
+
+		if ($aux eq '--html') {
+			$html = $aux;
+		}
+
+		if ($aux eq '--htmltgz') {
+			$htmltgz = $aux;
+		}
+
+		if ($aux eq '--images') {
+			$images = $aux;
+		}
+
+		if ($aux eq '--imagesdir') {
+			$imagesdir = $aux;
+			$fig = @param[$cont];
+		}
+		
+		if ($aux eq '--samplesdir') {
+			$samplesdir = $aux;
+			$sdir = @param[$cont];
+			print $sdir, "\n";
+			}
+
+		if ($aux eq '--stylesheet') {
+			$stylesheet = $aux;
+			$style = @param[$cont];
+			print $sdir, "\n";
+			}
+			
+		if ($aux eq '--help') {
+			$help = $aux;
+		}
+	}
+	
+	if (!$format and !$help) {
+		die "Es necesario especificar un formato.\n";
+	}
+	if (!$ps and !$pdf and !$html and !$htmltgz and !$help) {
+		&errorMessage;
+		exit 0;
+	}
+	
+}		
+	
+# Función para obtener el nombre del archivo a tratar
+sub getFileName {
+
+	my @options = @_;
+	my $file;
+	
+	$file = pop @options;
+	
+	if (($file !~/\.sgml/) and ($file !~/\.xml/)) {
+		&helpMessage;
+		exit 0;
+		}
+	return $file;
+}
+
+# Función para importar las imágenes
+sub imageImport {
+
+	my $aux = shift;
+
+	
+	if ($aux eq "--images") {
+
+		print "Importando imagenes a $dir\n\n";
+	
+			system ("cp $path*\.png $dir");
+			system ("cp $path*\.jpg $dir");
+			system ("cp $path*\.eps $dir");
+			system ("cp $path*\.gif $dir");
+		}
+
+	if ($aux eq "--imagesdir") {
+		print "Importando directorio $fig a $dir.\n\n";
+		system ("cp -r $path$fig $dir");
+		}
+}
+
+# Función que crea el directorio de trabajo, este directorio 
+# es el que contiene los formatos creados, el ps, pdf y html
+# comprimido en la raiz y el html en un directorio aparte
+sub makeDir {
+	my $dir = shift;
+
+	# comprueba si existe una copia anterior
+	if (-e "$dir") {
+		print "\nEliminando copias anteriores.\n";
+		system ("rm -rf $dir");
+	}
+
+	# crea el directorio de destino y copia las fuentes
+	system ("ORIGDIR=`ls -A` && mkdir $dir && cp -r \$ORIGDIR $dir");
+
+	chdir ($dir);
+}
+
+# Función que procesa el documento
+sub makeDoc {
+	my $file = shift;
+	my @origdir;  # almacena el contenido del directorio
+	my $fichero;  # elemento del directorio (dfichero o directorio) obtenido con readdir	
+	my $flag = 1;	  # señala si hay hojas de estilo css que importar al html
+	my $doc;
+	my $version;
+	
+	$doc = "Printer::$format"->new ("$file");
+	
+   	# memoriza el contenido actual del directorio
+	opendir(DIR, "\.\./$dir");
+	while ($fichero = readdir(DIR) ) {
+		push(@origdir, $fichero);
+		
+		if ($fichero =~ /\.css/) {
+			print "Encontrada hoja de estilo CSS.\n";
+			$flag = 0;		
+		}
+	}
+	closedir(DIR);
+	# elimina "." y ".."
+	shift @origdir;
+	shift @origdir;
+	
+	if ($doc->validate () eq 0) {
+		if ($ps) {
+			if (($stylesheet) and ($format eq "DocBookXML")) {
+				$doc->convertToPS ("-d $style#print");
+				$doc->deleteIntFormats;
+			}
+			else {
+				$doc->convertToPS;
+				$doc->deleteIntFormats;
+			}
+		}
+	
+		if ($pdf) {
+			if (($stylesheet) and ($format eq "DocBookXML")) {
+				$doc->convertToPDF ("-d $style#print");
+				$doc->deleteIntFormats;
+			}
+			else {
+				$doc->convertToPDF;
+				$doc->deleteIntFormats;
+			}				
+		}
+	
+		if ($html) {
+			if (($stylesheet) and ($format eq "DocBookXML")) {
+				$doc->convertToHTML ("-d $style#html");
+			}
+			else {
+				$doc->convertToHTML;
+			}
+		
+			if ($images) {
+				$doc->importImagesToHtml;
+			}
+			if ($imagesdir) {
+				$doc->importImagesDirToHtml ("$fig");
+			}
+			
+			if ($flag eq 0) {
+				print ("Copiando hojas de estilo CSS al directorio del html.\n");
+				system ("cp *\.css $dir");			
+			}
+
+			# elimina las fuentes del directorio
+			system ("rm -rf @origdir");
+			
+			# mueve el contenido del directorio a la raiz
+			print "Moviento el contenido del directorio $dir al directorio raiz.\n";
+			system ("mv $dir/* .");
+			print "Eliminando el directorio $dir.\n";
+			system ("rm -rf $dir");
+		}
+
+		if ($htmltgz) {
+			if (($stylesheet) and ($format eq "DocBookXML")) {
+				$doc->convertToHTML ("-d $style#html");
+			}
+			else {
+				$doc->convertToHTML;
+			}
+		
+			if ($images) {
+				$doc->importImagesToHtml;
+			}
+			if ($imagesdir) {
+				$doc->importImagesDirToHtml ("$fig");
+			}
+		
+			if ($flag eq 0) {
+				print ("Copiando hojas de estilo CSS al directorio del html.\n");
+				system ("cp *\.css $dir");			
+			}
+			
+			$doc->makeHtmlDist;
+		}
+	
+		# elimina las fuentes del directorio si no es la opcion --html
+		if (!$html) {
+			system ("rm -rf @origdir");
+		}
+
+		chdir ("..");
+	}
+	else {
+		die "El formato no es valido\n";
+	}
+}

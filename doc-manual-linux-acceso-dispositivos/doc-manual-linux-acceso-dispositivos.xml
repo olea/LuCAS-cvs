@@ -1,0 +1,258 @@
+<?xml version='1.0' encoding='ISO-8859-1'?>
+<!DOCTYPE article PUBLIC "-//OASIS//DTD DocBook XML V4.2//EN" 
+              "http://www.oasis-open.org/docbook/xml/4.2/docbookx.dtd">
+<article id="RealizandoES" lang="es">
+ <articleinfo>
+  <title>Accesos a Dispositivos Independientes del Bus</title>
+  <authorgroup>
+   <author>
+    <firstname>Matthew</firstname>
+    <surname>Wilcox</surname>
+    <affiliation>
+     <address>
+      <email>matthew@wil.cx</email>
+     </address>
+    </affiliation>
+   </author>
+  </authorgroup>
+
+  <authorgroup>
+   <author>
+    <firstname>Alan</firstname>
+    <surname>Cox</surname>
+    <affiliation>
+     <address>
+      <email>alan@redhat.com</email>
+     </address>
+    </affiliation>
+   </author>
+  </authorgroup>
+
+  <copyright>
+   <year>2001</year>
+   <holder>Matthew Wilcox</holder>
+  </copyright>
+
+  <legalnotice>
+   <para>
+     Esta documentación es software libre; puedes redistrubuirla
+     y/o modificarla bajo los términos de la GNU General Public
+     License tal como ha sido publicada por la Free Software
+     Foundation; por la versión 2 de la licencia, o (a tu elección)
+     por cualquier versión posterior.
+   </para>   
+   
+   <para>
+    Este programa es distribuido con la esperanza de que sea útil,
+    pero SIN NINGUNA GARANTÍA; sin incluso la garantía implicada
+    de COMERCIABILIDAD o ADECUACCIÓN PARA UN PROPOSITO PARTICULAR.
+    Para más detalles refiérase a la GNU General Public License.
+   </para>
+
+   <para>
+     Debería de haber recibido una copia de la GNU General Public
+     License con este programa; si no es así, escriba a la Free
+     Software Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+     MA 02111-1307 USA
+   </para>
+      
+   <para>
+     Para más detalles véase el archivo COPYING en la 
+     distribución fuente de Linux.
+   </para>
+  </legalnotice>
+ </articleinfo>
+
+  <sect1 id="intro">
+      <title>Introducción</title>
+  <para>
+        Linux suministra una API que abstrae la realización de E/S a través
+        de todos los buses y dispositivos, permitiendo a los controladores de
+        dispositivos ser escritos independientemente del tipo de bus.
+  </para>
+  </sect1>
+
+  <sect1 id="bugs">
+     <title>Bugs Conocidos Y Suposiciones</title>
+  <para>
+	Ninguno.	
+  </para>
+  </sect1>
+
+  <sect1 id="mmio">
+    <title>E/S Mapeada en Memoria</title>
+    <sect2>
+      <title>Obteniendo Acceso al Dispositivo</title>
+      <para>
+	La forma más ampliamente soportada de E/S es la E/S por 
+	mapeo de memoria. Esto es, una parte del espacio de direcciones
+	de la CPU es interpretada no como un acceso a la memoria, sino como
+	un acceso a un dispositivo.  Algunas arquitecturas definen dispositivos
+	para estar en una dirección fija, pero la mayoría tiene algún método 
+	para descubrir los dispositivos.  El bus PCI es un buen ejemplo de este
+	esquema. Este documento no cubre cómo recibir una dirección, sino que
+	asume que ya estás empezando en una. Las direcciones físicas son del 
+	tipo unsigned long.
+      </para>
+
+      <para>
+	Estas direcciones no deberían de ser usadas directamente.  En
+	vez de esto, para obtener una dirección utilizable para pasar
+	a las funciones de acceso descritas posteriormente, debería de
+	llamar a <function>ioremap</function>.  Te será devuelta una
+	dirección utilizable para el acceso del dispositivo.
+      </para>
+
+      <para>
+	Después de que hayas finalizado de usar el dispositivo (esto es, en 
+	la rutina de salida en tu módulo), llama a <function>iounmap</function>
+	para retornar el espacio de direcciones al núcleo.  La mayoría de las
+	arquitecturas asignan un nuevo espacio de direcciones cada vez que
+	llamas y haces <function>ioremap</function>, y pueden acabarse a menos
+	que llames a <function>iounmap</function>.
+      </para>
+    </sect2>
+
+    <sect2>
+      <title>Accediendo al dispositivo</title>
+      <para>
+	La parte de la interface más usada por los controladores es la
+	lectura y escritura de los registros mapeados en memoria del 
+	dispositivo.  Linux suministra interfaces para leer y escribir 
+	cantidades de 8-bits, 16-bits, 32-bits y 64-bits.  Debido a un
+	accidente histórico estos son llamados accesos byte, word, long y quad.
+	Ambos accesos de lectura y escritura son soportados; no hay
+	soporte pre-producido en este momento.
+      </para>
+
+      <para>
+	Las funciones tienen los nombres <function>readb</function>,
+        <function>readw</function>, <function>readl</function>,
+        <function>readq</function>, <function>writeb</function>,
+        <function>writew</function>, <function>writel</function> y
+        <function>writeq</function>.
+      </para>
+
+      <para>
+	A algunos dispositivos (como los framebuffers) les gustaría usar
+	transferencias más grandes de los 8 bytes cada vez.  Para estos
+	dispositivos, son suministradas las funciones <function>memcpy_toio</function>,
+	<function>memcpy_fromio</function> y <function>memset_io</function>.	
+	No utilices memset o memcpy en direcciones de E/S; no está garantizado
+	que copien los datos en orden.
+      </para>
+
+      <para>
+	Las funciones de lectura y escritura están definidas para ser ordenadas. 
+        Esto es, al compilador no le está permitido reordenar la secuencia de 
+	E/S. Cuando el órden puede ser compilado de forma optimizada, puedes usar
+        <function>__readb</function> y amigos para indicar un órden relajado.
+ 	Usa esto con cuidado. La <function>rmb</function> suministra una barrera
+	de lectura de memoria. La <function>wmb</function> suministra una barrera
+	de escritura de memoria.
+      </para>
+
+      <para>
+	Mientras las funciones básicas son definidas para ser síncronas
+	y ordenadas con respecto a las otras, los dispositivos
+	que están en los buses quizás sean asíncronos.  En particular, algunos
+	autores han sido quemados por el hecho de que las escrituras en el bus PCI 
+	son realizadas de forma asíncrona.  El autor de un controlador debe de
+	emitir una lectura para el mismo dispositivo para asegurarse de que la 
+	escritura ha tenido lugar en los casos específicos que quiere el autor.
+	Este tipo de propiedad no puede ser escondida por los escritores de
+	los controladores en la API.
+      </para>
+    </sect2>
+
+    <sect2>
+      <title>Funciones de Herencia ISA</title>
+      <para>
+	En los núcleos viejos (2.2 y anteriores) el bus ISA podía leer o
+	escribir con estas funciones y sin usar ioremap.  Esto ya no
+	es verdad en Linux 2.4.  Un conjunto de funciones equivalentes
+	existen para el cambio de controladores con herencia fácil.  Las
+	funciones disponibles son prefijadas con 'isa_' y son
+	<function>isa_readb</function>,
+        <function>isa_writeb</function>, <function>isa_readw</function>,
+        <function>isa_writew</function>, <function>isa_readl</function>,
+        <function>isa_writel</function>, <function>isa_memcpy_fromio</function>
+        y <function>isa_memcpy_toio</function>
+      </para>
+      <para>
+	Estas funciones no deberían de ser usadas en los nuevos controladores, y
+	serán quitadas eventualmente.
+      </para>
+    </sect2>
+
+  </sect1>
+
+  <sect1 id="puerto">
+    <title>Accesos al Espacio de Puerto</title>
+    <sect2>
+      <title>Espacio de Puerto Explicado</title>
+
+      <para>
+	Otra forma de E/S comúnmente usada en el Espacio de Puerto.  Esta
+	es un rango de direcciones separados del espacio normal de direcciones
+	de memoria.  El acceso a estas direcciones no es generalmente tan
+	rápido como los accesos a las direcciones mapeadas en memoria, y por
+	lo tanto tienen potencialmente un espacio de direcciones más pequeño.
+      </para>
+
+      <para>
+	A diferencia de la E/S mapeada en memoria, no se requiere preparación
+	para acceder al espacio de puerto.
+      </para>
+
+    </sect2>
+    <sect2>
+      <title>Accediendo al Espacio de Puerto</title>
+      <para>
+	Los accesos a este espacio son suministrados a través de un
+	conjunto de funciones que permiten accesos de 8-bits, 16-bits
+	y 32-bits; también conocidos como byte, word y long.  Estas
+	funciones son <function>inb</function>, <function>inw</function>,
+        <function>inl</function>, <function>outb</function>,
+        <function>outw</function> y <function>outl</function>.
+      </para>
+
+      <para>
+	Son suministradas algunas variantes para estas funciones.  Algunos
+	dispositivos requieren que los accesos a sus puertos se realicen
+	más despacio.  Esta funcionalidad es suministrada añadiendo una
+	<function>_p</function> al final de la función.  También hay
+	equivalentes a memcpy.  Las funciones <function>ins</function>
+	y <function>outs</function> copian bytes, words o longs al puerto dado.
+      </para>
+    </sect2>
+
+  </sect1>
+
+  <sect1 id="pubfunctions">
+     <title>Funciones Públicas Suministradas</title>
+    <para></para>
+ </sect1>
+
+  <sect1 id="traduccion">
+    <title>Sobre la traducción</title>
+    <para>
+      Este documento es la traducción de "Bus-Independent Device
+	Accesses", documento que acompaña al código del núcleo de
+	Linux, versión 2.4.18.
+    </para>
+
+     <para>
+        Este documento ha sido traducido por Rubén Melcón
+        <email>melkon@terra.es</email>; y es publicado por <ulink
+        url="http://es.tldp.org">TLDP-ES</ulink>
+    </para>
+
+    <para>
+        Versión de la tradución 0.04 ( Julio de 2002 ).
+        </para>
+    
+    <para>
+      Si tienes comentarios sobre la traducción, ponte en contacto con
+      Rubén Melcón <email>melkon@terra.es</email> </para> </sect1>
+      </article>

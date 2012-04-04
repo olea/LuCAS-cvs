@@ -1,0 +1,506 @@
+<html>
+<head>
+<title>El sistema de ficheros virtual (VFS) de Linux </title>
+</head>
+
+<body>
+<!-- titulo del articulo -->
+<h1>El sistema de ficheros virtual (VFS) de Linux (III)</h1>
+Autor: <i><b>Juan Antonio Martínez Castaño</b></i><br>
+E-mail: <a href="mailto:jantonio@dit.upm.es">
+<i><b>jantonio@dit.upm.es</b></i></a><br>
+Web: <a href="http://www.dit.upm.es/~jantonio">
+<i><b>http://www.dit.upm.es/~jantonio</b></i></a><br>
+<hr>
+
+<h3>Copyright</h3>
+Este artículo es Copyright 1999 de Juan Antonio Martínez Castaño y se 
+distribuye bajo las siguientes condiciones:
+<ul>
+<li> Su distribución mediante medios electrónicos es libre, siempre y
+cuando se conserve el texto íntegro y en su formato HTML original, haciendo
+especial mención a la conservación del mensaje de copyright
+<li> El autor y dueño del copyright cede los derechos de publicación impresa
+a Prensa Técnica S.L., autorizando a ésta a realizar las modificaciones al
+texto que considere oportunas para su publicación
+<li> La distribución o copia, total o parcial, en cualquier medio impreso por 
+parte ajena a Prensa Técnica S.L. Está expresamente prohibida
+<li> Ningún particular podrá publicar este fichero en un servidor Web de acceso
+público sin el consentimiento expreso del autor y de Prensa Técnica S.L.
+</ul>
+
+<a name="#indice">
+<hr>
+<h3>Indice</h3>
+</a>
+<ul>
+<li> <a href="#entradilla">Entradilla</a>
+<li> <a href="#presentacion">Presentación</a>
+<li> <a href="#introduccion">Introducción</a>
+<li> <a href="#cache">Estructuras del VFS cache</a>
+<li> <a href="#operaciones">Operaciones con el VFS cache</a>
+<li> <a href="#conclusiones">Conclusiones</a>
+<li> <a href="#referencias">Referencias</a>
+</ul>
+<a name="entradilla">
+<hr>
+<h3>Entradilla</h3>
+</a>
+En la última entrega dedicada al Virtual File System de Linux, vamos a explicar
+cómo se maneja el VFS caché explicando las estructuras involucradas y su
+funcionamiento
+<a name="presentacion">
+<hr>
+<h3>Presentación</h3>
+	En números anteriores de Linux Actual, hemos estudiado el Virtual File
+System, sus estructuras y su manejo. En la tercera y última entrega dedicada a
+este tema, hablaremos del VFS caché, de sus estructuras y funcionamiento, y de
+como cada <i>filesystem</i> particular hace uso de éste.
+<a name="introduccion">
+<hr>
+<h3>Introducción</h3>
+<p>
+	Hasta ahora hemos visto el VFS desde el punto de vista del 
+programador de sistemas de ficheros, describiendo las operaciones, y cómo
+operar con las estructuras del VFS. Deliberadamente hemos dejado a un lado
+el tratamiento interno de los datos. El lector se puede preguntar con razón
+si es necesario acceder al disco cada vez que un inodo es modificado, o si
+para abrir un fichero es necesario recorrerse todo el arbol de directorios
+siguiendo el path. La respuesta es simple: NO. Linux implementa el denominado
+Virtual File System Cache, ( VFS Caché ) para acelerar substancialmente el
+sistema de ficheros
+</p>
+
+<p>
+<table>
+<tr><td width="40%"> <table border><tr><th>
+<!-- texto del bocadillo -->
+Linux utiliza el Virtual File System Caché para acelerar el sistema de ficheros
+</th></tr></table> </td><td> </td><td> </td></tr>
+</table>
+</p>
+<p>
+Veamos por ejemplo la llamada  al sistema open(2). El argumento "filename"
+es utilizado por el VFS para buscar en una estructura denominada Directory
+Entry Caché ( dentry caché o dcache ), donde se almacenan referencias a los 
+directorios utilizados
+</p>
+<p>
+Normalmente, una entrada del dcache contendrá un puntero a un inodo. Las
+dcaché solo residen en memoria, mientras que los inodos si tienen existencia
+en el disco físico. 
+Puesto que los dcache no tienen existencia real, es preciso crearlos "bajo
+demanda". La inode_operation <i>lookup()</i> se encarga de ello. La primera 
+vez que el VFS accede a un inodo que 
+corresponde a un directorio, lo hace a través de ésta función. Posteriores
+búsquedas sobre este inodo, se realizan a través de la entrada de caché que
+hemos creado. Recordemos que si el usuario no tiene definida la función
+de <i>lookup()</i> el VFS tiene una por defecto
+</p>
+<p>
+Del mismo modo que existe una entrada de cachés para directorios, tenemos
+estructuras de caché para inodos. Por último, el VFS implementa un buffer 
+caché que controla los accesos a disco, realizando operaciones de 
+lectura en avance (<i>look-ahead</i>)
+</p>
+
+<p>
+<table>
+<tr><td width="40%"> <table border><tr><th>
+<!-- texto del bocadillo -->
+Existe caché de directorios, de inodos y de bloques de disco
+</th></tr></table> </td><td> </td><td> </td></tr>
+</table>
+</p>
+<p>
+Una vez que el fichero se cierra, las correspondientes entradas de caché son
+marcadas como "libres". Posteriormente veremos que el VFS reutiliza las
+entradas del dcache, realizando procesos de asignación de memoria solo cuando
+no tiene entradas libres. Esto se realiza mediante listas encadenadas de 
+dentry's libres. Puesto que esta operación es mucho más rápida que la de 
+asignación/liberación de memoria, el rendimiento del caché es mucho mayor
+</p>
+<p>
+No solo el VFS puede manejar el caché: el programador tiene la posibilidad
+de asignar, liberar, eliminar o crear entradas. Algunos sistemas de ficheros,
+especialmente los de red ( CODA, SMB, NFS, etc ) necesitan marcar entradas
+de caché como inválidas, cambiar la asignación de inodos, etc. Las 
+estructuras del VFS permiten estas operaciones
+</p>
+
+<p>
+<table>
+<tr><td width="40%"> <table border><tr><th>
+<!-- texto del bocadillo -->
+El programador tiene la posibilidad de implementar sus propias rutinas de manejo del caché
+</th></tr></table> </td><td> </td><td> </td></tr>
+</table>
+</p>
+<p>
+Procedamos ahora a ver cómo está estructurado el VFS caché, y las operaciones
+que se pueden realizar
+</p>
+<p>
+<hr>
+<a name="cache">
+<h3>Estructuras del VFS cache</h3>
+</a>
+<p>
+	Si recordamos las entregas anteriores dedicadas al VFS, podemos ver que
+en la definición de la estructura <i>superblock</i> había una entrada 
+denominada <i>dentry_operations</i>. El listado 1 describe dicha estructura
+</p>
+<p>
+<table border>
+<tr><td>
+<!-- texto del listado entre los -pre- -->
+<pre>
+struct dentry_operations {
+        int (*d_revalidate)(struct dentry *);
+        int (*d_hash) (struct dentry *, struct qstr *);
+        int (*d_compare) (struct dentry *, struct qstr *, struct qstr *);
+        void (*d_delete)(struct dentry *);
+        void (*d_release)(struct dentry *);
+        void (*d_iput)(struct dentry *, struct inode *);
+};                                                                              
+</pre>
+</td></tr>
+<tr><th>Listado 1: Estructura <i>dentry_operations</i></th></tr>
+</table>
+</p>
+<p>
+	Recordemos que el usuario puede dejar estas funciones definidas como
+<i>null</i> y que en este caso el VFS utilizará las funciones predefinidas.
+El VFS utiliza estas funciones para el manejo del cache. Es preciso hacer
+constar que puesto que el numero de entradas de caché puede llegar a ser 
+grande, el núcleo utiliza un sistema de tablas de <i>hashing</i> para acelerar
+el acceso a la entrada de caché buscada. Por supuesto, el usuario puede
+definir también sus propias funciones de hashing, aunque no se suele hacer<br>
+La figura 1 ilustra la organización de las listas y tablas de hash para las
+estructuras <i>dentry</i>
+</p>
+<p>
+<table border>
+<tr><td>
+<!-- nombre de las imagenes a rellenar -->
+<img src="dcache_hash.jpg" alt="dcache_hash.jpg"> 
+</td></tr>
+<tr><th>Figura 1: Estructuras y tablas de hashing del dentry cache</th></tr>
+</table>
+</p>
+<p>
+Los elementos de esta estructura son:
+<ul>
+<li>  <b>d_revalidate</b>: Se utiliza cuando el VFS desea ver si una dentry es
+	válida
+<li>  <b>d_hash</b>: Para calcular la función de hashing
+<li>  <b>d_compare</b>: Para comparar una dentry con otra
+<li>  <b>d_delete</b>: Se invoca cuando la última referencia a dicha dentry
+	es borrada. Esto implica que, aunque la entrada sigue siendo válida,
+	nadie la está utilizando, por lo que puede ser marcada como libre en
+	caso necesario
+<li>  <b>d_release</b>: Se utiliza para eliminar una dentry de la tabla
+<li>  <b>d_iput</b>: Utilizada cuando una dentry pierde la referencia a un 
+	inodo ( por ejemplo, cuando éste es borrado). Implica una llamada
+	a la operación iput() del inodo. Si el usuario define su propia 
+	rutina d_iput(), deberá llamar desde ella a iput()
+</ul>
+</p>
+<p>
+	Pero ¿realmente, de qué consta una directory inode entry?. Básicamente
+de:
+<ul>
+<li>Nombre del fichero
+<li>Puntero al inodo
+<li>Puntero a la dentry anterior
+<li>Puntero a la lista de dentry's hijas
+<li>Diversos punteros auxiliares
+<li>Contador de referencias
+</ul>
+El listado 2 muestra la definición de la estructura, tal y como figura en 
+el fichero <i>/usr/include/linux/dcache.h</i>
+
+<p>
+<table border>
+<tr><td>
+<!-- texto del listado entre los -pre- -->
+<pre>
+struct dentry {
+        int d_count;
+        unsigned int d_flags;
+        struct inode  * d_inode;        /* Where the name belongs to - NULL is negative */
+        struct dentry * d_parent;       /* parent directory */
+        struct dentry * d_mounts;       /* mount information */
+        struct dentry * d_covers;
+        struct list_head d_hash;        /* lookup hash list */
+        struct list_head d_lru;         /* d_count = 0 LRU list */
+        struct list_head d_child;       /* child of parent list */
+        struct list_head d_subdirs;     /* our children */
+        struct list_head d_alias;       /* inode alias list */
+        struct qstr d_name;
+        unsigned long d_time;           /* used by d_revalidate */
+        struct dentry_operations  *d_op;
+        struct super_block * d_sb;      /* The root of the dentry tree */
+        unsigned long d_reftime;        /* last time referenced */
+        void * d_fsdata;                /* fs-specific data */
+        unsigned char d_iname[DNAME_INLINE_LEN]; /* small names */
+};
+</pre>
+</td></tr>
+<tr><th>Listado 2: definición de la estructura <i>dentry</i></th></tr>
+</table>
+</p>
+
+<p>
+<table>
+<tr><td width="40%"> <table border><tr><th>
+<!-- texto del bocadillo -->
+En lugar de liberar entradas en el caché, el VFS puede marcarlas como "no usadas", para acelerar el proceso de asignación de nuevas entradas
+</th></tr></table> </td><td> </td><td> </td></tr>
+</table>
+</p>
+</p>
+<p>
+Vemos que las dentry's se organizan en forma de estructura de árbol, que
+corresponde además con aquellas ramas del arbol de directorios que están 
+siendo utilizadas en un momento dado. De aquí se explica fácilemente el hecho de
+que la primera consulta a un directorio es siempre mucho más lenta que las
+sucesivas lecturas: el sistema crea al vuelo las sucesivas dentry's en el caché
+de manera que un ulterior acceso a dicho directorio es consultado directamente en este. la figura 2 ilustra las relaciones entre estructuras
+</p>
+
+<p>
+<table border>
+<tr><td>
+<!-- nombre de las imagenes a rellenar -->
+<img src="dcache_list.jpg" alt="dcache_list.jpg"> 
+</td></tr>
+<tr><th>Figura 2: Asociación de estructuras <i>dentry</i></th></tr>
+</table>
+</p>
+<p>
+	Los campos <i>d_time</i> y <i>d_reftime</i> se utilizan en las operaciones de revalidación del inodo, y la liberación/reasignación de la dentry para
+nuevos usos.
+</p>
+<hr>
+<a name="operaciones">
+<h3>Operaciones con el VFS cache</h3>
+</a>
+<p>
+Llegados a este punto, el lector se preguntará ¿Cómo puedo yo desde un sistema
+de ficheros concreto, manejar el dcache?. El VFS provee las siguientes 
+funciones:
+<ul>
+<li> <b>  dget</b>: Crea un nuevo manejador para una dentry ( normalmente, es
+	equivalente a incrementar el contador de uso )
+<li> <b>  dput</b>: Cierra un manejador ( decrementa el contador de uso )
+	Cuando el contador de uso llega a cero, la función <i>d_delete</i>
+	es invocada, y la entrada es puesta en la lista de "no usadas"<br>
+	Si la dentry está en la tabla de hashing de la dentry "padre" implica
+	que puede ser utilizada todavía. En caso contrario, cuando la cuenta
+	cae a cero, la entrada es liberada despues de la llamada a d_delete
+<li> <b>  d_drop</b>: elimina una dentry de la tabla hash de la dentry padre.
+	Una posterior llamada a d_put con el contador de uso a cero implica
+	la eliminación de esta entrada
+ 
+<li> <b>  d_delete</b>: Borra una entrada. Si no hay ninguna otra referencia
+	la entrada es marcada como "negativa" y se invoca a la rutina d_iput
+	para liberar el inodo asociado. Si todavía quedan referencias, se
+	invoca a la rutina d_drop.
+ 
+<li> <b>  d_add</b>: Añade una dentry a la hashtable de la dentry "padre" e
+	invoca d_instantiate
+
+<li> <b>  d_instantiate</b>: Añade una dentry a la hashtable para un inodo
+	dado, y actualiza el campo d_inode de la dentry. Incrementa tambien
+	el campo i_count. Es posible que el puntero al inodo sea NULL; es
+	lo que se conoce como una "negative dentry". Este truco se utiliza
+	en los procesos de creación de inodos
+</ul>
+</p>
+
+<p>
+<table>
+<tr><td width="40%"> <table border><tr><th>
+<!-- texto del bocadillo -->
+El sistema de ficheros VFAT define sus propias rutinas de comparación de 
+<i>dentry</i>'s, debido a como nombra MS-Dos a los ficheros
+</th></tr></table> </td><td> </td><td> </td></tr>
+</table>
+</p>
+<p>
+	El programador puede utilizar estas operaciones cuando desea modificar
+los contenidos del cache. Del mismo modo se puede definir dentry_operations
+específicas para un sistema de ficheros dados. Los usos más habituales son:
+<ul>
+<li> <i>d_hash</i> Se utiliza para cambiar la función de hashing. El caso más
+	habitual es el sistema de ficheros VFAT, en el que un fichero puede
+	ser nombrado con la notación "8.3" del MS-Dos, o como fichero largo
+	al estilo Windows-98
+<li> <i>d_compare</i> Se utiliza para decidir si dos dentry's son iguales. Como
+	en el caso anterior, es preciso definirla cuando el sistema de nombrado
+	de ficheros no es estandard
+<li> <i>d_revalidate</i> Es utilizada por los sistemas de ficheros de red para
+	decidir si una dentry es válida o no. Los sistemas de este tipo tienen
+	una serie de problemas asociados, timeouts, pérdidas de conexión, etc
+	que hacen que en ocasiones sea necesario comprobar si la entrada sigue
+	siendo válida
+<li> Los sistemas de <i>caché filesystem</i>, hacen frecuentes operaciones de
+	remapeo de inodos dentro del fs. Para ello utilizan d_get, d_put y
+	d_drop para manejar directamente la tabla de dcache
+</ul>
+	Como ejemplo de esto, ilustramos en el listado 3, el segmento de 
+código correspondiente a la rutina d_compare del sistema de ficheros "msdos",
+así como su correspondiente estructura dentry_operations. Recordemos que si
+una entradada de la dentry_operation es <i>NULL</i>, el VFS utiliza sus 
+propias rutinas
+
+<p>
+<table border>
+<tr><td>
+<!-- texto del listado entre los -pre- -->
+<pre>
+/*
+ * Compare two msdos names. If either of the names are invalid,
+ * we fall back to doing the standard name comparison.
+ */
+static int msdos_cmp(struct dentry *dentry, struct qstr *a, struct qstr *b)
+{
+	int error;
+        struct fat_mount_options *options = &(MSDOS_SB(dentry->d_sb)->options);        
+        char a_msdos_name[MSDOS_NAME], b_msdos_name[MSDOS_NAME];
+ 
+        error = msdos_format_name(options->name_check, a->name, a->len,
+                                        a_msdos_name, options->dotsOK);
+        if (error) goto old_compare;
+        error = msdos_format_name(options->name_check, b->name, b->len,
+                                        b_msdos_name, options->dotsOK);
+        if (error) goto old_compare;
+        error = memcmp(a_msdos_name, b_msdos_name, MSDOS_NAME);
+out:
+        return error;
+ 
+old_compare:
+        error = 1;
+        if (a->len == b->len) error = memcmp(a->name, b->name, a->len);
+        goto out;
+}
+ 
+ 
+static struct dentry_operations msdos_dentry_operations = {
+        NULL,           /* d_revalidate */
+        msdos_hash,
+        msdos_cmp,
+        NULL,           /* d_delete */
+        NULL,
+        NULL
+};                                                                              
+</pre>
+</td></tr>
+<tr><th>Listado 3: Implementación de <i>d_compare</i> en el msdosfs</th></tr>
+</table>
+</p>
+</p>
+
+<p>
+<table>
+<tr><td width="40%"> <table border><tr><th>
+<!-- texto del bocadillo -->
+Existe correspondencia entre cada inodo en disco y su imagen en el 
+<i>inode caché</i>
+</th></tr></table> </td><td> </td><td> </td></tr>
+</table>
+</p>
+<p>
+	Aparte del directory entry caché, existe un <i>inode caché</i>, donde
+se guardan en memoria las referncias a inodos. Recordemos que los inodos en
+memoria tienen una correspondencia física con los inodos en el disco, y que son
+volcados periodicamente a éste. La estructura es mucho más simple, consistiendo
+en listas de inodos usados, libres y  "sucios" ( pendientes de actualizar )<br>
+Del mismo modo existe una tabla hash para acceder rápidamente a los inodos,
+aunque lo normal es acceder a través del dcache. La figura 3 ilustra este 
+esquema
+</p>
+
+<p>
+<table border>
+<tr><td>
+<!-- nombre de las imagenes a rellenar -->
+<img src="ino_cache.jpg" alt="inode_cache.jpg"> 
+</td></tr>
+<tr><th>Figura 3: Descripción del Inode Caché</th></tr>
+</table>
+</p>
+<p>
+	Por último, como tercer caché del sistema tenemos el <i>Buffer Caché</i>
+donde se guardan sectores de disco completos. Se proveen funciones de lectura
+en avance ( <i>look-ahead</i> ), de manera que en la mayor parte de los casos 
+el proceso se encuentra con que el sector del disco buscado está ya en memoria
+</p>
+<p>
+	Todo este sistema no funcionaría ni sería eficiente si no fuera por otra
+característica del núcleo 2.2: Linux utiliza toda la memoria disponible para
+buffers y caché. Al contrario que otros sistemas, donde existe "memoria libre"
+mientras se utiliza intensivamente el fichero de intercambio, en linux sólo se
+utiliza el swap cuando es estrictamente necesario, y nunca para almacenar código, sino solo datos. Los procesos son mapeados en memoria mediante la función de
+mmap(), y se carga el código bajo demanda. <br>
+Si ejecutamos el comando "free", podemos ver como Linux mantiene un pequeño 
+reservorio de memoria para la llamada al sistema brk(2) ( función malloc(3) de 
+la biblioteca glibc ), utilizando el resto de la memoria libre para buffers y
+caché. La mejora de rendimiento es impresionante
+</p>
+<hr>
+<a name="conclusiones">
+<h3>Resumen. Conclusiones</h3>
+</a>
+<p>
+	En este capítulo dedicado al Virtual File System hemos descrito las
+operaciones del VFS caché, sus estructuras y funcionamiento, y visto como
+se utilizan en algunos <i>filesystems</i>
+</p>
+<p>
+	Para cuendo el lector lea este artículo, estará posiblemente disponible
+la versión 2.4 del núcleo Linux. Si bien la metodología de trabajo con el VFS
+no cambia drásticamente con la nueva versión, el uso y gestión del VFS caché 
+ha sido reestructurado por completo, añadiendole mucha mayor funcionalidad, 
+rapidez y efectividad. La principal mejora respecto a la versión 2.2 del núcleo
+es que ya no existen diferencias entre el caché de lectura y el de escritura.
+Del mismo modo, las rutinas de validación de entradas en el caché se han 
+reescrito y optimizado, arreglándose diversos problemas que surgían con las 
+operaciones del caché en sistemas multiprocesador
+</p>
+<p>
+La versatilidad y la potencia del Virtual File System de Linux permite a nuestro
+sistema operativo favorito en uno de los más potentes y flexibles. Muchos 
+fabricantes de otros sistemas operativos tipo UNIX están empezando a portar 
+sus sistemas de ficheros a Linux, como pueda ser Sillicon Graphics y su sistema
+de ficheros de IRIX. La posibilidad de montar sistemas de ficheros ficticios
+como capa intermedia entre el dispositivo físico y el VFS permite prácticas 
+como el modo <i>loop</i>, sistemas de ficheros encriptados, ram disks... El
+nuevo núcleo 2.4 soporta a su vez el manejo de dispositivos de modo bloque en
+modo caracter, lo que facilita el acceso "crudo" a los datos. El lector
+puede comprobar leyendo esta serie de artículos, como todas estas operaciones 
+son implementadas de una forma sencilla y altamente eficiente -como no podría 
+ser menos- en nuestro Sistema Operativo favorito.
+</p>
+<a name="referencias">
+<hr>
+<h3>Referencias</h3>
+</a>
+<p>
+En el CD-Rom que se acompaña a esta revista se incluye la mayor parte de la
+documentación disponible sobre el Virtual File System:
+<ul>
+<li>The Kernel hackers Guide ( obsoleto, pero todavía útil )
+<li>The Linux Kernel
+<li>Linux kernel Modules programmer's guide
+<li>The Linux Virtual File System ( transparencias )
+</ul>
+</p>
+<p>
+Y por supuesto <i>"Use the source, Luke"</i>, el código fuente del núcleo
+Linux es , como siempre, la mejor referencia.
+</p>
+<hr>
+</body>
+</html>

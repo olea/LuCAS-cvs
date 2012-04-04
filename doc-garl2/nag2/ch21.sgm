@@ -1,0 +1,1683 @@
+<!-- $Id: ch21.sgm,v 1.11 2002/11/03 10:17:42 jjamor Exp $ -->
+<!--
+Nota legal:
+
+   Linux Network Administration Guide, por Olaf Kirch et al.
+
+   La traducción al español se publica bajo la licencia GFDL,
+siendo texto de portada el siguiente:
+
+Linux Network Administrator's Guide
+by Olaf Kirch and Terry Dawson
+Copyright  (c) 1993 Olaf Kirch
+Copyright  (c) 2000 Terry Dawson
+Copyright on O'Reilly printed version (c) 2000 O'Reilly & Associates
+
+y siendo secciones invariantes, la sección de Agradecimientos,
+la sección titulada «La traducción al español», el apéndice C; así
+como esta nota.
+
+Capítulo traducido por:
+
+  Raúl Mahiques, raul2001@mailandnews.com
+  Gabriel Ceravolo, cosmo@sion.com
+
+-->
+<chapter id="X-087-2-cnews"><title>C-News</title>
+<indexterm id="idx-CNews-1" class="startofrange"><primary>C-News</primary></indexterm>
+
+<para>
+Uno de los paquetes de software más populares para las NetNews es C-News. Fue diseñado
+para servidores que llevan noticias sobre enlaces UUCP. Este capítulo discutirá los conceptos
+centrales de C-News, y las tareas de instalación básica y de mantenimiento.
+</para>
+
+<para>
+<indexterm><primary>C-News</primary><secondary>directorio spool</secondary></indexterm>
+<indexterm><primary>setnewsids (C-News)</primary></indexterm>
+C-News almacena sus ficheros de configuración en el directorio
+<filename>/etc/news</filename>, y la mayoría de sus ficheros binarios en
+<filename>/usr/lib/news/</filename>.  Los artículos se guardan en <filename>/var/spool/news</filename>.
+Debe asegurarse de que todos los ficheros de esos directorios son propiedad del usuario <systemitem role="userid">news</systemitem> 
+o el grupo <systemitem role="userid">news</systemitem>. La mayoría de los problemas surgen por la 
+inaccesibilidad a los ficheros por parte de C-News. Use la instrucción <command>su</command> para trabajar como 
+usuario <systemitem role="userid">news</systemitem> antes de tocar nada del directorio.  La única excepción es 
+el programa <command>setnewsids</command>, que se usa para asignar las ID reales del usuario de algunos programas
+de noticias. Éste debe ser propiedad del <systemitem role="userid">root</systemitem> y tener el bit setuid activado.
+</para>
+
+<para>
+En este capítulo, trataremos en detalle todos los ficheros de configuración de C-News y le mostraremos
+ lo que tiene de hacer para mantener su servidor en funcionamiento.
+</para>
+
+<sect1 id="X-087-2-cnews.rnews"><title>Enviando noticias</title>
+
+<para>
+<indexterm><primary>inews, orden</primary></indexterm>
+<indexterm><primary>rnews, orden</primary></indexterm>
+<indexterm><primary>C-News</primary><secondary>entregando noticias con</secondary></indexterm> 
+<indexterm><primary>newsrun, orden</primary></indexterm> 
+<indexterm><primary>relaynews, orden</primary></indexterm> 
+<indexterm><primary>entregando</primary><secondary>noticias</secondary></indexterm>
+Los artículos pueden ser suministrados a C-News de varias formas. Cuando un usuario envía un artículo, 
+el lector de noticias normalmente lo pasa al programa <command>inews</command>, que completa la información 
+de la cabecera. Las noticias que llegan al servidor, ya sea un solo artículo o un lote de ellos, son pasadas 
+por el programa <command>rnews</command>, que las guardará en el directorio 
+<filename>/var/spool/news/in.coming</filename>, desde donde más tarde serán recogidas por 
+<command>newsrun</command>. Sin embargo, con cualquiera de estas dos técnicas el artículo se pasará 
+finalmente  por el programa <command>newsrun</command>.
+</para>
+
+<para>
+<indexterm><primary>C-News</primary><secondary>relaynews, orden</secondary></indexterm>
+<indexterm><primary>C-News</primary><secondary>fichero history</secondary></indexterm>
+<indexterm><primary>C-News</primary><secondary>fichero active</secondary></indexterm>
+<indexterm><primary>noticias (red)</primary><secondary>fichero active</secondary></indexterm>
+<indexterm><primary>noticias (red)</primary><secondary>history</secondary></indexterm>
+<indexterm><primary>C-News</primary><secondary>recibiendo noticias</secondary></indexterm>
+<indexterm><primary>noticias (red)</primary><secondary>IDs de mensaje</secondary></indexterm>
+La orden <command>relaynews</command> comprueba si un artículo ya se encuentra en 
+el servidor buscando el ID del mensaje en el fichero <filename>history</filename>.
+Los artículos duplicados son eliminados.
+Entonces <command>relaynews</command> mira la línea de la cabecera <literal>Newsgroups:</literal> para 
+saber si el servidor local solicita artículos de cualquiera de estos grupos. Si es así, y el grupo de 
+noticias aparece  en el fichero <filename>active</filename>, <command>relaynews</command> intenta 
+almacenar el articulo en su directorio correspondiente en el área de cola de 
+noticias. Si el directorio no existe, es creado. El ID del mensaje que tiene el artículo es registrado en 
+el fichero <filename>history</filename>.
+Si no, <command>relaynews</command> elimina el artículo.
+</para>
+
+<para>
+<indexterm><primary>grupo junk</primary></indexterm>
+Algunas veces <command>relaynews</command> falla al guardar un artículo entrante porque el grupo al que ha 
+sido enviado no está listado en su fichero <filename>active</filename>. En este caso, el artículo se mueve 
+al grupo <systemitem role="newsgroup">junk</systemitem>.<footnote id="X-087-2-FNCN01"><para> Debe haber 
+una diferencia entre los grupos que existen en su servidor y aquellos que su servidor está preparado para
+ recibir. Por ejemplo, la lista de subscripción puede especificar 
+<systemitem role="newsgroup">comp.all</systemitem>, que debe enviar todos los grupos
+por debajo de <systemitem role="newsgroup">comp</systemitem>, pero en nuestro sitio podemos no
+tener listados todos los grupos de esa jerarquía en el fichero <filename>
+active</filename>. Los artículos enviados a esos grupos serán movidos
+a <systemitem role="newsgroup">junk</systemitem>.
+</para>
+</footnote>
+<command>relaynews</command> también busca artículos sin referenciar y
+los rechaza.
+Los lotes entrantes que fallan por cualquier razón se mueven a <filename>/var/spool/news/in.coming/bad</filename>, y se registra un mensaje de error.
+</para>
+
+<para>
+Después de esto, el artículo se transmite a todos los otros servidores que soliciten noticias de estos grupos, usando el transporte especificado para cada servidor . Para asegurarse de que un artículo no es enviado a un servidor que ya lo tiene, cada servidor de destino se compara con el campo <literal>Path:</literal> de la cabecera, que contiene la lista de servidores por los que el artículo ha pasado, escrito al estilo UUCP bang-path source-routing descrito en <xref linkend="X-087-2-mail">. Si el nombre del servidor destinatario no aparece en esta lista, el articulo se le envía.</para>
+
+<para>
+<indexterm><primary>C-News</primary><secondary>UUCP</secondary></indexterm>
+<indexterm><primary>UUCP</primary><secondary>news</secondary></indexterm>
+C-News se usa comúnmente para transmitir noticias entre servidores UUCP, 
+aunque es  también  posible  usarlo  bajo  un  entorno  NNTP. Para entregar noticias a un servidor remoto UUCP,
+ tanto un solo artículo como lotes enteros, se usa <command>uux</command> para ejecutar el programa 
+ <command>rnews</command> en un servidor remoto y entregarle el artículo o lote por su entrada estándar.
+ Consulte en <xref linkend="X-087-2-uucp"> para más información sobre el UUCP.
+</para>
+
+<para>
+<indexterm><primary>C-News</primary><secondary>proceso por lotes</secondary></indexterm>
+<indexterm><primary>noticias (red)</primary><secondary>lotes</secondary></indexterm>
+Proceso por lotes es un término usado para describir el envío de grandes cantidades de artículos individuales 
+en una sola transmisión. Cuando el procesamiento por lotes se activa en un servidor, C-News no envía 
+ningún artículo entrante inmediatamente; en vez de eso, añade su localización a un fichero, normalmente 
+<filename>out.going/site/togo</filename>.
+Periódicamente, el programa <command>cron</command> ejecuta un programa desde una entrada del <command>crontab</command>,
+que lee este fichero y mete todos los artículos listados en uno o más ficheros, opcionalmente comprimiéndolos y 
+enviándolos a <command>rnews</command> en el servidor remoto.
+<footnote id="X-087-2-FNCN02"><para>
+Recuerde que debe ser el <command>crontab</command> de <systemitem role="userid">noticias</systemitem>; los permisos 
+de ficheros no serán cambiados.</para>
+</footnote>
+</para>
+
+<para>
+<xref linkend="X-087-2-cnews.fig.flow"> muestra las noticias fluyendo a través 
+de <command>relaynews</command>. Los artículos deben ser transmitidos al servidor 
+local (indicado por <systemitem role="keyword">ME</systemitem>), a un servidor 
+llamado <systemitem role="sitename">ponderosa</systemitem> vía email, y a un servidor 
+llamado <systemitem role="sitename">moria</systemitem>, para el cual el proceso por lotes está activado.</para>
+
+
+<figure id="X-087-2-cnews.fig.flow">
+<title>Flujo de noticias mediante relaynews</title>
+<mediaobject>
+  <imageobject><imagedata fileref="lag2_2101" format="eps"></imageobject>
+  <imageobject><imagedata fileref="lag2_2101.jpg" format="jpg"></imageobject>
+</mediaobject>
+</figure>
+
+</sect1>
+
+<sect1><title>Instalación</title>
+<para>
+<indexterm id="idx-configuringCNews-1" class="startofrange"><primary>configurando</primary><secondary>C-News</secondary></indexterm>
+<indexterm id="idx-configuringUsenetnews-1" class="startofrange"><primary>configurando</primary><secondary>noticias Usenet</secondary></indexterm>
+<indexterm id="chcn.cnews.install" class="startofrange"><primary>C-News</primary><secondary>instalando</secondary></indexterm> 
+C-News suele estar disponible empaquetado para cualquier distribución moderna de GNU/Linux, por lo que la 
+instalación será fácil. Si no es así, o quiere instalarlo desde la distribución del código original, 
+por supuesto que también puede.<footnote id="X-087-2-FNCN03">
+<para>
+Puede obtener el código de C-News en su servidor principal que se encuentra 
+en <systemitem role="sitename">ftp.cs.toronto.edu</systemitem>
+<filename>/pub/c-news/c-news.tar.Z</filename>
+</para>
+</footnote> No importa como lo instale, necesitará editar los ficheros de configuración de C-News. Sus 
+formatos serán descritos en la siguiente lista:
+</para>
+
+<variablelist>
+<varlistentry><term><filename>sys</filename></term>
+<listitem><para>
+<indexterm><primary>C-News</primary><secondary>fichero sys</secondary></indexterm>
+El fichero <filename>sys</filename> controla que grupos de noticias recibe y reenvía su grupo de noticias. 
+Hablaremos de esto en detalle en la siguiente sección.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><filename>active</filename></term> <!--los sigientes items no se traducen-->
+<listitem><para>
+No es editado normalmente por la administración; contiene las órdenes para manejar los artículos
+en cada grupo de noticias que el servidor maneja.
+
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><filename>organization</filename></term>
+<listitem><para>
+Este fichero debe de contener el nombre de su organización, por ejemplo, &ldquo;Cervecera Virtual, Inc.&rdquo; 
+En su máquina de casa, introduzca &ldquo;servidor privado,&rdquo; o cualquier nombre que desee. 
+La mayoría de la gente no dirá que su servidor está configurado correctamente hasta que no haya configurado este fichero.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><filename>newsgroups</filename></term>
+<listitem><para>
+Este fichero es una lista de todos los grupos de noticias, con una línea para describir el propósito 
+de cada uno. Estas descripciones son  usadas frecuentemente por los lectores de noticias cuando muestran 
+la lista de todos los grupos a los que está suscrito.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><filename>mailname</filename></term>
+<listitem><para>
+El nombre de su servidor de correo, por ejemplo, <systemitem role="sitename">vbrew.com</systemitem>.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><filename>whoami</filename></term>
+<listitem><para>
+El nombre para su servidor de noticias. Muy a menudo, se usa el nombre del servidor de UUCP, por ejemplo, <systemitem role="sitename">vbrew</systemitem>.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><filename>explist</filename></term>
+<listitem><para>
+Probablemente deberá editar este fichero para reflejar sus tiempos de expiración predeterminados para grupos de 
+noticias especiales. El espacio en disco puede jugar un papel importante en sus elecciones.
+</para></listitem>
+</varlistentry>
+</variablelist>
+
+<para>
+<indexterm><primary>C-News</primary><secondary>creando la configuración inicial</secondary></indexterm>
+<indexterm><primary>C-News</primary><secondary>fichero active</secondary></indexterm>
+Para crear una jerarquía inicial de grupos de noticias, obtenga los ficheros <filename>active</filename> 
+y <filename>newsgroups</filename> del servidor que le provee. Instálelos en <filename>/etc/news</filename>, 
+asegurándose de que son propiedad de <systemitem role="userid">news</systemitem> y tienen un modo 
+de protección 644, usando la orden <command>chmod</command>. Borre todos los 
+grupos <systemitem role="newsgroup">to.*</systemitem> del fichero active, y 
+añada <systemitem role="newsgroup">to.my-site</systemitem>,
+<systemitem role="newsgroup">to.feed-site</systemitem>,
+<systemitem role="newsgroup">junk</systemitem>, y
+<systemitem role="newsgroup">control</systemitem>. 
+Los grupos <systemitem role="newsgroup">to.*</systemitem> se usan normalmente para 
+intercambiar mensajes tipo ihave/sendme, pero deben listarlos tanto si planea usar este 
+tipo de mensajes como si no. Después, sustituya todos los números de los artículos en el segundo y 
+tercer campo de <filename>active</filename> usando las siguientes instrucciones:
+
+<screen>
+# <userinput>cp active active.old</userinput>
+# <userinput>sed 's/ [0-9]* [0-9]* / 0000000000 00001 /' active.old > active</userinput>
+# <userinput>rm active.old</userinput>
+</screen>
+</para>
+
+<para>
+<indexterm><primary>orden sed (UNIX)</primary></indexterm> 
+La segunda orden  invoca el editor <command>sed</command>. Esta invocación reemplaza dos cadenas de ceros y la cadena <literal>000001</literal>, respectivamente.
+</para>
+
+<para>
+Finalmente, cree el directorio de cola de noticias y los subdirectorios usados para las noticias entrantes y salientes:
+
+<screen>
+# <userinput>cd /var/spool</userinput>
+# <userinput>mkdir news news/in.coming news/out.going news/out.master</userinput>
+# <userinput>chown -R news.news news</userinput>
+# <userinput>chmod -R 755 news</userinput>
+</screen>
+</para>
+<?troff .wcon_off>
+
+<para>
+Si esta usando una versión precompilada del lector de noticias procedente de una 
+distribución diferente a la del servidor C-News que estáa ejecutando, puede encontrase con que 
+alguno de ellos espera la cola de noticias 
+en <filename>/usr/spool/news</filename> en vez de <filename>/var/spool/news</filename>. Si su 
+lector de noticias no parece encontrar ningún artículo, cree un enlace simbólico de <?troff .ne 10>
+<filename>/usr/spool/news</filename> a
+<filename>/var/spool/news</filename> como éeste:
+<screen>
+# <userinput>ln -sf /usr/spool/news /var/spool/news</userinput>
+</screen>
+</para>
+
+<para>
+Ahora estáa preparado para recibir noticias. Recuerde que no tiene que crear directorios de cola para 
+cada grupo individual de noticias. Ccada vez que C-News recibe un artículo de un grupo para el que todavía 
+no hay directorio de cola, lo crea.
+</para>
+
+<para>
+En particular, éesto le ocurre a <emphasis>todos</emphasis> los grupos a los que se 
+ha enviado un artículo. Así que,  después de un cierto tiempo,  encontrará su cola de noticias llena con 
+directorios para grupos de noticias a los que Ud. nunca se ha subscrito, 
+como <systemitem role="newsgroup">alt.lang.teco</systemitem>. Puede evitar esto tanto 
+borrando los grupos no deseados del <filename>active</filename>, como ejecutando regularmente un 
+guión que borre todos los directorios vacíos de <filename>/var/spool/news</filename>
+(excepto <filename>out.going</filename> y <filename>in.coming</filename>,
+por supuesto).
+</para>
+
+<para>
+<indexterm><primary>C-News</primary><secondary>usenet</secondary></indexterm>
+<indexterm><primary>C-News</primary><secondary>newsmaster</secondary></indexterm>
+<indexterm><primary>news (red)</primary><secondary>newsmaster</secondary></indexterm>
+<indexterm><primary>newsmaster</primary></indexterm>
+C-News necesita un usuario a quien mandar los mensajes de error y los informes de estado. Por omisión, 
+éste es <systemitem role="userid">usenet</systemitem>. Si usa el valor por omisión, tendrá que establecer 
+un alias para que reenvíe todos los correos a una o más personas responsables. Puede también evitar ésto 
+estableciendo la variable de entorno <systemitem role="keyword">NEWSMASTER</systemitem> al nombre apropiado. 
+Tiene que hacer ésto en el fichero <filename>crontab</filename> de <systemitem role="userid">news</systemitem>, 
+así como cada vez que invoque manualmente una herramienta administrativa, por lo que instalar un alias es 
+probablemente más fácil. Los alias para los mails se describen en <xref linkend="X-087-2-sendmail"> y <xref linkend="X-087-2-exim">.
+</para>
+
+<para>
+<indexterm><primary SORTAS="etc/passwd file">fichero /etc/passwd</primary><secondary>nombres de usuario reales</secondary></indexterm>
+<indexterm><primary>nombres de usuario reales</primary></indexterm>
+<indexterm><primary>nombres de usuario completos</primary></indexterm>
+Mientras esté hackeando <filename>/etc/passwd</filename>, asegúrese que cada usuario tiene su nombre real en 
+el campo <systemitem role="keyword">pw_gecos</systemitem> del fichero de contraseñas (éste es el cuarto 
+campo). Es una cuestión de etiqueta en Usenet que el nombre real del remitente aparezca en el 
+campo <literal>From:</literal> del artículo. Por supuesto, de cualquier forma querrá hacerlo cuando use 
+el correo.
+</para>
+<indexterm class="endofrange" startref="chcn.cnews.install"> 
+
+</sect1>
+
+<sect1 id="X-087-2-cnews.sys"><title>El fichero sys</title>
+<para>
+<indexterm id="idx-CNewsfilenamesysfilenamefile-1" 
+class="startofrange"><primary>C-News</primary><secondary>fichero sys</secondary></indexterm>
+<indexterm><primary>fichero sys (/etc/news)</primary></indexterm>
+El fichero <filename>sys</filename>, situado en <filename>/etc/news</filename>, controla que 
+jerarquías recibe y reenvía a otros servidores. Aunque hay herramientas de mantenimiento 
+llamadas <command>addfeed</command> y <command>delfeed</command>, pensamos que es mejor mantener 
+este fichero a mano.
+</para>
+
+<para>
+El fichero <filename>sys</filename> contiene entradas para cada servidor con el que intercambia noticias, 
+además tiene una lista de los grupos que usted acepta. La primera línea es una 
+entrada <systemitem role="keyword">ME</systemitem> que describe tu sistema. Es una apuesta segura usar lo 
+siguiente:
+
+<screen>
+ME:all/all::
+</screen>
+
+Además, tendrá que añadir una línea por cada servidor al que envía noticias.
+Cada línea se parece a esta:
+
+<screen>
+<replaceable>sitio</replaceable>[/<replaceable>exclusiones</replaceable>]:<replaceable>listagrupo</replaceable>[/<replaceable>listdistribución</replaceable>][:<replaceable>opciones</replaceable>[:<replaceable>órdenes</replaceable>]]
+</screen>
+</para>
+
+<para>
+Las entradas pueden continuar a lo largo de varias líneas usando la barra invertida
+(<systemitem role="keyword">\</systemitem>). Un símbolo (<systemitem role="keyword">#</systemitem>) 
+denota un comentario.
+</para> 
+
+<variablelist>
+<varlistentry><term><replaceable>sitio</replaceable></term>
+<listitem><para>
+Éste es el nombre del servidor al que se aplica la entrada. Una de las elecciones más usuales, es el
+nombre del servidor UUCP. También debe existir una entrada con su servidor en el fichero <filename>sys</filename> 
+, de lo contrario no recibirá ninguno de los artículos.
+</para>
+
+<para>
+<indexterm><primary>C-News</primary><secondary>recibiendo noticias</secondary></indexterm>
+<indexterm><primary>recibiendo noticias</primary></indexterm>
+<indexterm><primary>news (red)</primary><secondary>recibiendo</secondary></indexterm>
+El nombre especial de servidor <systemitem role="keyword">ME</systemitem> indica su servidor.
+La entrada <systemitem role="keyword">ME</systemitem> define todos los grupos de noticias que Ud. está 
+preparado para almacenar localmente. Los artículos que no concuerden con la línea 
+<systemitem role="keyword">ME</systemitem> irán al grupo
+<systemitem role="newsgroup">junk</systemitem>.
+</para>
+
+<para>
+<indexterm><primary>C-News</primary><secondary>excluyendo sitios</secondary></indexterm>
+<indexterm><primary>C-News</primary><secondary>alias de nombres de servidores</secondary></indexterm>
+<indexterm><primary>alias</primary><secondary>C-News y los</secondary></indexterm>
+C-News rechaza cualquier artículo que ya haya pasado a través de su servidor para evitar que los artículos regresen.
+C-News realiza ésto asegurándose de que el nombre del servidor local no aparece en el <literal>Path:</literal> 
+del artículo. Algunos servidores usan su nombre de dominio completamente calificado en este campo, o un alias
+como <literal>news.</literal><replaceable>sitio.dominio</replaceable>. Para prevenir que cualquier artículo
+regrese a estos servidores, es importante añadir todos los alias a la lista de exclusión, separados por comas.
+</para>
+
+<para>
+<?troff .hw contain>
+<?troff .hw orcnet>
+Para la entrada aplicada al servidor <systemitem role="sitename">moria</systemitem>,
+por ejemplo, el campo <replaceable>site</replaceable> debe contener
+<systemitem role="keyword">moria/moria.orcnet.org</systemitem>. Ahora, si
+<systemitem role="sitename">moria</systemitem> fuese un alias del servidor
+<systemitem role="sitename">news.orcnet.org</systemitem>, el campo
+<replaceable>site</replaceable> debe contener la siguiente expresión
+<systemitem role="keyword">moria/moria.orcnet.org,news.orcnet.org</systemitem>.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><replaceable>listagrupo</replaceable></term>
+<listitem><para>
+<indexterm><primary>C-News</primary><secondary>intercambiando noticias</secondary></indexterm>
+<indexterm><primary>C-News</primary><secondary>limitando un suministro</secondary></indexterm>
+Ésta es una lista de suscripción, separada por comas, de grupos y jerarquías para ese servidor 
+en particular. Una jerarquía debe especificarse dando el prefijo de la jerarquía (como <systemitem
+role="newsgroup">comp.os</systemitem> para todos los grupos cuyos nombres empiezan con este prefijo
+), seguido opcionalmente por la palabra clave  <systemitem
+role="newsgroup">all</systemitem> (por ejemplo, <systemitem
+role="newsgroup">comp.os.all</systemitem>&thinsp;).
+</para>
+
+<para>
+Para excluir una jerarquía o grupo de reemisión, debe ser precedido con un símbolo de exclamación.
+Si un grupo de noticias encaja con más de una definición de la lista, la coincidencia más larga se aplica.}
+Por ejemplo, si <replaceable>listagrupo</replaceable> contiene:
+
+<screen>
+!comp,comp.os.linux,comp.folklore.computers
+</screen>
+
+ningún grupo de la jerarquía <systemitem role="newsgroup">comp</systemitem> excepto
+ <systemitem role="newsgroup">comp.folklore.computers</systemitem> y
+todos los grupos bajo <systemitem role="newsgroup">comp.os.linux</systemitem> serán 
+suministrados a ese servidor.
+</para>
+
+<para>
+Si el servidor requiere que se le envíen todas las noticias que usted recibe, introduzca
+<systemitem role="keyword">all</systemitem> como <replaceable>listagrupo</replaceable>.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><replaceable>listadistribución</replaceable></term>
+<listitem><para>
+<indexterm><primary>C-News</primary><secondary>suministro, limitación</secondary></indexterm>
+<indexterm><primary>news (red)</primary><secondary>distribución</secondary></indexterm>
+Este valor está separado de <replaceable>grouplist</replaceable> por una barra invertida, y contiene
+una lista de distribuciones para ser reenviada. Usted puede, nuevamente, excluir ciertas distribuciones
+precediéndolas con un símbolo de exclamación. Todas las distribuciones se denotan con
+<systemitem role="keyword">all</systemitem>.  Omitir
+<replaceable>listadistrribución</replaceable> implica una lista de <systemitem
+role="keyword">all</systemitem>.
+</para>
+<?troff .wcon_off>
+
+<para>
+Por ejemplo, puede usar una lista de distribución de
+<systemitem role="keyword">all,!local</systemitem> para impedir que las noticias
+de uso sólo local sean enviadas a servidores remotos.
+</para>
+
+<para>
+Usualmente existen al menos dos distribuciones:
+<systemitem role="keyword">world</systemitem>, que es 
+a menudo la distribución predeterminada usada cuando el usuario
+no especifica nada, y
+<systemitem role="keyword">local</systemitem>.
+Puede haber otras distribuciones que se empleen para una cierta región,
+estado, país, etc. Finalmente hay dos distribuciones usadas sólamente
+por C-News; éstas son <systemitem role="keyword">sendme</systemitem> y
+<systemitem role="keyword">ihave</systemitem>, y son usadas para el protocolo
+sendme/ihave.
+</para>
+
+<para>
+El uso de distribuciones es materia de debate. El campo de distribución en 
+un artículo de noticias puede ser creado de forma arbitraria, pero
+para que la distribución sea efectiva, los servidores de noticias
+en la red deben conocer ésto. Para unos, algunos lectores de noticias
+crean falsas distribuciones simplemente usando la jerarquía de alto nivel,
+por ejemplo <systemitem role="newsgroup">comp</systemitem> 
+cuando se envía un mensaje a <systemitem role="newsgroup">comp.os.linux.networking</systemitem>.
+Las distribuciones que se emplean en regiones son a menudo también cuestionables,
+porque las noticias deben viajar fuera de su región cuando son enviadas a través de Internet.
+
+<footnote id="X-087-2-FNCN04"><para> 
+Esto sucede frecuentemente, por ejemplo, digamos que un artículo enviado desde Hamburgo, para
+ir a Frankfurt, vaya vía <systemitem role="sitename">reston.ans.net</systemitem> en Holanda
+, o incluso vía algún servidor en EE.UU.
+</para>
+</footnote>
+Sin embargo, las distribuciones empleadas por una organización, son muy significativas, 
+por ejemplo para evitar la salida de información confidencial de la red de la compañía.
+No obstante, este propósito generalmente se consigue mejor creando un grupo de noticias
+o una jerarquía separados.
+</para></listitem>
+</varlistentry>
+
+<varlistentry>
+<term><replaceable>opciones</replaceable></term>
+<listitem><para>
+Este campo describe ciertos parámetros para el suministro. Puede estar vacío, o
+ser una combinación de los siguientes:
+
+ <variablelist>
+ <varlistentry><term><literal>F</literal></term>
+ <listitem><para>
+<indexterm><primary>C-News</primary><secondary>proceso lotes</secondary></indexterm>
+ Esta opción permite el proceso por lotes.
+ </para></listitem>
+ </varlistentry>
+   
+ <varlistentry><term><literal>f</literal></term>
+ <listitem><para>
+ Ésta es casi idéntica a la opción <literal>F</literal>,
+  permite a C-News calcular el tamaño de los lotes salientes con más precisión,
+y debe ser usada preferentemente antes que F.
+ </para></listitem>
+ </varlistentry>
+   
+ <varlistentry><term><literal>I</literal></term>
+ <listitem><para>
+<indexterm><primary>C-News</primary><secondary>ihave/sendme</secondary></indexterm>
+ Ésta opción hace que C-News produzca una lista de artículo apta para ser usada por
+el protocolo ihave/sendme. Hay que hacer modificaciones al fichero
+ <filename>sys</filename> y a <filename>batchparms</filename> para habilitar
+ ihave/sendme.
+ </para></listitem>
+ </varlistentry>
+   
+ <varlistentry><term><literal>n</literal></term>
+ <listitem><para>
+<indexterm><primary>C-News</primary><secondary>soporte NNTP</secondary></indexterm>
+ Ésta opción crea ficheros por lotes para clientes de transferencia NNTP activa
+como <command>nntpxmit</command> (ver el <xref linkend="X-087-2-nntp">).
+ Los procesos por lotes contienen el nombre del fichero del artículo junto con
+el identificador de mensaje.
+ </para></listitem>
+ </varlistentry>
+   
+ <varlistentry><term><literal>L</literal></term>
+ <listitem><para>
+Indica a C-News que sólo transmita los mensajes generados en su servidor. 
+Éste flag puede ir seguido por un número decimal <replaceable>n</replaceable>, 
+el cual le indica a C-News que sólo transfiera los artículos generados a 
+<replaceable>n</replaceable> saltos desde su servidor. C-News determina el número
+de saltos a partir del campo <replaceable>Path:</replaceable>.
+ </para></listitem>
+ </varlistentry>
+   
+ <varlistentry><term><literal>u</literal></term>
+ <listitem><para>
+ Éste flag hace que C-News realice el proceso por lotes sólo de los artículos
+que se encuentran en los grupos sin moderar. 
+ </para></listitem>
+ </varlistentry>
+   
+ <varlistentry><term><literal>m</literal></term>
+ <listitem><para>
+ Inverso al anterior, C-News procesa los artículos de los grupos moderados. 
+ </para></listitem>
+ </varlistentry>
+ </variablelist>
+</para>
+
+<para>
+Se debe utilizar al menos uno de los parámetros <literal>F</literal>,
+<literal>f</literal>,
+<literal>I</literal>, o
+<literal>n</literal>.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><replaceable>cmds</replaceable></term>
+<listitem><para>
+<indexterm><primary>C-News</primary><secondary>rnews, orden</secondary></indexterm>
+<indexterm><primary>C-News</primary><secondary>noticias, intercambio</secondary></indexterm>
+
+Éste campo contiene una orden a ser ejecutada por cada artículo, a menos que el
+proceso por lotes esté habilitado. El artículo será suministrado a través de su entrada
+estándar. Esto sólo debería usarse para suministros muy pequeños; de otra manera, la
+carga en ambos servidores sería demasiado alta.
+</para>
+
+<para>
+La instrucción predeterminada es:
+
+<screen>
+uux - -r -z <replaceable>sistema-remoto</replaceable>!rnews
+</screen>
+</para>
+
+<para>
+Esto invoca a <command>rnews</command> en el sistema remoto, y le suministra el
+artículo en su entrada estándar.
+</para>
+
+<para>
+La ruta de búsqueda predeterminada para las órdenes indicadas en este campo es
+<filename>/bin:/usr/bin:/usr/lib/news/batch</filename>. 
+El último directorio contiene un cierto número de guiones del intérprete de órdenes
+cuyos nombres empiezan por <command>via</command>&thinsp; 
+estos serán brevemente descritos luego, en este mismo capítulo.
+</para>
+
+<para>
+<indexterm><primary>C-News</primary><secondary>procesado por lotes</secondary></indexterm>
+<indexterm><primary>C-News</primary><secondary>fichero togo</secondary></indexterm>
+Si el proceso por lotes está habilitado utilizando algún flag como 
+<literal>F</literal>,
+<literal>f</literal>,
+<literal>I</literal>, o
+<literal>n</literal>, C-News espera encontrar un nombre de fichero en este campo en vez de una instrucción. 
+Si el nombre del fichero no empieza con una barra inclinada (/&thinsp;), se asume que es relativo a
+<filename>/var/spool/news/out.going</filename>. Si el campo esta vacío, su valor predeterminado es
+<filename>sistema-remoto/togo</filename>. 
+Se espera que este fichero tenga el mismo formato que el fichero <filename>sistema-remoto/togo</filename> 
+y contenga una lista de los artículos a transmitir.
+</para></listitem>
+</varlistentry>
+</variablelist>
+
+<para>
+Cuando configure C-News, probablemente tendrá que escribir su propio fichero
+<filename>sys</filename>.
+Aquí se muestra un ejemplo para <systemitem role="sitename">vbrew.com</systemitem>, 
+del cual puede copiar lo que necesite:
+</para>
+
+<screen>
+# Tomamos todo lo que se nos suministra.
+ME:all/all::
+# Enviamos todo lo que recibimos a moria, excepto los artículos locales
+# y relacionados con la cervecera. Se utiliza proceso por lotes.
+moria/moria.orcnet.org:all,!to,to.moria/all,!local,!brewery:f:
+# Enviamos comp.risks a jack@ponderosa.uucp
+ponderosa:comp.risks/all::rmail jack@ponderosa.uucp
+# swim obtiene un suministro reducido.
+swim/swim.twobirds.com:comp.os.linux,rec.humor.oracle/all,!local:f:
+# Guardar los artículos de mapas de correo para procesarlos luego.
+usenet-maps:comp.mail.maps/all:F:/var/spool/uumaps/work/batch
+</screen>
+
+<indexterm class="endofrange" startref="idx-CNewsfilenamesysfilenamefile-1">
+
+</sect1>
+
+<sect1 id="X-087-2-cnews.active"><title>El Fichero active</title>
+
+<para>
+<indexterm><primary>C-News</primary><secondary>active, fichero</secondary></indexterm>
+<indexterm><primary>C-News</primary><secondary>lista de grupos activos</secondary></indexterm>
+El fichero <filename>active</filename> está situado en
+<filename>/etc/</filename>, y lista todos los grupos conocidos en su servidor, y los artículos
+disponibles actualmente. Rara vez tendrá que tocarlo, sin embargo, lo explicamos por amor a la
+perfección. Las entradas toman el siguiente formato:
+
+<screen>
+<replaceable>grupo_noticias</replaceable> <replaceable>high</replaceable> <replaceable>low</replaceable> <replaceable>perm</replaceable>
+</screen>
+</para>
+
+<para>
+<replaceable>grupo_noticias</replaceable> es el nombre del grupo.
+<replaceable>low</replaceable> y <replaceable>high</replaceable> contienen los números
+más bajo y más alto de los artículos actualmente disponibles. Si no hay ningún artículo
+en ese momento, <replaceable>low</replaceable> es igual a
+<replaceable>high</replaceable>+1.
+</para>
+
+<para>
+<indexterm><primary>C-News</primary><secondary>actualizar la marca de agua baja</secondary></indexterm>
+Al menos, eso e lo que el campo <replaceable>low</replaceable> pretende hacer.
+Sin embargo, por razones de eficiencia, C-News no actualiza este campo. Esto no sería
+una gran pérdida si no hubiera algunos lectores que dependen de él. Por ejemplo,
+<command>trn</command> comprueba este campo para ver si es posible purgar cualquier artículo de su
+base de datos de hilos. Para actualizar el campo bajo <replaceable>low</replaceable>, 
+tiene por lo tanto que ejecutar regularmente la orden <command>updatemin</command> 
+(o, en versiones más antiguas de C-News, es guión <command>upact</command>).
+</para>
+<!--ATENCION: Verificar la consistencia de hilos con otros artículos-->
+<para>
+<replaceable>perm</replaceable> es un parámetro que detalla el tipo de acceso que los
+usuarios tienen concedido en el grupo. Toma uno de los siguientes valores:
+
+<variablelist>
+<varlistentry><term><systemitem role="keyword">y</systemitem></term>
+<listitem><para>
+Se permite a los usuarios publicar en este grupo.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><systemitem role="keyword">n</systemitem></term>
+<listitem><para>
+Los usuarios no pueden publicar en este grupo. Sin embargo, todavía puede ser leído.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><systemitem role="keyword">x</systemitem></term>
+<listitem><para>
+Éste grupo ha sido deshabilitado localmente. Esto ocurre algunas veces cuando los administradores
+de noticias (o sus superiores) se ofenden por algún artículo publicado en ciertos grupos.
+</para>
+
+<para>
+Los artículos recibidos para estos grupos no son almacenados localmente
+aunque son reenviados a los servidores que los piden.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><systemitem role="keyword">m</systemitem></term>
+<listitem><para>
+Esto denota un grupo moderado. Cuando un usuario intenta enviar un artículo
+a este grupo, un lector de noticias inteligente le notificará al usuario la
+respectiva condición del grupo, y enviará el artículo al moderador del grupo.
+La dirección del moderador se toma del fichero <filename>moderators</filename> en
+el directorio <filename>/var/lib/news</filename>.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><literal>=</literal><replaceable>real-group</replaceable></term>
+<listitem><para>
+Esto marca a <replaceable>newsgroup</replaceable> como un alias local para otro grupo,
+a saber <replaceable>real-group</replaceable>. Todos los artículos publicados en
+<replaceable>newsgroup</replaceable> serán redirigidos a él.
+</para></listitem>
+</varlistentry>
+</variablelist>
+</para>
+
+<para>
+En C-News, generalmente no tendrá que acceder directamente a este fichero.
+Los grupos deben ser añadidos o borrados localmente usando 
+<command>addgroup</command> y <command>delgroup</command> (vea la sección
+ <xref linkend="X-087-2-cnews.maint">&rdquo; luego, en este capítulo).  
+Un mensaje de control <systemitem role="keyword">newgroup</systemitem> crea un grupo
+para todo Usenet, mientras que un mensaje <systemitem
+role="keyword">rmgroup</systemitem> elimina un grupo.
+<emphasis>¡Nunca envíe Ud. un mensaje de este tipo!</emphasis> Para saber como crear
+un grupo de noticias, lea los mensajes enviados mensualmente a
+<systemitem role="newsgroup">news.announce.newusers</systemitem>.
+</para>
+
+<para>
+<indexterm><primary>fichero active.times (/var/lib/news)</primary></indexterm> 
+
+El fichero <filename>active.times</filename> está estrechamente relacionado con el fichero 
+<filename>active</filename>. Cada vez que se crea un grupo, C-News registra un mensaje en
+este fichero, conteniendo el nombre del grupo creado, la fecha de creación, si fue creado
+por un mensaje de control <systemitem role="keyword">newgroup</systemitem> localmente,
+y quién lo hizo. Esto es para facilitar la vida a los lectores de noticias, quienes
+pueden notificar al usuario los grupos recién creados. También lo usa la orden
+<command>NEWGROUPS</command> de NNTP.
+</para>
+
+</sect1>
+
+<sect1 id="X-087-2-cnews.batcher"><title>Procesar Artículos por Lotes</title>
+
+<para>
+<indexterm id="idx-CNewssendingnews-1" class="startofrange"><primary>C-News</primary><secondary>enviando noticias</secondary></indexterm>
+<indexterm id="idx-CNewsbatching-1" class="startofrange"><primary>C-News</primary><secondary>procesado de artículos por lotes</secondary></indexterm>
+<indexterm id="idx-batchingnews-1" class="startofrange"><primary>procesado por lotes</primary><secondary>noticias</secondary></indexterm>
+<indexterm><primary>news (red)</primary><secondary>artículos</secondary><tertiary>procesado por lotes</tertiary></indexterm>
+<INDEXTERM><PRIMARY>artículos (noticias)</PRIMARY><SECONDARY>procesado por lotes</SECONDARY></INDEXTERM>
+Los lotes de noticias siguen un formato particular, el cual es el mismo para
+Bnews, C-News e INN. Cada artículo está precedido por una línea como esta:
+
+<screen>
+#! rnews <replaceable>count</replaceable>
+</screen>
+</para>
+
+<para>
+donde <replaceable>count</replaceable> es el número de bytes en el artículo. 
+Cuando se usa la compresión de lotes, el fichero resultante es comprimido como
+un todo, y precedido por otra línea, que indica el mensaje a ser usado por la
+compresión. la herramienta de compresión estándar es
+<systemitem role="newsgroup">compress</systemitem>, la cual se indica con:
+
+<screen>
+#! cunbatch
+</screen>
+</para>
+
+<para>
+Algunas veces, cuando hay que enviar los lotes usando un software de correo que 
+elimina el octavo bit de todos los datos, se puede proteger un lote usando un método
+de codificación llamado <emphasis>codificación c7</emphasis>(c7-encoding, en inglés); 
+estos lotes serán marcados por <command>c7unbatch</command>.
+</para>
+
+<para>
+Cuando se le suministra un lote <command>rnews</command> en el servidor remoto, éste
+comprueba esas marcas y procesa el lote apropiadamente. 
+Algunos servidores también usan otras herramientas de compresión tales como <command>gzip</command>,
+y en su lugar, preceden a sus ficheros comprimidos con <command>zunbatch</command>. 
+C-News no reconoce cabeceras no estándares como esas; Ud. deberá modificar el código
+fuente para darle soporte.
+</para>
+
+<para>
+<indexterm><primary>sendbatches, orden</primary></indexterm>
+En C-News, el proceso por lotes de ficheros lo realiza <filename>/usr/lib/news/batch/sendbatches</filename>,
+el cual recoge la lista de artículos del fichero <filename>site/togo</filename> y los pone en varios lotes
+de noticias. Debería ejecutarse una vez cada hora, o incluso más a menudo, dependiendo del volumen de tráfico.
+
+Esta operación es controlada por el fichero <filename>batchparms</filename> situado en
+<filename>/var/lib/news</filename>. 
+Este fichero describe el máximo tamaño de lote permitido para cada servidor, el tipo de proceso
+por lotes y opcionalmente el programa de compresión usado, además del método de transporte para entregarlo
+al servidor remoto. Puede especificar los parámetros del proceso por lotes para cada servidor, además
+de un conjunto de parámetros predeterminados para servidores no mencionados explícitamente.
+</para>
+
+<para>
+Cuando instale C-News, seguramente hallará un fichero de nombre <filename>batchparms</filename> 
+en su distribución que contenga una entrada predeterminada, con valores razonables, así que es 
+muy probable que no tenga que tocar el fichero. No obstante, describimos su formato por si acaso.
+Cada línea consta de seis campos, separados por espacios o tabuladores:
+
+<screen>
+<replaceable>sitio</replaceable> <replaceable>tamaño</replaceable> <replaceable>max</replaceable> <replaceable>batcher</replaceable> <replaceable>muncher</replaceable> <replaceable>transporte</replaceable>
+</screen>
+</para>
+<?troff .wcon_off>
+
+<variablelist>
+<varlistentry><term><replaceable>sitio</replaceable></term>
+<listitem><para>
+<replaceable>sitio</replaceable> es el nombre del servidor al que se aplica la entrada.
+El fichero <filename>togo</filename> para este servidor debe residir en
+<filename>out.going&thinsp;/togo</filename> bajo la cola de noticias. Un servidor llamado
+<systemitem role="keyword">/default/</systemitem> denota la entrada predeterminada
+y coincide con cualquier servidor que no sea especificado con una única entrada.
+</para></listitem></varlistentry>
+
+<varlistentry><term><replaceable>tamaño</replaceable></term>
+<listitem><para>
+<replaceable>tamaño</replaceable> es el tamaño máximo de los lotes creados (antes de la compresión).
+Para aquellos artículos que son mayores que este valor, C-News hace una excepción y los pone en 
+un lote a ellos solos.
+</para></listitem></varlistentry>
+
+<varlistentry><term><replaceable>max</replaceable></term>
+<listitem><para>
+<replaceable>max</replaceable> es el máximo número de lotes creados y programados
+para la transferencia antes de que el proceso por lotes se interrumpa para este 
+servidor en particular. Esto es útil en el caso de que el servidor remoto no esté
+disponible durante un largo período de tiempo, porque previene que C-News ateste sus
+directorios de cola UUCP con millones de lotes de noticias.
+</para>
+
+<para>
+C-News determina el número de lotes que hay en cola usando el guión 
+<command>queuelen</command> situado en <filename>/usr/lib/news/</filename>.
+Si ha instalado C-News desde paquetes, el guión no necesita retoques, pero
+si elige lugares diferentes para los directorios de cola, por ejemplo para
+Taylor UUCP, deberá crear su propia versión del guión. Si no le importa
+el número de ficheros de cola (porque Ud. es la única persona usando el ordenador, 
+y no escribe artículos gigantes), puede reemplazar el contenido del guión
+por una simple sentencia <command>exit 0</command>.
+</para></listitem></varlistentry>
+
+
+<varlistentry><term><replaceable>batcher</replaceable></term>
+<listitem><para>
+<indexterm><primary>C-News</primary><secondary>ihave/sendme</secondary></indexterm>
+El campo <replaceable>batcher</replaceable> contiene la orden usada para
+producir un lote a partir de la lista de artículos del fichero <filename>togo</filename>.
+Para las fuentes habituales, éste es generalmente <command>batcher</command>. 
+Puede que se proporcionen otros empaquetadores para otros propósitos. Por ejemplo,
+el protocolo ihave/sendme requiere que la lista de artículos sea convertida en
+mensajes de control <emphasis>ihave</emphasis> o <emphasis>sendme</emphasis>, los 
+cuales se envían al grupo <systemitem role="newsgroup">to.site</systemitem>. 
+Esto lo  realizan las instrucciones <command>batchih</command> y <command>batchsm</command> 
+respectivamente.
+</para></listitem></varlistentry>
+
+
+<varlistentry><term><replaceable>muncher</replaceable></term>
+<listitem>
+<para>
+<indexterm><primary>C-News</primary><secondary>comprimiendo lotes</secondary></indexterm>
+El campo <replaceable>compresión</replaceable> especifica la orden a usar
+para la compresión de los lotes. Generalmente, se usa <systemitem
+role="newsgroup">compcun</systemitem>, un guión que produce lotes 
+comprimidos<footnote id="X-087-2-FNCN06"><para>Tal como se distribuye con
+C-News, <systemitem role="newsgroup">compcun</systemitem> usa
+<systemitem role="newsgroup">compress</systemitem> con la opción 12-bit
+, ya que éste es el mínimo común denominador de la mayoría de los servidores. 
+Puede hacer una copia del guión, digamos <systemitem
+role="newsgroup">compcun16</systemitem>, y usar el método de compresión 16-bit. 
+De todas formas, la mejora en rendimiento no es muy impresionante.
+</para>
+</footnote>.
+Alternativamente, puede proporcionar un muncher que use <command>gzip</command>, 
+para comprimir, digamos <userinput>gzipcun</userinput> (para ser claros:
+tiene que escribirlo usted mismo&thinsp;).  Debe asegurarse de que
+<command>uncompress</command> en el servidor remoto esté parcheado para
+reconocer ficheros comprimidos con <command>gzip</command>.
+</para>
+
+<para>
+Si el servidor remoto no tiene una orden <command>uncompress</command>,
+debe especificar <command>nocomp</command>, lo que implica que no se realice 
+compresión alguna.
+</para></listitem></varlistentry>
+
+
+<varlistentry><term><replaceable>transporte</replaceable></term>
+<listitem>
+<para>
+El último campo, <replaceable>transporte</replaceable>, describe el 
+transporte a ser utilizado. Hay disponibles varias órdenes estándar
+para diferentes transportes cuyos nombres empiezan con
+<command>via</command>.  <command>sendbatches</command> les pasa el
+nombre del servidor de destino en la línea de órdenes. Si la entrada
+<filename>batchparms</filename> no era <systemitem
+role="keyword">/default/</systemitem>, <command>sendbatches</command>
+deriva el nombre del servidor del campo <replaceable>sitio</replaceable>
+suprimiendo cualquier cosa después e incluyendo el primer punto o barra inclinada.
+Si la entrada <systemitem role="keyword">batchparms</systemitem> es
+<systemitem role="keyword">/default/</systemitem>, se usa el nombre del directorio
+introducido en <filename>out.going</filename>.
+</para></listitem></varlistentry>
+</variablelist>
+<?troff .Nd 10>
+
+<para>
+Para llevar a cabo el proceso por lotes para un servidor específico, se invoca como:
+
+<screen>
+# <userinput>su news -c "/usr/lib/news/batch/sendbatches site"</userinput>
+</screen>
+</para>
+
+<para>
+<indexterm id="idx-CNewsbatchparameters-1" class="startofrange"><primary>C-News</primary><secondary>parámetros de los lotes</secondary></indexterm>
+Cuando se invoca sin argumentos, <command>sendbatches</command> maneja todas las colas de lotes. 
+La interpretación de &ldquo;todas&rdquo; depende de una entrada predeterminada en <filename>batchparms</filename>. 
+Si se encuentra una, se comprueban todos los directorios de <filename>/var/spool/news/out.going</filename>;
+si no, <command>sendbatches</command> recorre todas las entradas de
+<filename>batchparms</filename>, procesando solamente los lugares encontrados.
+Note que <command>sendbatches</command>, cuando explora el directorio
+<filename>out.going</filename> toma sólo aquellos directorios que no contienen ningún
+punto o símbolo arroba (<systemitem role="keyword">@</systemitem>)como nombre de servidor.
+</para>
+
+<para>
+<indexterm><primary>rnews, orden</primary></indexterm>
+<indexterm><primary>uux, orden</primary></indexterm>
+<indexterm><primary>C-News</primary><secondary>UUCP</secondary></indexterm>
+Hay dos órdenes que usan <command>uux</command> para ejecutar
+<command>rnews</command> en el servidor remoto:
+<command>viauux</command> y <command>viauuxz</command>. El último
+establece el parámetro <option>&ndash;z</option> para <command>uux</command>, el cual, 
+previene que versiones más antiguas de uux devuelvan mensajes de éxito por cada artículo
+entregado. Otra orden, <command>viamail</command>, envía los lotes
+de artículos al usuario <systemitem role="userid">rnews</systemitem> en
+el servidor remoto vía correo.  Por supuesto, esto requiere 
+que el sistema remoto administre de alguna manera todo el correo para <systemitem
+role="userid">rnews</systemitem> a su sistema local de noticias. 
+Para obtener una lista completa de estos transportes, refiérase a las páginas del 
+manual de <filename>newsbatch</filename>.
+</para>
+
+<para>
+Todas las órdenes de los tres últimos campos deben estar situados, bien en
+<filename>out.going/site</filename> o en <filename>/usr/lib/news/batch</filename>. 
+La mayoría de ellos son guiones, de tal forma que pueda confeccionar fácilmente
+nuevas herramientas para sus necesidades personales y son invocadas a través de tuberías
+(pipes). La lista de artículos se suministra al batches por su entrada estándar, la cual
+produce el lote en su salida estándar. Esto a su vez, se vuelve a entubar en el muncher, y así
+sucesivamente.
+</para>
+
+<para>
+Aquí hay un ejemplo:
+</para>
+
+<screen>
+# fichero batchparms para la cervecera
+# site        | size   |max    |batcher  |muncher    |transport
+#-------------+--------+-------+---------+-----------+-----------
+/default/       100000  22      batcher   compcun     viauux
+swim             10000  10      batcher   nocomp      viauux
+</screen>
+
+<indexterm class="endofrange" startref="idx-CNewsbatchparameters-1">
+<indexterm class="endofrange" startref="idx-CNewssendingnews-1">
+<indexterm class="endofrange" startref="idx-CNewsbatching-1">
+<indexterm class="endofrange" startref="idx-batchingnews-1">
+
+</sect1>
+
+<sect1 id="X-087-2-cnews.explist"><title>Caducando Noticias</title>
+
+<para>
+<indexterm id="idx-CNewsexpiring-1" class="startofrange"><primary>C-News</primary><secondary>caducidad de noticias en</secondary></indexterm>
+<indexterm><primary>news (red)</primary><secondary>caducidad de</secondary></indexterm>
+<indexterm><primary>cron</primary><secondary>caducidad de correo desde</secondary></indexterm> 
+En B News, la caducidad de las noticias solía realizarse mediante el programa
+<command>expire</command>, que tomaba como argumento una lista de los grupos de noticias,
+junto con una especificación del tiempo después del cual los artículos caducaban.
+Para hacer que diferentes jerarquías caducasen en momentos distintos,  tenía que escribir un 
+guión que invocase a <command>expire</command> por cada uno de ellos en forma individual.
+C-News ofrece una solución más conveniente a esto. En un fichero llamado
+<filename>explist</filename>, puede especificar los grupos de noticias y los
+respectivos intervalos.  Una orden llamada <command>doexpire</command> se activa
+diariamente desde <command>cron</command> y procesa todos los grupos acorde a esta lista.
+</para>
+
+<para>
+<indexterm><primary>C-News</primary><secondary>archivando</secondary></indexterm>
+<indexterm><primary>news (red)</primary><secondary>archivando artículos</secondary></indexterm>
+Ocasionalmente, Ud. puede querer mantener artículos de ciertos grupos incluso después
+de que hayan caducado; por ejemplo, podría querer mantener los programas enviados a
+<systemitem role="newsgroup">comp.sources.unix</systemitem>.
+A esto se le llama <emphasis>archivado</emphasis>. <filename>explist</filename>
+le permite marcar grupos para el archivado.
+</para>
+<?troff .Nd 10>
+
+<para>
+Una entrada en <filename>explist</filename> tiene el siguiente formato:
+
+<screen>
+<replaceable>grouplist</replaceable> <replaceable>perm</replaceable> <replaceable>times</replaceable> <replaceable>archive</replaceable>
+</screen>
+</para>
+
+<para>
+<replaceable>grouplist</replaceable> es una lista separada por comas
+de los grupos de noticias a los que aplica la entrada. 
+Se pueden especificar jerarquías completas indicando el prefijo del
+nombre del grupo, añadiendo, opcionalmente <systemitem role="keyword">all</systemitem>. 
+
+Por ejemplo, para indicar una entrada que se aplique a todos los
+grupos de <systemitem role="newsgroup">comp.os</systemitem>,
+o tambien <userinput>comp.os</userinput> o <userinput>comp.os.all</userinput>.
+</para>
+
+<para>
+Cuando se van a <emphasis>caducar</emphasis> las noticias de un grupo, 
+se constata el nombre del grupo con todas las entradas de <filename>explist</filename> 
+en el orden dado. La primer entrada que coincida es la que se aplica. 
+Por ejemplo, para eliminar la mayoría de <systemitem role="newsgroup">comp</systemitem>
+después de cuatro días, excepto <systemitem role="newsgroup">comp.os.linux.announce</systemitem>, 
+que desea mantener por una semana, debe simplemente tener una entrada para esto, 
+que especifique un período de caducidad de siete días, seguida por una para
+ <systemitem role="newsgroup">comp</systemitem>, que especifique cuatro días.
+</para>
+
+<para>
+El campo <replaceable>perm</replaceable> detalla si la entrada se aplica a grupos moderados,
+no moderados, o a cualquier grupo. Debe tomar uno de los valores 
+<systemitem role="keyword">m</systemitem>,
+<systemitem role="keyword">u</systemitem>, o
+<systemitem role="keyword">x</systemitem>, lo que designa la condición de  moderado, no moderado 
+o cualquier tipo.
+</para>
+
+<para>
+El tercer campo, <replaceable>times</replaceable>, usualmente contiene
+un solo número. Éste es el número de días después de los cuales caducarán
+los artículos si no se les ha asignado una fecha de caducidad artificial en
+el campo <literal>Expires:</literal> de la cabecera del artículo. 
+Debe darse cuenta de que éste es el número de días contando desde la
+<emphasis>llegada</emphasis> a su servidor, no desde la fecha de publicación.
+</para>
+
+<para>
+Sin embargo, el campo <replaceable>times</replaceable> puede ser más complejo que eso. 
+Puede ser una combinación de hasta tres números separados unos de otros por un guión (-). 
+El primero designa el número de días que tienen que pasar antes de que el artículo sea 
+considerado candidato para estar caduco, incluso si el campo <literal>Expires:</literal> 
+ya haya indicado esta condición. Rara vez es útil usar otro valor que no sea cero. 
+El segundo campo, es el valor mencionado arriba, es decir, el número predeterminado de días
+después de los cuales caducará. El tercero es el número de días después de los cuales un
+artículo caducará incondicionalmente, sin tomar en cuenta si tiene un campo <literal>Expires:</literal>
+o no. Si sólo se indica el número de en medio, los otros dos toman valores por omisión. 
+Éstos pueden especificarse usando la entrada especial <systemitem role="keyword">/bounds/</systemitem>, 
+la cual se describe un poco más abajo.
+</para>
+
+<para>
+El cuarto campo, <replaceable>archive</replaceable>, designa si el grupo de noticias
+tiene que archivarse, y dónde.  Si no desea archivarlo, debería usar un guión. 
+De lo contrario, use la ruta completa (apuntando a un directorio), o use una arroba (@).
+La arroba designa el directorio de fichero por omisión cuyo valor debe darse a
+<command>doexpire</command> usando el parámetro <option>&ndash;a</option> en la
+línea de órdenes.  Éste directorio debe ser propiedad del usuario <systemitem role="userid">news</systemitem>. 
+Cuando <command>doexpire</command> archiva un artículo de, digamos,
+<systemitem role="newsgroup">comp.sources.unix</systemitem>, lo almacena 
+en el directorio <systemitem role="newsgroup">comp/sources/unix</systemitem> bajo
+el directorio de fichero, creándolo si no existe. Sin embargo, no se creará el propio
+directorio de fichero.
+</para>
+
+<para>
+Hay dos entradas especiales en el fichero <filename>explist</filename> de las que depende
+<command>doexpire</command>.  En vez de una lista de grupos de noticias, tienen las 
+palabras clave <systemitem role="keyword">/bounds/</systemitem> y
+<systemitem role="keyword">/expired/</systemitem>. 
+ La entrada <systemitem role="keyword">/bounds/</systemitem> contiene los valores
+predeterminados usados por el campo <replaceable>times</replaceable> descrito anteriormente.
+</para>
+
+<para>
+El campo <systemitem role="keyword">/expired/</systemitem> determina cuánto tiempo
+guardará C-News las entradas del fichero <filename>history</filename>. 
+C-News no borrará una línea del fichero de historial una vez que el (los) artículo(s)
+hayan caducado, pero lo guardará por si acaso llega un duplicado tras esa fecha. 
+De lo contrario, un par de semanas es un valor aconsejable para las redes UUCP,
+dependiendo de los retrasos que experimente con los artículos de esos servidores.
+</para>
+
+<para>
+A continuación se reproduce un fichero <filename>explist</filename> de ejemplo
+con unos intervalos de expiración bastante ajustados:
+
+<screen>
+# Mantiene las líneas de historial dos semanas. 
+# Ningún artículo consigue más de tres meses.
+/expired/                       x       14      -
+/bounds/                        x       0-1-90  -
+# grupos que queremos mantener más tiempo que el resto.
+comp.os.linux.announce          m       10      -
+comp.os.linux                   x       5       -
+alt.folklore.computers          u       10      -
+rec.humor.oracle                m       10      -
+soc.feminism                    m       10      -
+# Archiva los grupos *.sources 
+comp.sources,alt.sources        x       5       @
+# Valores predeterminados para los grupos de tecnología.
+comp,sci                        x       7       -
+# Suficiente para un fin de semana largo.
+misc,talk                       x       4       -
+# desecha rápidamente lo inservible
+junk                            x       1       -
+# los mensajes de control, también son de escaso interés
+control                         x       1       -
+# para el resto de ellos, la entrada comodín
+all                             x       2       -
+</screen>
+</para>
+
+<para>
+<indexterm><primary>C-News</primary><secondary>actualizar la marca de agua baja</secondary></indexterm>
+Hay un cierto número de problemas potenciales con la caducidad en C-News. Uno es que su lector de 
+noticias puede depender del tercer campo del fichero <emphasis>active</emphasis> descrito anteriormente, 
+el cuál contiene el número de artículo más bajo disponible. Cuando C-News caduca artículos,
+no actualiza este campo. Si necesita (o quiere) que este campo represente la situación real,
+necesita ejecutar un programa llamado <command>updatemin</command> después de cada ejecución de
+<command>doexpire</command>. (En versiones anteriores de C-News, existe un guión llamado 
+<command>upact</command> que realiza este trabajo.)
+</para>
+
+<para>
+<indexterm><primary>C-News</primary><secondary>history, fichero</secondary></indexterm>
+C-News no caduca los artículos examinando el directorio de los grupos de noticias, 
+sino que simplemente comprueba en el fichero  <filename>history</filename> si el artículo
+debe caducar.<footnote id="X-087-2-FNCN07"><para>
+La fecha de llegada del artículo se almacena en el campo de en medio de la línea de historia,
+dado en segundos desde el 1 de Enero de 1970
+</para>
+</footnote>
+Si el fichero history consigue de alguna manera estar fuera de sincronismo, 
+sus artículos pueden permanecer en su disco duro para siempre, porque C-News 
+los ha olvidado literalmente.<footnote id="X-087-2-FNCN08"><para>
+No se <emphasis>por qué</emphasis> ocurre esto, a mí me sucede de vez en cuando.
+</para>
+</footnote>
+Puede reparar esto usando el guión <command>addmissing</command> que se encuentra en
+ <filename>/usr/lib/news/maint</filename>, el cuál añadirá los artículos perdidos
+al fichero <filename>history</filename> o a <command>mkhistory</command>,
+el cuál reconstruye el fichero desde cero. No olvide ser
+<systemitem role="userid">news</systemitem> antes de invocarlo, o
+de lo contrario terminará con un fichero <filename>history</filename> imposible de leer por
+C-News.
+</para>
+
+<indexterm class="endofrange" startref="idx-CNewsexpiring-1">
+</sect1>
+<sect1 id="X-087-2-cnews.misc"><title>Ficheros Diversos</title>
+<para>
+Hay algunos ficheros que controlan el uso de C-News, pero que no son esenciales
+para su funcionamiento. Todos ellos residen en <filename>/etc/news</filename>. 
+ Los describiremos brevemente:
+</para>
+
+<variablelist>
+<varlistentry><term><filename>newsgroups</filename></term>
+<listitem><para>
+<indexterm><primary>C-News</primary><secondary>lista de grupos activos</secondary></indexterm>
+<indexterm><primary>grupos de noticias</primary><secondary>fichero (/etc/news)</secondary></indexterm> 
+Éste acompaña al fichero <filename>active</filename> y contiene una lista de
+nombres de grupos de noticias, junto con una descripción, en una sola línea, de su tema principal.
+Se actualiza automáticamente cuando C-News recibe un mensaje de control
+<systemitem role="keyword">checknews</systemitem>.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><filename>localgroups</filename></term>
+<listitem><para>
+<indexterm><primary>fichero localgroups (/etc/news)</primary></indexterm> 
+Si tiene muchos grupos locales, puede hacer que C-News no se queje cada vez que recibe un mensaje <literal>checkgroups</literal>, poniendo sus nombres y descripciones en este fichero, justo como
+aparecerían en el fichero <filename>newsgroups</filename>.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><filename>mailpaths</filename></term>
+<listitem><para>
+<indexterm><primary>C-News</primary><secondary>grupos moderados</secondary></indexterm>
+<indexterm><primary>fichero mailpaths (/etc/news)</primary></indexterm> 
+Este fichero contiene la dirección del moderador para cada grupo moderado.
+Cada línea contiene el nombre del grupo, seguido por la dirección de correo
+electrónico del moderador (separado por un tabulador).
+</para>
+
+<para>
+Se proporcionan dos entradas especiales por omisión:
+<systemitem role="keyword">backbone</systemitem> e
+ <systemitem role="keyword">internet</systemitem>. Ambas proporcionan - en notacion UUCP de signos de admiración
+ - el camino al servidor principal más cercano y el servidor que reconoce direcciones del estilo
+RFC-822 (<systemitem role="emailaddr">user@host</systemitem>).
+Las entradas predeterminadas son:
+
+<screen>
+internet           backbone
+</screen>
+</para>
+
+<para>
+No tendrá que cambiar la entrada <systemitem role="keyword">internet</systemitem> si tiene
+instalado <command>exim</command> o <command>sendmail</command> ya que entienden el 
+direccionamiento RFC-822.
+</para>
+
+<para>
+La entrada <systemitem role="keyword">backbone</systemitem> se usa cada vez que
+un usuario publica un mensaje en un grupo moderado cuyo moderador no esté listado explícitamente. 
+Si el nombre del grupo de noticias es <systemitem role="newsgroup">alt.sewer</systemitem>,
+y la entrada <systemitem role="keyword">backbone</systemitem> contiene
+<systemitem role="emailaddr">path!%s</systemitem>, C-News enviará por correo el artículo
+a <systemitem role="emailaddr">path!alt-sewer</systemitem>, esperando
+que la máquina backbone pueda reenviar el artículo. Para averiguar que camino usar,
+pregunte al administrador de su proveedor de noticias. Como último recurso,
+puede usar también <systemitem role="emailaddr">uunet.uu.net!%s</systemitem>.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><filename>distributions</filename></term>
+<listitem><para>
+<indexterm><primary>C-News</primary><secondary>Limitando un suministro</secondary></indexterm>
+Este no es un fichero real de C-News, pero se usa por algunos lectores de noticias y por
+<command>nntpd</command>. Contiene la lista de distribuciones reconocida
+y una descripción de su efecto (deseado). Por ejemplo,
+la Cervecera Virtual tiene el siguiente fichero:
+
+<screen>
+world         cualquier lugar del mundo
+local         sólo local a este servidor
+nl            sólo Holanda
+mugnet        sólo MUGNET
+fr            sólo Francia
+de            sólo Alemania
+brewery       sólo la Cervecera Virtual
+</screen>
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><filename>log</filename></term>
+<listitem><para>
+<indexterm><primary>C-News</primary><secondary>ficheros de registro</secondary></indexterm>
+Este fichero contiene un registro de todas las actividades de C-News. Se recorta regularmente
+ejecutando <command>newsdaily</command>&thinsp;; las copias de ficheros de los registros
+antiguos se guardan bajo <filename>log.o</filename>, <filename>log.oo</filename>, etc.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><filename>errlog</filename></term>
+<listitem><para>
+Este es un registro de todos los mensajes de error generados por C-News. Estos no 
+incluyen artículos desechados debido a grupos incorrectos u otros errores de los usuarios.
+De no estar vacío al momento de ejecutar <command>newsdaily</command>, será enviado
+por correo al administrador de noticias (<systemitem role="userid">usenet</systemitem> 
+por omisión) automáticamente.
+</para>
+
+<para>
+<?troff .hw companions>
+<command>newsdaily</command> se encarga de limpiar <filename>errlog</filename>.
+Las copias antiguas se guardan bajo <filename>errlog.o</filename> y compañía.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><filename>batchlog</filename></term>
+<listitem><para>
+Este fichero registra todas las ejecuciones de <command>sendbatches</command>.
+Normalmente no tiene interés su contenido. También es atendido por <command>newsdaily</command>.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><filename>watchtime</filename></term>
+<listitem><para>
+Este es un fichero vacío que crea <command>newswatch</command> cada vez que se ejecuta.
+</para></listitem>
+</varlistentry>
+</variablelist>
+
+</sect1>
+
+<sect1 id="X-087-2-cnews.control"><title>Mensajes de Control</title>
+
+<para>
+<indexterm><primary>news (red)</primary><secondary>mensajes de control</secondary></indexterm>
+<indexterm><primary>C-News</primary><secondary>mensajes de control en</secondary></indexterm> 
+El protocolo de noticias Usenet reconoce artículos de una categoría especial, los cuales
+provocan ciertas respuestas o acciones del sistema. Estos son los llamados mensajes de
+<emphasis>control</emphasis>. Se reconocen por la presencia de un campo
+<replaceable>Control:</replaceable> en la cabecera del artículo, el cual contiene
+el nombre de la operación de control a realizar. Existen varios tipos,
+y todas ellas son manejadas por guiones del intérprete de órdenes situados en
+<filename>/usr/lib/news/ctl</filename>.
+</para>
+
+<para>
+La mayoría de éstos realizarán su acción automáticamente en el momento en que
+C-News procese el artículo, sin notificar al administrador de noticias. Por omisión,
+sólo los mensajes <systemitem role="keyword">checkgroups</systemitem> serán entregados
+al administrador de noticias, pero puede cambiar esto editando los guiones.
+</para>
+
+<sect2 id="X-087-2-cnews.control.cancel"><title>El mensaje cancel</title>
+
+<para>
+<indexterm><primary>mensaje de control cancel</primary></indexterm>
+<indexterm><primary>news (red)</primary><secondary>artículo cancel</secondary></indexterm>
+El mensaje más conocido es <systemitem role="keyword">cancel</systemitem>, 
+con el cual un usuario puede cancelar un artículo enviado por él en otro momento. 
+Esto borra el artículo de los directorios de cola, si existe.
+El mensaje <systemitem role="keyword">cancel</systemitem> se reenvía a todos los
+servidores que reciben noticias de los grupos afectados, sin reparar si el artículo
+ha sido visto o no. Esto es para tener en cuenta la posibilidad de que el artículo original
+se haya retrasado sobre el mensaje de cancelación. Algunos sistemas de noticias permiten a los
+usuarios cancelar los mensajes de otras personas. Por supuesto esto es algo que no se debería hacer.
+</para>
+
+</sect2>
+<?troff .wcon_off>
+
+<sect2 id="X-087-2-cnews.control.addgroup"><title>newgroup y rmgroup</title>
+
+<para>
+<indexterm><primary>mensaje de control newgroup</primary></indexterm>
+<indexterm><primary>mensaje de control rmgroup</primary></indexterm>
+<indexterm><primary>news (red)</primary><secondary>agregando grupos nuevos</secondary></indexterm>
+<indexterm><primary>news (red)</primary><secondary>removiendo grupos viejos</secondary></indexterm>
+<indexterm><primary>grupos de noticias</primary><secondary>creando</secondary></indexterm> 
+<indexterm><primary>grupos de noticias</primary><secondary>borrando</secondary></indexterm> 
+Dos mensajes que se ocupan de la creación y borrado de grupos de noticias son los
+mensajes <systemitem role="keyword">newgroup</systemitem> y
+<systemitem role="keyword">rmgroup</systemitem>. Los grupos de noticias bajo la
+las jerarquías &ldquo;usuales&rdquo; solo pueden ser creados después de que haya mantenido
+una discusión y voto entre los lectores de Usenet. Las reglas aplicadas a la jerarquía
+<systemitem role="newsgroup">alt</systemitem> permiten algo similar a la anarquía.
+Para más información, ver los mensajes regulares publicados en
+<systemitem role="newsgroup">news.announce.newusers</systemitem> y en
+<systemitem role="newsgroup">news.announce.newgroups</systemitem>.  Nunca envíe un mensaje
+ <systemitem role="keyword">newgroup</systemitem> o
+<systemitem role="keyword">rmgroup</systemitem> usted mismo a menos que
+sepa con seguridad que tiene permiso para hacerlo.
+</para>
+</sect2>
+
+<sect2 id="X-087-2-cnews.control.checkgroups"><title>El Mensaje checkgroups</title>
+
+<para>
+<indexterm><primary>mensaje de control checkgroups</primary></indexterm>
+<indexterm><primary>C-News</primary><secondary>actualizando ficheros active</secondary></indexterm>
+<indexterm><primary>news (red)</primary><secondary>actualizando ficheros active</secondary></indexterm>
+Los mensajes <systemitem role="keyword">checkgroups</systemitem> son enviados por los
+administradores de noticias para hacer que todos los servidores de una red sincronicen
+sus ficheros <filename>active</filename> con la realidad de Usenet. Por ejemplo, 
+los proveedores de servicio de Internet deberían mandar tal mensaje a los servidores
+de sus clientes. Una vez al mes, el moderador del grupo <systemitem 
+role="newsgroup">comp.announce.newgroups</systemitem> envía el 
+mensaje &ldquo;oficial&rdquo; <systemitem role="keyword">checkgroups</systemitem> para las
+principales jerarquías. Sin embargo, se envía como un artículo ordinario, no como
+un mensaje de control. Para realizar la operación
+<systemitem role="keyword">checkgroups</systemitem>
+, salve este artículo en un fichero, digamos  <filename>/tmp/check</filename>,
+borre todo hasta el principio del mismo mensaje de control, y envíelo al guión
+<systemitem role="keyword">checkgroups</systemitem> usando la orden siguiente:
+
+<screen>
+# <userinput>su news -c "/usr/lib/news/ctl/checkgroups" &lt; /tmp/check</userinput>
+</screen>
+</para>
+
+<para>
+Esto actualizará su fichero <filename>newsgroups</filename>, añadiendo los grupos
+listados en <filename>localgroups</filename>. El antiguo fichero
+ <filename>newsgroups</filename> será movido a
+<filename>newsgroups.bac</filename>. Note que rara vez funciona el enviar 
+el mensaje localmente, ya que <command>inews</command>, rechaza un artículo tan grande.
+</para>
+
+<para>
+Si C-News encuentra desigualdades entre la lista del fichero
+<systemitem role="keyword">checkgroups</systemitem> y el fichero
+<filename>active</filename>, producirá una lista de órdenes que actualizaría
+su servidor, y lo enviará por correo al administrado de noticias. 
+</para>
+
+<para>
+Típicamente la salida se parece a esto:
+
+<screen>
+From news Sun Jan 30 16:18:11 1994
+Date: Sun, 30 Jan 94 16:18 MET
+From: news (News Subsystem)
+To: usenet
+Subject: Problems with your active file
+The following newsgroups are not valid and should be removed.
+        alt.ascii-art
+        bionet.molbio.gene-org
+        comp.windows.x.intrisics
+        de.answers
+You can do this by executing the commands:
+         /usr/lib/news/maint/delgroup alt.ascii-art
+         /usr/lib/news/maint/delgroup bionet.molbio.gene-org
+         /usr/lib/news/maint/delgroup comp.windows.x.intrisics
+         /usr/lib/news/maint/delgroup de.answers
+The following newsgroups were missing.
+        comp.binaries.cbm
+        comp.databases.rdb
+        comp.os.geos
+        comp.os.qnx
+        comp.unix.user-friendly
+        misc.legal.moderated
+        news.newsites
+        soc.culture.scientists
+        talk.politics.crypto
+        talk.politics.tibet
+</screen>
+</para>
+
+<para>
+Cuando reciba un mensaje como éste de su sistema de noticias, no lo crea ciegamente. Dependiendo de 
+quién envió el mensaje <systemitem role="keyword">checkgroups</systemitem>, puede que carezca
+de unos pocos grupos e incluso jerarquías enteras; por lo tanto, debería tener cuidado al borrar
+cualquier grupo. Si encuentra grupos listados como no presentes que quiera tener en su servidor,
+tiene que añadirlos usando el guión <command>addgroup</command>.
+Salve la lista de grupos que le faltan en un fichero y páseselo al siguiente guión:
+
+<programlisting>
+#!/bin/sh
+#
+WHOIAM=`whoami`
+if [ "$WHOIAM" != "news" ]
+then
+	echo "Debe ejecutar $0 como usuario 'news'" >&2
+	exit 1
+fi
+#
+cd /usr/lib/news
+while read group; do
+    if grep -si "^$group[[:space:]].*moderated" newsgroup; then
+        mod=m
+    else
+        mod=y
+    fi
+    /usr/lib/news/maint/addgroup $group $mod
+done
+</programlisting>
+
+</para>
+</sect2>
+
+<sect2 id="X-087-2-cnews.control.sendsys"><title>sendsys, version, y senduuname</title>
+
+<para>
+<indexterm><primary>mensaje de control checkgroups</primary></indexterm>
+Finalmente, hay tres mensajes que pueden usarse para averiguar la topología 
+de la red. Estos son <systemitem
+role="keyword">sendsys</systemitem>, <systemitem
+role="keyword">version</systemitem>, y <systemitem
+role="keyword">senduuname</systemitem>. Respectivamente, hacen que C-News
+devuelva al remitente el fichero <filename>sys</filename>, una cadena con la
+versión del software, y la salida de <command>uuname</command>.
+C-News es muy lacónica con respecto a los mensajes <systemitem
+role="keyword">version</systemitem>; ya que devuelve una simple 
+<literal>C</literal>, sin más adornos.
+</para>
+
+<para>
+Nuevamente, <emphasis>nunca</emphasis> debería distribuir tales mensajes, a menos
+que esté seguro de que no pueden salir de su red (regional). Las respuestas a los mensajes
+ <systemitem role="keyword">sendsys</systemitem> pueden hacer caer rápidamente a una red UUCP.
+<footnote id="X-087-2-FNCN09"><para>
+Yo tampoco intentaría esto en Internet.
+</para>
+</footnote>
+</para>
+
+</sect2>
+</sect1>
+
+<sect1 id="X-087-2-cnews.nfs"><title>C-News en un Entorno NFS</title>
+
+<para>
+<indexterm><primary>configurando</primary><secondary>C-News</secondary><tertiary>en una LAN</tertiary></indexterm>
+<indexterm><primary>C-News</primary><secondary>bajo NFS</secondary></indexterm>
+<indexterm><primary>NFS (Sistema de Ficheros de Red)</primary><secondary>C-News bajo</secondary></indexterm> 
+<indexterm><primary>Redes de Área Local (LANs)</primary><secondary>noticias</secondary></indexterm>
+
+Una manera simple de distribuir noticias en una red local, es guardándolas en un nodo central, 
+y exportar los directorios relevantes vía NFS, de manera que los lectores de noticias puedan
+examinar los artículos directamente. La ventaja de este método sobre NNTP es que la sobrecarga
+implicada en recuperar y enhebrar artículos es significativamente más baja. Por otra parte,
+NNTP gana en una red heterogénea donde el equipamiento varía mucho entre nodos, o donde los
+usuarios no tienen cuentas equivalentes en la máquina servidora.
+</para>
+
+<para>
+Cuando se usa NFS, los artículos enviados al nodo local tienen que ser reenviados a la
+máquina central, porque de otro modo el acceso a los ficheros administrativos expondría
+al sistema a condiciones de carrera dejando a los ficheros inconsistentes. También
+podría querer proteger su área de cola de noticias exportándola con atributos de sólo lectura,
+lo cual requiere también el reenvío a la máquina central.
+</para>
+
+<para>
+C-News maneja esto de forma transparente.
+Cuando envía un artículo, su lector de noticias normalmente invocará a
+<command>inews</command> para inyectar el artículo al sistema de noticias. Esta
+orden ejecuta algunas comprobaciones sobre el artículo, completa la cabecera
+y comprueba el fichero <filename>server</filename> en <filename>/etc/news</filename>.
+Si el fichero existe y contiene un nombre de nodo diferente al del sistema local, se invoca a 
+<command>inews</command> en ese servidor remoto vía <command>rsh</command>. 
+Puesto que el guión <command>inews</command> usa órdenes binarias y ficheros de 
+apoyo de C-News, debe tener C-News instalado localmente, o montar el software
+de noticias desde el servidor.
+</para>
+
+<para>
+Para que la invocación de <command>rsh</command> funcione correctamente, cada
+usuario debe tener una cuenta equivalente en el sistema del servidor, esto es, una 
+a la que pueda acceder sin necesidad de contraseñas.
+</para>
+
+<para>
+Asegúrese de que el nombre del sistema indicado en <filename>server</filename> coincida
+literalmente con la salida de la orden <command>hostname</command> en el servidor, si no
+C-News entrará en un bucle infinito cuando intente entregar el artículo.
+NFS se discute en detalle en el <xref linkend="X-087-2-nfs">.
+</para>
+
+</sect1>
+
+<sect1 id="X-087-2-cnews.maint"><title>Herramientas y Tareas de Mantenimiento</title>
+
+<para>
+<indexterm><primary>cron</primary><secondary>corriendo</secondary><tertiary>newsdaily en</tertiary></indexterm> 
+A pesar de la complejidad de C-News, la vida de un administrador de noticias
+puede ser bastante fácil, porque C-News proporciona una amplia variedad de
+herramientas de mantenimiento.
+Es deseable que algunas de estas sean ejecutadas regularmente desde <command>cron</command>,
+como <command>newsdaily</command>.  El uso de estos guiones reduce drásticamente los requisitos
+diarios de cuidado y administración de su instalación de C-News.
+</para>
+<?troff .wcon_off>
+
+<para>
+A menos que se indique lo contrario, estas órdenes están situadas en
+<filename>/usr/lib/news/maint</filename>.  (Note que usted debe ser el usuario
+<systemitem role="userid">news</systemitem> antes de invocarlas.
+Ejecutándolas como super-usuario puede volver a estos ficheros inaccesibles a C-News.):
+</para>
+
+<variablelist>
+<varlistentry><term><command>newsdaily</command></term>
+<listitem><para>
+Es un guión importante que le ayuda a mantener los ficheros de registro pequeños, conservando 
+copias de todos ellos de las últimas tres ejecuciones. También intenta detectar cualquier anomalía,
+como lotes atascados en los directorios de entrada y salida, envíos a grupos de noticias moderados
+o desconocidos, etc. Los mensajes de error resultantes serán enviados por correo al administrador 
+de noticias.
+</para></listitem>
+</varlistentry>
+
+<?troff .sp -1p>
+<varlistentry><term><command>newswatch</command></term>
+<listitem><para>
+Se trata de un guión que debería ejecutarse regularmente para buscar anomalías
+en el sistema de noticias, una vez cada hora más o menos. Está destinado a detectar
+problemas que tendrán efectos inmediatos en la operatividad de su sistema de noticias y 
+enviar un informe de problemas al administrador de noticias. Las cosas comprobadas incluyen
+ficheros de bloqueo pasados que no fueron borrados, lotes de entrada desatendidos y la falta
+de espacio en disco.
+</para></listitem>
+</varlistentry>
+
+<?troff .sp -1p>
+<varlistentry><term><command>addgroup</command></term>
+<listitem><para>
+Añade un grupo localmente a su servidor. La forma de invocar al guión de forma correcta es:
+
+<screen>
+addgroup <replaceable>groupname</replaceable> y|n|m|=<replaceable>realgroup</replaceable>
+</screen>
+</para>
+
+<para>
+El segundo argumento tiene el mismo significado que el modificador del fichero
+<filename>active</filename>, significando que cualquiera puede enviar un artículo al grupo
+(<systemitem role="keyword">y</systemitem>), que nadie puede enviar
+(<systemitem role="keyword">n</systemitem>), que es moderado
+(<systemitem role="keyword">m</systemitem>), o que es un alias para otro grupo
+(<systemitem role="keyword">=</systemitem><replaceable>realgroup</replaceable>).  
+Usted podría querer usar <command>addgroup</command> cuando los primeros artículos
+de un grupo recién creado lleguen antes que el mensaje de control
+<systemitem role="keyword">newgroup</systemitem> destinado a crearlo.
+</para></listitem>
+</varlistentry>
+
+<?troff .sp -1p>
+<varlistentry><term><command>delgroup</command></term>
+<listitem><para>
+Le permite borrar localmente un grupo. Invóquelo como:
+
+<screen>
+delgroup <replaceable>groupname</replaceable>
+</screen>
+</para>
+
+<para>
+Todavía tiene que borrar los artículos que permanecen en el directorio de cola del grupo de 
+noticias. Aunque se puede dejar esta tarea al proceso natural de expiración de artículos.
+</para></listitem>
+</varlistentry>
+
+<?troff .sp -1p>
+<varlistentry><term><command>addmissing</command></term>
+<listitem><para>
+Añade artículos perdidos al fichero <filename>history</filename>.
+Ejecute este guión cuando haya artículos que parezcan quedarse para siempre.
+</para></listitem>
+</varlistentry>
+
+<?troff .sp -1p>
+<varlistentry><term><command>newsboot</command></term>
+<listitem><para>
+Este guión se debería ejecutar cuando arranca el sistema. Eliminar cualquier fichero de bloqueo
+que se dejó atrás cuando se mataron los procesos al apagar, además cierra y ejecuta cualquier lote dejado por
+alguna conexión NNTP que se cerró cuando se apagó el sistema.
+</para></listitem>
+</varlistentry>
+
+<?troff .sp -1p>
+<varlistentry><term><command>newsrunning</command></term>
+<listitem><para>
+Este guión reside en <filename>/usr/lib/news/input</filename>, y puede ser usado para
+deshabilitar el desempaquetado de los lotes de noticias entrantes, por ejemplo durante
+las horas de trabajo. Ud. puede desconectar el desempaquetado invocando: 
+
+<screen>
+<?troff .sp -1p>
+/usr/lib/news/input/newsrunning off
+<?troff .sp -1p>
+</screen>
+</para>
+
+<para>
+Se conecta usando <systemitem role="keyword">on</systemitem> en vez de
+ <systemitem role="keyword">off</systemitem>.
+</para></listitem>
+</varlistentry>
+</variablelist>
+<indexterm class="endofrange" startref="idx-configuringCNews-1">
+<indexterm class="endofrange" startref="idx-configuringUsenetnews-1">
+<indexterm class="endofrange" startref="idx-CNews-1">
+</sect1>
+</chapter>

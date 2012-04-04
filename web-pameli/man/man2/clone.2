@@ -1,0 +1,229 @@
+.\" Hey Emacs! This file is -*- nroff -*- source.
+.\"
+.\" Copyright (c) 1992 Drew Eckhardt (drew@cs.colorado.edu), March 28, 1992
+.\" May be distributed under the GNU General Public License.
+.\" Modified by Michael Haardt <michael@moria.de>
+.\" Modified Sat Jul 24 13:22:07 1993 by Rik Faith (faith@cs.unc.edu)
+.\" Modified 21 Aug 1994 by Michael Chastain (mec@shell.portal.com):
+.\"   New man page (copied from 'fork.2').
+.\" Modified 10 June 1995 by Andries Brouwer (aeb@cwi.nl)
+.\" Translated 20 Dec 1995 Miguel A. Sepulveda (miguel@typhoon.harvard.edu)
+.\" Modified 1 Jul 1996 Miguel A. Sepulveda (angel@vivaldi.princeton.edu)
+.\" Modified 25 april 1998 by Xavier Leroy <Xavier.Leroy@inria.fr>
+.\" Revisado Tue May 12 10:15:41 1998 por:
+.\"          Cesar D. Lobejon (cesar@alien.mec.es)            
+.\" Translation revised Tue Aug 18 1998 by Juan Piernas <piernas@ditec.um.es>
+.\"
+.TH CLONE 2 "25 Abril 1998" "Linux 2.0.33" "Manual del Programador de Linux"
+.SH NOMBRE
+__clone \- crea un proceso hijo
+.SH SINOPSIS
+.B #include <sched.h>
+.sp
+.BI "int __clone(int (*" "fn" ") (void *" "arg" "), void *" "child_stack" ", int " "flags" ", void *" "arg" ")"
+.SH DESCRIPCIÓN
+.B __clone
+crea un nuevo proceso como lo hace
+.BR fork (2).
+A diferencia de
+.BR fork (2),
+.B __clone
+permite al proceso hijo compartir partes de su contexto de ejecución con su
+proceso padre, tales como el espacio de memoria, la tabla de descriptores de
+fichero y la tabla de manejadores de señal. El principal uso de
+.B __clone
+es para implementar los hilos: múltiples hilos de control en un programa que
+se ejecutan concurrentemente en un espacio de memoria compartido.
+
+Cuando se crea el proceso hijo, éste ejecuta la función
+.IR fn ( arg ).
+El argumento
+.I fn
+es un puntero a una función que es ejecutada por el proceso hijo al comienzo
+de su ejecución.
+El argumento
+.I arg
+se pasa a la función
+.IR fn .
+
+Cuando la función
+.IR fn ( arg )
+regresa, el proceso hijo termina. El entero devuelto por
+.I fn
+es el código de salida del proceso hijo. El proceso hijo también puede
+terminar explícitamente ejecutando
+.BR exit (1)
+o después de recibir una señal fatal.
+
+El argumento
+.I child_stack
+indica la posición de la pila utilizada por el proceso hijo. Aunque los
+procesos padre e hijo pueden compartir la memoria, no es posible, en
+general, para el proceso hijo ejecutarse usando la misma pila que
+el proceso padre. Por tanto, el proceso padre debe preparar un
+área de memoria para la pila del hijo y pasar un puntero a dicha área a
+.BR __clone .
+Las pilas crecen hacia abajo en todos los procesadores en los que se ejecuta
+Linux (excepto en el procesador HP PA), por lo que
+.I child_stack
+apunta normalmente a la dirección más alta de la zona de memoria preparada
+para la pila del hijo.
+
+El byte bajo de 
+.I flags
+contiene el número de la señal enviada al padre cuando el hijo muere.
+.I flags
+puede también ser operado con un OR a nivel de bits (bitwise or) con
+una o varias de las siguientes constantes, para así especificar qué van a
+compartir los procesos padre e hijo:
+
+.TP
+.B CLONE_VM
+Si se pone
+.BR CLONE_VM ,
+los procesos padre e hijo se ejecutan en el mismo espacio de memoria. En
+particular, la escrituras de memoria realizadas por el proceso padre o por
+el proceso hijo también son visibles en el otro proceso. Además, cualquier
+asociación o desasociación de memoria realizada con
+.BR mmap (2)
+o
+.BR munmap (2)
+por el proceso padre o hijo también afecta al otro proceso.
+
+Si no se pone
+.BR CLONE_VM ,
+el proceso hijo se ejecuta en una copia particular del espacio de memoria
+del padre en el momento de ejecutar
+.BR __clone .
+Las escrituras de memoria o la asociación/desasociación de fichero realizada
+por uno de los procesos no afecta al otro, como en el caso de
+.BR fork (2).
+
+.TP
+.B CLONE_FS
+Si se pone
+.BR CLONE_FS ,
+los procesos padre e hijo comparten la misma información del sistema de
+ficheros. Ésta incluye la raíz del sistema de ficheros, el directorio de
+trabajo actual y el valor de umask. Cualquier llamada a
+.BR chroot (2),
+.BR chdir (2)
+o
+.BR umask (2)
+realizada por el proceso padre o hijo también afecta al otro proceso.
+
+Si no se pone
+.BR CLONE_FS ,
+el proceso hijo trabaja con una copia de la información del sistema de
+ficheros del proceso padre en el momento de ejecutar
+.BR __clone .
+Las llamadas a
+.BR chroot (2),
+.BR chdir (2)
+o
+.BR umask (2)
+realizadas después por uno de los procesos no afectan al otro.
+.TP
+.B CLONE_FILES
+Si se pone
+.BR CLONE_FILES ,
+los procesos padre e hijo comparten la misma tabla de descriptores de
+fichero. Los descriptores de fichero siempre se refieren a los mismos
+ficheros en el padre y en el proceso hijo. Cualquier descriptor de fichero
+creado por el proceso padre o por el proceso hijo también es válido en el
+otro proceso. De igual forma, si uno de los procesos cierra un descriptor de
+fichero o cambia sus banderas (flags) asociadas, el otro proceso también se
+verá afectado.
+
+Si no se pone
+.BR CLONE_FILES ,
+el proceso hijo hereda una copia de todos los descriptores de fichero
+abiertos en el proceso padre en el momento de ejecutar
+.BR __clone .
+Las operaciones sobre los descriptores de fichero realizadas después por uno
+de los procesos padre o hijo no afectan al otro.
+.TP
+.B CLONE_SIGHAND
+Si se pone
+.BR CLONE_SIGHAND ,
+los procesos padre e hijo comparten la misma tabla de manejadores de señal.
+Si el proceso padre o hijo llama a
+.BR sigaction (2)
+para cambiar el comportamiento asociado a una señal, el comportamiento
+también se cambia en el otro proceso. Sin embargo, los procesos padre e hijo
+todavía tienen diferentes máscaras de señales y conjuntos de señales
+pendientes. Por tanto, uno de ellos puede bloquear o desbloquear algunas
+señales usando
+.BR sigprocmask (2)
+sin afectar al otro proceso.
+
+Si no se pone
+.BR CLONE_SIGHAND ,
+el proceso hijo hereda una copia de los manejadores de señal del proceso
+padre en el momento de ejecutar
+.BR __clone .
+Las llamadas a
+.BR sigaction (2)
+realizadas después por uno de los procesos no tendrán efecto sobre el otro
+proceso.
+
+.TP
+.B CLONE_PID
+Si se pone
+.BR CLONE_PID ,
+se crea el proceso hijo con el mismo identificador de proceso que el proceso
+padre.
+
+Si no se pone
+.BR CLONE_PID ,
+el proceso hijo posee un identificador de proceso único, distinto del
+identificador del padre.
+
+.BR
+.SH "VALOR DEVUELTO"
+En caso de éxito, se devuelve el PID del hijo en el
+hilo de ejecución del padre. En caso de fallo, se devuelve \-1 
+en el contexto del padre, no se creará
+ningún proceso hijo y se asignará a la variable 
+.I errno
+un valor apropiado.
+.SH ERRORES
+.TP
+.B EAGAIN
+Se están ejecutando ya demasiados procesos.
+.TP
+.B ENOMEM
+.B __clone
+no puede reservar suficiente memoria para obtener una estructura de tarea
+(task structure) para el hijo o para copiar aquellas partes del contexto del
+padre que necesitan ser copiadas.
+
+.SH FALLOS
+
+Desde la versión 2.1.97 del núcleo, no se debe usar la bandera
+.B CLONE_PID
+ya que otras partes del núcleo y la mayoría del software del sistema todavía
+asumen que los identificadores de proceso son únicos.
+
+No hay una entrada para
+.B __clone
+en la versión 5 de libc. libc 6 (o sea, glibc 2) proporciona una llamada
+.B __clone
+tal como la que se ha descrito en esta página de manual.
+
+.SH CONFORME A
+La llamada
+.B __clone
+es específica de Linux y no debería usarse en aquellos programas que
+pretendan se portables. Para programar aplicaciones con hilos (múltiples
+hilos de control en el mismo espacio de memoria) es mejor usar una
+biblioteca que implemente la API de hilos POSIX 1003.1c, como la biblioteca
+LinuxThreads. Vea
+.BR pthread_create (3thr).
+
+Esta página de manual se corresponde con los núcleos 2.0.x y 2.1.x y con las
+versiones 2.0.x de glibc.
+
+.SH "VÉASE TAMBIÉN"
+.BR fork (2),
+.BR pthread_create (3thr)

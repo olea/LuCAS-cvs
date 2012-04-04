@@ -1,0 +1,276 @@
+.\" This man page is Copyright (C) 1999 Andi Kleen <ak@muc.de>.
+.\" Permission is granted to distribute possibly modified copies
+.\" of this page provided the header is included verbatim,
+.\" and in case of nontrivial modification author and date
+.\" of the modification is added to the header.
+.\" $Id: unix.7,v 1.1.1.1 2001/11/25 17:34:49 carlos Exp $
+.\"
+.\" Translated on Sat Jul 3 1999 by Juan Piernas <piernas@ditec.um.es>
+.\" Translation revised Fri Apr 21 2000 by Juan Piernas <piernas@ditec.um.es>
+.\"
+.TH UNIX  7 "7 mayo 1999" "Página man de Linux" "Manual del Programador de Linux"
+.SH NOMBRE
+unix, PF_UNIX, AF_UNIX, PF_LOCAL, AF_LOCAL \- Conectores para la
+comunicación local entre procesos.
+.SH SINOPSIS
+.B #include <sys/socket.h>
+.br
+.B #include <sys/un.h>
+
+.IB unix_socket " = socket(PF_UNIX, type, 0);"
+.br
+.IB error " = socketpair(PF_UNIX, type, 0, int *" sv ");"
+
+.SH DESCRIPCIÓN
+La familia de conectores
+.B PF_UNIX
+(también conocida como
+.BR PF_LOCAL )
+se usa para comunicar procesos en la misma máquina de manera eficiente. Los
+conectores Unix pueden ser o bien anónimos (creados mediante
+.BR socketpair (2))
+o bien estar asociados con un fichero de tipo conector. 
+Linux también soporta un espacio de nombres abstracto que es independiente
+del sistema de ficheros.
+
+Los tipos válidos son
+.B SOCK_STREAM 
+para un conector orientado a conexión y
+.B SOCK_DGRAM
+para un conector orientado a datagramas que conserva las fronteras entre los
+mensajes. Los conectores Unix siempre son fiables y no reordenan los
+datragramas.
+
+Los conectores Unix soportan el paso de descriptores de fichero o
+credenciales de proceso a otros procesos, como datos auxiliares a los
+datagramas.
+
+.SH FORMATO DE LAS DIRECCIONES
+Una dirección Unix se define como un nombre de fichero en el sistema de
+fichero o como una cadena única en el espacio de nombres abstracto. Los
+conectores creados mediante
+.BR socketpair (2)
+son anónimos. Para conectores no anónimos la dirección del destino se puede
+configurar usando
+.BR connect (2). 
+La dirección local se puede configurar usando
+.BR bind (2). 
+Cuando un conector se conecta y no tiene todavía una dirección local, se
+genera automáticamente una dirección única en el espacio de nombres
+abstracto.
+
+.RS
+.nf
+#define UNIX_PATH_MAX	108
+
+.ta 4n 17n 42n
+struct sockaddr_un {
+	sa_family_t	sun_family;	/* AF_UNIX */
+	char	sun_path[UNIX_PATH_MAX];	/* nombre de la ruta */
+};
+.fi
+.RE 
+
+.B sun_family 
+siempre contiene
+.BR AF_UNIX .
+.B sun_path
+contiene el nombre de ruta (terminado en cero) del conector en el sistema de
+ficheros.
+Si 
+.B sun_path
+comienza con un byte cero se refiere al espacio de nombres abstracto
+mantenido por el módulo del protocolo Unix.
+La dirección del conector en este espacio de nombres viene dada por el resto
+de los bytes en
+.BR sun_path .
+Dese cuenta que los nombres en el espacio de nombres abstracto no terminan
+en cero.
+
+.SH OPCIONES DE LOS CONECTORES
+Por razones históricas estas opciones de los conectores se especifican con
+un tipo SOL_SOCKET, aunque sean específicas de PF_UNIX.
+Se pueden configurar con
+.BR setsockopt (2)
+y leer con
+.BR getsockopt (2)
+especificando SOL_SOCKET como familia del conector.
+.TP
+.B SO_PASSCRED
+Habilita la recepción de las credenciales del proceso emisor en un mensaje
+auxiliar. Cuando esta opción está activa y el conector no está conectado aún,
+se genera automáticamente un nombre único en el espacio de nombres
+abstracto. Espera una bandera booleana entera.
+
+.SH MENSAJES AUXILIARES
+Por razones históricas, estos tipos de mensajes auxiliares se especifican
+con un tipo SOL_SOCKET, aunque son específicos de PF_UNIX.
+Para enviarlos, asigne al campo
+.B cmsg_level
+de la estructura
+.B cmsghdr
+el valor SOL_SOCKET y al campo 
+.B cmsg_type 
+el tipo. Para más información, vea
+.BR cmsg (3). 
+
+.TP
+.B SCM_RIGHTS
+Enviar o recibir un conjunto de descriptores de fichero abiertos a/desde
+otro proceso. La parte de datos
+contiene un array de enteros con los descriptores de fichero.
+Los descriptores de fichero pasados se comportan como si hubieran sido
+creados con
+.BR dup (2).
+
+.TP
+.B SCM_CREDENTIALS
+Enviar o recibir credenciales Unix. Esto se puede usar para autenticación.
+Las credenciales se pasan como un mensaje auxiliar
+.BR "struct ucred" .
+
+.RS
+.nf
+.ta 4n 11n 17n
+struct ucred {
+	pid_t	pid;	/* PID del proceso emisor */  
+	uid_t	uid;	/* UID del proceso emisor */ 
+	gid_t	gid;	/* GID del proceso emisor */ 
+};
+.fi
+.RE 
+
+El núcleo comprueba las credenciales que el emisor especifíca. Un proceso
+con identificador de usuario efectivo 0 puede especificar valores que no
+coincidan con los suyos. 
+El emisor debe especificar su propio identificador de proceso (a menos que
+posea la capacidad
+.BR CAP_SYS_ADMIN ),
+sus identificador de usuario, identificador de usuario efectivo o
+identificador de usuario de conjunto (a menos que posea la capacidad
+.BR CAP_SETUID )
+y sus identificador de grupo, identificador de grupo efectivo o
+identificador de grupo de conjunto (a menos que posea la capacidad
+.BR CAP_SETGID ).
+Para recibir un mensaje
+.B struct ucred
+la opción
+.B SO_PASSCRED 
+debe estar activa en el conector.
+
+.SH VERSIONES
+.B SCM_CREDENTIALS 
+y el espacio de nombres abstracto fueron introducidos en la versión 2.2 de
+Linux y no deberían usarse en programas transportables.
+
+.SH NOTAS 
+En la implementación de Linux, los conectores que son visibles en el sistema
+de ficheros respetan los permisos del directorio en el que están. Se pueden
+cambiar sus propietarios, grupos y permisos.
+La creación de un nuevo conector fallará si el proceso no tiene permisos de
+escritura y búsqueda (ejecución) en el directorio en el que se crea el
+conector. La conexión al objeto conector requiere permiso de
+lectura/escritura. Este comportamiento difiere del de muchos sistemas
+derivados de BSD que ignoran los permisos para los conectores Unix. Por
+seguridad, los programas transportables no deberían confiar en esta
+característica.
+
+Ligar un conector con un nombre de fichero crea un conector en el sistema
+de ficheros que debe ser borrado por el invocador cuando no se necesite más
+(usando
+.BR unlink (2)).
+Se aplica la semántica habitual de Unix detrás de una operación de cierre:
+el conector puede ser desligado en cualquier instante y será finalmente
+eliminado del sistema de ficheros cuando se cierre la última referecia a él.
+
+Para pasar descriptores de fichero o credenciales necesita enviar/leer al
+menos un byte.
+
+.SH ERRORES
+.TP
+.B ENOMEM
+No hay suficiente memoria.
+
+.TP
+.B ECONNREFUSED
+Se ha llamado a
+.BR connect (2)
+con un objeto conector que no está escuchando. Esto puede ocurrir cuando no
+existe el conector remoto o el nombre de fichero no es un conector.
+
+.TP
+.B EINVAL
+Se ha pasado un argumento inválido. Una causa común es olvidar asignar 
+AF_UNIX al campo sun_type de las direcciones pasadas o que el conector se
+encuentre en un estado inválido para la operación aplicada.
+
+.TP
+.B EOPNOTSUPP
+Se ha invocado una operación orientada a conexión sobre un conector no
+orientado a conexión o se ha intentado usar la opción de "datos fuera de
+orden".
+
+.TP
+.B EPROTONOSUPPORT
+El protocolo pasado no es PF_UNIX.
+
+.TP
+.B ESOCKTNOSUPPORT
+Tipo de conector desconocido.
+
+.TP 
+.B EPROTOTYPE
+El tipo del conector remoto no coincide con el tipo del conector local
+(SOCK_DGRAM contra SOCK_STREAM)
+
+.TP
+.B EADDRINUSE
+La dirección local seleccionada ya está en uso o el objeto conector del
+sistema de ficheros ya existe.
+
+.TP
+.B EISCONN
+Se ha llamado a
+.BR connect (2)
+sobre un conector ya conectado o se ha especificado una dirección de destino
+en un conector conectado.
+
+.TP
+.B ENOTCONN
+La operación del conector necesita una dirección de destino pero el conector
+no está conectado.
+
+.TP
+.B ECONNRESET
+Se ha cerrado inesperadamente el conector remoto.
+.TP
+.B EPIPE
+Se ha cerrado el conector remoto de un conector orientado a conexión. Si se
+ha activado, también se enviará una señal
+.BR SIGPIPE .
+Esto se puede evitar pasando la opción
+.B MSG_NOSIGNAL
+a
+.BR sendmsg (2)
+o a
+.BR recvmsg (2).
+.TP
+.B EFAULT
+La dirección de memoria de usuario no es válida.
+.TP
+.B EPERM
+El emisor ha pasado credenciales inválidas en
+.BR "struct ucred" .
+.PP
+La capa de conectores genérica, o el sistema de ficheros al generar un
+objeto conector en el sistema de fichero, pueden producir otros errores. Vea
+las páginas de manual adecuadas para más información.
+.SH VÉASE TAMBIÉN
+.BR recvmsg (2),
+.BR sendmsg (2),
+.BR socket (2),
+.BR socketpair (2),
+.BR cmsg (3),
+.BR socket (7)
+.SH CREDITOS
+Esta página de manual fue escrita por Andi Kleen. 

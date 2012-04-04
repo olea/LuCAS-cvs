@@ -1,0 +1,146 @@
+.\" -*- nroff -*-
+.\"
+.\" Copyright (C) 1995 Michael Shields <shields@tembel.org>.
+.\"
+.\" El permiso está concedido para hacer y distribuir copias verbatim de este
+.\" manual provisto de copyright y este pemiso preserva sobre todas las copias.
+.\"
+.\" La venia es concedida para hacer y distribuir copias verbatim de este
+.\" manual provisto de copyright y esta venia preserva sobre todas las copias.
+.\"
+.\" La venia es concedida para copiar y distribuir versiones modificadas de este
+.\" manual bajo las condiciones de copiado de verbatim, siempre que el completo
+.\" resultado derivado del trabajo sea distribuído bajo los términos de una venia
+.\" idéntica a ésta.
+.\" 
+.\" Ya que el kernel de Linux y las bibliotecas están constantemente cambiando,
+.\" esta página puede ser incorrecta o desactualizada. El autor(es) no asumen
+.\" reponsabilidades referentes a errores u omisiones, o resultados peligrosos
+.\" derivados del uso de esta información aquí contenida. EL autor(es) no deben
+.\" de haber tenido el mismo nivel de cuidad en la producción de este manual,
+.\" el cuál está libre de cargo por licencia, como han podido cuando trabajan
+.\" profesionalmente.
+.\" 
+.\" Versiones formateadas o procesadas de este manual, si no están acompañadas por
+.\" la fuente, deben reconocer el copyright y el autor de este trabajo.
+.\"
+.\" Modificado Tue Oct 22 08:11:14 EDT 1996 by Eric S. Raymond <esr@thyrsus.com>
+.\" Modificado Sat May 31 15:32:03 MET 1997 by Andries Brouwer <aeb@cwi.nl>
+.\" Translation revised May 3 1998 by Juan Piernas <piernas@dif.um.es>
+.\"
+.TH MPROTECT 2 "31 mayo 1997" "Linux 2.0" "Manual del Programador de Linux"
+.SH NOMBRE
+mprotect \- controla el tipo de acceso permitido sobre una región de memoria
+.SH SINOPSIS
+.nf
+.B #include <sys/mman.h>
+.sp
+\fBint mprotect(const void *\fIaddr\fB, size_t \fIlen\fB, int \fIprot\fB);
+.fi
+.SH DESCRIPCIÓN
+.B mprotect
+controla la forma en que una sección de memoria puede ser accedida.
+Si un acceso no es permitido por la protección dada, el programa recibe un
+.BR SIGSEGV .
+.PP
+.I prot
+es un O\-lógico a nivel de bits de los siguientes valores:
+.TP 1.1i
+.B PROT_NONE
+La memoria no puede ser accedida de ninguna forma.
+.TP
+.B PROT_READ
+La memoria puede ser leída.
+.TP
+.B PROT_WRITE
+La memoria puede ser escrita.
+.TP
+.B PROT_EXEC
+La memoria puede contener código ejecutable.
+.PP
+La nueva protección reemplaza cualquier protección existente.  Por ejemplo, si
+la memoria había sido previamente marcada \fBPROT_READ\fR, y \fBmprotect\fR
+se llama entonces con \fIprot\fR igual a \fBPROT_WRITE\fR, no se prodrá
+leer.
+.SH VALOR DEVUELTO
+En caso de éxito,
+.B mprotect
+devuelve cero.  En caso de error, se devuelve \-1, y se asigna a
+.I errno
+un valor apropiado.
+.SH ERRORES
+.TP
+.B EINVAL
+\fIaddr\fR no es un puntero válido, o no es un múltiplo de PAGESIZE.
+.TP
+.B EFAULT
+La memoria no puede ser accedida.
+.TP
+.B EACCES
+La memoria no permite el acceso especificado.  Esto puede ocurrir si,
+por ejemplo, asocia a una zona de memoria mediante
+.BR mmap (2)
+un fichero al cual sólo tiene acceso de lectura y pide a
+.B mprotect
+que lo marque
+.BR PROT_WRITE .
+.TP
+.B ENOMEM
+No se han podido reservar estructuras internas del núcleo.
+.SH EJEMPLO
+.nf
+#include <stdio.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <sys/mman.h>
+
+#include <limits.h>    /* por PAGESIZE */
+#ifndef PAGESIZE
+#define PAGESIZE 4096
+#endif
+
+int
+main(void)
+{
+    char *p;
+    char c;
+
+    /* Reserva un búffer; por defecto, tendrá
+       protección PROT_READ|PROT_WRITE. */
+    p = malloc(1024+PAGESIZE-1);
+    if (!p) {
+        perror("malloc: imposible reservar 1024 bytes");
+        exit(errno);
+    }
+
+    /* Alinear a una dirección múltiplo de PAGESIZE,
+       suponiendo que sea una potencia de 2 */
+    p = (char *)(((int) p + PAGESIZE-1) & ~(PAGESIZE-1));
+
+    c = p[666];         /* Leer; bien */
+    p[666] = 42;        /* Escribir; bien */
+
+    /* Marca el búffer como de sólo-lectura. */
+    if (mprotect(p, 1024, PROT_READ)) {
+        perror("mprotect: imposible cambiar protección");
+        exit(errno);
+    }
+
+    c = p[666];         /* Leer; bien */
+    p[666] = 42;        /* Escribir; el programa recibe SIGSEGV
+                           y muere*/
+
+    exit(0);
+}
+.fi
+.SH "CONFORME A"
+SVr4, POSIX.1b (formalmente POSIX.4).  SVr4 define un código de error
+adicional, EAGAIN. Las condiciones de error de SVr4 coinciden debidamente
+con las de Linux.
+POSIX.1b dice que
+.B mprotect
+sólo puede ser usada sobre regiones de memoria obtenidas desde
+.BR mmap (2).
+.SH "VÉASE TAMBIÉN"
+.BR mmap (2)
+

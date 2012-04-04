@@ -1,0 +1,4190 @@
+<!--
+$Header: /home/cvs/lucas/doc-postgresql-es/v7/src/sgml/arch-dev.sgml,v 1.3 2001/10/18 20:24:13 emaldonadog Exp $
+-->
+
+<chapter id="overview">
+  <title>Revisión de las características internas de PostgreSQL</title>
+
+  <note>
+   <title>Autor</title>
+   <para>
+    Este capítulo apareció originalmente como parte de la tesis doctoral
+    de Stefan Simkovic
+    preparada en la Universidad de Tecnología de Viena bajo la dirección
+    de O.Univ.Prof.Dr.
+    Georg Gottlob y Univ.Ass. Mag. Katrin Seyr.
+   </para>
+  </note>
+
+  <para>
+   Este capítulo da una visión general de la estructura interna del
+   motor de <productname>Postgres</productname>. Tras la lectura de
+   las siguientes secciones, usted tendrá una idea de como se procesa
+   una consulta. No espere aquí una descripción detallada (¡creo que esa
+   descripción detallada incluyendo todas las estructuras de datos y
+   funciones utilizadas en <productname>Postgres</productname> excedería
+   de 1000 páginas!). Este capítulo intenta ayudar en la comprensión
+   del control general y del flujo de datos dentro del motor desde
+   que se recibe una consulta hasta que se emiten los resultados.
+  </para>
+
+  <sect1 id="query-path">
+   <title>El camino de una consulta</title>
+
+   <para>
+    Damos aquí una corta revisión a los pasos que debe seguir una consulta
+    hasta obtener un resultado.
+   </para>
+
+   <procedure>
+    <step>
+     <para>
+      Se ha establecido una conexión desde un programa de aplicación
+      al servidor <productname>Postgres</productname>. El programa de
+      aplicación transmite una consulta y recibe el resultado enviado por
+      el servidor.
+     </para>
+    </step>
+
+    <step>
+     <para>
+      La <firstterm>etapa del parser (traductor)</firstterm> chequea
+      la consulta transmitida por el programa de aplicación (cliente) para
+      comprobar que la sintaxis es correcta y crear un <firstterm>árbol
+      de la consulta</firstterm>.
+     </para>
+    </step>
+
+    <step>
+     <para>
+      El <firstterm>sistema de reescritura</firstterm> toma
+      el árbol de la consulta creado en el paso del traductor y
+      busca <firstterm>reglas</firstterm> (almacenadas en los
+      <firstterm>catálogos del sistema</firstterm>) que pueda
+      aplicarle al <firstterm>árbol de la consulta</firstterm> y realiza
+      las transformaciones que se dan en el/los <firstterm>cuerpo/s de
+      la/s regla/s</firstterm>. Encontramos una aplicación del sistema
+      de reescritura en la realización de las <firstterm>vistas</firstterm>.
+     </para>
+
+     <para>
+      Siempre que se realiza una consulta contra una vista (es decir, una
+      <firstterm>tabla virtual</firstterm>), el sistema de reescritura
+      reescribe la consulta del usuario en una consulta que accede a las
+      <firstterm>tablas base</firstterm> dadas en la <firstterm>definición
+      de la vista</firstterm> inicial.
+     </para>
+    </step>
+
+    <step>
+     <para>
+      El <firstterm>planeador/optimizador</firstterm> toma el árbol de la
+      consulta (reescrita) y crea un <firstterm>plan de la consulta</firstterm>
+      que será el input para el <firstterm>ejecutor</firstterm>.
+     </para>
+
+     <para>
+      Hace esto creando previamente todas las posibles
+      <firstterm>rutas</firstterm> que le conducen a un mismo
+      resultado. Por ejemplo, si hay un índice en una relación que debe
+      ser comprobada, hay dos rutas para comprobarla. Una posibilidad
+      es un simple barrido secuencial y la otra posibilidad es utilizar
+      el índice. Luego se estima el coste de ejecución de cada plan,
+      y se elige y ejecuta el plan más rápido.
+     </para>
+    </step>
+
+    <step>
+     <para>
+      El ejecutor realiza de modo recursivo el <firstterm>árbol del
+      plan</firstterm> y recupera tuplas en la forma representada
+      en el plan. El ejecutor hace uso del <firstterm>sistema
+      de almacenamiento</firstterm> mientras está revisando
+      las relaciones, realiza <firstterm>ordenaciones
+      (sorts)</firstterm> y <firstterm>joins</firstterm>, evalúa
+      <firstterm>cualificaciones</firstterm> y finalmente devuelve las
+      tuplas derivadas.
+     </para>
+    </step>
+   </procedure>
+
+   <para>
+    En las siguientes secciones, cubriremos todos los pasos listados antes
+    en más detalle, para dar un mejor conocimiento de las estructuras
+    de datos y de control interno de <productname>Postgres</productname>.
+   </para>
+  </sect1>
+
+  <sect1 id="connect-estab">
+   <title>Cómo se establecen las conexiones</title>
+
+   <para>
+    <productname>Postgres</productname> está implementado como un simple
+    modelo cliente/servidor a "proceso por usuario". En este modelo hay
+    un <firstterm>proceso cliente</firstterm> conectado a exactamente un
+    <firstterm>proceso servidor</firstterm>. Como nosotros no conocemos
+    <foreignphrase>per se</foreignphrase> cuantas conexiones se harán,
+    utilizaremos un <firstterm>proceso master</firstterm> que lanza un
+    nuevo proceso servidor para cada conexión que se solicita. Este
+    proceso master se llama <literal>postmaster</literal> y escucha
+    en un puerto TCP/IP específico a las conexiones entrantes. Cada
+    vez que se detecta un requerimiento de conexión, el proceso
+    <literal>postmaster</literal> lanza un nuevo proceso servidor
+    llamado <literal>postgres</literal>. Las tareas de servidor (los
+    procesos <literal>postgres</literal>) se comunican unos con otros
+    utilizando <firstterm>semáforos</firstterm> y <firstterm>memoria
+    compartida</firstterm> (shared memory) para asegurar la
+    integridad de los datos a través de los accesos concurrentes a
+    los datos. La figura \ref{connection} ilustra la interacción del
+    proceso master <literal>postmaster</literal>, el proceso servidor
+    <literal>postgres</literal> y una aplicación cliente.
+   </para>
+
+   <para>
+    El proceso cliente puede ser el interface de usuario (frontend)
+    <application>psql</application> (para realizar consultas SQL
+    interactivas) o cualquier aplicación de usuario implementada
+    utilizando la biblioteca <filename>libpg</filename>. Nótese
+    que las aplicaciones implementadas utilizando
+    <application>ecpg</application> (el preprocesador de SQL embebido
+    de <productname>Postgres</productname> para C) también utiliza
+    esta biblioteca.
+   </para>
+
+   <para>
+    Una vez que se ha establecido una conexión, el proceso cliente puede
+    enviar una consulta al servidor (<firstterm>backend</firstterm>). Esta
+    consulta se transmite utilizando un texto plano, es decir, no se ha hecho
+    una traducción en el cliente (<firstterm>frontend</firstterm>). El
+    servidor traduce la consulta, crea un <firstterm>plan de
+    ejecución</firstterm>, ejecuta el plan y remite las tuplas recuperadas
+    al cliente a través de la conexión establecida.
+   </para>
+
+<!--
+\begin{figure}[ht]
+\begin{center}
+\epsfig{figure=figures/connection.ps}
+\caption{How a connection is established}
+\label{connection}
+\end{center}
+\end{figure}
+-->
+
+  </sect1>
+
+  <sect1 id="parser-stage">
+   <title>La etapa de traducción</title>
+
+   <para>
+    La <firstterm>etapa de traducción</firstterm> consiste en dos partes:
+
+    <itemizedlist>
+     <listitem>
+      <para>
+       El <firstterm>traductor</firstterm> definido en
+       <filename>gram.y</filename> y <filename>scan.l</filename> se
+       construye utilizando las herramientas de Unix
+       <application>yacc</application>
+       y <application>lex</application>.
+      </para>
+     </listitem>
+     <listitem>
+      <para>
+       El <firstterm>proceso de transformación</firstterm> realiza
+       modificaciones y aumentos a las estructuras de datos devueltas
+       por el traductor.
+      </para>
+     </listitem>
+    </itemizedlist>
+   </para>
+
+   <sect2>
+    <title>Traductor</title>
+
+    <para>
+     El traductor debe comprobar la cadena de caracteres de la consulta
+     (que le llega como texto ASCII plano) para comprobar la validez
+     de la sintaxis. Si la sintaxis es correcta, se construye un
+     <firstterm>árbol de traducción</firstterm> y se devuelve un mensaje
+     de error en otro caso. Para la implementación se han utilizado las
+     bien conocidas herramientas de Unix <application>lex</application>
+     y <application>yacc</application>.
+    </para>
+
+    <para>
+     El <firstterm>lector</firstterm> (lexer) se define en el fichero
+     <filename>scan.l</filename> y es el responsable de
+     reconocer los <firstterm>identificadores</firstterm>,
+     las <firstterm>palabras clave de SQL</firstterm>, etc. Para cada
+     palabra clave o identificador que encuentra, se genera y traslada
+     al traductor
+     traductor una <firstterm>señal</firstterm>.
+    </para>
+
+    <para>
+     El traductor está definido en el fichero <filename>gram.y</filename>
+     y consiste en un conjunto de <firstterm>reglas de
+     gramática</firstterm> y <firstterm>acciones</firstterm> que serán
+     ejecutadas cada vez que se dispara una regla. El código de las
+     acciones (que actualmente es código C) se utiliza para construir
+     el árbol de traducción.
+    </para>
+
+    <para>
+     El fichero <filename>scan.l</filename> se transforma en el fichero
+     fuente C <filename>scan.c</filename> utilizando el programa
+     <application>lex</application> u <filename>gram.y</filename>
+     se transforma en <filename>gram.c</filename> utilizando
+     <application>yacc</application>. Una vez se han realizado estas
+     transformaciones, cualquier compilador C puede utilizarse para crear
+     el traductor. No se deben nunca realizar cambio en los ficheros C
+     generados, pues serán sobreescritos la próxima vez que sean llamados
+     <application>lex</application> o <application>yacc</application>.
+
+     <note>
+      <para>
+       Las transformaciones y compilaciones mencionadas
+       normalmente se hacen automáticamente utilizando los
+       <firstterm>makefile</firstterm> vendidos con la distribución de
+       los fuentes de <productname>Postgres</productname>.
+      </para>
+     </note>
+    </para>
+
+    <para>
+     Más adelante en este mismo documento se dará una descripción
+     detallada de <application>yacc</application> o de las reglas de
+     gramática dadas en <filename>gram.y</filename>. Hay muchos libros
+     y documentos relacionados con <application>lex</application>
+     y <application>yacc</application>. Debería usted familiarizarse
+     con <application>yacc</application> antes de empezar a estudiar
+     la gramática mostrada en <filename>gram.y</filename>, pues de otro
+     modo no entenderá usted lo que está haciendo.
+    </para>
+
+    <para>
+     Para un mejor conocimiento de las estructuras de datos utilizadas
+     en <productname>Postgres</productname> para procesar una consulta
+     utilizaremos un ejemplo para ilustrar los cambios hechos a estas
+     estructuras de datos en cada etapa.
+     
+      Este ejemplo contiene la siguiente consulta sencilla que será usada
+      en varias descripciones y figuras a lo largo de las siguientes
+      secciones. La consulta asume que las tablas dadas en
+      <citetitle>The Supplier Database</citetitle>
+      <!--
+      XXX El anterior citetitle debería ser en realidad un xref, pero
+      el apartado no ha sido convertido todavía a partir del coumento
+      original de Stefan.
+      - thomas 1999-02-11
+      <xref linkend="supplier" endterm="supplier">
+      -->
+      ya han sido definidas.
+
+     <example id="simple-select">
+      <title>Una Select Sencilla</title>
+
+      <programlisting>
+select s.sname, se.pno
+    from supplier s, sells se
+    where s.sno > 2 and s.sno = se.sno;
+      </programlisting>
+     </example>
+    </para>
+
+    <para>
+     La figura \ref{parsetree} muestra el <firstterm>árbol de
+     traducción</firstterm> construido por las reglas y acciones de
+     gramática dadas en <filename>gram.y</filename> para la consulta dada
+     en <xref linkend="simple-select">
+     (sin el <firstterm>árbol de operador</firstterm> para la
+     <firstterm>cláusula WHERE</firstterm> que se muestra en la figura
+     \ref{where_clause} porque no había espacio suficiente para mostrar
+     ambas estructuras de datos en una sola figura).
+    </para>
+
+    <para>
+     El nodo superior del árbol es un nodo
+     <literal>SelectStmt</literal>. Para cada entrada que
+     aparece en la <firstterm>cláusula FROM</firstterm> de la
+     consulta de SQL se crea un nodo <literal>RangeVar</literal>
+     que mantiene el nombre del <firstterm>alias</firstterm> y un
+     puntero a un nodo <literal>RelExpr</literal> que mantiene
+     el nombre de la <firstterm>relación</firstterm>. Todos los
+     nodos <literal>RangeVar</literal> están recogidas en una
+     lista unida al campo <literal>fromClause</literal> del nodo
+     <literal>SelectStmt</literal>.
+    </para>
+
+    <para>
+     Para cada entrada que aparece en la <firstterm>lista de
+     la SELECT</firstterm> de la consulta de SQL se crea un nodo
+     <literal>ResTarget</literal> que contiene un puntero a un nodo
+     <literal>Attr</literal>. El nodo <literal>Attr</literal> contiene
+     el <firstterm>nombre de la relación</firstterm> de la entrada y
+     un puntero a un nodo <literal>Value</literal> que contiene el
+     nombre del <firstterm>attribute</firstterm>. Todos los nodos
+     <literal>ResTarget</literal> están reunidos en una lista que
+     está conectada al campo <literal>targetList</literal> del nodo
+     <literal>SelectStmt</literal>.
+    </para>
+
+    <para>
+     La figura \ref{where_clause} muestra el árbol de operador
+     construido para la clausula WHERE de la consulta de SQL dada en el
+     ejemplo <xref linkend="simple-select">
+     que está unido al campo <literal>qual</literal> del nodo
+     <literal>SelectStmt</literal>. El nodo superior del árbol de
+     operador es un nodo <literal>A_Expr</literal> representando una
+     operación <literal>AND</literal>. Este nodo tiene dos sucesores
+     llamados <literal>lexpr</literal> y <literal>rexpr</literal>
+     apuntando a dos <firstterm>subárboles</firstterm>. El subárbol unido a
+     <literal>lexpr</literal> representa la cualificación <literal>s.sno
+     &gt; 2</literal> y el unido a <literal>rexpr</literal> representa
+     <literal>s.sno = se.sno</literal>. Para cada atributo, se ha
+     creado un nodo <literal>Attr</literal> que contiene el nombre
+     de la relación y un puntero a un nodo <literal>Value</literal>
+     que contiene el nombre del atributo. Para el termino constante que
+     aparece en la consulta, se ha creado un nodo <literal>Const</literal>
+     que contiene el valor.
+    </para>
+
+<!--
+XXX Mezcla en las figuras posteriormente... - thomas 1999-01-29
+
+\begin{figure}[ht]
+\begin{center}
+\epsfig{figure=figures/parsetree.ps}
+\caption{{\it TargetList} y {\it FromList} para la consulta del ejemplo
+\ref{simple_select}}
+\label{parsetree}
+\end{center}
+\end{figure}
+
+\begin{figure}[ht]
+\begin{center}
+\epsfig{figure=figures/where_clause.ps}
+\caption{{\it WhereClause} para la consulta del ejemplo \ref{simple_select}}
+\label{where_clause}
+\end{center}
+\end{figure}
+-->
+
+   </sect2>
+
+   <sect2>
+     <title>Proceso de transformación</title>
+
+    <para>
+     El <firstterm>proceso de transformación</firstterm> toma el árbol
+     producido por el traductor como entrada y procede recursivamente a
+     través suyo. Si se encuentra un nodo <literal>SelectStmt</literal>,
+     se transforma en un nodo <literal>Query</literal> que será
+     el nodo superior de la nueva estructura de datos. La figura
+     \ref{transformed} muestra la estructura de datos transformada
+     (la parte de la <firstterm>cláusula WHERE</firstterm> transformada
+     se da en la figura \ref{transformed_where} porque no hay espacio
+     suficiente para mostrarlo entero en una sola figura).
+    </para>
+
+    <para>
+     Ahora se realiza una comprobación sobre si los <firstterm>nombres
+     de relaciones</firstterm> de la <firstterm>cláusula FROM</firstterm>
+     son conocidas por el sistema. Para cada nombre de relación que está
+     presente en los <firstterm>catálogos del sistema</firstterm>,
+     se crea un nodo <abbrev>RTE</abbrev> que contiene el nombre
+     de la relación, el <firstterm>nombre del alias</firstterm> y el
+     <firstterm>identificador (id) de la relación</firstterm>. A partir
+     de ahora, se utilizan los identificadores de relación para referirse
+     a las <firstterm>relaciones</firstterm> dadas en la consulta. Todos los
+     nodos <abbrev>RTE</abbrev> están recogidos en la <firstterm>lista de
+     entradas de la tabla de rango</firstterm> que está conectada al campo
+     <firstterm>rtable</firstterm> del nodo <literal>Query</literal>. Si
+     se detecta en la consulta un nombre de relación desconocido para el
+     sistema, se devuelve un error y se aborta el procesado de la consulta.
+    </para>
+
+    <para>
+     El siguiente paso es comprobar si los <firstterm>nombres de
+     atributos</firstterm> utilizados están contenidos en las relaciones
+     dadas en la consulta. Para cada atributo que se encuentra se crea
+     un nodo <abbrev>TLE</abbrev> que contiene un puntero a un nodo
+     <literal>Resdom</literal> (que contiene el nombre de la columna) y un
+     puntero a un nodo <literal>VAR</literal>. Hay dos números importantes
+     en el nodo <literal>VAR</literal>. El campo <literal>varno</literal>
+     da la posición de la relación que contiene el atributo actual en
+     la lista de entradas de la tabla de rango creada antes. El campo
+     <literal>varattno</literal> da la posición del atributo dentro de
+     la relación. Si el nombre de un atributo no se consigue encontrar,
+     se devuelve un error y se aborta el procesado de la consulta.
+    </para>
+
+<!--
+\begin{figure}[ht]
+\begin{center}
+\epsfig{figure=figures/transform.ps}
+\caption{Transformación {\it TargetList} y {\it FromList} para la consulta
+de ejemplo \ref{simple_select}}
+\label{transformed}
+\end{center}
+\end{figure}
+
+\noindent La figura \ref{transformed_where} muestra la {\it where
+clause} transformada. Cada nodo {\tt A\_Expr} se transforma en un nodo
+{\tt Expr}.
+Los nodos {\tt Attr} que representan los atributos son reemplazados
+por los
+nodos {\tt VAR} que se han hecho para la {\it targetlist}
+anterior. Comprueba si los {\it attributes} que aparecen son validos
+y conocidos
+por el sistema. Si se utiliza un {\it attribute} desconocido
+se devuelve un error y se aborta el {\it consulta
+processing}. \\
+\\
+El proceso de transformación {\it transformation process} completo
+realiza la transformación de la estructura de datos devuelta por el
+traductor {\it parser} en un formato más confortable. La cadenas de
+caracteres que representan las relaciones {\it
+relations} y los atributos {\it attributes} en el árbol original se
+reemplaza por identificadores de relación
+{\it relation ids} y nodos {\tt VAR} cuyos campos se refieren a las
+entradas de la lista de entradas de la tabla de rango {\it range
+table entry list}. Además de la transformación, se realizan varias
+comprobaciones de que los nombres de relaciones {\it relation} y atributos
+{\it attribute} (que aparecen en la consulta) son válidos en el contexto
+en el que se realizan.
+
+\begin{figure}[ht]
+\begin{center}
+\epsfig{figure=figures/transform_where.ps}
+\caption{ {\it where clause} transformada para la consulta del ejemplo
+\ref{simple_select}}
+\label{transformed_where}
+\end{center}
+\end{figure}
+
+\pagebreak
+\clearpage
+
+\begin{figure}[ht]
+\begin{center}
+\epsfig{figure=figures/plan.ps}
+\caption{{\it Plan} para la consulta del ejemplo \ref{simple_select}}
+\label{plan}
+\end{center}
+\end{figure}
+-->
+
+   </sect2>
+  </sect1>
+
+  <sect1 id="rule-system">
+   <title>El sistema de reglas de
+   <productname>Postgres</productname></title>
+
+   <para>
+    <productname>Postgres</productname> utiliza un poderoso
+    <firstterm>sistema de reglas</firstterm> para la especificación
+    de <firstterm>vistas</firstterm> y <firstterm>actualizaciones de
+    vistas</firstterm> ambiguas.
+    Originalmente el sistema de reglas de
+    <productname>Postgres</productname> consistía en dos implementaciones:
+
+    <itemizedlist>
+     <listitem>
+      <para>
+       El primero trabajaba utilizando el procesado a
+       <firstterm>nivel de tupla</firstterm> y se implementaba en
+       el <firstterm>ejecutor</firstterm>. El sistema de reglas se
+       disparaba cada vez que se accedía una tupla individual. Esta
+       implementación se retiró en 1.995 cuando la última versión oficial
+       del proyecto <productname>Postgres</productname> se transformó en
+       <productname>Postgres95</productname>.
+      </para>
+     </listitem>
+
+     <listitem>
+      <para>
+       La segunda implementación del sistema de reglas es una técnica
+       llamada <firstterm>reescritura de la consulta</firstterm>. El
+       <firstterm>sistema de reescritura</firstterm> es un módulo que
+       existe entre la <firstterm>etapa del traductor</firstterm> y el
+       <firstterm>planificador/optimizador</firstterm>. Está técnica
+       continúa implementada.
+      </para>
+     </listitem>
+    </itemizedlist>
+   </para>
+
+   <para>
+    Para información sobre la sintaxis y la creación de reglas en sistema
+    <productname>Postgres</productname> Diríjase a la <citetitle>Guía
+    del Usuario de PostgreSQL</citetitle>.
+   </para>
+
+   <sect2>
+    <title>El sistema de reescritura</title>
+
+    <para>
+     El <firstterm>sistema de reescritura de la consulta</firstterm>
+     es un módulo entre la etapa de traducción y el
+     planificador/optimizador. Procesa el árbol devuelto por la etapa
+     de traducción (que representa una consulta de usuario) y si existe
+     una regla que deba ser aplicada a la consulta reescribe el árbol de
+     una forma alternativa.
+    </para>
+
+    <sect3 id="view-impl">
+     <title>Técnicas para implementar vistas</title>
+
+     <para>
+      Ahora esbozaremos el algoritmo del sistema de reescritura de
+      consultas. Para una mejor ilustración, mostraremos como implementar
+      vistas utilizando reglas como ejemplo.
+     </para>
+
+     <para>
+      Tengamos la siguiente regla:
+
+      <programlisting>
+  create rule view_rule
+  as on select
+  to test_view
+  do instead
+     select s.sname, p.pname
+     from supplier s, sells se, part p
+     where s.sno = se.sno and
+           p.pno = se.pno;
+      </programlisting>
+     </para>
+
+     <para>
+      Esta regla se <firstterm>disparará</firstterm>
+      cada vez que se detecte una SELECT contra la relación
+      <literal>test_view</literal>. En lugar de seleccionar las tuplas
+      de <literal>test_view</literal>, se ejecutará la instrucción SELECT
+      dada en la <firstterm>parte de la acción</firstterm> de la regla.
+     </para>
+
+     <para>
+      Tengamos la siguiente consulta de usuario contra
+      <literal>test_view</literal>:
+
+      <programlisting>
+  select sname
+  from test_view
+  where sname &lt;&gt; 'Smith';
+      </programlisting>
+     </para>
+
+     <para>
+      Tenemos aquí una lista de los pasos realizados por el sistema de
+      reescritura de la consulta cada vez que aparece una consulta de usuario
+      contra <literal>test_view</literal>. (El siguiente listado es
+      una descripción muy informal del algoritmo únicamente para una
+      comprensión básica. Para una descripción detallada diríjase a
+      <xref linkend="STON89-full" endterm="STON89">).
+     </para>
+
+     <procedure>
+      <title>Reescritura de <literal>test_view</literal></title>
+      <step>
+       <para>
+        Toma la consulta dada por la parte de acción de la regla.
+       </para>
+      </step>
+
+      <step>
+       <para>
+        Adapta la lista-objetivo para recoger el número y orden de los
+        atributos dados en la consulta del usuario.
+       </para>
+      </step>
+
+      <step>
+       <para>
+        Añade la cualificación dada en la cláusula WHERE de la consulta
+        del usuario a la cualificación de la consulta dada en la parte de
+        la acción de la regla.
+       </para>
+      </step>
+     </procedure>
+
+     <para>
+      Dada la definición de la regla anterior, la consulta del usuario será
+      reescrita a la siguiente forma (Nótese que la reescritura se hace
+      en la representación interna de la consulta del usuario devuelta
+      por la etapa de traducción, pero la nueva estructura de datos
+      representará la siguiente consulta):
+
+      <programlisting>
+  select s.sname
+  from supplier s, sells se, part p
+  where s.sno = se.sno and
+        p.pno = se.pno and
+        s.sname &lt;&gt; 'Smith';
+      </programlisting>
+     </para>
+</sect3>
+   </sect2>
+  </sect1>
+
+  <sect1 id="planner-optimizer">
+   <title>Planificador/optimizador</title>
+
+   <para>
+    La tarea del <firstterm>planificador/optimizador</firstterm>
+    es crear un plan de ejecución óptimo. Primero combina todas
+    las posibles vías de <firstterm>barrer</firstterm> (scannear) y
+    <firstterm>cruzar</firstterm> (join) las relaciones que aparecen en
+    una consulta. Todas las rutas creadas conducen al mismo resultado y es
+    el trabajo del optimizador estimar el coste de ejecutar cada una de
+    ellas para encontrar cual es la más económica.
+   </para>
+
+   <sect2>
+    <title>Generando planes posibles</title>
+
+    <para>
+     El planificador/optimizador decide qué planes deberían generarse
+     basándose en los tipos de índices definidos sobre las relaciones
+     que aparecen en una consulta. Siempre existe la posibilidad de realizar
+     un barrido secuencial de una relación, de modo que siempre se crea
+     un plan que sólo utiliza barridos secuenciales. Se asume que hay
+     definido un índice en una relación (por ejemplo un índice B-tree)
+     y una consulta contiene la restricción <literal>relation.attribute OPR
+     constant</literal>. Si <literal>relation.attribute</literal> acierta
+     a coincidir con la clave del índice B-tree y <literal>OPR</literal>
+     es distinto de '&lt;&gt;' se crea un plan utilizando el índice
+     B-tree para barrer la relación. Si hay otros índices presentes y
+     las restricciones de la consulta aciertan con una clave de un índice,
+     se considerarán otros planes.
+    </para>
+
+    <para>
+     Tras encontrar todos los planes utilizables para revisar
+     relaciones únicas, se crean los planes para cruzar (join)
+     relaciones. El planificador/optimizador considera sólo cruces
+     entre cada dos relaciones para los cuales existe una cláusula
+     de cruce correspondiente (es decir, para las cuales existe una
+     restricción como <literal>WHERE rel1.attr1=rel2.attr2</literal>) en
+     la cualificación de la WHERE. Se generan todos los posibles planes
+     para cada cruce considerado por el planificador/optimizador. Las
+     tes posibles estrategias son:
+
+     <itemizedlist>
+      <listitem>
+       <para>
+        <firstterm>Cruce de iteración anidada</firstterm> (nested
+        iteration join): La relación derecha se recorre para cada tupla
+        encontrada en la relación izquierda. Esta estrategia es fácil
+        de implementar pero puede consumir mucho tiempo.
+       </para>
+      </listitem>
+
+      <listitem>
+       <para>
+	<firstterm>Cruce de ordenación mezclada </firstterm> (merge
+	sort join): Cada relación es ordenada por los atributos del
+	cruce antes de iniciar el cruce mismo. Después se mezclan las
+	dos relaciones teniendo en cuenta que ambas relaciones están
+	ordenadas pro los atributos del cruce. Este modelo de cruce es
+	más atractivo porque cada relación debe ser barrida sólo una vez.
+       </para>
+      </listitem>
+
+      <listitem>
+       <para>
+	<firstterm>Cruce indexado</firstterm> (hash join): La relación
+	de la derecha se indexa primero sobre sus atributos para el
+	cruce. A continuación, se barre la relación izquierda, y los
+	valores apropiados de cada tupla encontrada se utilizan como
+	clave indexada para localizar las tuplas de la relación derecha.
+       </para>
+      </listitem>
+     </itemizedlist>
+    </para>
+   </sect2>
+
+   <sect2>
+    <title>Estructura de datos del plan</title>
+
+    <para>
+     Daremos ahora una pequeña descripción de los nodos que aparecen
+     en el plan. La figura \ref{plan} muestra el plan producido para la
+     consulta del ejemplo \ref{simple_select}.
+    </para>
+
+    <para>
+     El nodo superior del plan es un nodo <literal>Cruce Mezclado
+     (MergeJoin)</literal> que tiene dos sucesores, uno unido al campo
+     <literal>árbol izquierdo</literal> (lefttree) y el segundo unido
+     al campo <literal>árbol derecho</literal> (righttree). Cada uno de
+     los subnodos representa una relación del cruce. Como se mencionó
+     antes, un cruce de mezcla ordenada requiere que cada relación sea
+     ordenada. Por ello encontramos un nodo <literal>Sort</literal>
+     en cada subplan. La cualificación adicional dada en la consulta
+     (<literal>s.sno &gt; 2</literal>) se envía tan lejos como es
+     posible y se une al campo <literal>qpqual</literal> de la rama
+     <literal>SeqScan</literal> del nodo del correspondiente subplan.
+    </para>
+
+    <para>
+     La lista unida al campo <literal>mergeclauses</literal> del nodo
+     <literal>Cruce Mezclado (MergeJoin)</literal> contiene información
+     sobre los atributos de cruce. Los valores <literal>65000</literal>
+     y <literal>65001</literal> de los campos <literal>varno</literal>
+     y los nodos <literal>VAR</literal> que aparecen en la lista
+     <literal>mergeclauses</literal> (y también en la <literal>lista
+     objetivo</literal>) muestran que las tuplas del nodo actual no
+     deben ser consideradas, sino que se deben utilizar en su lugar las
+     tuplas de los siguientes nodos "más profundos" (es decir, los nodos
+     superiores de los subplanes).
+    </para>
+
+    <para>
+     Nótese que todos los nodos <literal>Sort</literal> y
+     <literal>SeqScan</literal> que aparecen en la figura \ref{plan}
+     han tomado una <literal>lista objetivo</literal>, pero debido
+     a la falta de espacio sólo se ha dibujado el correspondiente al
+     <literal>Cruce Mezclado</literal>.
+    </para>
+
+    <para>
+     Otra tarea realizada por el planificador/optimizador es fijar
+     los <firstterm>identificadores de operador</firstterm> en los
+     nodos <literal>Expr</literal> y <literal>Oper</literal>. Como
+     se mencionó anteriormente, <productname>Postgres</productname>
+     soporta una variedad de tipos diferentes de datos, e incluso se
+     pueden utilizar tipos definidos por el usuario. Para ser capaz de
+     mantener la gran cantidad de funciones y operadores, es necesario
+     almacenarlos en una tabla del sistema. Cada función y operador
+     toma un identificador de operador único. De acuerdo con los tipos
+     de los atributos usados en las cualificaciones, etc, se utilizan
+     los identificadores de operador apropiados.
+    </para>
+   </sect2>
+  </sect1>
+
+  <sect1 id="executor">
+   <title>Ejecutor</title>
+
+   <para>
+    El <firstterm>ejecutor</firstterm> toma el plan devuelto
+    por el planificador/optimizador y arranca procesando el nodo
+    superior. En el caso de nuestro ejemplo (la consulta dada en el ejemplo
+    \ref{simple_select}), el nodo superior es un nodo <literal>Cruce
+    Mezclado</literal> (MergeJoin).
+   </para>
+
+   <para>
+    Antes de poder hacer ninguna mezcla, se deben leer dos tuplas, una de
+    cada subplan. De este modo, el ejecutor mismo llama recursivamente a
+    procesar los subplanes (arranca con el subplan unido al <literal>árbol
+    izquierdo</literal>). El nuevo nodo superior (el nodo superior
+    del subplan izquierdo) es un nodo <literal>SeqScan</literal>,
+    y de nuevo se debe tomar una tupla antes de que el nodo mismo
+    pueda procesarse. El ejecutor mismo llama recursivamente otra vez
+    al subplan unido al <literal>árbol izquierdo</literal> del nodo
+    <literal>SeqScan</literal>.
+   </para>
+
+   <para>
+    El nuevo nodo superior es un nodo <literal>Sort</literal>. Como un
+    sort se debe realizar sobre la relación completa, el ejecutor arranca
+    leyendo tuplas desde el subplan del nodo <literal>Sort</literal> y las
+    ordena en una relación temporal (en memoria o en un fichero) cuando se
+    visita por primera vez el nodo <literal>Sort</literal>. (Posteriores
+    exámenes del nodo <literal>Sort</literal> devolverán siempre
+    únicamente una tupla de la relación temporalmente ordenada).
+   </para>
+
+   <para>
+    Cada vez que el procesado del nodo <literal>Sort</literal> necesita
+    de una nueva tupla, se llama de forma recursiva al ejecutor para
+    que trate el nodo <literal>SeqScan</literal> unido como subplan. La
+    relación (a la que se refiere internamente por el valor dado en el
+    campo <literal>scanrelid</literal>) se recorre para encontrar la
+    siguiente tupla. Si la tupla satisface la cualificación dada por
+    el árbol unido a <literal>qpqual</literal> se da por buena para
+    su tratamiento, y en otro caso se lee la siguiente tupla hasta la
+    primera que satisfaga la cualificación. Si se ha procesado la última
+    tupla de la relación, se devuelve un puntero <literal>NULL</literal>.
+   </para>
+
+   <para>
+    Una vez que se ha recuperado una tupla en el <literal>árbol
+    izquierdo</literal> del <literal>Cruce Mezclado (MergeJoin)</literal>,
+    se procesa del mismo modo el <literal>árbol derecho</literal>. Si se
+    tienen presentes ambas tuplas, el ejecutor procesa el <literal>Cruce
+    Mezclado</literal>. Siempre que se necesita una nueva tupla de uno
+    de los subplanes, se realiza una llamada recursiva al ejecutor para
+    obtenerla. Si se pudo crear una tupla para cruzarla, se devuelve y
+    se da por terminado el procesado completo de árbol del plan.
+   </para>
+
+   <para>
+    Se realizan ahora los pasos descritos para cada una de las tuplas,
+    hasta que se devuelve un puntero <literal>NULL</literal> para el
+    procesado del nodo <literal>Cruce Mezclado</literal>, indicando que
+    hemos terminado.
+   </para>
+
+  </sect1>
+
+<!--
+**********************************************************
+**********************************************************
+**********************************************************
+**********************************************************
+**********************************************************
+
+\pagebreak
+\clearpage
+
+\section{La Realización de la Clausula Having}
+\label{having_impl}
+
+La {\it cláusula having} ha sido diseñada en SQL para ser capaz de usar
+los resultados de {\it funciones de agregación} en una cualificación de
+la consulta. La manipulación de la {\it cláusula having} es muy similar a
+la de la {\it cláusula WHERE}. Ambas son fórmulas en primer orden lógico
+(First order logical FOL) que deben ser evaluadas como ciertas para cada
+objeto para que sea devuelto:
+%
+\begin{itemize}
+<step> La fórmula dada en la {\it cláusula WHERE} se evalúa para cada
+tupla. Si la evaluación devuelve {\tt verdad (true)}, se devuelve la
+tupla, y se ignora cada tupla que no satisfaga la cualificación.
+%
+<step> En el caso de {\it grupos}, se evalúa la {\it cláusula HAVING}
+para cada grupo. Si la evaluación devuelve {\tt verdad}, el grupo se
+toma en cuenta, y de otro modo se ignora.
+\end{itemize}
+%
+\subsection{Cómo se han implementado las Funciones Agregadas}
+\label{aggregates}
+
+Antes de que podamos describir como se ha implementado la {\it cláusula
+having}, daremos una mirada a la implementación de las it funciones de
+agregación}, de tal forma como aparecen en la {\it lista objetivo}. Nótese
+que las {\it funciones de agregación} se aplican a grupos, de modo que
+la consulta debe contener una {\it cláusula group}.
+%
+\begin{example}
+\label{having}
+Aquí tenemos un ejemplo del usuo de la {\it función de agregación}
+{\tt count}, que cuenta el número de códigos de artículo {\tt pno})
+de cada grupo. (La tabla {\tt sells} está definida en el ejemplo
+\ref{supplier}.)
+%
+\begin{verbatim}
+  select sno, count(pno)
+  from sells
+  group by sno;
+\end{verbatim}
+%
+\end{example}
+%
+Una consulta como la del ejemplo \ref{having} se procesa a través de los
+paso habituales:
+%
+\begin{itemize}
+<step> la etapa del traductor
+<step> el sistema de reescritura
+<step> el planificador/optimizador
+<step> el ejecutor
+\end{itemize}
+%
+y en las siguientes secciones describiremos lo que hace cada paso a la
+consulta para obtener el resultado apropiado.
+
+\subsubsection{La Etapa Del Traductor}
+
+\begin{figure}[ht]
+\begin{center}
+\epsfig{figure=figures/parse_having.ps}
+\caption{{\it Querytree} construido para la consulta del ejemplo
+\ref{having}}
+\label{parse_having}
+\end{center}
+\end{figure}
+
+La etapa del traductor construye un {\it árbol de la consulta} que contiene
+la cualificación {\it WHERE} e información sobre el {\it agrupamiento}
+que se debe realizar (es decir, una lista de todos los atributos a
+agrupar se une al campo {\tt groupClause}). Las diferencia fundamental
+con los {\it árboles de consultas} construidos para consultas sin {\it
+funciones de agregación} se da en el campo {\tt hasAggs}, que se fija a
+{\tt verdad (true)} y en la {\it lista objetivo}. El campo {\tt expr}
+del segundo nodo {\tt TLE} de la {\it lista objetivo} mostrada en la
+figura \ref{parse_having} no apunta directamente al nodo {\tt VAR}, sino
+a un nodo {\tt Aggreg} que representa la {\it función de agregación}
+utilizada en la consulta.
+
+Se hace una comprobación de que cada atributo agrupado aparece sólo sin
+una {\it función de agregación} en la {\it lista objetivo} y que cada
+atributo que aparece sin una {\it función de agregación} en la {\it
+lista objetivo} está agrupado.
+%
+
+\pagebreak
+
+\subsubsection{El sistema de reescritura}
+
+El sistema de reescritura no hace ningún cambio en el {\it árbol de
+la consulta} en tanto en cuanto la consulta involucre sólo {\it tablas de la
+base}. Si está presente cualquier {\it vista}, la consulta es reescrita para
+acceder a las tablas especificadas en la {\it definición de la vista}.
+%
+\subsubsection{Planificador/Optimizador}
+Siempre que una {\it función de agregación} aparece involucrada en
+una consulta (lo que se indica con el semáforo {\tt hasAggs} fijado a {\tt
+verdad}), el planificador crea un {\it árbol del plan} cuyo nodo superior
+es un nodo {\tt AGG}. La {\it lista objetivo}se revisa para encontrar {\it
+funciones de agregación} y para cada función que se encuéntrase añade un
+puntero al correspondiente nodo {\it Aggreg}, a una lista que finalmente
+se une al campo {\it aggs} del nodo {\it AGG}. El {\it ejecutor} necesita
+esta lista para conocer qué {\it funciones de agregación} están presentes
+y deben ser manipuladas.
+
+Al nodo {\tt AGG} le sigue el nodo {\tt GRP}. La implementación de
+la lógica del {\it agrupamiento} necesita una tabla ordenada para
+su operación, de modo que al nodo {\tt GRP} se sigue un nodo {\tt
+SORT}. La operación de {\tt SORT} toma sus tuplas de un juego del nodo
+{\tt Scan} (si no hay índices presentes, este será un simple nodo {\tt
+SeqScan}). Cualquier cualificación presente será unida al nodo {\tt
+Scan}. La figura \ref{plan_having} muestra el {\it plan} creado para la
+consulta dada en el ejemplo \ref{having}.
+
+\begin{figure}[ht]
+\begin{center}
+\epsfig{figure=figures/plan_having.ps}
+\caption{{\it Plantree} para la consulta del ejemplo \ref{having}}
+\label{plan_having}
+\end{center}
+\end{figure}
+
+Nótese que cada nodo tiene su propia {\it lista objetivo}, que puede
+diferir de la del nodo anterior o del siguiente. El campo {\tt varattno}
+de cada nodo {\tt VAR} incluido en una {\it lista objetivo} contiene
+un número que representa la posición del valor del atributo en la tupla
+del nodo actual.
+
+\pagebreak
+\clearpage
+
+\subsubsection{Ejecutor}
+
+El {\tt ejecutor} utiliza la función {\tt execAgg()} para ejecutar los
+nodos {\tt AGG}. Como se describe anteriormente, utiliza una función
+principal {\tt ExecProcNode} que se llama recursivamente para ejecutar
+sub-árboles. Los siguientes pasos son realizados por {\tt execAgg()}:
+%
+\begin{itemize}
+%
+<step> Se examina la lista unida al campo {\tt aggs} del nodo {\tt AGG},
+y para cada {\it función de agregación} incluidas las {\it funciones de
+transición} se leen de una {\it tabla de funciones}. El cálculo del valor
+de una {\it función de agregación} se hace utilizando tres funciones:
+%
+\begin{itemize}
+<step> La {\it primera función de transición} {\tt xfn1} se llama con el
+valor actual del atributo, se le aplica la {\it función de agregación}
+y cambia su estado interno utilizando el valor del atributo dado como
+un argumento.
+%
+<step> La {\it segunda función de transición} {\tt xfn2} se llama sin
+ningún argumento y cambia su estado interno únicamente de acuerdo a
+reglas internas.
+%
+<step> La {\it función final} {\tt finalfn} toma el estado final de {\tt
+xfn1} y {\tt xfn2} como argumentos y termina la {\it agregación}.
+\end{itemize}
+%
+\begin{example} Recalculo de las funciones necesarias para implementar
+la {\it función de agregación} {\tt avg} construyendo el promedio sobre
+todos los valores de un atributo en un grupo (ver sección \ref{ext_agg}
+{\it Extendiendo Agregados}):
+%
+\begin{itemize}
+%
+<step> La primera función de transición {\tt xfn1} debe ser una función
+que tome el valor actual del atributo {\tt avg} aplicado como un argumento
+y lo añade a la suma previamente almacenada de las llamadas previas.
+%
+<step> La segunda función de transición {\tt xfn2} sólo incrementa un
+contador interno cada vez que se le llama.
+%
+<step> La función final {\tt finalfn} divide el resultado de {\tt xfn1}
+por el contador de {\tt xfn2} para calcular el promedio.
+%
+\end{itemize}
+%
+\end{example}
+%
+Nótese que {\tt xfn2} y {\tt finalfn} puede estar ausente (por ejemplo
+para la {\it función de agregación} {\tt sum} que simplemente suma todos
+los valores del atributo dado en un grupo. \\
+\\
+{\tt execAgg()} crea una tabla que contiene una entrada para cada
+{\it función de agregación} encontrada en la lista unida al campo {\tt
+aggs}. La tabla contendrá información necesitada para la ejecución de cada
+{\it función de agregación} (incluyendo las {\it funciones de transición}
+descritas anteriormente).
+%
+<step> Los siguientes pasos se ejecutan en un bucle en tanto siga habiendo
+tuplas devueltas por el subplan (es decir, en tanto tuplas a la izquierda
+en el grupo actual). Cuando no quedan tuplas a la izquierda  en el grupo,
+se devuelve un puntero {\tt NULL} indicando el final de un grupo.
+%
+\begin{itemize}
+<step> Se lee una nueva tupla del subplan (es decir, el {\it plan} unido
+al campo {\it lefttree}) llamando recursivamente a {\tt ExecProcNode()}
+con el subplan como argumento.
+%
+<step> Para cada {\it función de agregación} (contenida en la tabla
+creada antes) se aplican las funciones de transición {\tt xfn1} y {\tt
+xfn2} a los valores de los atributos apropiados de la tupla actual.
+\end{itemize}
+%
+<step> Cuando llegamos aquí, todas las tuplas del grupo actual han sido
+procesadas y las {\it funciones de transición} de todas las {\it funciones
+de agregación} han sido aplicadas a los valores de los atributos. Estamos
+ahora listos para completar la {\it agregación} aplicando la {\it función
+final} ({\tt finalfn}) para cada {\it función de agregación}.
+%
+<step> Almacena la tupla que contiene los nuevos valores (los resultantes
+de las {\it funciones de agregación}) y los devuelve.
+\end{itemize}
+%
+Nótese que el procedimiento descrito antes sólo devuelve una tupla
+(es decir, procesa sólo un grupo y cuando detecta el final del grupo,
+procesa las {\it funciones de agregación} y devuelve una tupla). Para
+recuperar todas las tuplas (es decir, para procesar todos los grupos),
+se llamará a la función {\tt execAgg()} (devolviendo una nueva tupla
+cada vez) hasta que devuelva un puntero {\tt NULL} indicando que ya no
+quedan grupos a la izquierda para procesar.
+
+\subsection{Cómo está Implementada la Cláusula Having}
+
+La idea básica de la implementación es unir el {\it árbol del operador}
+construido para la {\it cláusula having} al campo {\tt qpqual} del
+nodo {\tt AGG} (que es el nodo superior del árbol de la consulta). Ahora
+el ejecutor debe evaluar el nuevo {\it árbol del operador} unido a {\tt
+qpqual} para cada grupo procesado. Si la evaluación devuelve {\tt verdad},
+el grupo se tiene en cuenta, y en otro caso se ignora y se examina el
+siguiente grupo. \\
+\\
+Para poder implementar la {\it cláusula having}, se han hecho una variedad
+de cambios en las siguiente etapas:
+%
+\begin{itemize}
+<step> La {\it etapa del traductor} ha sido modificada ligeramente
+para construir y transformar un {\it árbol del operador} para la {\it
+cláusula having}.
+%
+<step> El {\it sistema de reescritura} ha sido adaptado para ser capaz
+de usar {\it vistas} con la {\it lógica del having}.
+%
+<step> El {\it planificador/optimizador} toma ahora el {\it árbol
+del operador} de la {\it cláusula having} y la une al nodo {\tt AGG}
+(que es el nodo superior del {\it plan de la consulta}).
+%
+<step> El {\it ejecutor} ha sido modificado para evaluar el {\it árbol del
+operador} (es decir, la representación interna de la {\it cualificación de
+la having}) unida al nodo {\tt AGG} y el resultado de la {\it agregación}
+sólo será considerada si la evaluación devuelve {\tt verdad}.
+\end{itemize}
+%
+En la siguiente sección describiremos los cambios hechos a cada etapa
+individual en detalle.
+
+\subsubsection{La Etapa del Traductor}
+
+Las reglas de gramática del {\it traductor} definidas en {\tt gram.y} no
+requirieron ningún cambio (es decir, las reglas ya habían sido preparadas
+para la {\it cláusula having}). El {\it árbol del operador} construido
+para la {\it cláusula having} se une al campo {\tt havingClause} del
+nodo {\tt SelectStmt} devuelto por el {\it traductor}.\\
+\\
+Los procedimientos de {\it transformación} aplicados al árbol devuelto
+por el {\it traductor} transforman el {\it árbol del operador} unido al
+campo {\tt havingClause} utilizando exactamente las mismas funciones
+utilizadas para la transformación del {\it árbol del operador}
+para la {\it cláusula WHERE}. Esto es posible porque ambos árboles
+se construyen con las mismas reglas de gramática del {\it traductor},
+siendo así compatibles. Comprobaciones adicionales para asegurar que la
+{\it cláusula having} involucra al menos una {\it función de agregación}
+etc, se realizan en un punto posterior en el tiempo en la etapa del {\it
+planificador/optimizador}. \\
+\\
+Los cambios necesarios se han aplicado a las
+funciones siguientes incluidas en el fichero  {\tt
+$\ldots$/src/backend/parser/analyze.c}. Nótese que sólo se presentan
+las partes relevantes del código afectado, en lugar de las funciones
+completas. Cada línea fuente añadida será marcada con un {\tt '+'} al
+principio de la línea y cada línea fuente cambiada será marcada con un
+{\tt '!'} en los siguientes listados del código. Siempre que se salte
+una parte no relevante del código, en su lugar se insertarán líneas
+verticales de puntos.
+%
+\pagebreak
+%
+\begin{itemize}
+<step> {\tt transformInsertStmt()} \\
+Se invoca esta función cada vez que se emplea una instrucción SQL
+{\tt insert} que hace referencia a una {\tt select}, como ilustra el
+siguiente ejemplo:
+%
+\begin{verbatim}
+  insert into t2
+  select x, y
+  from t1;
+\end{verbatim}
+%
+Se han añadido dos instrucciones a esta función. La primera realiza
+la transformación del {\it árbol del operador} unido al campo {\tt
+havingClause} utilizando la función {\tt transformWhereClause()} como
+se hizo para la {\it cláusula WHERE}. Es posible usar la misma función
+para ambas cláusulas, porque ambas están construidas con las mismas {\it
+reglas de gramática} dadas en {\tt gram.y}, y son por eso compatibles.
+
+La segunda instrucción asegura que se emplean {\it funciones de
+agregación} siempre que se emplea una {\it cláusula having}. De lo
+contrario, debería haberse formulado utilizando sólo una {\it cláusula
+WHERE}.
+%
+\begin{verbatim}
+  static Query *
+  transformInsertStmt(ParseState *pstate,
+		      InsertStmt *stmt)
+  {
+    /* make a new query tree */
+    Query *qry = makeNode(Query);
+			    .
+			    .
+			    .
+    /* fix where clause */
+    qry->qual = transformWhereClause(pstate,
+				     stmt->whereClause);
+
++   /* The havingQual has a similar meaning as "qual" in
++    * the where statement. So we can easily use the
++    * code from the "where clause" with some additional
++    * traversals done in .../optimizer/plan/planner.c
++    */
++   qry->havingQual = transformWhereClause(pstate,
++				    stmt->havingClause);
+			    .
+			    .
+			    .
++   /* If there is a havingQual but there are no
++    * aggregates, then there is something wrong with
++    * the query because having must contain aggregates
++    * in its expressions! Otherwise the query could
++    * have been formulated using the where clause.
++    */
++   if((qry->hasAggs == false) &&
++      (qry->havingQual != NULL))
++   {
++     elog(ERROR,"This is not a valid having query!");
++     return (Query *)NIL;
++   }
+    return (Query *) qry;
+  }
+\end{verbatim}
+%
+<step> {\tt transformSelectStmt()} \\
+Exactly the same statements added to the function {\tt
+transformInsertStmt()} above have been added here as well.
+%
+\begin{verbatim}
+  static Query *
+  transformSelectStmt(ParseState *pstate,
+		      SelectStmt *stmt)
+  {
+    Query  *qry = makeNode(Query);
+
+    qry->commandType = CMD_SELECT;
+			    .
+			    .
+			    .
+    qry->qual = transformWhereClause(pstate,
+				     stmt->whereClause);
+
++   /* The havingQual has a similar meaning as "qual" in
++    * the where statement. So we can easily use the
++    * code from the "where clause" with some additional
++    * traversals done in .../optimizer/plan/planner.c
++    */
++   qry->havingQual = transformWhereClause(pstate,
++				    stmt->havingClause);
+			    .
+			    .
+			    .
++   /* If there is a havingQual but there are no
++    * aggregates, then there is something wrong with
++    * the query because having must contain aggregates
++    * in its expressions! Otherwise the query could
++    * have been formulated using the where clause.
++    */
++   if((qry->hasAggs == false) &&
++      (qry->havingQual != NULL))
++   {
++     elog(ERROR,"This is not a valid having query!");
++     return (Query *)NIL;
++   }
+    return (Query *) qry;
+  }
+\end{verbatim}
+%
+\end{itemize}
+
+
+\subsubsection{El Sistema de Reescritura}
+
+Esta sección describe los cambios al {\it sistema de reescritura} de
+<productname>Postgres</productname> que han sido necesarios para soportar
+el uso de {\it vistas} en consultas que utilizan una {\it cláusula having}
+y para soportar la definición de {\it vistas} mediante consultas que
+utilizan la {\it cláusula having}.
+
+Somo se describió en la sección \ref{view_impl} {\it Técnicas para
+Implementar Vistas}, se utiliza una técnica de reescritura para
+implementar las {\it vistas}. Hay dos casos que debe manipular el {\it
+sistema de reescritura} que conciernen a la {\it cláusula having}:
+%
+\pagebreak
+%
+\begin{itemize}
+<step> La {\it definición de la vista} no contiene una {\it cláusula
+having}, pero las consultas evaluadas contra la vista pueden contenerla.
+<step> La {\it definición de la vista} contiene una {\it cláusula
+having}. En este caso, las consultas evaluadas contra estas vistas deberán
+soportar algunas restricciónes que se mencionarán más tarde.
+\end{itemize}
+%
+\paragraph{No hay cláusula having en la definición de la vista:} Primero
+miraremos en los cambios necesarios para soportar consultas utilizando una
+{\it cláusula having} contra una {\it vista} definida sin {\it cláusula
+having}. \\
+\\
+Tengamos la siguiente definicón de una vista:
+%
+\begin{verbatim}
+  create view test_view
+  as select sno, pno
+     from sells
+     where sno > 2;
+\end{verbatim}
+%
+y la siguiente consulta contra <literal>test_view</literal>:
+%
+\begin{verbatim}
+  select *
+  from test_view
+  where sno <> 5;
+\end{verbatim}
+%
+La consulta se reescribirá como:
+%
+\begin{verbatim}
+  select sno, pno
+  from sells
+  where sno > 2 and
+	sno <> 5;
+\end{verbatim}
+%
+La consulta dada en la definicón de la {\it vista}
+<literal>test_view</literal> es el {\it fundamento} de la consulta
+reescrita. La {\it lista objetivo} se toma de la consulta del usuario,
+y la {\it cualificación de la WHERE} de la consulta del usuario se añade
+también a la {\it cualificación de la WHERE} de la nueva consulta utilizando
+una operación {\tt AND}. \\
+\\
+Consieremos ahora la siguiente consulta:
+%
+\begin{verbatim}
+  select sno, count(pno)
+  from testview
+  where sno <> 5
+  group by sno
+  having count(pno) > 1;
+\end{verbatim}
+%
+>Desde ahora ya no es suficiente con añadir sólo la {\it cláusula where}
+y la {\it lista objetivo} de la consulta del usuario a la nueva consulta. La
+{\it cláusula group} y la {\it cualificación de la having} también deben
+ser añadidas a la consulta reescrita:
+%
+\begin{verbatim}
+  select sno, count(pno)
+  from sells
+  where sno > 2 and
+	sno <> 5
+  group by sno
+  having count(pno) > 1;
+\end{verbatim}
+%
+\pagebreak
+
+\noindent Se han aplicado ya muchos cambios a la {\it lista objetivo}
+y la {\it cláusula WHERE} también debe ser aplicada a la {\it cláusula
+having}. Tenemos aquí una colección de todos los pasos {\it adicionales}
+que deben realizarse para reescribir una consulta que utiliza una {\it
+cláusula having} contra una {\it vista} sencilla (es decir, una {\it
+vista} en cuya definición no se utiliza ningún {\it group} ni ninguna
+{\it cláusula having}):
+%
+\begin{itemize}
+%
+<step> Reescribir las subselects contenidas en la {\it cláusula having},
+si hay alguna presente.
+%
+<step> Adaptar los campos {\tt varno} y {\tt varattno} de todos los nodos
+{\tt VAR} contenidos en el {\it árbol del operador} que representan la
+{\it cláusula having}, del mismo modo que se ha hecho en el árbol que
+representa la {\it cláusula WHERE}. Los campos {\tt varno} se cambiar para
+utilizar las {\it tablas de la base} dadas en la {\it definición de la
+vista} (que ha sido insertada en la {\it lista de entradas de la tabla
+de rango} mientras tanto) en lugar de las {\it tablas virtuales}. Las
+posiciones de los atributos utilizados en la {\it vista} pueden diferir
+de las posiciones de los correspondientes atributos en las {\it tablas
+de la base}. Por ello, los campos de {\tt varattno} deberán adaptarse.
+%
+<step> Se adaptan los campos {\tt varno} y {\tt varattno} de todos
+los nodos {\tt VAR} contenidos en el {\tt groupClause} de la consulta del
+usuario en la misma forma y por las mismas razones descritas antes.
+%
+<step> Se une el árbol que representa la {\it cualificación de la having}
+(que está en este momento unido al campo {\tt havingClause} del nodo
+{\tt Query} de la consulta del usuario) al campo {\tt havingClause} del
+nodo {\tt Query} de la nueva (reescrita) consulta.
+%
+<step> Se une la lista que representa la {\it cláusula group} (actualmente
+unida al campo {\tt groupClause} del nodo {\tt Query} para la consulta del
+usuario) al campo {\it groupClause} del nodo de la nueva (reescrita)
+consulta.
+%
+\end{itemize}
+
+\paragraph{La definición de la vista contiene cláusula having:} Veremos
+ahora los problemas que se presentan cuando las {\it vistas} se definen
+utilizando una consulta que incluye una {\it cláusula having}. \\
+\\
+Tengamos la siguiente {\it definición de la vista}:
+%
+\begin{verbatim}
+  create view test_view
+  as select sno, count(pno) as number
+     from sells
+     where sno > 2
+     group by sno
+     having count(pno) > 1;
+\end{verbatim}
+%
+Las consultas sencillas contra esta {\it vista} no causarán problemas
+adicionales:
+%
+\begin{verbatim}
+  select *
+  from test_view
+  where sno <> 5;
+\end{verbatim}
+%
+Esta consulta se puede reescribir fácilmente añadiendo la {\it cualificación
+de la WHERE} de la consulta del usuario ({\tt sno $<>$ 5}) a la {\it
+cualificación de la WHERE} de la consulta de la {\it definición de la
+vista}. \\
+\\
+La siguiente consulta también es sencilla, pero causará problemas cuando
+sea evaluada contra la {\it definición de la vista} anterior:
+%
+\begin{verbatim}
+  select *
+  from test_view
+  where number > 1; /* Llamaremos aquí number a
+		     * count(pno) en la definición de la vista. */
+\end{verbatim}
+%
+\pagebreak
+Las técnicas implementadas actualmente para la reescritura de la consulta,
+la reescribirán como:
+%
+\begin{verbatim}
+  select *
+  from sells
+  where sno > 2 and
+	count(pno) > 1
+  group by sno
+  having count(pno) > 1;
+\end{verbatim}
+%
+que es una consulta inválida porque aparece una {\it función de agregación}
+en la {\it cláusula where}. \\
+\\
+También la siguiente consulta causará problemas:
+%
+\begin{verbatim}
+  select pno, count(sno)
+  from test_view
+  group by pno;
+\end{verbatim}
+%
+Como se puede ver, esta consulta no hace referencia ni ha una {\it cláusula
+WHERE} ni a una {\it cláusula having}, pero contiene pero contiene una
+{\it cláusula group} que agrupa por el atributo {\tt pno}. La consulta de
+la definición de la {\it vista} también contiene una {\it cláusula group}
+que agrupa por el atributo {\tt sno}. Las dos {\it cláusulas group} crean
+un conflicto entre ellas, y por ello la consulta no puede reescribirse en
+una forma que tenga sentido.\\
+\\
+{\bf Note:} Por el momento no tenemos solución a los problemas
+mencionados, y no tiene sentido dedicar más esfuerzo a ello, porque la
+implementación del soporte a consultas como:
+%
+\begin{verbatim}
+  select pno_count, count(sno)
+  from ( select sno, count(pno) as pno_count
+	 from sells
+	 where sno > 2
+	 group by sno
+	 having count(pno) > 1)
+  group by pno_count;
+\end{verbatim}
+%
+(que forma parte del SQL92 estándar) automáticamente resolverá también
+estos problemas. \\
+\\
+
+En la siguiente parte de la presente sección presentaremos los
+cambios aplicados al código fuente para realizar los puntos descritos
+hasta ahora. Nótese que no es necesario conocer los entresijos de
+cada línea fuente individual ahora, de modo que no discutiremos
+cuestiones de detalle como "¿Porqué se incrementa en 3 el valor de
+la variable {\tt varno}?". Las preguntas como esa pertenecen a un
+capítulo relacionado con la implementación de las {\it vistas} en
+<productname>Postgres</productname>, y para ser capaz de responderlas
+sería necesario un conocimiento de todas las funciones, no sólo las
+descritas aquí. Lo importante para nosotros es asegurar que todo lo que
+se aplica a la {\it lista objetivo} y a las estructuras de datos que
+representan la {\it cláusula WHERE}, se aplica también a las estructuras
+de datos de la {\it cláusula having}. Hay tres ficheros afectados: \\
+\\
+\indent {\tt $\ldots$/src/backend/rewrite/rewriteHandler.c} \\
+\indent {\tt $\ldots$/src/backend/rewrite/rewriteManip.c} \\
+\indent {\tt $\ldots$/src/backend/commands/view.c} \\
+\\
+Aquí tenemos una descripción de los cambios realizados
+a la funciones contenidas en el fichero {\tt
+$\ldots$/src/backend/rewrite/rewriteHandler.c}:
+%
+\pagebreak
+%
+\begin{itemize}
+<step> {\tt ApplyRetrieveRule()} \\
+Se invoca esta función siempre que se reconoce una instrucción {\tt
+select} contra una {\it vista}, y aplica la {\it regla de reescritura}
+almacenada en los {\it catálogos del sistema}. Las líneas fuente
+adicionales dadas en el listado siguiente aseguran que las funciones
+{\tt OffserVarNodes()} y {\tt ChangeVarNodes()} que se invocan para la
+{\it cláusula WHERE} y la {\it lista objetivo} de la consulta dada en la
+{\it definición de la vista} son también llamadas para la {\it cláusula
+having} y la {\it cláusula group} de la consulta en la {\it definición de la
+vista}. Estas funciones adaptan los campos {\tt varno} y {\tt varattno}
+de los nodos {\tt VAR} involucrados.
+
+Las líneas fuente adicionales al final de {\tt ApplyRetrieveRule()} unen
+las estructuras de datos que representan la {\it cláusula having} al
+{\it árbol de la traducción} reescrito. Como se mencionó anteriormente,
+una {\it definición de la vista} que involucre una {\it cláusula group}
+causará problemas cuando se ejecute una consulta que utilice una {\it
+cláusula group} distinta contra esta {\it vista}. Hasta el momento no
+tenemos un mecanismo para prevenir estos problemas.
+
+Nótese que las funciones {\tt OffsetVarNodes()} , {\tt ChangeVarNodes()}
+y {\tt AddHavingQual()} que aparecen en {\tt ApplyRetrieveRule()} se
+describen en un momento posterior.
+%
+\begin{verbatim}
+  static void
+  ApplyRetrieveRule(Query *parsetree, RewriteRule *rule,
+		    int rt_index, int relation_level,
+		    Relation relation, int *modified)
+  {
+    Query  *rule_action = NULL;
+    Node   *rule_qual;
+    List   *rtable,
+			    .
+			    .
+			    .
+    OffsetVarNodes((Node *) rule_action->targetList,
+		   rt_length);
+    OffsetVarNodes(rule_qual, rt_length);
+
++   OffsetVarNodes((Node *) rule_action->groupClause,
++		   rt_length);
++   OffsetVarNodes((Node *) rule_action->havingQual,
++		   rt_length);
+			    .
+			    .
+			    .
+    ChangeVarNodes(rule_qual,
+		   PRS2_CURRENT_VARNO + rt_length,
+		   rt_index, 0);
+
++   ChangeVarNodes((Node *) rule_action->groupClause,
++		   PRS2_CURRENT_VARNO + rt_length,
++		   rt_index, 0);
++   ChangeVarNodes((Node *) rule_action->havingQual,
++		   PRS2_CURRENT_VARNO + rt_length,
++		   rt_index, 0);
+			    .
+			    .
+			    .
+\end{verbatim}
+\pagebreak
+\begin{verbatim}
+    if (*modified && !badsql)
+    {
+      AddQual(parsetree, rule_action->qual);
++     /* This will only work if the query made to the
++      * view defined by the following groupClause
++      * groups by the same attributes or does not use
++      * groups at all!
++      */
++      if (parsetree->groupClause == NULL)
++	  parsetree->groupClause =
++		     rule_action->groupClause;
++      AddHavingQual(parsetree,
++		     rule_action->havingQual);
++      parsetree->hasAggs =
++	  (rule_action->hasAggs || parsetree->hasAggs);
++      parsetree->hasSubLinks =
++	  (rule_action->hasSubLinks ||
++	   parsetree->hasSubLinks);
+    }
+  }
+\end{verbatim}
+%
+<step> {\tt QueryRewriteSubLink()} \\
+Se llama a esta función desde {\tt QueryRewrite()} para procesar primero
+subconsultas posiblemente contenidas. Busca consultas anidadas recorriendo
+recursivamente el {\it árbol de traducción} dado como argumento. La
+instrucción adicionas asegura que la {\it cláusula having} se examine
+también.
+%
+\begin{verbatim}
+  static void
+  QueryRewriteSubLink(Node *node)
+  {
+    if (node == NULL)
+       return;
+    switch (nodeTag(node))
+    {
+      case T_SubLink:
+      {
+			    .
+			    .
+			    .
+	 QueryRewriteSubLink((Node *) query->qual);
++	 QueryRewriteSubLink((Node *)
++			     query->havingQual);
+			    .
+			    .
+			    .
+      }
+			    .
+			    .
+			    .
+    }
+    return;
+  }
+\end{verbatim}
+%
+\pagebreak
+%
+<step> {\tt QueryRewrite()} \\
+Esta función toma el {\it árbol de la traducción} de una consulta
+y lo reescribe utilizando el {\it sistema de reescritura} de
+<productname>Postgres</productname>. Antes de que la consulta misma pueda
+ser reescrita, se deben procesar las subconsultas que posíblemente formen
+parte de ella. Por ello, la función  {\tt  QueryRewriteSubLink()} se
+llama para la {\it cláusula WHERE} y para la {\it cláusula having}.
+%
+\begin{verbatim}
+  List *
+  QueryRewrite(Query *parsetree)
+  {
+    QueryRewriteSubLink(parsetree->qual);
++   QueryRewriteSubLink(parsetree->havingQual);
+    return QueryRewriteOne(parsetree);
+  }
+\end{verbatim}
+%
+\end{itemize}
+%
+Aquí presentaremos los cambios aplicados a las funciones contenidas en
+el fichero {\tt $\ldots$/src/backend/rewrite/rewriteManip.c}:
+%
+\begin{itemize}
+%
+<step> {\tt OffsetVarNodes()} \\
+Recorre recursivamente el {\it árbol de la traducción} dado como primer
+argumento, incrementando los campos {\tt varno} y {\tt varnoold} de cada
+nodo {\tt VAR} encontrado en el valor {\it offset} dado como segundo
+argumento. Las instrucciones adicionales son necesarias para ser capaz
+de manipular nodos {\tt GroupClause} y {\tt Sublink} que puedan aparecer
+en el {\it árbol de la traducción} de ahora en adelante.
+%
+\begin{verbatim}
+  void
+  OffsetVarNodes(Node *node, int offset)
+  {
+     if (node == NULL)
+	return;
+     switch (nodeTag(node))
+     {
+			    .
+			    .
+			    .
++	/* This has to be done to make queries using
++	 * groupclauses work on views
++	 */
++	 case T_GroupClause:
++	 {
++	   GroupClause *group = (GroupClause *) node;
++
++	   OffsetVarNodes((Node *)(group->entry),
++			  offset);
++	 }
++	 break;
+			    .
+			    .
+			    .
++	 case T_SubLink:
++	 {
++	   SubLink *sublink = (SubLink *) node;
++	   List *tmp_oper, *tmp_lefthand;
++
+\end{verbatim}
+\pagebreak
+\begin{verbatim}
++	   /* We also have to adapt the variables used
++	    * in sublink->lefthand and sublink->oper
++	    */
++	   OffsetVarNodes((Node *)(sublink->lefthand),
++			  offset);
++
++	   /* Make sure the first argument of
++	    * sublink->oper points to the same var as
++	    * sublink->lefthand does otherwise we will
++	    * run into troubles using aggregates (aggno
++	    * will not be set correctly)
++	    */
++	   tmp_lefthand = sublink->lefthand;
++	   foreach(tmp_oper, sublink->oper)
++	   {
++	     lfirst(((Expr *)lfirst(tmp_oper))->args) =
++				   lfirst(tmp_lefthand);
++	     tmp_lefthand = lnext(tmp_lefthand);
++	   }
++	 }
++	 break;
+			    .
+			    .
+			    .
+     }
+  }
+\end{verbatim}
+%
+<step> {\tt ChangeVarNodes()} \\
+Esta función es similar a la anteriormente descrita {\tt OffsetVarNodes()}
+pero en lugar de incrementar los campos {\tt varno} y {\tt varnoold}
+de {\it todos} los nodos {\tt VAR} encontrados, procesa sólo aquellos
+nodos {\tt VAR} cuyo valor de {\tt varno} coincida con el parámetro
+{\tt old\_varno} dado como argumento, y cuyo valor de {\tt varlevelsup}
+coincida con el parámetro {\sublevels\_up}. Siempre que se encuentra
+ese nodo, los campos {\tt varno} y {\tt varnoold} se fijan al valor
+dado en el parámetro {\tt new\_vano}. Las instrucciones adicionales son
+necesarias para poder manipular nodos {\tt GroupClause} y {\tt Sublink}.
+%
+\begin{verbatim}
+  void
+  ChangeVarNodes(Node *node, int old_varno,
+		 int new_varno, int sublevels_up)
+  {
+    if (node == NULL)
+       return;
+    switch (nodeTag(node))
+    {
+			    .
+			    .
+			    .
++     /* This has to be done to make queries using
++      * groupclauses work on views */
++     case T_GroupClause:
++     {
++	GroupClause  *group = (GroupClause *) node;
++
+\end{verbatim}
+\pagebreak
+\begin{verbatim}
++	ChangeVarNodes((Node *)(group->entry),
++		       old_varno, new_varno,
++		       sublevels_up);
++     }
++     break;
+			    .
+			    .
+			    .
+      case T_Var:
+      {
+			    .
+			    .
+			    .
+	/* This is a hack: Whenever an attribute
+	 * from the "outside" query is used within
+	 * a nested subquery, the varlevelsup will
+	 * be >0. Nodes having varlevelsup > 0 are
+	 * forgotten to be processed. The call to
+	 * OffsetVarNodes() should really be done at
+	 * another place but this hack makes sure
+	 * that also those VAR nodes are processed.
+	 */
++	if (var->varlevelsup > 0)
++	   OffsetVarNodes((Node *)var,3);
+      }
+      break;
+			    .
+			    .
+			    .
+      case T_SubLink:
+      {
+			    .
+			    .
+			    .
++	ChangeVarNodes((Node *) query->havingQual,
++		       old_varno, new_varno,
++		       sublevels_up);
++	ChangeVarNodes((Node *) query->targetList,
++		       old_varno, new_varno,
++		       sublevels_up);
++
++	/* We also have to adapt the variables used in
++	 * sublink->lefthand and sublink->oper
++	 */
++	ChangeVarNodes((Node *) (sublink->lefthand),
++		       old_varno, new_varno,
++		       sublevels_up);
+      }
+      break;
+			    .
+			    .
+			    .
+    }
+  }
+\end{verbatim}
+%
+<step> {\tt AddHavingQual()} \\
+Esta función añade el {\it árbol del operador} dado por el parámetro
+{\tt havingQual} al unido al campo {\tt havingQual} del árbol de la
+traducción dado por el parámetro {\tt parsetree}. Esto se hace añadiendo
+un nuevo nodo {\tt AND} y uniéndole los {\tt árboles de la traducción}
+viejo y nuevo como argumentos. {\tt AddHavingQual()} no existía antes
+de la versión 6.3.2. Se ha creado para la {\it lógica del having}.
+%
+\begin{verbatim}
+  void
+  AddHavingQual(Query *parsetree, Node *havingQual)
+  {
+    Node  *copy, *old;
+
+    if (havingQual == NULL)
+       return;
+
+    copy = havingQual;
+
+    old = parsetree->havingQual;
+    if (old == NULL)
+	parsetree->havingQual = copy;
+    else
+	parsetree->havingQual =
+	    (Node *) make_andclause(
+		       makeList(parsetree->havingQual,
+				copy, -1));
+  }
+\end{verbatim}
+%
+<step> {\tt AddNotHavingQual()} \\
+Esta función es similar a la anteriormente descrita {\tt
+AddHavingQual()}. También añade el {\it árbol del operador} dado por
+el parámetro {\tt havingQual}, pero le pone como prefijo un nodo {\tt
+NOT}. {\tt AddNotHavingQual()} tampoco existía hasta la versión 6.3.2 y también
+se ha creado para la {\it lógica de la having}.
+%
+\begin{verbatim}
+  void
+  AddNotHavingQual(Query *parsetree,
+		   Node *havingQual)
+  {
+    Node *copy;
+
+    if (havingQual == NULL)
+       return;
+
+    copy = (Node *) make_notclause((Expr *)havingQual);
+    AddHavingQual(parsetree, copy);
+}
+\end{verbatim}
+%
+<step> {\tt nodeHandleViewRule()} \\
+Esta función se llama desde {\tt HandleViewRule()}. Reemplaza todos los
+nodos {\tt VAR} de la {\it consulta del usuario} evaluada contra la {\it
+vista} (os campos de estos nodos {\tt VAR} representan las posiciones
+de los atributos en la tabla {\it virtual}) por nodos {\tt VAR} que
+ya se han preparado para representar las posiciones de los atributos
+correspondientes en las tablas {\it físicas} (dadas en la {\it definición
+de la vista}). La instrucción adicional asegura que los nodos {\tt
+GroupClause} y {\tt Sublink} son manipuladas correctamente.
+
+\begin{verbatim}
+  static void
+  nodeHandleViewRule(Node **nodePtr, List *rtable,
+		     List *targetlist, int rt_index,
+		     int *modified, int sublevels_up)
+  {
+    Node *node = *nodePtr;
+    if (node == NULL)
+       return;
+    switch (nodeTag(node))
+    {
+			    .
+			    .
+			    .
++     /* This has to be done to make queries using
++      * groupclauses work on views
++      */
++     case T_GroupClause:
++     {
++	GroupClause  *group = (GroupClause *) node;
++	nodeHandleViewRule((Node **) (&(group->entry)),
++			   rtable, targetlist, rt_index,
++			   modified, sublevels_up);
++     }
++     break;
+			    .
+			    .
+			    .
+      case T_Var:
+      {
+			    .
+			    .
+			    .
+	if (n == NULL)
+	{
+	  *nodePtr = make_null(((Var *)node)->vartype);
+	}
+	else
++	/* This is a hack: The varlevelsup of the
++	 * original variable and the new one should
++	 * be the same. Normally we adapt the node
++	 * by changing a pointer to point to a var
++	 * contained in 'targetlist'. In the
++	 * targetlist all varlevelsups are 0 so if
++	 * we want to change it to the original
++	 * value we have to copy the node before!
++	 * (Maybe this will cause troubles with some
++	 * sophisticated queries on views?)
++	 */
++	{
++	  if(this_varlevelsup>0)
++	  {
++	     *nodePtr = copyObject(n);
++	  }
++	  else
++	  {
++	    *nodePtr = n;
++	  }
++	  ((Var *)*nodePtr)->varlevelsup =
++			     this_varlevelsup;
++	}
+	*modified = TRUE;
+      }
+      break;
+			    .
+			    .
+			    .
+      case T_SubLink:
+      {
+			    .
+			    .
+			    .
++	nodeHandleViewRule(
++		  (Node **) &(query->havingQual),
++		  rtable, targetlist, rt_index,
++		  modified, sublevels_up);
++	nodeHandleViewRule(
++		  (Node **) &(query->targetList),
++		  rtable, targetlist, rt_index,
++		  modified, sublevels_up);
++	/* We also have to adapt the variables used
++	 * in sublink->lefthand and sublink->oper
++	 */
++	nodeHandleViewRule(
++		  (Node **) &(sublink->lefthand),
++		  rtable, targetlist, rt_index,
++		  modified, sublevels_up);
++	/* Make sure the first argument of
++	 * sublink->oper points to the same var as
++	 * sublink->lefthand does otherwise we will
++	 * run into troubles using aggregates
++	 * (aggno will not be set correctly!)
++	 */
++	pfree(lfirst(((Expr *)
++		     lfirst(sublink->oper))->args));
++	tmp_lefthand = sublink->lefthand;
++	foreach(tmp_oper, sublink->oper)
++	{
++	   lfirst(((Expr *) lfirst(tmp_oper))->args) =
++				   lfirst(tmp_lefthand);
++	   tmp_lefthand = lnext(tmp_lefthand);
++	}
+      }
+      break;
+			    .
+			    .
+			    .
+    }
+  }
+\end{verbatim}
+%
+<step> {\tt HandleViewRule()} \\
+Esta función llama a  {\tt nodeHandleViewRule()} para la {\it cláusula
+WHERE}, la {\it lista objetivo}, la {\it cláusula group} y la {\it
+cláusula having} de la {\it query del usuario} evaluada contra la {\it
+vista} dada.
+%
+\begin{verbatim}
+  void
+  HandleViewRule(Query *parsetree, List *rtable,
+		 List *targetlist, int rt_index,
+		 int *modified)
+  {
+			    .
+			    .
+			    .
++   /* The variables in the havingQual and
++    * groupClause also have to be adapted
++    */
++   nodeHandleViewRule(&parsetree->havingQual, rtable,
++		       targetlist, rt_index,
++		       modified, 0);
++   nodeHandleViewRule(
++	    (Node **)(&(parsetree->groupClause)),
++	    rtable, targetlist, rt_index, modified, 0);
+  }
+\end{verbatim}
+%
+\end{itemize}
+%
+La siguiente función está contenida en	{\tt
+$\ldots$/src/backend/commands/view.c}:
+
+\begin{itemize}
+%
+<step> {\tt UpdateRangeTableOfViewParse()} \\
+Esta función actualiza la {\it tabla del rango} del {\it árbol de
+la traducción} dada por el parámetro {\tt viewParse}. La instrucción
+adicional asegura que los nodos {\tt VAR} de la {\tt cláusula having}
+son modificados en el mismo sentido de los nodos {\tt VAR} de la {\it
+cláusula WHERE}.
+%
+\begin{verbatim}
+  static void
+  UpdateRangeTableOfViewParse(char *viewName,
+			      Query *viewParse)
+  {
+			    .
+			    .
+			    .
+    OffsetVarNodes(viewParse->qual, 2);
+
++   OffsetVarNodes(viewParse->havingQual, 2);
+			    .
+			    .
+			    .
+  }
+\end{verbatim}
+%
+\end{itemize}
+
+
+\subsubsection{Planner/Optimizer}
+
+El {\it planificador} construye un {\it plan de la consulta} similar al
+mostrado en la figura \ref{plan_having} y además de ello toma el {\it
+árbol del operador} unido al campo {\tt havingClause} del nodo {\tt Query}
+y lo une al campo {\tt qpqual} del nodo {\tt AGG}.
+
+Desgraciadamente esto no es lo único que hay que hacer. Recuérdese de
+la sección \ref{aggregates} {\it Cómo están Implementadas las Funciones
+de Agregación} que la {\it lista objetivo} se revisa buscando {\it
+funciones de agregación} que se añaden a una lista que se unirá al campo
+{\tt aggs} del nodo {\tt AGG}. Esto era suficiente hasta ahora, pues las
+{\it funciones de agregación} eran las únicas que podían aparecer en la
+{\it lista objetivo}. Ahora la {\it cláusula having} es otra fuente de
+{\it funciones de agregación}. Considérese el siguiente ejemplo:
+%
+\begin{verbatim}
+  select sno, max(pno)
+  from sells
+  group by sno
+  having count(pno) > 1;
+\end{verbatim}
+%
+Aquí se utilizan las {\it funciones de agregación} {\tt max} y {\tt
+count}. Si sólo se revisa la {\it lista objetivo} (como era el caso antes
+de que se implementase la {\it cláusula having}), sólo encontraríamos
+y procesaríamos la {\it función de agregación} {\tt max}. La segunda
+función, {\tt count}, no se procesaría, y por ello cualquier referencia
+al resultado de {\tt count} desde dentro de la {\it cláusula having}
+fallaría. La solución a este problema es revisar el {\it árbol del
+operador} completo que representa la {\it cláusula having} buscando
+{\it funciones de agregación} que no se encuentren aún en la {\it lista
+objetivo} y añadirlas a la lista de {\it funciones de agregación} unidas
+al campo {\tt aggs} del nodo {\tt AGG}. La revisión se hace con la función
+\mbos{\tt check\_having\_qual\_for\_aggs()}} que pasa recursivamente a
+través del árbol.\\
+\\
+Mientras se revisa la {\it cláusula having} buscando {\it funciones de
+agregación} aún no contenidas en la {\it lista objetivo}, se realiza
+una comprobación adicional para asegurar que las {\it funciones de
+agregación} se utilizan dentro de la {\it cláusula having} (de otro
+modo la consulta debería haber sido formulada utilizando la {\it cláusula
+WHERE}). Considérese la siguiente consulta que no es una consulta SQL92 válida:
+%
+\begin{verbatim}
+  testdb=> select sno, max(pno)
+  testdb-> from sells
+  testdb-> group by sno
+  testdb-> having sno > 1;
+  ERROR:  This could have been done in a where clause!!
+  testdb=>
+\end{verbatim}
+%
+No hay necesidad de expresar esta consulta utilizando una {\it cláusula
+having}, este tipo de cualificación corresponde a la {\it cláusula WHERE}:
+%
+\begin{verbatim}
+  select sno, max(pno)
+  from sells
+  where sno > 1
+  group by sno;
+\end{verbatim}
+%
+Aún tenemos un problema sin resolver. Considérese la siguiente consulta
+donde queremos conocer el número de proveedores ({\tt sno}) de todos
+los proveedores que venden más de un artículo:
+%
+\begin{verbatim}
+  select sno
+  from sells
+  group by sno
+  having count(pno) > 1;
+\end{verbatim}
+%
+El {\it planificador} crea un {\it plan de la consulta} (como el mostrado
+en la figura \ref{plan_having}) donde la {\it lista objetivo} de todos
+los nodos involucrados contienen sólo entradas a aquellos atributos
+listados tras la palabra clave {\tt select} de la consulta. Mirando en el
+ejemplo anterior, muestra que la {\it lista objetivo} del nodo {\tt AGG},
+el nodo {\tt GRP}, el {\tt SORT} y el nodo {\tt SeqScan} contienen sólo
+entradas para el atributo {\tt sno}. Como se describió inicialmente,
+la {\it lógica de agregación} opera sobre los atributos de las tuplas
+devueltas por el subplan del nodo {\tt AGG} (es decir, el resultado del
+nodo {\tt GRP}). Qué atributos se contendrán en las tuplas devueltas por
+el subplan será determinado por la {\it lista objetivo}. En el caso de
+nuestro ejemplo, el atributo {\tt pno} necesitado para la {\it función
+de agregación} {\tt count} no está incluido, y de este modo la {\it
+agregación} fallará.
+
+\pagebreak
+
+\noindent La solución a este problema se da en los siguientes pasos:
+\begin{itemize}
+<step> Se hace una copia de la {\it lista objetivo} actual del nodo
+{\tt AGG}.
+%
+<step> Se busca el {\it árbol del operador} que representa la {\it
+cláusula having} para los atributos que no están contenidos en la
+{\it lista objetivo} del nodo {\tt AGG} aún, y se los añade a la copia
+previamente realizada.
+%
+<step> La {\it lista objetivo} así extendida se utiliza para crear el
+subplan unido al campo {\tt lefttree} del nodo {\tt AGG}. Por ello,
+las {\it listas objetivo} de los nodos {\tt GRP}, {\tt SORT} y {\tt
+SeqScan} no contendrán una entrada para el atributo {\tt pno}. La {\it
+lista objetivo} del nodo {\tt AGG} mismo no será cambiada porque no
+queremos incluir el atributo {\tt pno} en el resultado devuelto por la
+consulta completa.
+%
+\end{itemize}
+Se debe tener cuidado de que los campos {\tt varattno} de los nodos {\tt
+VAR} utilizados en la {\it lista objetivo} contengan la posición del
+subplan (es decir, el subplan que liberará las tuplas para el posterior
+procesado por el nodo actual). \\
+\\
+La siguiente parte hace referencia al código fuente de las
+funciones nuevas y cambiadas involucradas en la etapa del
+planificador/optimizador. Los ficheros afectados son: \\
+\\
+\indent {\tt $\ldots$/src/backend/optimizer/plan/setrefs.c} \\
+\indent {\tt $\ldots$/src/backend/optimizer/plan/planner.c} \\
+\\
+Puesto que todas las funciones presentadas aquí son muy largas, y
+necesitarían mucho espacio si fueran presentadas completas, listaremos
+únicamente las partes más importantes. \\
+\\
+Las siguientes dos funciones son nuevas y han sido introducidas por la
+{\it lógica del having}. Están contenidas en el fichero
+{\tt $\ldots$/src/backend/optimizer/plan/setrefs.c}:
+%
+\begin{itemize}
+%
+<step> {\tt check\_having\_qual\_for\_aggs()} \\
+Esta función toma la representación de una {\it cláusula having} dada
+por el parámetro {\tt clause}, una {\it lista objetivo} dada por el
+parámetro {\tt subplanTargetList} y una {\it cláusula group} dada por
+el parámetro {\tt groupClause} como argumento y barre la representación
+de la {\it cláusula having} recursivamente buscando {\it funciones de
+agregación}. Si se encuentra una {\it función de agregación}, se le
+une a una lista (llamada internamente {\tt agg\_list}) y finalmente lo
+devuelve la función.
+
+Adicionalmente el campo {\tt varno} de cada nodo {\tt VAR} encontrado se
+fija a la posición del correspondiente atributo de la {\it lista objetivo}
+dada por el {\tt subplanTargetList}.
+
+Si la {\it cláusula having} contiene una subconsulta, la función también
+asegura que cada atributo de la {\it consulta general} que se utiliza en
+la subconsulta también aparecen en la {\it cláusula group} dada por {\tt
+groupClause}. Si el atributo no puede encontrarse en la {\it cláusula
+group}, se imprime un mensaje de error en la pantalla, y se aborta el
+procesado de la consulta.
+%
+\begin{verbatim}
+  List *
+  check_having_qual_for_aggs(Node *clause,
+			     List *subplanTargetList,
+			     List *groupClause)
+  {
+    List *t, *l1;
+    List *agg_list = NIL;
+    int  contained_in_group_clause = 0;
+
+    if (IsA(clause, Var))
+    {
+      TargetEntry *subplanVar;
+
+      subplanVar = match_varid((Var *) clause,
+			       subplanTargetList);
+      /* Change the varattno fields of the
+       * var node to point to the resdom->resnofields
+       * of the subplan (lefttree)
+       */
+      ((Var *) clause)->varattno =
+	subplanVar->resdom->resno;
+      return NIL;
+    }
+    else
+      if (is_funcclause(clause) || not_clause(clause)
+	  || or_clause(clause) || and_clause(clause))
+      {
+	int new_length=0, old_length=0;
+
+	/* This is a function. Recursively call this
+	 * routine for its arguments... (i.e. for AND,
+	 * OR, ... clauses!)
+	 */
+	foreach(t, ((Expr *) clause)->args)
+	{
+	  old_length=length((List *)agg_list);
+	  agg_list = nconc(agg_list,
+	      check_having_qual_for_aggs(lfirst(t),
+				 subplanTargetList,
+				 groupClause));
+	  if(((new_length=length((List *)agg_list)) ==
+	      old_length) || (new_length == 0))
+	  {
+	    elog(ERROR,"This could have been done
+				 in a where clause!!");
+	    return NIL;
+	  }
+	}
+	return agg_list;
+      }
+      else
+	if (IsA(clause, Aggreg))
+	{
+	  return lcons(clause,
+			check_having_qual_for_aggs(
+			    ((Aggreg *)clause)->target,
+			    subplanTargetList,
+			    groupClause));
+	}
+	else
+			    .
+			    .
+			    .
+  }
+\end{verbatim}
+%
+<step> {\tt check\_having\_qual\_for\_vars()} \\
+Esta función toma la representación de una {\it cláusula having} dada por
+el parámetro {\tt clause} y la {\it lista objetivo} actual dada por el
+parámetro {\tt targetlist\_so\_far} como argumentos y barre recursivamente
+la representación de la {\it cláusula having} buscando atributos que no
+están incluidos en la {\it lista objetivo} actual aún. Siempre que se
+encuentra tal atributo, se añade a la {\it lista objetivo} actual que
+finalmente devuelve la función.
+
+Los atributos contenidos en la {\it cláusula having} pero no en la {\it
+lista objetivo} se muestran en consultas como:
+%
+\begin{verbatim}
+  select sid
+  from	part
+  group by sid
+  having min(pid) > 1;
+\end{verbatim}
+%
+En la consulta anterior, el atributo {\tt pid} se utiliza en la {\it cláusula
+having} pero no aparece en la {\it lista objetivo} (es decir, la lista
+de atributos tras la palabra clave {\tt select}). Desgraciadamente
+sólo aquellos atributos que son estudiados por un subplan pueden ser
+utilizados por en la {\it cláusula having}. Para ser capaz de manipular
+consultas como estas correctamente, tendremos que extender la actual {\it
+lista objetivo} para aquellos atributos utilizados en la {\tt cláusula
+having} pero no aparecen todavía en la {\it lista objetivo}.
+%
+\begin{verbatim}
+  List *
+  check_having_qual_for_vars(Node *clause,
+			     List *targetlist_so_far)
+  {
+    List     *t;
+
+    if (IsA(clause, Var))
+    {
+      Rel	  tmp_rel;
+
+      tmp_rel.targetlist = targetlist_so_far;
+      /* Check if the VAR is already contained in the
+       * targetlist
+       */
+      if (tlist_member((Var *)clause,
+		  (List *)targetlist_so_far) == NULL)
+      {
+	add_tl_element(&tmp_rel, (Var *)clause);
+      }
+      return tmp_rel.targetlist;
+    }
+    else
+      if (is_funcclause(clause) || not_clause(clause)
+	  || or_clause(clause) || and_clause(clause))
+      {
+	/* This is a function. Recursively call this
+	 * routine for its arguments...
+	 */
+	foreach(t, ((Expr *) clause)->args)
+	{
+	  targetlist_so_far =
+	    check_having_qual_for_vars(lfirst(t),
+			    targetlist_so_far);
+	}
+	return targetlist_so_far;
+      }
+      else
+	if (IsA(clause, Aggreg))
+	{
+	  targetlist_so_far =
+	    check_having_qual_for_vars(
+			    ((Aggreg *)clause)->target,
+			    targetlist_so_far);
+	  return targetlist_so_far;
+	}
+			    .
+			    .
+			    .
+  }
+\end{verbatim}
+%
+\end{itemize}
+%
+La siguiente función se encuentra en  {\tt
+$\ldots$/src/backend/optimizer/plan/planner.c}:
+%
+\begin{itemize}
+%
+<step> {\tt union\_planner()} \\
+Esta función crea un {\it plan} a partir del {\it árbol de traducción}
+dado por el parámetro {\tt parse} que pueda ser ejecutado por el {\it
+ejecutor}.
+
+Si hay presentes {\it funciones de agregación} (indicadas por {\tt
+indicadas por {\tt parse->hasAggs} fijado a true), el primer paso
+es extender la {\it lista objetivo} para aquellos atributos que se
+utilizan en la {\it cláusula having} (si está presente) pero no aparecen
+en la {\it lista de la select} (Refiérase a la descripción de {\tt
+check\_having\_qual\_for\_vars()} anteriormente).
+
+El siguiente paso es llamar a la función {\tt query\_planner()}, que
+creará un {\it plan}, sin tener en cuenta la {\it cláusula group}, las
+{\it funciones de agregación} y la {\it cláusula having} por el momento.
+
+A continuación se inserta un nodo {\tt GRP} al principio del {\it plan}
+que responda a la {\it cláusula group} del {\it árbol de la traducción},
+si hay alguna presente.
+
+Se añade un nodo {\tt AGG} al principio del {\it plan} actual si hay
+presentes {\it funciones de agregación} y si hay presente una {\it
+cláusula having} adicionalmente se realizan los siguientes pasos:
+
+%
+\begin{itemize}
+<step> Se realizan varias transformaciones de la representación de la
+{\it cláusula having} (e.g. transformándola a CNF, $\ldots$).
+<step> Se une la representación transformada de la {\it cláusula having}
+al campo {\tt plan.qual} del nodo {\tt AGG} recién creado.
+<step> Se examina la {\it cláusula having} completa buscando {\it
+funciones de agregación}. Esto se hace utilizando la función {\tt
+check\_having\_qual\_for\_aggs()}, que añade todas las {\it funciones
+de agregación} encontradas a una lista que finalmente devuelve.
+<step> Se añade la lista recién creada a la lista ya unida al campo {\tt
+aggs} del nodo {\tt AGG} (esta lista ya contenía las {\it funciones de
+agregación} encontradas en la {\it lista objetivo}).
+<step> Se asegura de que esas {\it funciones de agregación} aparecen
+en la {\it cláusula having}. Esto se hace comparando la longitud
+de la lista unida a {\tt aggs} antes y después de llamar a  {\tt
+check\_having\_qual\_for\_aggs()}.  Si la longitud no ha cambiado,
+sabremos que no hemos detectado ninguna {\it funcion de agregación}, de
+modo que esta consulta se debería haber formulado utilizando simplemente una
+{\it cláusula WHERE}.  En este caso, se imprime un error en la pantalla,
+y se aborta el proceso.
+\end{itemize}
+%
+\pagebreak
+%
+\begin{verbatim}
+  Plan *
+  union_planner(Query *parse)
+  {
+     List	*tlist = parse->targetList;
+
++    /* copy the original tlist, we will need the
++     * original one for the AGG node later on */
++     List *new_tlist = new_unsorted_tlist(tlist);
+			    .
+			    .
+			    .
++	  if (parse->hasAggs)
++	  {
++	    /* extend targetlist by variables not
++	     * contained already but used in the
++	     * havingQual.
++	     */
++	    if (parse->havingQual != NULL)
++	      {
++		new_tlist =
++		  check_having_qual_for_vars(
++			       parse->havingQual,
++			       new_tlist);
++	      }
++	  }
+			    .
+			    .
+			    .
+	  /* Call the planner for everything
+	   * but groupclauses and aggregate funcs.
+	   */
+	  result_plan = query_planner(parse,
+				  parse->commandType,
+				  new_tlist,
+				  (List *) parse->qual);
+			    .
+			    .
+			    .
+	/* If aggregate is present, insert the AGG node
+	 */
+	if (parse->hasAggs)
+	{
+	  int old_length=0, new_length=0;
+	  /* Create the AGG node but use 'tlist' not
+	   * 'new_tlist' as target list because we
+	   * don't want the additional attributes
+	   * (only used for the havingQual, see
+	   * above) to show up in the result.
+	   */
+	  result_plan = (Plan *) make_agg(tlist,
+				       result_plan);
+			    .
+			    .
+			    .
++	  /* Check every clause of the havingQual for
++	   * aggregates used and append them to
++	   * the list in result_plan->aggs
++	   */
++	  foreach(clause,
++		  ((Agg *) result_plan)->plan.qual)
++	  {
++	    /* Make sure there are aggregates in the
++	     * havingQual if so, the list must be
++	     * longer after check_having_qual_for_aggs
++	     */
++	    old_length =
++	      length(((Agg *) result_plan)->aggs);
++
++	    ((Agg *) result_plan)->aggs =
++	       nconc(((Agg *) result_plan)->aggs,
++		     check_having_qual_for_aggs(
++		       (Node *) lfirst(clause),
++		       ((Agg *)result_plan)->
++			   plan.lefttree->targetlist,
++		       ((List *) parse->groupClause)));
++	    /* Have a look at the length of the returned
++	     * list. If there is no difference, no
++	     * aggregates have been found and that means
++	     * that the Qual belongs to the where clause
++	     */
++	    if (((new_length =
++		  length(((Agg *) result_plan)->aggs))==
++		  old_length) || (new_length == 0))
++	    {
++	      elog(ERROR,"This could have been done in a
++				       where clause!!");
++	      return (Plan *)NIL;
++	    }
++	  }
+			    .
+			    .
+			    .
+  }
+\end{verbatim}
+%
+\end{itemize}
+
+\subsubsection{Executor}
+
+El {\it ejecutor} toma el {\it plan de la consulta} producido por el {\it
+planificador/optimizador} tal como acabamos de describir y procesa
+todas las {\it funciones de agregación} en la forma que se describe
+en la sección \ref{aggregates}{it La Implementación de las Funciones
+de Agregación}, pero antes la tupla derivada que se ha enviado al {\it
+árbol del operador} unido al campo {\tt qpqual} se evalúa llamando a la
+función {\tt ExecQual()}.  Esta función recorre recursivamente el {\it
+árbol del operador} (es decir, la {\it cláusula having}) y evalúa los
+predicados que aparecen en él.	Gracias a los cambios que hemos hecho en
+el {\it planificador}, los valores de todos los operandos necesarios para
+evaluar los predicados (es decir, los valores de todas las {\it funciones
+de agregación}) ya están presentes y pueden accederse sin problemas.
+
+Si la evaluación de la {\it cualificación de la having} devuelve {\tt
+verdadero}, la función {\tt ExecAggs()} devuelve la tupla, y en otro
+caso se ignora y se procesa el siguiente grupo. \\
+\\
+Se han aplicado los cambios y potenciaciones necesarios en las siguientes
+funciones del fichero {\tt $\ldots$/src/backend/executor/nodeAggs.c}:
+%
+\begin{itemize}
+%
+<step> {\tt execAgg()}
+Se llama esta función cada vez que el {\it ejecutor} toma un nodo
+{\tt AGG}.  Antes de que se implementase {\it lógica del having}, se
+tomaban todas las {\it tuplas} del grupo actual desde el {\it subplan},
+y se les aplicaban todas las {\it funciones de agregación}. Tras ello, se
+devolvían los resultados a las funciones que habían realizado la llamada.
+
+Una vez que se ha implementado la {\it lógica del having}, hay un paso
+adicional que ejecutar.  Antes de devolver los resultados de aplicar las
+{\it funciones de agregación}, se llama a la función {\tt ExecQual()}
+con la representación de la {\it cláusula having} como argumento. Si
+devuelve {\tt verdadero}, se devuelven los resultados, y de lo contrario
+se ignoran y se vuelve a empezar desde el principio del siguiente grupo
+hasta que se encuentra un grupo que cumpla con las restricciones de la
+{\it cláusula having}.
+%
+\begin{verbatim}
+  TupleTableSlot *
+  ExecAgg(Agg *node)
+  {
+			    .
+			    .
+			    .
+	/* We loop retrieving groups until we find one
+	 * matching node->plan.qual
+	 */
++	do
++	{
+			    .
+			    .
+			    .
+	  /* Apply *all* aggregate function to the
+	   * tuples of the *current* group
+	   */
+			    .
+			    .
+			    .
+	  econtext->ecxt_scantuple =
+		   aggstate->csstate.css_ScanTupleSlot;
+	  resultSlot = ExecProject(projInfo, &isDone);
+
++	  /* As long as the retrieved group does not
++	   * match the qualifications it is ignored and
++	   * the next group is fetched
++	   */
++	  if(node->plan.qual != NULL)
++	  {
++	    qual_result =
++		ExecQual(node->plan.qual,
++			 econtext);
++	  }
++	  if (oneTuple) pfree(oneTuple);
++	}
++	while((node->plan.qual!=NULL) &&
++				(qual_result!=true));
+	return resultSlot;
+  }
+\end{verbatim}
+%
+\end{itemize}
+
+\section{La realización de UNION, INTERSECT and EXCEPT}
+\label{union_impl}
+
+SQL92 soporta el juego de operaciones teóricas bien conocidas {\it
+unión}, {\it intersección} y {\it conjunto diferencia} (el {\it conjunto
+diferencia} se denomina {\it excepción} en SQL92).  Se utilizan los
+operadores para conectar dos o más instrucciones {\tt select}. Cada
+instrucción {\tt select} devuelve un juego de tuplas y los operadores
+entre las instrucciones {\tt select} indican como barajar los juegos de
+tuplas devueltos en una única relación resultado.
+%
+\begin{example}
+\label{simple_set_ops}
+Sean las siguientes tablas:
+%
+\begin{verbatim}
+
+XXX Todas estas tablas de ejemplo tienen combinaciones de "-" y "+" que
+dan problemas dentro de comentarios SGML. Mantenedlo así por ahora. -
+thomas 1999-02-10
+
+	      A  C1|C2|C3	  B  C1|C2|C3
+		 MMPMMPMM	     MMPMMPMM
+		  1| a| b	      1| a| b
+		  2| a| b	      5| a| b
+		  3| c| d	      3| c| d
+		  4| e| f	      8| e| f
+
+			 C  C1|C2|C3
+			    MMPMMPMM
+			     4| e| f
+			     8| e| f
+\end{verbatim}
+Demos ahora una mirada a los resultados de las siguientes consultas:
+\begin{verbatim}
+  select * from A
+  union
+  select * from B;
+\end{verbatim}
+deriva del conjunto teórico {\it Unión} de las dos tablas:
+%
+\begin{verbatim}
+			    C1|C2|C3
+			    MMPMMPMM
+			     1| a| b
+			     2| a| b
+			     3| c| d
+			     4| e| f
+			     5| a| b
+			     8| e| f
+\end{verbatim}
+%
+Las instrucciones {\tt select} pueden ser más complejas:
+%
+\begin{verbatim}
+  select C1, C3 from A
+    where C2 = 'a'
+  union
+  select C1, C2 from B
+    where C3 = 'b';
+\end{verbatim}
+%
+
+\noindent devolverán la siguiente tabla:
+%
+\begin{verbatim}
+			     C1|C3
+			     MMPMM
+			      1| b
+			      2| b
+			      1| a
+			      5| a
+\end{verbatim}
+%
+Nótese que las columnas seleccionadas no necesitan tener idéntico el
+nombre, sino únicamente ser del mismo tipo.  En el ejemplo previo hemos
+seleccionado {\tt C1} y {\tt C3} en la primera instrucción {\tt select} y
+{\tt C1} y {\tt C2} en la segunda. Los nombres de las columnas resultantes
+se toman de la primera instrucción {\tt select}. \\
+\\
+Demos una mirada a una consulta que utilice {\tt intersect}:
+%
+\begin{verbatim}
+  select * from A
+  intersect
+  select * from B;
+\end{verbatim}
+%
+devolverá:
+\begin{verbatim}
+			    C1|C2|C3
+			    MMPMMPMM
+			     1| a| b
+			     3| c| d
+\end{verbatim}
+%
+Y ahora un ejemplo utilizando {\tt execpt}:
+\begin{verbatim}
+  select * from A
+  except
+  select * from B;
+\end{verbatim}
+%
+will return:
+\begin{verbatim}
+			    C1|C2|C3
+			    MMPMMPMM
+			     2| a| b
+			     4| e| f
+\end{verbatim}
+%
+Los últimos ejemplos eran más sencillos porque utilizaban sólo un juego
+de operadores cada vez con sólo dos operandos. Miremos ahora algunas
+consultas más complejas que involucran más {\it operadores}:
+%
+\begin{verbatim}
+  select * from A
+  union
+  select * from B
+  intersect
+  select * from C;
+\end{verbatim}
+%
+will return:
+%
+\begin{verbatim}
+			    C1|C2|C3
+			    MMPMMPMM
+			     4| e| f
+			     8| e| f
+\end{verbatim}
+%
+La consulta anterior realiza el juego de computación teórica  $(A \cup
+B) \cap C$.  Cuando no se utilizan paréntesis, se considera que las
+operaciones son asociativas, es decir, $A \cup B \cup C \cup D$ será
+tratado como $((A \cup B) \cup C) \cup D$. \\
+\\
+La misma consulta, utilizando paréntesis, puede llevar a un resultado
+completamente diferente:
+%
+\begin{verbatim}
+  select * from A
+  union
+  (select * from B
+   intersect
+   select * from C);
+\end{verbatim}
+%
+realiza  $A \cup (B \cap C)$ y devolverá:
+%
+\begin{verbatim}
+			    C1|C2|C3
+			    MMPMMPMM
+			     1| a| b
+			     2| a| b
+			     3| c| d
+			     4| e| f
+			     8| e| f
+\end{verbatim}
+%
+\end{example}
+%
+\subsection{Cómo se Han Realizado las Uniones hasta la Versión 6.3.2}
+
+Daremos primero una descripción de la implementación de {\it union}
+y {\it union all} hasta la versión 6.3.2 porque lo necesitaremos para
+comprender la implementación de {\it intersect} y {\it except} que se
+describe más tarde. \\
+\\
+Una consulta {\it union} se pasa a través de las etapas habituales:
+%
+\begin{itemize}
+<step> traductor
+<step> sistema de reescritura
+<step> planificador/optimizador
+<step> ejecutor
+\end{itemize}
+%
+y describiremos ahora los muy sencillos pasos seguidos por la consulta. Para
+nuestra explicación, asumiremos una consulta sencilla (es decir, una consulta
+sin {\it subselects}, {\it agregados} y que no involucre {\it vistas}).
+
+\subsubsection{La Etapa del Traductor}
+
+Como se describió anteriormente, la {\it etapa del traductor} se puede
+dividir en dos partes:
+%
+\begin{itemize}
+<step> el {\it traductor} construido por las reglas de gramática dadas
+en {\tt gram.y}
+y
+<step> las {\it rutinas de transformación} que realizan un montón de
+cambios y análisis sobre el árbol construido por el traductor. La mayoría
+de estas rutinas residen en {\tt analyze.c}.
+\end{itemize}
+%
+%\pagebreak
+%
+Una instrucción {\it union} consiste en dos o más instrucciones {\it
+select} conectadas por la palabra clave {\tt union}, tal como muestra
+el siguiente ejemplo:
+%
+\begin{verbatim}
+  select * from A
+    where C1=1
+  union
+  select * from B
+    where C2 = 'a'
+  union
+  select * from C
+    where C3 = 'f'
+\end{verbatim}
+%
+La instrucción {\it union} anterior contiene tres instrucciones {\it
+select} conectadas por la palabra clave {\tt union}. Nos referiremos a
+la primera instrucción {\it select} como A, a la segunda como B y a la
+tercera como C para la siguiente explicación (con esta nueva notación
+nuestra consulta presentaría este aspecto: \mbox{{\tt A union B union C}}).\\
+\\
+El {\it traductor} (dado por {\tt gram.y}) procesa las tres {\tt select},
+crea un nodo {\tt SelectStmt} para cada una, y les une las cualificaciones
+{\tt WHERE}, las {\it listas objetivo}, etc. Entonces crea una lista
+con los nodos {\tt SelectStmt} segundo y tercero (de B y C) y la une al
+campo {\tt unionClause} del primer nodo (de A). Finalmente, devuelve el
+primer nodo (nodo A) con la lista de los nodos restantes unidos como se
+muestra en la figura \ref{parser_union_back}.
+%
+\begin{figure}
+\begin{center}
+\epsfig{figure=figures/parser_union_back.ps}
+\caption{Estructuras de datos devueltas por el {\it traductor}}
+\label{parser_union_back}
+\end{center}
+\end{figure}
+\\
+\\
+Las siguientes {\it rutinas de transformación} procesan las estructuras
+de datos devueltas por el {\it traductor}. Primero se transforma el
+nodo superior (nodo A) desde el nodo {\tt SelectStmt} al nodo {\tt
+Query}. También se transforman la {\it lista objetivo}, la cualificación
+{\tt WHERE}, etc. unidas a él. A continuación se transforma la lista
+de nodos restantes (unidos a {\tt unionClause} del nodo A) y en este
+paso también se comprueba si los tipos y longitudes de las {\it listas
+objetivos} de los nodos involucrados son iguales. Los nuevos nodos {\tt
+Query} se devuelven ahora de la misma forma en que lo fueron los nodos
+{\tt SelectStmt} antes (es decir, los nodos {\tt Query} B y C se unen
+en una lista que se une a la {\tt unionClause} del nodo {\tt Query} A).
+
+\subsubsection{El Sistema de Reescritura}
+
+Si se encuentran presentes {\it reglas de reescritura} para los nodos
+{\tt Query} (es decir, una de las instrucciones {\it select} utiliza una
+{\it vista}), se realizan los cambios necesarios en los nodos {\tt Query}
+(vea la sección \ref{view_impl} {\it Técnicas de Implementar Vistas}). En
+otro caso, no se hacen cambios a los nodos en esta etapa.
+
+
+\subsubsection{Planificador/Optimizador}
+
+Esta etapa creará un {\it plan} a partir del {\it árbol de la consulta}
+producido por la {\it etapa del traductor} que pueda ser ejecutado por el
+{\it ejecutor}. En la mayoría de los casos, hay varias formas (rutas),
+con diferente coste, para obtener el mismo resultado. Es trabajo del
+{\it planificador/optimizador} encontrar la ruta más barata y crear un
+{\it plan} utilizando esta ruta. La implementación de las {\it uniones}
+en <productname>Postgres</productname> se basa en la siguiente idea: \\
+\\
+Un conjunto derivado de la evaluación de $A \cup B$ debe contener cada
+miembro de $A$ {\bf y} cada miembro de $B$. De modo que si añadimos los
+miembros de $B$ a los miembros de $A$, habremos terminado. Si existen
+miembros comunes de $A$ y $B$, estos miembros están ahora contenidos por
+duplicado en el nuevo juego, de modo que la única forma de resolver esto
+es remover estos duplicados.
+
+\pagebreak
+
+\noindent En el caso de nuestro ejemplo, el {\it planificador} construiría
+el {\it árbol} mostrado en la figura \ref{union_plan}. Cada nodo {\tt
+Query} se planea separadamente, y termina dando como resultado un
+nodo {\tt SeqScan} en nuestro ejemplo. Los tres nodos {\tt SeqScan}
+se colocan juntos en una lista que se a los {\tt planes de union} de
+los nodos {\tt Append}.
+%
+\begin{figure}[ht]
+\begin{center}
+\epsfig{figure=figures/union_plan.ps}
+\caption{{\it Plan} para una consulta union}
+\label{union_plan}
+\end{center}
+\end{figure}
+
+\subsubsection{Executor}
+
+El {\it ejecutor} procesará todos los nodos {\tt SeqScan} y añadirá
+todas las tuplas liberadas a una única {\it relación resultado}. Ahora
+es posible que haya tuplas duplicadas en la {\it relación resultado},
+y hay que eliminarlas. La eliminación la realiza el nodo {\tt Unique},
+y sólo las ordena para hacerlo más fácilmente.
+
+\subsection{Como trabajan juntos Intersect, Except y Union}
+
+La última sección demuestra que cada etapa ({\it etapa del
+traductor}, {\it planificador/optimizador}, {\it ejecutor}) de
+<productname>Postgres</productname> proporciona características para
+soportar las instrucciones {\it union}. Para la implementación de las
+instrucciones {\it intersect} y {\it except} (y las instrucciones que
+involucran todos los {\it operadores de conjunto}) hemos elegido una
+aproximación diferente basada en la {\it reescritura de las consultas}. \\
+\\
+La idea se basa en el hecho de que las instrucciones {\it intersect}
+y {\it except} son redundantes en SQL, es decir, para cada instrucción
+{\it intersect} o {\it except}, es posible formular una instrucción
+semánticamente equivalente sin utilizar estas instrucciones.
+%
+\begin{example}
+\label{transform_intersect}
+Este ejemplo muestra como una consulta que utiliza {\it intersect} se puede
+transformar en una consulta semánticamente equivalente sin {\it intersect}:
+%
+\pagebreak
+%
+\begin{verbatim}
+  select C1, C3 from A
+  where C1 = 1
+  intersect
+  select C1, C2 from B
+  where C2 = 'c';
+\end{verbatim}
+%
+es equivalente a:
+%
+\begin{verbatim}
+  select C1, C3
+  from A
+  where C1 = 1 and
+	(C1, C3) in (select C1, C2
+		     from B
+		     where C2 = 'c');
+\end{verbatim}
+%
+Este ejemplo muestra como una consulta {\it except} puede transformarse en
+un formato sin {\it except}:
+%
+\begin{verbatim}
+  select C1, C2 from A
+  where C2 = 'c'
+  except
+  select C1, C3 from B
+  where C3 = 'f';
+\end{verbatim}
+%
+es equivalente a:
+%
+\begin{verbatim}
+  select C1, C2
+  from A
+  where C2 = 'c' and
+	(C1, C2) not in (select C1, C3
+			 from B
+			 where C3 = 'f');
+\end{verbatim}
+%
+\end{example}
+%
+Las transformaciones utilizadas en el ejemplo \ref{transform_intersect}
+son siempre válidas, porque se limitan a implementar el conjunto de
+definición teórica de {\it intersect} y {\it except}:
+%
+\begin{definition}
+\label{def_intersect}
+~ \\
+La {\it intersección} de dos conjuntos $A$ y $B$ se define como:
+\begin{displaymath}
+(A \cap B) := \{x \mid x \in A \wedge x \in B \}
+\end{displaymath}
+%
+La {\it intersección} de $n$ conjuntos $A_{1}, \ldots, A_{n} se define
+como:
+%
+\begin{displaymath}
+\bigcap_{i=1}^{n} A_{i} := \{x \mid \bigwedge_{i=1}^{n} x \in A_{i} \}
+\end{displaymath}
+%
+\end{definition}
+%
+\begin{definition}
+\label{def_except}
+~ \\
+La {\it diferencia} de dos conjuntos $A$ y $B$ se define como:
+\begin{displaymath}
+(A \backslash B) := \{x \mid x \in A \wedge x \not\in B \}
+\end{displaymath}
+%
+\end{definition}
+%
+\begin{definition}
+\label{def_union}
+~\\
+La {\it unión} de dos conjuntos $A$ y $B$ se define como:
+\begin{displaymath}
+(A \cup B) := \{x \mid x \in A \vee x \in B \}
+\end{displaymath}
+%
+La {\it unión} de $n$ conjuntos $A_{1}, \ldots, A_{n}$ se define como:
+%
+\begin{displaymath}
+\bigcup_{i=1}^{n} A_{i} := \{x \mid \bigvee_{i=1}^{n} x \in A_{i} \}
+\end{displaymath}
+%
+\end{definition}
+
+\begin{definition} Formato Normal Disjuntivo (DNF) \\
+Sea $F = C_{1} \vee \ldots \vee C_{n}$ donde cada $C_{i}$ tiene
+la forma $(L_{i}^{1} \wedge \ldots \wedge L_{i}^{k_{i}})$ y
+$L_{i}^{j}$ es una variable proposicional o la negación de una variable
+proposicionale. Ahora, diremos que $F$ está en DNF.
+\end{definition}
+%
+\begin{example} En el siguiente ejemplo, los $L_{i}^{j}$ están en
+el formato
+$x \in X$ o $\neg (x \in X)$: \\
+\indent $((x \in A \wedge \neg (x \in B) \wedge x \in C) \vee (x \in D
+\wedge x \in E))$ es una fórmula en DNF \\
+\indent $((x \in A \vee x \in B) \wedge (x \in C \vee \neg (x \in D)))$
+no está en DNF.
+\end{example}
+%
+La transformación de cualquier fórmula en lógica proposicional en DNF
+se hace aplicando sucesivamente las siguientes reglas: \\
+\\
+\indent $(R1)~~\neg (F_{1} \vee F_{2}) \Rightarrow (\neg F_{1} \wedge \neg
+F_{2})$ \\
+\indent $(R2)~~\neg (F_{1} \wedge F_{2}) \Rightarrow (\neg F_{1} \vee \neg
+F_{2})$ \\
+\indent $(R3)~~F_{1} \wedge (F_{2} \vee F_{3}) \Rightarrow (F_{1} \wedge
+F_{2}) \vee (F_{1} \wedge F_{3})$ \\
+\indent $(R4)~~(F_{1} \vee F_{2}) \wedge F_{3} \Rightarrow (F_{1} \wedge
+F_{3}) \vee (F_{2} \wedge F_{3})$ \\
+\\
+Se puede demostrar que la transformación utilizando las reglas (R1) a
+(R4) siempre termina tras un número finito de pasos.
+
+\subsubsection{Operaciones de Conjunto como Fórmulas de Lógica
+Proposicional}
+
+Utilizando las definiciones anteriores, podemos tratar fórmulas que
+incluyan operaciones sobre conjuntos teóricos como fórmulas de {\it
+lógica proposicional}. Como veremos más tarde, estas fórmulas pueden
+utilizarse fácilmente en las cualificaciones {\tt WHERE} y {\tt having}
+de las instrucciones {\tt select} involucradas en la consulta.
+%
+\begin{example}
+Tenemos aquí algunos ejemplor: \\ \\
+%
+\indent $((A \cup B) \cap C) := \{x \mid (x \in A \vee x \in B) \wedge
+x \in C
+\}$ \\
+\indent $((A \cup B) \cap (C \cup D)) := \{x \mid (x \in A \vee x \in B)
+\wedge (x \in C \vee x \in D) \}$ \\
+\indent $((A \cap B) \backslash C) := \{x \mid (x \in A \wedge x \in
+B) \wedge x \not\in C \}$ \\
+\indent $(A \backslash (B \cup C)) := \{x \mid x \in A \wedge \neg (x
+\in B \vee x \in C) \}$ \\
+\indent $(((A \cap B) \cup (C \backslash D)) \cap E) := \{((x \in A
+\wedge x \in B) \vee (x \in C \wedge x \not\in D)) \wedge x \in E \}$
+%
+\end{example}
+%
+\subsection{Implementación de Intersect y Except Utilizando las
+Capacidades de Union}
+%
+Queríamos ser capaces de utilizar consultas que impliquen mas de un sólo
+tipo de operación de conjunto (es decir, sólo {\it union} o sólo {\it
+intersect}) a la vez, de modo que buscamos una sólución que soporte
+correctamente la manipulación de las ese tipo de consultas. Como se describe
+anteriormente, ya hay una solución implementada para las instrucciones
+{\it union} puras, de modo que tuvimos que desarrollar una aproximación
+que hiciera uso de estas capacidades de {\it union}. \\
+\\
+Como ilustra la figura \ref{parser_union_back}, los operandos de una
+operación {\it
+union} eran sólo nodos {\tt Query} (el primer operando es el nodo
+superior y todos los demás operandos forman una lista que se une al
+campo {\tt unionClause} del nodo superior). De modo que nuestro objetivo
+era transformar cada consulta que implique un conjunto de operaciones a
+este formato. (Nótese que los operandos de la operación {\it union}
+pueden ser complejos., es decir {\it subselects}, {\it agrupamientos},
+{\it agregados} etc, estarían permitidos).
+
+La transformación de una consulta que implique operaciones de conjunto de
+cualquier tipo en una consulta que pueda ser aceptada por la lógica de {\it
+union} es equivalente a transformar {\it fórmula de miembros} (vea las
+definiciones \ref{dev_intersect}, \ref{def_except} y \ref{def_union})
+en lógica proposicional en {\it formato normal disjuntivo} (DNF). La
+transformación de cualquier fórmula en lógica proposicional en DNF
+siempre es posible en un número finito de pasos.
+
+\noindent  La ventaja de esta {\it técnica de transormación} es su
+pequeño impacto sobre el sistema comleto, y la invocación implícita del
+{\it plafinicador/optimizador}. Los únicos cambios necesarios se harán
+en la {\it etapa del traductor} y en el {\it sistema de reescritura}. \\
+\\
+Hay que hacer algunos cambios en el código fuente antes de poder adaptar
+la {\it etapa del traductor} y el {\it sistema de reescritura}:
+%
+\begin{itemize}
+<step> Añadir el campo adicional {\tt intersectClause}	las estructuras
+de datos
+ {\tt Query} y {\tt InsertStmt} definido en el fichero {\tt
+$\ldots$/src/include/nodes/parsenodes.h}:
+%
+\begin{verbatim}
+  typedef struct Query
+  {
+    NodeTag    type;
+    CmdType    commandType;
+	    .
+	    .
+	    .
+    Node       *havingQual;
++   List       *intersectClause;
+    List       *unionClause;
+    List       *base_relation_list_;
+    List       *join_relation_list_;
+  } Query;
+
+  typedef struct InsertStmt
+  {
+    NodeTag    type;
+	    .
+	    .
+	    .
+    bool       unionall;
++   List       *intersectClause;
+  } InsertStmt;
+\end{verbatim}
+%
+<step> Añadir las nuevas palabras clave {\tt EXCEPT} y {\tt INTERSECT}
+al fichero
+ {\tt $\ldots$/src/backend/parser/keywords.c}:
+%
+\begin{verbatim}
+  static ScanKeyword ScanKeywords[] = {
+    {"abort", ABORT_TRANS},
+    {"action", ACTION},
+	      .
+	      .
+	      .
+    {"end", END_TRANS},
++   {"except", EXCEPT},
+	      .
+	      .
+	      .
+    {"instead", INSTEAD},
++   {"intersect", INTERSECT},
+	      .
+	      .
+	      .
+  };
+\end{verbatim}
+%
+<step> <productname>Postgres</productname> contiene funciones para
+convertir la representación interna de un
+ {\it parsetree} o un {\it plantree} en una representación ASCII
+(que puede imprimirse fácilmente en la pantalla (para propósitos de
+debug) o almacenarse en un fichero) y viceversa. Estas funciones también
+deberán adaptarse para acercarse a las {\it intersecciones} y {\it
+excepciones}. Estas funciones se pueden encontrar en los ficheros
+{\tt $\ldots$/src/backend/nodes/outfuncs.c} y {\tt
+$\ldots$/src/backend/nodes/readfuncs.c}:
+%
+\begin{verbatim}
+  static void
+  _outQuery(StringInfo str, Query *node)
+  {
+			    .
+			    .
+			    .
+    appendStringInfo(str, " :unionClause ");
+    _outNode(str, node->unionClause);
++   appendStringInfo(str, " :intersectClause ");
++   _outNode(str, node->intersectClause);
+  }
+
+  static Query *
+  _readQuery()
+  {
+			    .
+			    .
+			    .
+    token = lsptok(NULL, &length);
+    local_node->unionClause = nodeRead(true);
++   token = lsptok(NULL, &length);
++   local_node->intersectClause = nodeRead(true);
+
+    return (local_node);
+  }
+\end{verbatim}
+%
+<step> La función {\tt ExecReScan()} se llama siempre que se arranca una
+nueva ejecución de un {\it plan} dado (es decir, siempre que empezamos
+desde el principio con la primera tupla de nuevo). Las llamadas a
+esta función ocurren de modo implícito. Para el conjunto especial de
+subconsultas que estamos utilizando para reescribir las consultas (vea el
+ejemplo \ref{transform_intersect}) tendremos que comprobar que también
+se procesan los nodos {\tt Group}. La función se puede encontrar en el
+fichero {\tt $ldots$/backend/executor/execAmi.c}.
+%
+\begin{verbatim}
+  void
+  ExecReScan(Plan *node, ExprContext *exprCtxt,
+	     Plan *parent)
+  {
+			    .
+			    .
+			    .
+     switch (nodeTag(node))
+     {
+			    .
+			    .
+			    .
+\end{verbatim}
+\pagebreak
+\begin{verbatim}
++      case T_Group:
++	      ExecReScanGroup((Group *) node,
++			       exprCtxt, parent);
++	      break;
+			    .
+			    .
+			    .
+     }
+  }
+\end{verbatim}
+%
+<step> La función {\tt ExecReScan()} descrita anteriormente llama
+a la función {\tt ExecReScanGroup()} siempre que se detecta
+un nodo {\tt Group}, y se puede encontrar en el fichero {\tt
+$\ldots$/src/backend/executor/nodeGroup.c} . Se ha creado para la lógica
+de {\it intersect} y {\it except} porque se necesita actualmente por el
+conjunto especial de subselect (vea más arriba).
+%
+\begin{verbatim}
+  void
+  ExecReScanGroup(Group *node, ExprContext *exprCtxt,
+		  Plan *parent)
+  {
+    GroupState *grpstate = node->grpstate;
+
+    grpstate->grp_useFirstTuple = FALSE;
+    grpstate->grp_done = FALSE;
+    grpstate->grp_firstTuple = (HeapTupleData *)NIL;
+
+    /*
+     * if chgParam of subnode is not null then plan
+     * will be re-scanned by first ExecProcNode.
+     */
+    if (((Plan *) node)->lefttree->chgParam == NULL)
+      ExecReScan(((Plan *) node)->lefttree,
+		 exprCtxt, (Plan *) node);
+  }
+\end{verbatim}
+%
+\end{itemize}
+
+\subsubsection{Parser}
+
+El {\it traductor} definido en el fichero {\tt
+$\ldots$/src/backend/parser/gram.y} deberá ser modificado de dos formas:
+%
+\begin{itemize}
+%
+<step> Hay que adaptar la gramática para soportar el uso de paréntesis
+(para aceptar la especificación del orden de ejecución de un conjunto
+de operadores).
+%
+<step> Se insertará el código que construye las estructuras de datos
+devueltas por el {\it traductor}.
+%
+\end{itemize}
+%
+Hay una parte de la gramática responsable de las instrucciones {\tt
+select} que tiene el código para construir las estructuras de datos
+insertadas:
+%
+\pagebreak
+%
+\begin{verbatim}
+  SelectStmt :	select_w_o_sort sort_clause
+      {
+			    .
+			    .
+			    .
+	 /* $1 holds the tree built up by the
+	  * rule 'select_w_o_sort'
+	  */
+	 Node *op = (Node *) $1;
+
+	 if IsA($1, SelectStmt)
+	 {
+	   SelectStmt *n = (SelectStmt *)$1;
+	   n->sortClause = $2;
+	   $$ = (Node *)n;
+	 }
+	 else
+	 {
+	   /* Create a "flat list" of the operator
+	    * tree built up by 'select_w_o_sort' and
+	    * let select_list point to it
+	    */
+	   create_select_list((Node *)op,
+			      &select_list,
+			      &unionall_present);
+	   /* Replace all the A_Expr nodes in the
+	    * operator tree by Expr nodes.
+	    */
+	    op = A_Expr_to_Expr(op, &intersect_present);
+			    .
+			    .
+			    .
+	    /* Get the leftmost SelectStmt node (which
+	     * automatically represents the first Select
+	     * Statement of the query!) */
+	    first_select =
+		   (SelectStmt *)lfirst(select_list);
+	    /* Attach the list of all SelectStmt nodes
+	     * to unionClause
+	     */
+	    first_select->unionClause = select_list;
+
+	    /* Attach the whole operator tree to
+	     * intersectClause */
+	    first_select->intersectClause =
+					 (List *) op;
+	    /* finally attach the sort clause */
+	    first_select->sortClause = $2;
+
+	    /* Now hand it back! */
+	    $$ = (Node *)first_select;
+	  }
+      }
+  ;
+\end{verbatim}
+\pagebreak
+\begin{verbatim}
+  select_w_o_sort :  '(' select_w_o_sort ')'
+      {
+	$$ = $2;
+      }
+  |  SubSelect
+      {
+	$$ = $1;
+      }
+  |  select_w_o_sort EXCEPT select_w_o_sort
+      {
+	$$ = (Node *)makeA_Expr(AND,NULL,$1,
+			 makeA_Expr(NOT,NULL,NULL,$3));
+      }
+  |  select_w_o_sort UNION opt_union select_w_o_sort
+      {
+	if (IsA($4, SelectStmt))
+	{
+	  SelectStmt *n = (SelectStmt *)$4;
+	  n->unionall = $3;
+	}
+	$$ = (Node *)makeA_Expr(OR,NULL,$1,$4);
+      }
+  |  select_w_o_sort INTERSECT select_w_o_sort
+      {
+	$$ = (Node *)makeA_Expr(AND,NULL,$1,$3);
+      }
+  ;
+\end{verbatim}
+
+% \pagebreak
+
+\begin{verbatim}
+  SubSelect :  SELECT opt_unique res_target_list2
+	       result from_clause where_clause
+	       group_clause having_clause
+    {
+      SelectStmt *n = makeNode(SelectStmt);
+      n->unique = $2;
+	      .
+	      .
+	      .
+      n->havingClause = $8;
+      $$ = (Node *)n;
+    }
+  ;
+\end{verbatim}
+%
+Las palabras clave  {\tt SELECT}, {\tt EXCEPT}, {\tt UNION}, {\tt
+INTERSECT}, {\tt '('} y {\tt ')'} son {\it terminal symbols} y {\tt
+SelectStmt},
+{\tt select\_w\_o\_sort}, {\tt sort\_clause}, {\tt opt\_union}, {\tt
+SubSelect}, {\tt opt\_unique}, {\tt res\_target\_list2}, {\tt result},
+{\tt from\_clause}, {\tt where\_clause}, {\tt group\_clause}, {\tt
+having\_clause} son {\it nonterminal symbols}. Los símbolos {\tt
+EXCEPT}, {\tt UNION} y {\tt INTERSECT} son {\it asociativos por la
+izquierda} que permiten que una instrucción como:
+%
+\begin{verbatim}
+  select * from A
+  union
+  select * from B
+  union
+  select * from C;
+\end{verbatim}
+%
+\pagebreak
+sea tratada como:
+%
+\begin{verbatim}
+  ((select * from A
+    union
+    select * from B)
+    union
+    select * from C)
+\end{verbatim}
+%
+La regla {\tt select\_w\_o\_sort} construye un {\it árbol del operador}
+utilizando nodos del tipo {\tt A\_Expr}. Se crea para cada nodo {\it
+union} y {\tt OR}, para cada nodo {\it intersect} y {\tt AND} y para
+cada {\it except} y {\tt AND NOT}, construyendo una representación de una
+fórmula en lógica proposicional. Si la consulta traducida no contiene ninguna
+operación de conjuntos, la regla devuelve un nodo {\tt SelectStmt} que
+representa la consulta de forma que se devuelve el nodo superior del {\it
+árbol del operador}. La figura	\ref{union_intersect_select_w_o_sort}
+muestra un típico {\it árbol del operador}
+devuelto por la regla  {\tt select\_w\_o\_sort}.
+
+\begin{figure}[ht]
+\begin{flushright}
+\epsfig{figure=figures/union_intersect_select_w_o_sort.ps}
+\caption{{\it Árbol del Operador} para $(A \cup B) \backslash (C \cap D)$}
+\label{union_intersect_select_w_o_sort}
+\end{flushright}
+\end{figure}
+
+\noindent La regla {\tt SelectStmt} transforma el {\it árbol del operador}
+construido para los nodos {\tt A\_Expr} en un {\it árbol del operador}
+utilizando nodos {\tt Expr} llamando a la función {\tt A\_Expr\_to\_Expr}
+que adicionalmente reemplaza cada nodo {\tt OR} por un nodo {\tt AND}
+y viceversa. Esto se hace para ser capaz de utilizar la función {\tt
+cnfify()} más tarde. \\
+\\
+Las {\it transformaciones} que siguen al {\it traductor} esperan que
+la regla {\tt SelectStmt} devuelva un nodo {\tt SelectStmt} y no {\it
+árbol del operador}. De modo que si la regla  {\tt select\_w\_o\_sort}
+devuelve ese nodo (suponiendo que la consulta no contiene ninguna operación
+de conjunto), sólo tenemos que unirlo a la estructura de datos construida
+por la regla {\tt sort\_clause} y habremos terminado, pero si tenemos
+un {\it árbol del operador}, deberemos realizar los siguientes pasos:
+%
+\begin{itemize}
+%
+<step> -crear una lista plana de todos los nodos {\tt SelectStmt} del {\it
+árbol del operador} (llamando a la función {\tt create\_select\_list()})
+y unir la lista al campo \mbox{{\tt unionClause}} del {\tt SelectStmt}
+más a la izquierda (vea el paso siguiente).
+%
+<step> Encontrar la hoja más a la izquierda (el nodo {\tt SelectStmt})
+(el primero de los nodos) del {\it árbol del operador} (es automáticamente
+el primer miembro de la lista que acaba de crear, debido a la técnica
+que {\tt create\_select\_list()} utiliza para crear la lista).
+%
+<step> Unir el {\it árbol del operador} completo (incluyendo el nodo más
+a la izquierda mismo) al campo \mbox{{tt intersectClause}} del nodo {\tt
+SelectStmt} más a la izquierda (el primero).
+%
+<step> Unir la estructura de datos construida por la regla {\tt
+sort\_clause} al campo {\tt sortClause} del primer nodo {\tt SelectStmt}.
+%
+<step> Devolver el primer nodo {\tt SelectStmt} (con el {\it árbol
+del operador}, la lista de todos los nodos {\tt SelectStmt} y la {\tt
+sortClause} unidos a él).
+%
+\end{itemize}
+%
+\noindent La figura  \ref{union_intersect_select} muestra la estructura
+de datos final derivada del {\it árbol del operador} mostrado en la figura
+\ref{union_intersect_select_w_o_sort}  devuelto por la regla {\tt
+SelectStmt}:
+%
+\begin{figure}[ht]
+\begin{flushright}
+\epsfig{figure=figures/union_intersect_select.ps}
+\caption{Estructura de Datos Devuelta por la Regla {\tt SelectStmt}}
+\label{union_intersect_select}
+\end{flushright}
+\end{figure}
+
+\pagebreak
+
+\noindent Hay una descripción de las funciones
+utilizandas antes. Se pueden encontrar en el fichero {\tt
+$\ldots$/src/backend/parser/anlayze.c}.
+%
+\begin{itemize}
+%
+<step> {\tt create\_select\_list()}: \\
+Esta función recorre el {\it árbol} devuelto por el parámetro {\tt ptr}
+y crea una lista de todos los nodos {\tt SelectStmt} que encuentra. La
+lista se devuelve a través del parámetro {\tt select\_list}. La función
+utiliza un algoritmo recursivo {\it muerto a la primera búsqueda} para
+examinar el {\it árbol} que se aproxima al hecho de que el nodo {\tt
+SelectStmt} más a la izquierda aparecerá primero en la lista creada.
+%
+\begin{verbatim}
+  void
+  create_select_list(Node *ptr, List **select_list,
+		     bool *unionall_present)
+  {
+    if(IsA(ptr, SelectStmt))
+    {
+      *select_list = lappend(*select_list, ptr);
+      if(((SelectStmt *)ptr)->unionall == TRUE)
+	*unionall_present = TRUE;
+      return;
+    }
+
+    /* Recursively call for all arguments.
+     * A NOT expr has no lexpr!
+     */
+    if (((A_Expr *)ptr)->lexpr != NULL)
+      create_select_list(((A_Expr *)ptr)->lexpr,
+		       select_list, unionall_present);
+    create_select_list(((A_Expr *)ptr)->rexpr,
+		       select_list, unionall_present);
+}
+\end{verbatim}
+%
+<step> {\tt A\_Expr\_to\_Expr()}: \\
+Esta función recorre de modo recursivo el {\it árbol del operador}
+devuelto en el parámetro {\tt ptr} y reemplaza los nodos {\tt A\_Expr}
+con nodos {\tt Expr}. Adicionalmente, cambia los nodos {\tt AND}
+por nodos {\tt OR} y viceversa. La razón para realizar este cambio es
+fácil de comprender. Hemos implementado las cláusulas {\it intersect}
+y {\it except} reescribiendo estas consultas por consultas semánticamente
+equivalentes que utilizan subselects con {\tt IN} y {\tt NOT IN}. Para
+poder utilizar las tres operaciones ({\it uniones}, {\it intersecciones}
+y {\it diferencias (except)}) en una consulta compleja, debemos traducir
+las consultas al {\it Formato Normal Disyuntivo} (DNF). Desgraciadamente
+no hay una función {\tt dnfify()}, pero hay una función {\tt cnfify()}
+que produce DNF cuando se cambian los nodos {\tt AND} por nodos {\tt OR}
+y viceversa antes de llamarla, y se cambian otra vez en el resultado.
+%
+\begin{verbatim}
+  Node *
+  A_Expr_to_Expr(Node *ptr,
+		 bool *intersect_present)
+  {
+    Node *result;
+
+    switch(nodeTag(ptr))
+    {
+      case T_A_Expr:
+      {
+	A_Expr *a = (A_Expr *)ptr;
+
+	switch (a->oper)
+	{
+	  case AND:
+	  {
+	    Expr *expr = makeNode(Expr);
+	    Node *lexpr =
+	       A_Expr_to_Expr(((A_Expr *)ptr)->lexpr,
+			      intersect_present);
+	    Node *rexpr =
+	       A_Expr_to_Expr(((A_Expr *)ptr)->rexpr,
+			      intersect_present);
+
+	    *intersect_present = TRUE;
+
+	    expr->typeOid = BOOLOID;
+	    expr->opType = OR_EXPR;
+	    expr->args = makeList(lexpr, rexpr, -1);
+	    result = (Node *) expr;
+	    break;
+	  }
+	  case OR:
+	  {
+	    Expr *expr = makeNode(Expr);
+	    Node *lexpr =
+	       A_Expr_to_Expr(((A_Expr *)ptr)->lexpr,
+			      intersect_present);
+	    Node *rexpr =
+	       A_Expr_to_Expr(((A_Expr *)ptr)->rexpr,
+			      intersect_present);
+
+	    expr->typeOid = BOOLOID;
+	    expr->opType = AND_EXPR;
+	    expr->args = makeList(lexpr, rexpr, -1);
+	    result = (Node *) expr;
+	    break;
+	  }
+	  case NOT:
+	  {
+	    Expr *expr = makeNode(Expr);
+	    Node *rexpr =
+	       A_Expr_to_Expr(((A_Expr *)ptr)->rexpr,
+			      intersect_present);
+
+	    expr->typeOid = BOOLOID;
+	    expr->opType = NOT_EXPR;
+	    expr->args = makeList(rexpr, -1);
+	    result = (Node *) expr;
+	    break;
+	  }
+	}
+	break;
+      }
+      default:
+      {
+	result = ptr;
+      }
+    }
+  }
+  return result;
+}
+\end{verbatim}
+%
+\end{itemize}
+
+\noindent Nótese que las reglas {\tt stmtmulti} y {\tt OptStmtMulti}
+se deben cambiar de orden para impedir conflictos de {\it
+incremento/reducción}. La versión anterior de las reglas permitía una
+sintaxis inválida (concretamente la concatenación de dos instrucciones
+con un ';' entre ellas), lo que se ha prevenido ahora. Las nuevas reglas
+tienen la segunda línea comentada como se muestra a continuación:
+%
+\begin{verbatim}
+  stmtmulti	  :  stmtmulti stmt ';'
+	       /* |  stmtmulti stmt */
+		  |  stmt ';'
+		  ;
+
+  OptStmtMulti	  :  OptStmtMulti OptimizableStmt ';'
+	       /* |  OptStmtMulti OptimizableStmt */
+		  |  OptimizableStmt ';'
+		  ;
+\end{verbatim}
+%
+
+
+\subsubsection{Transformaciones}
+
+Este paso normalmente transforma cada nodo {\tt SelectStmt} encontrado
+en un nodo {\tt Query} y hace un montón de transformaciones en la {\it
+lista objetivo}, la cualificación {\tt WHERE}, etc. Como se mencionó
+antes, esta etapa espera un nodo {\tt SelectStmt} y no puede manipular
+un nodo {\tt A\_Expr}. Por ello hicimos los cambios en el {\it árbol
+del operador} mostrado en la figura
+\ref{union_intersect_select}. \\
+\\
+En este estado son necesarios muy pocos cambios:
+%
+\begin{itemize}
+<step> Hemos evitado la transformación de la lista unida al {\tt
+unionClause}. En lugar de ello, ahora se pasa la lista correcta, y los
+cambios necesarios se realizan en un momento posterior.
+<step> También se pasa sin tocar en esta etapa el campo {\tt
+intersectClause} introducido adicionalmente.
+\end{itemize}
+
+\noindent Los cambios descritos en el párrafo anterior se han aplicado
+a las funciones {\tt transformInserStmt()} y {\tt transformSelectStmt()}
+que están contenidos en el fichero {\tt
+$\ldots$/src/backend/parser/analyze.c}:
+%
+\begin{itemize}
+%
+<step> {\tt transformInsertStmt()}:
+%
+\begin{verbatim}
+  static Query *
+  transformInsertStmt(ParseState *pstate,
+		      InsertStmt *stmt)
+  {
+			    .
+			    .
+			    .
+\end{verbatim}
+\pagebreak
+\begin{verbatim}
+    /* Just pass through the unionClause and
+     * intersectClause. We will process it in
+     * the function Except_Intersect_Rewrite()
+     */
+    qry->unionClause = stmt->unionClause;
+    qry->intersectClause = stmt->intersectClause;
+			    .
+			    .
+			    .
+
+    return (Query *) qry;
+  }
+\end{verbatim}
+%
+<step> {\tt transformSelectStmt()}:
+%
+\begin{verbatim}
+  static Query *
+  transformSelectStmt(ParseState *pstate,
+		      SelectStmt *stmt)
+  {
+			    .
+			    .
+			    .
+    /* Just pass through the unionClause and
+     * intersectClause. We will process it in
+     * the function Except_Intersect_Rewrite()
+     */
+    qry->unionClause = stmt->unionClause;
+    qry->intersectClause = stmt->intersectClause;
+			    .
+			    .
+			    .
+    return (Query *) qry;
+  }
+\end{verbatim}
+%
+\end{itemize}
+
+\subsubsection{The Rewrite System}
+
+En esta etapa se emplea la información contenida en el {\it árbol del
+operador} unido al primero de los nodos {\tt SelectStmt} para formar un
+árbol de nodos {\tt Query} que representan la consulta reescrita (es decir,
+la consulta semánticamente equivalente que contiene sólo {\it union},
+pero no contiene operaciones {\it intersect} o {\it except}). \\
+\\
+Se han realizado los siguientes pasos:
+%
+\begin{itemize}
+<step>	Salvar los campos {\tt sortClause}, {\tt uniqueFlag}, {\tt
+targetList}
+fields etc. del primero de los nodos {\tt Query} porque este primer
+nodo puede cambiar durante el proceso de reescritura (recuerde (sólo)
+el primero de los nodos {\tt SelectStmt} ha sido ya transformado en un
+nodo {\tt Query}).
+%
+<step> Recorrer recursivamente el {\it árbol del operador} y transformar
+cada nodo {\tt SelectStmt} en un ndodo {\tt Query} utilizando la función
+{\tt intersect\_tree\_analyze()} descrita antes. El único nodo que ya
+ha sido transformado (el nodo superior) todavía está contenido en el
+{\it árbol del operador} y no debemos trasformarlo de nuevo, porque esto
+podría producir problemas en la {\it lógica de la transformación}.
+%
+\begin{figure}[ht]
+\begin{center}
+\epsfig{figure=figures/union_intersect_dnf.ps}
+\caption{Estructura de Datos de $(A \cup B) \backslash C$  tras su
+transformación a DNF}
+\label{union_intersect_dnf}
+\end{center}
+\end{figure}
+%
+<step> Transformar el nuevo {\it árbol del operador} en DNF (disjunctive
+normal
+form). <productname>Postgres</productname> no proporciona ninguna
+función para la transformación a DNF, pero proporciona la función
+{\tt cnfify()}, que realiza una transformación a CNF (formato
+normal conjuntivo). De modo que podemos fácilmente hacer uso de
+esta función cambiando cada {\tt OR} en un {\tt AND} y viceversa
+antes de llamar a {\tt cnfify()} como hicimos en el {\it traductor}
+(compare la figura \ref{union_intersect_select_w_o_sort} con la figura
+\ref{union_intersect_select}). Cuando se llama a {\tt cnfify()} con un
+parámetro especial, {\tt removeAndFlag} fijado a {\tt true}, devuelve
+una lista cuyas entradas se pueden conectar entre ellas con {\tt ANDs},
+de modo que los nodos {\tt ADN} explícitos se eliminan.
+
+Una vez hemos llamado a {\tt cnfify()} normalmente deberemos intercambiar
+los nodos {\tt OR} y {\tt AND} de nuevo. Nos evitamos este paso
+simplemente tratando cada nodo {\tt OR} como un nodo {\tt AND} durante el
+resto de los pasos (recuérdese que no hay nodos {\tt AND} antes del que
+ha sido tratado como los nodos {\tt OR}, debido al {\tt removeAndFlag}).
+
+\noindent La figura \ref{union_intersect_dnf} muestra que la estructura
+de datos tiene un aspecto similar al que habría tenido lugar tras la
+transformación a DNF de la siguiente consulta:
+%
+\begin{verbatim}
+  (select * from A
+   union
+   select * from B)
+   except
+   select * from C;
+\end{verbatim}
+%
+<step> Para cada entrada de la lista devuelta por {\tt cnfify()}
+(es decir, para cada {\it árbol del operador}, que sólo puede contener
+nodos de operadores {\tt OR} y {\tt NOR} y nodos {\tt Query} como hojas)
+contenido en la {\tt union\_list}, se realizan los siguientes pasos:
+%
+\begin{itemize}
+%
+<step> Comprobar si las {\it listas objetivo} de todos los nodos
+{\tt Query} que aparecen son compatibles (es decir, todas las {\it
+listas objetivo} tienen el mismo número de atributos, y los atributos
+correspondientes son del mismo tipo).
+%
+<step> Debe haber al menos un nodo {\tt OR} positivo (es decir, al menos
+un nodo {\tt OR} que no esté precedido por un nodo {\tt NOT}). Crear
+una lista de todos los nodos {\tt Query} (o de los nodos {\tt Query}
+prececidos por nodos {\tt NOT} si se encuentra {\tt OR NOT}) con el primer
+nodo no negado utilizando la función {\tt create\_list()} descrita antes.
+%
+<step> El primer nodo (no negado) de la lista será el nodo {\tt Query}
+superior del operando {\it union} actual. Para todos los demás nodos
+encontrados en la lista, se añade una subselect {\tt IN} (o una subselect
+{\tt NOT IN} si el nodo {\tt Query} está precedido por un {\tt NOT}) a la
+qualificación {\tt WHERE} del nodo superior. Para añadir una subselect a
+la cualificación {\tt WHERE}, el tratamiento lógico adecuado es incorporar
+una cláusula {\tt AND} a la cualificación original.
+%
+<step>	Los últimos pasos empiezan al añadir el nodo {\tt Query} a la
+lista que conservamos en el puntero {\tt union\_list}.
+\end{itemize}
+%
+<step> Se toma el primer nodo de {\tt union\_list} como el nuevo nodo
+superior de la consulta completa y se une el resto de la lista al campo {\tt
+unionClause}  de este nodo superior. Puesto que el nuevo nodo superior
+debe diferir del original (es decir, del nodo que era el nodo superior
+cuando entramos en la {\it etapa de reescritura}), deberemos unir los
+campos salvados en el primer paso al nuevo nodo superior (es decir,
+los {\tt sortClause}, {\tt targetList}, {\tt unionFlag}, etc.).
+%
+<step> Devolver el nuevo nodo {\tt Wuery} superior. Ahora tiene lugar
+la {\it reescritura de la consulta} normal (para manipular vistas si se
+encuentran presentes), y a continuación se llama a las funciones {\it
+planificador/optimizador} y {\it ejecutor} para obtener un resultado. No
+se han hecho cambios en el código de estas etapas.
+%
+\end{itemize}
+La figura \ref{union_operand} muestra la estructura de datos reescrita
+de la consulta:
+\begin{verbatim}
+   select C1, C2 from A
+   intersect
+   select C1, C3 from C;
+\end{verbatim}
+%
+% \clearpage
+%
+\noindent contra las tablas definidas en el ejemplo \ref{simple_set_ops}.
+La estructura de datos reescrita representa la consulta:
+\begin{verbatim}
+  select C1, C2 form A
+  where (C1, C2) in
+	(select C1,C3 from C);
+\end{verbatim}
+%
+\noindent El campo {\tt lefttree} del nodo {\tt Sublink} apunta a una
+lista donde cada entrada apunta a un nodo {\tt VAR} de la {\it lista
+objetivo} del nodo superior (nodo A). El campo {\tt oper} del nodo
+{\tt Sublink} apunta a una lista que conserva un puntero a un nodo {\tt
+Expr} para cada atributo de la {\it lista objetivo} superior. Cada nodo
+{\tt Expr} se utiliza para comparar un nodo {\tt VAR} de la {\it lista
+objetivo} superior con el nodo {\tt VAR} correspondiente de la {\it lista
+objetivo} de la subselect. De este modo, el primer argumento de cada
+nodo {\tt Expr} apunta a un nodo {\tt VAR} de la {\it lista objetivo}
+superior, y el segundo argumento apunta al correspondiente nodo {\tt VAR}
+de la {\it lista objetivo} de la subselect.
+%
+\begin{figure}[ht]
+\begin{flushright}
+\epsfig{figure=figures/union_operand.ps}
+\caption{Estructura de Datos de $A \cap C$ tras la reescritura de
+la consulta}
+\label{union_operand}
+\end{flushright}
+\end{figure}
+%
+\clearpage
+%
+\noindent Si la consulta del usuario involucra {\it union}, así como {\it
+intersect} o {\it except}, tendremos más nodos {\tt Query} de la forma
+mostrada en la figura \ref{union_operand}. Uno será el nodo superior
+(como se describió antes) y los otros deberán coleccionarse en una lista
+que se unirá al campo {\tt unionClause} del nodo superior. (Los campos
+{\it intersectClause} de todos los nodos {\tt Query} se fijarán a {\tt
+NULL} porque ya no son necesarios.) \\
+\\
+%
+La función {\tt pg\_parse\_and\_plan()} es responsable de invocar al
+procedimiento de reescritura. Se puede encontrar en el fichero {\tt
+$\ldots$/src/backend/tcop/postgres.c}.
+%
+\begin{verbatim}
+  List *
+  pg_parse_and_plan(char *query_string, Oid *typev,
+		    int nargs,
+		    List **queryListP,
+		    CommandDest dest)
+  {
+			    .
+			    .
+			    .
+    /* Rewrite Union, Intersect and Except Queries
+     * to normal Union Queries using IN and NOT
+     * IN subselects */
+    if(querytree->intersectClause != NIL)
+    {
+      querytree = Except_Intersect_Rewrite(querytree);
+    }
+			    .
+			    .
+			    .
+  }
+\end{verbatim}
+%
+Aquí están las funciones que se han añadido para realizar la
+funcionalidad descrita antes. Se pueden encontrar en el fichero {\tt
+$\ldots$/src/backend/rewrite/rewriteHandler.c}.
+%
+\begin{itemize}
+<step> {\tt Except\_Intersect\_Rewrite()} \\
+Reescribe las consultas que involucran {\it cláusulas union}, {\it cláusulas
+intersect} y {\it clausulas except} en consultas semánticamente equivalentes
+que utilizan subselects con {\tt IN} y {\tt NOT IN} en su lugar.
+
+El {\it árbol del operador} se une a {\tt intersectClause} (ver la regla
+{\tt SelectStmt} anteriormente) del {\it árbol de traducción} dado como
+un argumento. Primero salvamos algunas cláusulas (la {\tt sortClause},
+la {\tt unique flag}, etc.). A continuación, traducimos el {\it árbol del
+operador} a DNF ({\it formato nomarl disyuntivo}) con {\tt cnfify()}. Note
+que {\tt cnfify()} produce CNF, pero como habíamos cambiado los nodos
+{\tt AND} con nodos {\tt OR} en la función {\tt A\_Expr\_to\_Expr()}
+previamente, tendremos ahora DNF intercambiando de nuevo los nodos {\tt
+AND} y {\tt OR} en el resultado. Ahora creamos una nueva (reescrita) consulta
+examinando el nuevo {\it árbol del operador}, que ya está en DNF. Para
+cada nodo {\tt AND} crearemos una entrada en la {\it lista union} y para
+cada nodo {\tt OR} crearemos una subselect {\tt IN}. (Se crean subselects
+{\tt NOT IN} para los nodos {\tt OR NOT}). La primera entrada de la {\it
+lista union} se devuelven, pero antes habremos restaurado en el nuevo nodo
+superior las cláusulas salvadas ({\tt sortClause}, etc.). Note que el
+nuevo nodo superior puede diferir de aquel del {\it árbol de traductor}
+dado como argumento, debido a la traducción a DNF. Por eso tenemos que
+salvar las {\tt sortClause}, etc.
+%
+\pagebreak
+%
+\begin{verbatim}
+  Query *
+  Except_Intersect_Rewrite (Query *parsetree)
+  {
+			      .
+			      .
+			      .
+    /* Save some fields, to be able to restore them
+     * to the resulting top node at the end of the
+     * function
+     */
+    sortClause = parsetree->sortClause;
+    uniqueFlag = parsetree->uniqueFlag;
+    into = parsetree->into;
+    isBinary = parsetree->isBinary;
+    isPortal = parsetree->isPortal;
+
+    /* Transform the SelectStmt nodes into Query nodes
+     * as usually done by transformSelectStmt() earlier.
+     * /
+    intersectClause =
+      (List *)intersect_tree_analyze(
+	      (Node *)parsetree->intersectClause,
+	      (Node *)lfirst(parsetree->unionClause),
+	      (Node *)parsetree);
+			      .
+			      .
+			      .
+    /* Transform the operator tree to DNF */
+    intersectClause =
+		cnfify((Expr *)intersectClause, true);
+    /* For every entry of the intersectClause list we
+     * generate one entry in the union_list
+     */
+    foreach(intersect, intersectClause)
+    {
+      /* For every OR we create an IN subselect and
+       * for every OR NOT we create a NOT IN subselect,
+       */
+      intersect_list = NIL;
+      create_list((Node *)lfirst(intersect),
+		  &intersect_list);
+      /* The first node will become the Select Query
+       * node, all other nodes are transformed into
+       * subselects under this node!
+       */
+      intersect_node = (Query *)lfirst(intersect_list);
+      intersect_list = lnext(intersect_list);
+			      .
+			      .
+			      .
+      /* Transform all remaining nodes into subselects
+       * and add them to the qualifications of the
+       * Select Query node
+       */
+      while(intersect_list != NIL)
+      {
+	n = makeNode(SubLink);
+
+	/* Here we got an OR so transform it to an
+	 * IN subselect
+	 */
+	if(IsA(lfirst(intersect_list), Query))
+	{
+			      .
+			      .
+			      .
+	  n->subselect = lfirst(intersect_list);
+	  op = "=";
+	  n->subLinkType = ANY_SUBLINK;
+	  n->useor = false;
+	}
+
+	/* Here we got an OR NOT node so transform
+	 * it to a NOT IN  subselect
+	 */
+	else
+	{
+			      .
+			      .
+			      .
+	  n->subselect =
+	     (Node *)lfirst(((Expr *)
+		   lfirst(intersect_list))->args);
+	  op = "<>";
+	  n->subLinkType = ALL_SUBLINK;
+	  n->useor = true;
+	}
+
+	/* Prepare the lefthand side of the Sublinks:
+	 * All the entries of the targetlist must be
+	 * (IN) or must not be (NOT IN) the subselect
+	 */
+	foreach(elist, intersect_node->targetList)
+	{
+	  Node	      *expr = lfirst(elist);
+	  TargetEntry *tent = (TargetEntry *)expr;
+
+	  n->lefthand =
+		 lappend(n->lefthand, tent->expr);
+	}
+
+	/* The first arguments of oper also have to be
+	 * created for the sublink (they are the same
+	 * as the lefthand side!)
+	 */
+	left_expr = n->lefthand;
+	right_expr =
+	     ((Query *)(n->subselect))->targetList;
+	foreach(elist, left_expr)
+	{
+	  Node	       *lexpr = lfirst(elist);
+	  Node	       *rexpr = lfirst(right_expr);
+	  TargetEntry *tent = (TargetEntry *) rexpr;
+	  Expr	       *op_expr;
+
+	  op_expr = make_op(op, lexpr, tent->expr);
+	  n->oper = lappend(n->oper, op_expr);
+	  right_expr = lnext(right_expr);
+	}
+
+	/* If the Select Query node has aggregates
+	 * in use add all the subselects to the
+	 * HAVING qual else to the WHERE qual
+	 */
+	if(intersect_node->hasAggs == false)
+	{
+	  AddQual(intersect_node, (Node *)n);
+	}
+	else
+	{
+	  AddHavingQual(intersect_node, (Node *)n);
+	}
+
+	/* Now we got sublinks */
+	intersect_node->hasSubLinks = true;
+	intersect_list = lnext(intersect_list);
+      }
+      intersect_node->intersectClause = NIL;
+      union_list = lappend(union_list, intersect_node);
+    }
+
+    /* The first entry to union_list is our
+     * new top node
+     */
+    result = (Query *)lfirst(union_list);
+
+    /* attach the rest to unionClause */
+    result->unionClause = lnext(union_list);
+
+    /* Attach all the items saved in the
+     * beginning of the function */
+    result->sortClause = sortClause;
+    result->uniqueFlag = uniqueFlag;
+    result->into = into;
+    result->isPortal = isPortal;
+    result->isBinary = isBinary;
+			      .
+			      .
+			      .
+    return  result;
+  }
+\end{verbatim}
+%
+<step> {\tt create\_list()} \\
+Crear una lista de nodos que son, o bien nodos {\tt Query}, o bien nodos
+{\tt NOT} seguidos de un nodo {\tt Query}. El {\it árbol} dado en {\tt
+ptr} contiene al menos un nodo {\tt Query} {\it no negado}. Este nodo
+se coloca al principio de la lista.
+%
+\begin{verbatim}
+  void create_list(Node *ptr,
+		   List **intersect_list)
+  {
+    List *arg;
+
+    if(IsA(ptr,Query))
+    {
+      /* The non negated node is attached at the
+       * beginning (lcons) */
+      *intersect_list = lcons(ptr, *intersect_list);
+      return;
+    }
+    if(IsA(ptr,Expr))
+    {
+      if(((Expr *)ptr)->opType == NOT_EXPR)
+      {
+	/* negated nodes are appended to the
+	 * end (lappend)
+	 */
+	*intersect_list =
+	       lappend(*intersect_list, ptr);
+	return;
+      }
+      else
+      {
+	foreach(arg, ((Expr *)ptr)->args)
+	{
+	  create_list(lfirst(arg), intersect_list);
+	}
+	return;
+      }
+      return;
+    }
+  }
+\end{verbatim}
+%
+<step> {\tt intersect\_tree\_analyze()} \\
+%
+Los nodos dados en el {\tt árbol} no están transformados todavía, de modo
+que se procesan utilizando {\tt parse\_analyze()}. El nodo dado en {\tt
+first\_select} ya ha sido procesado, de modo que no se le transforma
+de nuevo, sino que, en su lugar, se devuelve un puntero a la versión
+previamente procesada en el {\tt árbol del traductor}.
+%
+\begin{verbatim}
+  Node *intersect_tree_analyze(Node *tree,
+		Node *first_select, Node *parsetree)
+  {
+    Node *result;
+    List *arg;
+
+    if(IsA(tree, SelectStmt))
+    {
+      List *qtrees;
+
+      /* If we get to the tree given in first_select
+       * return parsetree instead of performing
+       * parse_analyze() */
+      if(tree == first_select)
+      {
+	result = parsetree;
+      }
+      else
+      {
+	/* transform the unprocessed Query nodes */
+	qtrees = parse_analyze(lcons(tree, NIL), NULL);
+	result = (Node *) lfirst(qtrees);
+      }
+    }
+    if(IsA(tree,Expr))
+    {
+      /* Call recursively for every argument */
+       foreach(arg, ((Expr *)tree)->args)
+       {
+	 lfirst(arg) =
+	     intersect_tree_analyze(lfirst(arg),
+			  first_select, parsetree);
+       }
+       result = tree;
+    }
+    return result;
+  }
+\end{verbatim}
+%
+
+\end{itemize}
+
+**********************************************************
+**********************************************************
+**********************************************************
+**********************************************************
+**********************************************************
+-->
+
+ </chapter>
+
+<!-- Keep this comment at the end of the file
+Local variables:
+mode: sgml
+sgml-omittag:nil
+sgml-shorttag:t
+sgml-minimize-attributes:nil
+sgml-always-quote-attributes:t
+sgml-indent-step:1
+sgml-indent-data:t
+sgml-parent-document:nil
+sgml-default-dtd-file:"./reference.ced"
+sgml-exposed-tags:nil
+sgml-local-catalogs:("/usr/lib/sgml/catalog")
+sgml-local-ecat-files:nil
+End:
+-->

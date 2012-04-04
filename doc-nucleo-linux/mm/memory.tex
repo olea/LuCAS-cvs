@@ -1,0 +1,1285 @@
+\chapter{Gestión de memoria}
+\label{mm-chapter}
+\ChapterDescription{
+
+El subsistema de   gestión  de memoria   es   una de las partes    más
+importantes   del  sistema operativo.    Ya  desde los  tiempos de los
+primeros ordenadores, existió la  necesidad de disponer de más memoria
+de   la  que físicamente   existía en el   sistema.  Entre  las varias
+estrategias desarrolladas para resolver este problema, la de más éxito
+ha sido la  memoria virtual. La memoria virtual  hace  que que sistema
+parezca  disponer  de    más  memoria   de  la  que  realmente   tiene
+compartiéndola entre los distintos procesos conforme la necesitan.  }
+
+La memoria virtual hace  más  cosas aparte de  ampliar la  memoria del
+ordenador. El subsistema de gestión de memoria ofrece:
+
+\begin{description}
+\item [Espacio de direcciones grande] 
+       El sistema operativo hace que el sistema parezca tener una gran
+       cantidad de memoria.  La memoria virtual puede ser muchas veces
+       mayor que la memoria física del sistema,
+
+\item [Protección] Cada proceso del sistema tiene  su propio espacio de
+      direcciones   virtuales.   Este  espacio   de  direcciones  está
+      completamente aislado de otros procesos, de forma que un proceso
+      no puede interferir con  otro.  También, el mecanismo de memoria
+      virtual  ofrecido por el  hardware permite proteger determinadas
+      áreas de memoria contra operaciones  de escritura.  Esto protege
+      el código   y los datos de  ser  sobre-escritos por aplicaciones
+      perversas.
+
+\item [Proyección de Memoria (Memory Mapping)] 
+        La  proyección de memoria se  utiliza para  asignar un fichero
+        sobre el   espacio de direcciones    de  un proceso.   En   la
+        proyección  de   memoria,    el  contenido   del  fichero   se
+        ``engancha'' directamente   sobre el  espacio   de direcciones
+        virtual del proceso.
+
+\item [Asignación Equitativa   de   Memoria Física]  
+        El subsistema de gestión  de memoria permite que cada  proceso
+        del sistema se ejecute con  una cantidad  de memoria justa  de
+        toda  la memoria física   disponible, de  forma que todos  los
+        procesos dispongan de los recursos que necesitan.
+
+
+\item [Memoria virtual   compartida] 
+        Aunque  la memoria virtual permite  que cada  proceso tenga un
+        espacio de  memoria   separado (virtual),  hay  veces que   es
+        necesario que  varios procesos compartan memoria.  Por ejemplo
+        pueden  haber  varios procesos   del   sistema  ejecutando  el
+        interprete de ordenes   \eg{bash}.  En lugar  de  tener varias
+        copias  del  \eg{bash}, una  en cada memoria  virtual  de cada
+        proceso, es mejor sólo tener una sola  copia en memoria física
+        y que todos los procesos  que ejecuten \eg{bash} la compartan.
+        Las bibliotecas dinámicas  son  otro ejemplo típico de  código
+        ejecutable compartido por varios procesos.
+
+        Por otra  parte, la memoria compartida  se puede utilizar como
+        un  mecanismo de  comunicación entre   procesos (Inter Process
+        Communication IPC),  donde   dos o más procesos   intercambian
+        información  vía memoria común a todos  ellos. Linux ofrece el
+        sistema de comunicación entre  procesos de  memoria compartida
+        de Unix \tm\ System V.
+\end{description}
+
+\section{Modelo Abstracto de Memoria Virtual}
+\index{Modelo Abstracto de Memoria Virtual}
+\begin{figure}
+\begin{center}
+{\centering \includegraphics{mm/vm.eps} \par}
+\end{center}
+\caption{Modelo abstracto de traducción de memoria virtual a física.}
+\label{abstract-mm-model}
+\end{figure}
+Antes de considerar los métodos que Linux  utiliza para implementar la
+memoria virtual, es interesante estudiar  un  modelo abstracto que  no
+esté plagado de pequeños detalles de implementación.
+
+Conforme el procesador va ejecutando  un programa lee instrucciones de
+la  memoria  y   las decodifica.  Durante    la  decodificación de  la
+instrucción puede  necesitar  cargar  o  guardar el  contenido de  una
+posición de memoria. El procesador ejecuta  la instrucción y pasa a la
+siguiente  instrucción del programa. De  esta forma el procesador está
+siempre accediendo a  memoria tanto para  leer instrucciones como para
+cargar o guardar datos.
+
+
+En un  sistema   con memoria  virtual,   todas estas  direcciones  son
+direcciones virtuales  y  no  direcciones físicas.   Estas direcciones
+virtuales son convertidas en direcciones   físicas por el   procesador
+utilizando para  ello información  guardada  en un  conjunto de tablas
+mantenidas por el sistema operativo.
+
+Para  hacer la traducción más fácil,  tanto la memoria virtual como la
+física están divididas en trozos de un  tamaño manejable llamados {\em
+páginas}. Estas páginas son todas  del  mismo tamaño, en principio  no
+necesitarían serlo pero de  no serlo la  administración del sistema se
+complicaría muchísimo. Linux en un  sistema \axp\ utiliza páginas de 8
+Kbytes, y en un  sistema Intel x86 utiliza  páginas de 4 Kbytes.  Cada
+una de  estas páginas tiene  asociado un  único  número; el  número de
+marco de página (PFN).
+\index{PFN}  
+\index{PFN, Page Frame Number}
+\index{Número de Marco de Página}
+En este modelo de paginación,  una dirección virtual está compuesta de
+dos  partes: un desplazamiento y  un número de  página  virtual. Si el
+tamaño de página  es de  4Kbytes, los bits  11:0  de la dirección   de
+memoria virtual contienen el desplazamiento y los restantes bits desde
+el bit 12  son el número  de marco de página virtual.  Cada vez que el
+procesador     encuentra  una dirección  virtual ha     de  extraer el
+desplazamiento y el número de marco de página. El procesador tiene que
+traducir el número de marco de la  página virtual a  la física y luego
+acceder a la posición correcta dentro  de la página física. Para hacer
+todo esto, el procesador utiliza la {\em tabla de páginas}.
+
+En la  Figura~\ref{abstract-mm-model}  se    muestra el  espacio    de
+direcciones virtuales de dos procesos,  proceso {\em X} y proceso {\em
+Y}, cada uno con su propia tabla de  páginas.  Estas tablas de páginas
+asocian las páginas de  memoria virtual de  cada proceso sobre páginas
+físicas. Se puede ver que el  número 0 de  marco de página virtual del
+proceso {\em X} se asocia al número de marco  de página físico 1 y que
+el número  de marco   de  página virtual 1   de  proceso {\em Y}  está
+asociado en el número de marco de página físico 4. La tabla de páginas
+teórica contienen la siguiente información:
+
+\begin{itemize}
+        \item >Flag  de Valido. Éste indica si  la estrada de la tabla
+        de páginas es valida o no,
+
+        \item El número de marco de página físico que describe esta
+        entrada,
+
+        \item Información de control de acceso. Describe cómo se puede
+        utilizar   la página   ¿Se   puede   leer?   ¿Contiene  código
+        ejecutable?
+\end{itemize}
+A la  tabla de  páginas  se accede utilizando  el  número de  marco de
+página virtual como desplazamiento. El  marco de página virtual 5 será
+el sexto elemento de la tabla (el primer elemento es el 0).
+
+Para traducir una dirección virtual a una  física, el procesador tiene
+que extraer de la dirección virtual el número de marco  de página y el
+desplazamiento dentro de la página virtual.   Si hacemos que el tamaño
+de  página sea potencia de 2,  entonces  esta operación se puede hacer
+fácilmente  mediante una máscara y  un desplazamiento. Volviendo a las
+Figuras~\ref{abstract-mm-model} y suponiendo un tamaño de página de
+\hex{2000} bytes (lo que en decimal es 8192) y una dirección virtual
+de \hex{2194} del proceso {\em Y}, entonces el procesador descompondrá
+esta dirección en un desplazamiento de \hex{194} dentro del número de
+maco de página virtual 1.
+
+El procesador utiliza el número de marco de página virtual como índice
+a la tabla de páginas del proceso para obtener  la entrada de la tabla
+de página correspondiente. Si la entrada en la tabla de páginas de ese
+índice es valida,  el  procesador coge  el número de  marco  de página
+físico de esta entrada.  Si por el contrario  la entrada no es valida,
+entonces el proceso  ha accedido a una  área de memoria virtual que no
+existe. En  este caso, el procesador no  puede resolver la dirección y
+deberá  pasar el control al  sistema operativo para que éste solucione
+el problema.
+
+La forma en  la que el procesador informa  al sistema operativo que un
+proceso  concreto ha  intentado  realizar un   acceso a una  dirección
+virtual que  no se ha podido  traducir,  es específico del procesador.
+Independientemente del mecanismo empleado por el procesador, a esto se
+le conoce  como  {\em fallo  de  página}  y  el  sistema operativo  es
+informado de la dirección  virtual que lo  ha producido y la razón por
+la que se produjo.
+
+Suponiendo que ésta sea una entrada valida en la  tabla de páginas, el
+procesador toma el  número de marco de  página físico y  lo multiplica
+por  el tamaño  página  para obtener la   dirección base de  la página
+física en memoria. Finalmente, el procesador le suma el desplazamiento
+a la  instrucción o dato que necesita,  y ésta es la  dirección física
+con la que accede a memoria.  
+
+Siguiendo en el ejemplo anterior, el número de marco de página virtual
+1 del proceso {\em Y} está asociado al número de marco de página físico
+4    que    comienza  en    la     dirección    \hex{8000}  (4    x
+\hex{2000}). Sumándole el desplazamiento de \hex{194} nos da una
+dirección física de \hex{8194}.
+
+Asignando direcciones virtuales  a direcciones físicas de esta  forma,
+la  memoria virtual  se puede asociar  sobre  las  páginas físicas  en
+cualquier orden. Por ejemplo,  en la Figura~\ref{abstract-mm-model} el
+número de marco de página 0 del proceso {\em X} está asociado sobre el
+número de marco de página física 1, mientras que  el número de marco 7
+está  asociado con el   marco  físico número  0,  a pesar  de  ser una
+dirección de memoria virtual mayor que la del marco de página 0.  Ésto
+demuestra  un  interesante efecto lateral de  la  memoria virtual: las
+páginas   de memoria   virtual no  tienen    que estar  necesariamente
+presentes en memoria física en un orden determinado.
+
+
+\subsection{Paginación por Demanda}
+\index{Demand Paging}
+Puesto  que  hay mucha menos  memoria  física que  memoria virtual, el
+sistema operativo ha de tener especial cuidado de  no hacer un mal uso
+de la memoria física. Una forma  de conservar memoria física es cargar
+solo las páginas  que están siendo  utilizadas por  un programa.   Por
+ejemplo,  un   programa de bases   de datos  puede ser  ejecutado para
+realizar una  consulta a una   base  de datos.   En   este caso no  es
+necesario cargar en memoria toda la  base de datos, sino solo aquellos
+registros que que son examinados.  Si la consulta consiste en realizar
+una   búsqueda, entonces no   tiene  sentido  cargar el fragmento   de
+programa que se  ocupa de  añadir  nuevos registros.  Esta  técnica de
+sólo cargar  páginas  virtuales en memoria  conforme son  accedidas es
+conocida como paginación por demanda.
+
+Cuando un proceso intenta acceder a una  dirección virtual que no está
+en   esos momentos en memoria,   el procesador  no  puede encontrar la
+entrada en la tabla de páginas de la  página virtual referenciada. Por
+ejemplo, en la Figura~\ref{abstract-mm-model} no existe una entrada en
+la tabla de páginas del proceso {\em X} para el marco número 2, por lo
+que si el proceso {\em X} intenta  leer de una dirección perteneciente
+al marco de  página  virtual 2  no podrá  traducirla a una   dirección
+física. Es en   este momento cuando  el procesador  informa al sistema
+operativo que se a producido un fallo de página.
+
+Si dirección virtual   que ha fallado  es invalida,   significa que el
+proceso ha intentado acceder a una dirección que no debería. Puede ser
+que la aplicación haya hecho algo erróneo, por ejemplo escribir en una
+posición  aleatoria de memoria. En  este caso, el sistema operativo ha
+de  terminarlo, protegiendo así a  otros procesos de este ``perverso''
+proceso.
+
+
+Si la dirección virtual que  ha producido el fallo  era valida pero la
+página que referencia  no está en  memoria en ese momento,  el sistema
+operativo  tiene que  traer  la página  apropiada  a memoria  desde el
+disco.  Los  accesos a   disco requieren  mucho  tiempo,  en  términos
+relativos,  y  por tanto  el proceso  tiene  que esperar cierto tiempo
+hasta  que la página se  haya leído. Si hay  otros procesos que pueden
+ejecutarse entonces el sistema operativo elegirá  alguno de estos para
+ejecutar. La página pedida se escribe en una página  física libre y se
+añade una  entrada   a la tabla  de  páginas  del   proceso  para esta
+página. El proceso en  entonces puesto otra  vez en ejecución justo en
+la instrucción donde se produjo el fallo de página. Esta vez sí que se
+realizará con éxito  el acceso a la  dirección de  memoria virtual, el
+procesador puede  hacer la traducción de dirección  virtual a física y
+el proceso continua normalmente.
+
+Linux utiliza    la   paginación por demanda  para     cargar imágenes
+ejecutables  en la memoria  virtual  de  un proceso.   Siempre que  se
+ejecuta un proceso, se abre el fichero que la  contiene y su contenido
+se asocia en la memoria virtual del proceso.  Esto se hace modificando
+las estructuras de datos que describen el  mapa de memoria del proceso
+y se conoce  como {\em asociación  de memoria}.  Sin  embargo, solo la
+primera  parte de la imagen  se copia realmente  en memoria física. El
+resto de la imagen  se deja en disco.   Conforme se va  ejecutando, se
+generan fallos  de  página  y Linux  utiliza el   mapa  de memoria del
+proceso para determinar qué partes de la  imagen ha de traer a memoria
+para ser ejecutadas.
+
+
+
+
+\subsection{Intercambio (swapping)}
+\index{Swapping}
+
+Si un proceso necesita cargar una  página de memoria virtual a memoria
+física  y  no hay ninguna página  de  memoria física libre, el sistema
+operativo tiene  que crear  espacio para  la  nueva página  eliminando
+alguna otra página de memoria física.
+
+Si la página que se  va a eliminar de  memoria física provenía de  una
+fichero   imagen o de   un fichero  de  datos sobre  el que   no se ha
+realizado ninguna escritura,    entonces la  página  no  necesita  ser
+guardada.  Tan sólo  se tiene  que desechar y   si el proceso que   la
+estaba  utilizando  la   vuelve   a necesitar simplemente    se  carga
+nuevamente desde el fichero imagen o  de datos.
+
+Por  otra  parte,  si  la página   había  sido modificada, el  sistema
+operativo   debe preservar su contenido   para que pueda  volver a ser
+accedido.   Este tipo de página  se  conoce como página \textit{sucia}
+(dirty page) y para poderla eliminar de memoria se ha de guardar en un
+fichero  especial llamado fichero   de intercambio  (swap file).    El
+tiempo de acceso al fichero de intercambio es muy grande en relación a
+la velocidad del procesador y la memoria física y el sistema operativo
+tiene  que conjugar la  necesidad de escribir  páginas al disco con la
+necesidad de retenerlas en memoria para ser usadas posteriormente.
+
+Si  el algoritmo utilizado para decidir  qué páginas se descartan o se
+envían a disco (el algoritmo de intercambio) no es eficiente, entonces
+se  produce    una    situación   llamada    \textit{hiper-paginación}
+(thrashing).  En este estado, las páginas son continuamente copiadas a
+disco y  luego leídas, con lo que  el sistema operativo está demasiado
+ocupado para hacer trabajo útil.  Si, por  ejemplo, el número de marco
+de   página   1 de    la   Figura~\ref{abstract-mm-model}  se   accede
+constantemente entonces no es un buen  candidato para intercambiarlo a
+disco.  El conjunto de  páginas que en el  instante actual está siendo
+utilizado por un proceso se llama {\em Páginas activas} (working set).
+Un algoritmo de  intercambio eficiente ha de  asegurarse de tener en
+memoria física las páginas activas de todos los procesos.
+
+
+Linux utiliza   la  técnica de paginación    por  antigüedad (LRU Last
+Redently Used) para escoger de forma  equitativa y justa las páginas a
+ser intercambiadas o   descartadas del sistema.   Este esquema implica
+que cada página  del  sistema ha de  tener una  antigüedad que   ha de
+actualizarse conforme  la página es accedida.   Cuanto más se accede a
+una página más joven es; por el contrario cuanto  menos se utiliza más
+vieja e  inutil.  Las páginas viejas  son las  mejoras candidatas para
+ser intercambiadas.
+
+
+\subsection{Memoria virtual compartida}
+\index{Memoria virtual compartida}
+
+Gracias  a  los  mecanismos   de memoria  virtual  se   puede coseguir
+fácilmente que varios procesos compartan memoria.  Todos los accesos a
+memoria se realizan a través de  las tablas de  páginas y cada proceso
+tiene su propia tabla de páginas.  Para que dos procesos compartan una
+misma página de  memoria física, el número de  marco de está página ha
+de aparecer en las dos tablas de página.
+
+La  Figura~\ref{abstract-mm-model} muestra dos  procesos que comparten
+el  marco de página física   número 4.  Para  el proceso  {\em X} esta
+página  representa   el su  marco de   página   virtual número cuatro,
+mientras que para el proceso {\em Y} es el número 6.  Esto ilustra una
+interesante cuestión que  aparece al   compartir páginas: la   memoria
+física compartida no  tiene  porqué  estar en las  mismas  direcciones
+sobre memoria virtual en todos los procesos que la comparten.
+
+
+
+\subsection{Modos de direccionamiento físico y virtual}
+No tiene  mucho  sentido que  el  propio sistema operativo  se ejecute
+sobre  memoria virtual. Sería una  verdadera  pesadilla que el sistema
+operativo tuviera que mantener  tablas  de página  para él  mismo.  La
+mayoría de  los    procesadores  de  propósito  general  ofrecen    la
+posibilidad del    modo   de   direccionamiento   físico   junto   con
+direccionamiento virtual.  El    modo de direccionamiento  físico   no
+necesita las tablas  de páginas  y  el procesador no  intenta realizar
+ningún  tipo de traduccines en  este  modo.  El  núcleo de Linux  está
+preparado para funcionar sobre un espacio de direccionamiento físico.
+
+
+\index{Direcciones del núcleo, \axp}
+El procesador  \axp\  no tiene un   modo especial de  direccionamiento
+físico.  Lo que hace es dividir el espacio  de memoria en varias áreas
+y designa a dos de ellas como direcciones  físicas.  A este espacio de
+direcciones del núcleo se le conoce como espacio de direcciones KSEG y
+contiene    todas       las   direcciones   a        partir    de   la
+\hex{fffffc0000000000}. Para poder ejecutar   código enlazado en  KSEG
+(por definición, el código del núcleo) o acceder a datos de esta zona,
+el código debe ejecutarse en modo núcleo.  El núcleo de Linux en Alpha
+está enlazado para ejecutarse a partir de la dirección
+\hex{fffffc0000310000}.
+
+
+\subsection{Control de acceso}
+\index{Control de Acceso de Páginas}
+
+Las   entradas de la  tabla  de  páginas también contienen información
+relativa al control de  acceso.   Puesto que  el procesador tiene  que
+utilizar la información  de la  tabla  de  páginas para traducir   las
+direcciones virtuales a direcciones físicas, puede fácilmente utilizar
+la información  de control de acceso para  comprobar que el proceso no
+está accediendo a memoria de forma apropiada.
+
+Hay muchas razones por las que se  puede querer restringir el acceso a
+determinadas  áreas de memoria.  Hay  memoria, como la que contiene el
+ejecutable, que  es claramente  memoria  de sólo lectura;  el  sistema
+operativo no ha de dejar que el proceso escriba sobre su propio código
+de programa. Por el contrario,  páginas de memoria que contengan datos
+han de poder ser  leídas y escritas, pero un  intento de ejecutar algo
+de estas páginas ha fallar.  La  mayoría de los procesadores tienen al
+menos dos modos de operación: {\em modo  núcleo} y {\em modo usuario}.
+No es deseable que un proceso ejecute  código del núcleo, o que acceda
+a datos  del núcleo excepto cuando el  procesador  está funcionando en
+modo núcleo.
+
+
+\index{Alpha AXP PTE}
+\index{PTE, Alpha AXP}
+\begin{figure}
+\begin{center}
+{\centering \includegraphics{mm/pte.eps} \par}
+\end{center}
+\caption{Entrada de tabla de páginas del \axp}
+\label{axp-pte-figure}
+\end{figure}
+
+
+La información  de   control de  acceso se   guarda  en la  PTE  y  es
+dependiente el procesador;  la  figura~\ref{axp-pte-figure} muestra el
+PTE   del \axp.   Los bits   que  aparecen tienen  el siguiente
+significado:
+\begin{description}
+    \item[V] Valido, si está activado, la PTE es valida;
+
+    \item[FOE]  ``Fault on  Execute'', cuando se  intente ejecutar una
+    instrucción de esta página, el procesador informará de un fallo de
+    página y dará el control al sistema operativo;
+
+    \item[FOW] ``Fault  on Write'' como   el anterior pero  el fallo  de
+    página se produce cuando se intenta escribir sobre alguna posición
+    de memoria de la página.
+
+    \item[FOS] ``Fault  on Read''  como  el anterior   pero el fallo  de
+    página se produce cuando se intenta leer de esta página.
+
+    \item[ASM]   ``Address Space Match''. Este   se  utiliza cuando el sistema
+    operativo quiere eliminar solo algunas de las entradas de la Tabla
+    de Traducción (Translation Table);
+    
+    \item[KER] Solo el código ejecutado en modo núcleo puede leer esta
+    página;
+
+    \item[URE]  Código  ejecutado en  modo   usuario  puede leer  esta
+    página;
+
+    \item[GH]  ``Granularity Hint'' utilizado  para asociar  un bloque
+    completo con una sola entrada del buffer de traducción en lugar de
+    con varias.
+
+    \item[KWE] Código ejecutado   en modo núcleo  puede   escribir en esta
+    página;
+
+    \item[UWE] Código ejecutado en  modo  usuario puede escribir en   esta
+    página;
+
+    \item[PFN] Para páginas con el  bit \textbf{V} activado, este campo
+    contiene  la dirección física del número  de marco  de página para
+    esta PTE. Para  PTE invalidas, si el   campo es distinto de  cero,
+    contiene información a  cerca de dónde  está la  página en memoria
+    secundaria. \index{número de marco de página}
+\end{description}
+
+Los siguientes dos bits los define y utiliza Linux:
+
+\begin{description}
+  \item [\_PAGE\_DIRTY] si activado, la  página necesita ser copiada a
+  disco;
+          \index{\_PAGE\_DIRTY, bit en \axp\ PTE}
+
+  \item [\_PAGE\_ACCESSED] Utilizada por Linux  para marcar una página
+  como accedida.  
+        \index{\_PAGE\_ACCESSED, bit en \axp\ PTE}
+\end{description}
+
+\section{Caches}
+Si    implementáramos un  sistema utilizando  el    modelo teórico que
+acabamos  de  describir,   obviamente   funcionaria,  pero no    sería
+particularmente   eficiente.   Tanto   los   diseñadores de   sistemas
+operativos  como los de  procesadores,   se esfuerzan al máximo   para
+obtener el mayor rendimiento posible del sistema.  Además de hacer los
+procesadores, la memoria  y  otros dispositivos más  rápidos  la mejor
+forma  de  obtener un  buen   rendimiento consiste  en mantener   en
+memorias   caches  la información que se utiliza muy a menudo.
+Linux  emplea unas cuantas caches para la gestión de la memoria:
+
+
+\begin{description}
+        \item  [Buffer Cache]    Contiene  buffers de  datos  que  son
+        utilizados  por   los    manejadores    de   dispositivos   de
+        bloques.\SeeModule{fs/\-buffer.c}  Estos buffers son de tamaño
+        fijo    (por ejemplo  512    bytes) y   contienen  bloques  de
+        información que  ha  sido bien   leída de un   dispositivo  de
+        bloques o que ha de ser escrita.  Un dispositivo de bloques es
+        un dispositivo sobre el que sólo se pueden realizar operaciones
+        de lectura o escritura de  bloques de tamaño fijo.  Todos  los
+        discos duros son dispositivos de bloque.
+
+        El  cache   buffer   está indexado  vía   el  identificador de
+        dispositivo  y el   número  de bloque deseado,   índice que es
+        utilizado para  una   rápida  localización del  bloque.    Los
+        dispositivos de  bloque son  exclusivamente accedidos a través
+        del buffer cache. Si un dato (bloque) se puede encontrar en el
+        buffer cache, entonces  no es necesario leerlo del dispositivo
+        de bloques físico, por el disco duro, y por tanto el acceso es
+        mucho más rápido. 
+
+
+
+        \item [Cache de Páginas]
+\index{Cache de Páginas}
+\index{Páginas, Cache}
+        Este se utiliza para acelerar el acceso a  imágenes y datos en
+        disco.  \SeeModule{mm/\-filemap.c}  Se utiliza para guardar el
+        contenido lógico de un fichero de página en página y se accede
+        vía el    fichero  y el  desplazamiento dentro    del fichero.
+        Conforme  las páginas se leen en  memoria, se  almacenan en la
+        page cache.
+
+
+        \item [Cache de Intercambio] 
+\index{Cache de Intercambio}
+\index{Cache, intercambio}
+        Solo las páginas que han sido modificadas (\textit{dirty}) son
+        guardadas   en el fichero   de intercambio.  
+        \SeeModule{swap.h, mm/\-swap\_state.c  mm/\-swapfile.c} 
+
+        Mientras no  vuelvan a ser  modificadas  después de haber sido
+        guardadas en el fichero de swap,  la próxima vez que necesiten
+        ser  descartadas (swap  out) no  será  necesario copiarlas  al
+        fichero de intercambio pues ya están allí.  Simplemente se las
+        elimina.   En un sistema con  mucho trasiego  de páginas, esto
+        evita muchas operaciones de disco innecesarias y costosas.
+
+
+
+        \item [Caches Hardware] 
+\index{Translation lookaside buffer}
+\index{TLB, translation lookaside buffer}
+        Es una cache normalmente implementada en el propio procesador;
+        la  cache de entradas de  tabla  de página.   En este caso, el
+        procesador  no necesita siempre   leer   la tabla de   páginas
+        directamente, sino que guarda en  esta cache las  traducciones
+        de las   páginas conforme las va    necesitando. Estos son los
+        Translation Look-aside Buffers (TLB)  que contienen  copias de
+        las entradas de la tabla de páginas de uno  o más procesos del
+        sistema.
+
+
+        Cuando  se hace la   referencia  a una dirección  virtual,  el
+        procesador intenta encontrar en  el TLB la entrada  para hacer
+        la traducción a memoria física.  Si la encuentra, directamente
+        realiza la traducción y   lleva a cabo  la operación.   Si  el
+        procesador no puede encontrar  la TPE buscada, entonces  tiene
+        que  pedir ayuda al sistema  operativo.  Esto lo hace enviando
+        una señal  al sistema operativo indicando  que se ha producido
+        un fallo de TLB\footnote{N.T.: En el i386  un fallo de una TLB
+        no  produce  una invocación  al  procesador, sino  que el i386
+        accede a memoria principal para buscar la  entrada en la tabla
+        correspondiente.   Si   al  acceder   a  memoria principal  no
+        encuentra una entrada valida,  entonces sí se produce un Fallo
+        de Página    que    es  enviado  al    S.O.     (mediante  una
+        interrupción).}. Un mecanismo específico al sistema se utiliza
+        para enviar esta excepción al código del sistema operativo que
+        puede arreglar la situación.  El  sistema operativo genera una
+        nueva  entrada  de  TLB   para  la  dirección  que   se estaba
+        traduciendo.  Cuando  la excepción termina, el procesador hace
+        un nuevo  intento de traducir  la dirección virtual.  Esta vez
+        tendrá éxito puesto  que ahora ya  hay  una entrada en la  TLB
+        para esa dirección.
+
+\end{description}
+El inconveniente de utilizar   memorias cache, tanto hardware  como de
+otro tipo, es que  para evitar esfuerzos Linux  tiene que utilizar más
+tiempo y espacio para  mantenerlas y, si se  corrompe su contenido, el
+sistema dejará de funcionar.
+
+\section{Tablas de Páginas en Linux}
+\index{Tablas de Páginas}
+\begin{figure}
+\begin{center}
+{\centering \includegraphics{mm/page-tables.eps} \par}
+\end{center}
+\caption{Tablas de páginas de tras niveles}
+\label{linux-page-tables-figure}
+\end{figure}
+
+
+Linux supone que hay tres niveles de tablas  de páginas. Cada nivel de
+tablas contiene el número de marco de página del siguiente nivel en la
+tabla  de  páginas.  La figura~\ref{linux-page-tables-figure}  muestra
+cómo una  dirección virtual se  divide en  un número de  campos, donde
+cada uno de ellos representa un desplazamiento dentro  de una tabla de
+páginas.    Para  traducir  una  dirección  virtual a   una física, el
+procesador tiene que  tomar el contenido  de cada uno de estos campos,
+convertirlos en desplazamientos  de la página  física  que contiene la
+tabla de  páginas y leer  el número  de marco  de página del siguiente
+nivel de la  tabla de páginas.   Esta operación  se repite  tres veces
+hasta que se encuentra el número  de la página  física que contiene la
+dirección virtual.   Ahora el último campo de  la dirección virtual se
+utiliza para encontrar el dato dentro de la página.
+
+Cada plataforma sobre la que funciona Linux tiene que proporcionar las
+macros  que permitan al núcleo atravesar  las tablas de página de cada
+proceso.  De  esta forma, el núcleo no  necesita conocer el formato de
+las entradas de la tabla de páginas ni cómo éstas se organizan.
+\SeeModule{include/\-asm/\-pgtable.h}
+Esto es tan útil que Linux utiliza el mismo código de gestión de
+tablas de páginas en un procesador Alpha, que tiene tres niveles de
+tablas de páginas, que en un Intel x86, que sólo tiene dos niveles de tablas.
+
+
+\section{Asignación y liberación de páginas}
+
+
+Se producen muchas peticiones  de páginas físicas. Por ejemplo, cuando
+una imagen se carga a  memoria,  el sistema operativo necesita  asignar
+páginas. Éstas serán liberadas  cuando la imagen concluya su ejecución
+y se  descargue.  Otro   uso  de  páginas   físicas es  para  contener
+estructuras   de datos específicas   tales como las  propias tablas de
+páginas.  Los programas y las estructuras de datos relacionados con la
+asignación  y liberación de páginas  son quizás  los más críticos para
+obtener un subsistema de memoria virtual eficiente.
+
+Todas las   páginas   físicas del  sistema    están  descritas por  la
+estructura  \ds{mem\_map}  que    es  una  lista  de   estructuras del  tipo
+\ds{mem\_map\_t},
+\SeeModule{include/\-linux/\-mm.h}
+\footnote{Confusamente  conocida como la  estructura \textit{page}},
+ la  cual es inicializada  al arrancar del sistema.
+Cada   \ds{mem\_map\_t}  describe una  sola página física.  Los campos
+más importantes son (en lo relativo a la gestión de memoria):
+
+
+\begin{description}
+        \item[count]  Contador   del  número  de   usuarios de  esta
+      página. El valor del contador es  mayor que uno cuando la página
+      es compartida por varios procesos.
+        \item[age] Este campo describe la antigüedad de la página, y
+      se utiliza para decidir si la página es una buena candidata para
+      ser descartada o enviada a disco.
+        \item[map\_nr] Número de marco de página física que describe
+        esta estructura \ds{mem\_map\_t}.
+\end{description}
+
+El vector \dsni{free\_area}\index{vector  free\_area} es utilizado por
+el  código de asignación  de páginas  para  encontrar  páginas libres.
+Todo   el esquema  de gestión   de  buffers  está  soportado por  este
+mecanismo  y  desde el punto   de vista del  código,  el tamaño de las
+páginas  y los  mecanismos  de  paginación  física  utilizados por  el
+procesador son irrelevantes.
+
+Cada elemento  de \dsni{free\_area}\index{vector free\_area}  contiene
+información sobre  bloques de páginas.   El primer elemento del vector
+describe páginas  simples,  el  siguiente bloques   de  2 páginas,  el
+siguiente bloques de 4 páginas y así creciendo  en potencias de 2.  El
+elemento \dsni{list} se utiliza  como   cabeza  de una cola   que
+contiene punteros  a      la estructura  \ds{page}   del    vector
+\ds{mem\_map}.  Los bloques de   páginas libres se  encolan aquí.
+\dsni{map} es un puntero a un mapa de bits  que mantiene un registro
+de los grupos de páginas  de este tamaño.  El  bit N del mapa de  bits
+está a uno si el ene-avo bloque de páginas está libre.
+
+La        Figura~\ref{free-area-figure}     muestra la      estructura
+\dsni{free\_area}\index{free\_area vector}.  El elemento  0 tiene una  
+página libre (número de marco de página cero) y  el elemento 2 tiene 2
+bloques  de 4  páginas libres,  el  primero  comienza en  el número de
+página 4 y el segundo en el número de marco 56.
+
+
+\subsection{Asignación de páginas}
+\index{Asignación de páginas}
+ Linux utiliza   el  algoritmos  Buddy\footnote{Bibliography reference
+ here} para  asignar y liberar eficientemente  bloques  de páginas. El
+ código de asignación
+\SeeCode{\_\_get\_free\_pages()}{mm/\-page\_alloc.c}
+intenta asignar un  bloque de una  o más páginas físicas.  Las páginas
+se asignan en bloques de tamaño potencia  de 2.  Esto quiere decir que
+puede  asignar bloques   de 1,  2,  4,   etc páginas.  Mientras   haya
+suficientes páginas libres en el sistema para satisfacer esta petición
+(\(nr\_free\_pages   >  min\_free\_pages\))  el  código  de asignación
+buscará  en el  \dsni{free\_area}\index{free\_area  vector} bloques de
+páginas       del    tamaño     pedido.      Así,     elemento     del
+\dsni{free\_area}\index{free\_area vector} tiene un mapa de bloques de
+páginas asignados y libres para ese  tamaño de bloque. Por ejemplo, el
+elemento  2 del  vector tiene un   mapa  de memoria  que  describe los
+bloques de 4 páginas libres y asignados.
+
+El algoritmo de asignación busca  primero entre los bloques de páginas
+de igual tamaño que el pedido. Luego  sigue la lista de páginas libres
+que está encolada   en el elemento  \textit{list} de  la estructura de
+datos   \dsni{free\_area}\index{free\_area   vector}.  Si no encuentra
+ningún  bloque de páginas del  tamaño  pedido libre, entonces busca en
+los siguientes  (los cuales son del  doble  del tamaño  pedido).  Este
+proceso  continua   hasta  que     bien  todos   los    elementos   de
+\dsni{free\_area}\index{free\_area vector} han sido  examinados o bien 
+se he encontrado un bloque de páginas libres.  Si el bloque de páginas
+encontrado es mayor que el pedido, entonces  se trocea hasta conseguir
+un bloque del tamaño deseado.  Puesto que el número de páginas de cada
+bloque es  potencia  de 2, simplemente  dividiendo  el bloque  en  dos
+tenemos dos  bloques con     un  tamaño de    bloque    inmediatamente
+inferior. Los  bloques libres se  insertan en la  cola apropiada  y el
+bloque de páginas asignado se devuelve al que realizó la llamada.
+
+
+
+\index{estructura de datos free\_area}
+\index{free\_area, estructura de datos}
+\begin{figure}
+\begin{center}
+{\centering \includegraphics{mm/free-area.eps} \par}
+\end{center}
+\caption{La estructura de datos \dsni{free\_area}\index{free\_area vector}}
+\label{free-area-figure}
+\end{figure}
+
+Por ejemplo, en la figura~\ref{free-area-figure} si  se pide un bloque
+de 2 páginas, el primer bloque de 4 páginas (que comienza en el número
+de  marco de  página  4) tendrá que  ser troceado  en 2  bloques  de 2
+páginas. El primero, que  comienza en el número  de marco de página 4,
+será devuelto  como  las páginas asignadas  y  el segundo bloque,  que
+comienza en el número de marco de página  6, será insertado en la cola
+en el elemento 1 del vector \dsni{free\_area}\index{free\_area vector}
+como un bloque de 2 páginas libres.
+
+
+
+\subsection{Liberación de páginas}
+\index{Liberación de páginas}
+Asignar bloques  de páginas tiende a  fragmentar la memoria al dividir
+los bloques grandes para conseguir bloques más  pequeños. El código de
+liberación de páginas
+\SeeCode{free\_pages()}{mm/\-page\_alloc.c}
+re-combina páginas    en  bloques de  mayor    tamaño siempre   que es
+posible.  De hecho, el  tamaño de bloque de  página es importante pues
+facilita la recombinación en bloques grandes.
+
+Siempre que se libera un bloque de páginas, se comprueba si está libre
+el bloque adyacente de  igual tamaño.  Si es   así, se combina con  el
+bloque de  páginas  recién  liberado  para formar  un bloque  nuevo de
+tamaño doble. Cada vez que dos bloques de páginas se recombinan en uno
+mayor,  el algoritmo de   liberación intenta volver  a recombinarlo en
+otro aún mayor. De esta  forma, los bloques  de páginas libres son tan
+grandes como la utilización de la memoria permita.
+
+Por ejemplo,  en la  figura~\ref{free-area-figure},   si el marco   de
+página número 1 fuera  liberado, entonces éste  sería combinado con el
+número de marco de página 0, que ya está libre, e insertado en la cola
+del elemento 1   de  la estructura  \dsni{free\_area}\index{free\_area
+vector} como un bloque libre con un tamaño de 2 páginas.
+
+\section{Proyección de Memoria (Memory Mapping)}
+\index{Proyección de Memoria}
+\index{Memoria, Proyeccuón}
+Cuando se  ejecuta programa, el contenido  del fichero imagen se ha de
+copiar al espacio de memoria virtual del proceso.  Lo mismo sucede con
+cualquier biblioteca compartida  que el proceso necesite.  El  fichero
+ejecutable realmente no se lleva  a memoria física, sino que solamente
+se enlaza  en la memoria virtual del  proceso.  Luego, conforme partes
+del programa son  referenciadas por la  ejecución de la aplicación, la
+imagen es  llevada  a memoria física  desde la  imagen del ejecutable.
+Este tipo de  enlazado de una imagen sobre  el espacio  de direcciones
+virtuales de un proceso se conoce como "proyección de memoria".
+
+
+
+
+\begin{figure}
+\begin{center}
+{\centering \includegraphics{mm/vm_area.eps} \par}
+\end{center}
+\caption{Areas de Memoria Virtual}
+\label{vm-area-struct}
+\end{figure}
+
+
+La memoria virtual de cada proceso está representado por la estructura
+de  datos \ds{mm\_struct}.  Ésta  contiene información sobre la imagen
+que actualmente  se está ejecutando (por   ejemplo \eg{bash}) así como
+punteros  a  unas  cuantas   estructuras \ds{vm\_area\_struct}.   Cada
+estructura de datos \ds{vm\_area\_struct} describe el  inicio y fin de
+un área  de  memoria virtual,   los  permisos del proceso  sobre  esta
+memoria y   el  conjunto de operaciones   para  gestionar  la.   Estas
+operaciones son  el conjunto de rutinas  que  Linux tiene que utilizar
+para manipular esta área de memoria virtual.   Por ejemplo, una de las
+operaciones de memoria  virtual lleva a  cabo  las acciones necesarias
+cuando   el  proceso ha intentado acceder   a  la memoria virtual pero
+encuentra (debido a    un fallo de página)  que   la memoria  no  está
+realmente en memoria física.   Esta es la operación  {\em nopage}.  La
+operación  {\em  nopage} se emplea  cuando   Linux pide páginas de  un
+fichero ejecutable a memoria.
+
+Cuando  una  imagen   ejecutable se  proyecta  sobre  las  direcciones
+virtuales de un proceso se generan un conjunto de estructuras de datos
+\ds{vm\_area\_struct}. Cada estructura de éstas representa una parte de
+la imagen  del ejecutable; el  código  ejecutable, datos inicializados
+(variables), datos no inicializados y demás.  Linux tiene unas cuantas
+operaciones de  memoria  virtual  estándar,  y  cuando se   crean  las
+estructuras de datos \ds{vm\_area\_struct}, el conjunto de operaciones
+correcto se asocia con ésta.
+
+
+
+\section{Paginación por Demanda}
+\index{Demanda, Paginación}
+\index{Paginación por Demanda}
+Una  vez  una imagen ejecutable  ha  sido proyectada  sobre la memoria
+virtual de un  proceso, éste puede  comenzar su ejecución.  Puesto que
+solo el principio  de la imagen ha  sido realmente copiado en  memoria
+física, rápidamente el programa accederá a una área de memoria virtual
+que todavía  no ha sido llevada  a memoria física.  Cuando  un proceso
+accede a  una dirección virtual que no  tiene una entrada valida en la
+tabla  de páginas, el procesador informará  sobre el fallo de página a
+Linux.
+\SeeCode{handle\_mm\_fault()}{mm/\-memory.c}
+El fallo  de de página  indica  la dirección virtual donde  se
+produjo el fallo de página y el tipo de acceso que lo causó.
+
+
+Linux debe encontrar la  \ds{vm\_area\_struct} que representa  el área
+de memoria  donde sucedió el fallo de  página.  Puesto que la búsqueda
+por las estructuras de datos  \ds{vm\_area\_struct} es crítica para la
+gestión  eficiente de los  fallos de páginas,  éstas están organizadas
+juntas en un estructura de árbol AVL  (Adelson-Velskii and Landis). Si
+no hay ninguna   estructura \ds{vm\_area\_struct}  para  la  dirección
+virtual que produjo el fallo de página entonces el proceso ha accedido
+a una  dirección de memoria virtual ilegal.   Linux enviará al proceso
+la  señal  \texttt{SIGSEGV},  y si  el  proceso  no  ha  instalado  un
+manejador de señales para esta señal entonces morirá.
+
+
+Lo siguiente que hace  Linux es comprobar el tipo  de fallo de  página
+producido  y los tipos de  acceso permitidos para  el  área de memoria
+virtual en cuestión.  Si el proceso ha  intentado acceder a la memoria
+de forma ilegal, por ejemplo intentando escribir  sobre una área de la
+que  sólo tenía permisos de  lectura,  también se  señala  un error de
+memoria.
+
+Ahora que Linux ha determinado que el fallo de  página es legal, tiene
+que tratarlo.  
+\SeeCode{do\_no\_page()}{mm/\-memory.c}
+Linux ha de diferenciar  entre páginas que están  en un
+fichero  de    intercambio y aquellas  que  son   parte  de una imagen
+ejecutable   localizadas  en algún  lugar    del disco.  Esto lo  hace
+utilizando la entrada en la tabla de páginas de la página que causó el
+fallo.
+
+Si la entrada de la  tabla de páginas es  invalida pero no está vacía,
+el fallo de página se debe a que la página está en esos momentos en un
+fichero de  intercambio.  Estas entradas se  identifican  en el \axp\,
+porque  no tienen el  bit  de  valido activado  pero  tienen un  valor
+distinto de cero en el campo PFN. En  este caso, el campo PFN contiene
+información sobre dónde se encuentra la página: fichero de intercambio
+y posición   dentro  de éste.  Cómo  se  gestionan  las páginas  en un
+fichero de   intercambio  se describirá más    adelante  en este mismo
+capítulo.
+
+No todas las  estructuras \ds{vm\_area\_struct} tienen un conjunto  de
+operaciones de  memoria  virtual e incluso  éstas  pueden no tener  la
+operación  {\em  nopage}.   Esto es debido  a   que por defecto  Linux
+gestiona los accesos  asignando una página de  memoria física  nueva y
+creando   para ésta  la    correspondiente  entrada  en la    tabla de
+páginas. Si no hay operación de {\em nopage} para esta área de memoria
+virtual, Linux hará esto último.
+
+La    operación      genérica     de   {\em     nopage}     de   Linux
+\SeeCode{filemap\_nopage()}{mm/\-filemap.c} se utiliza  para    proyectar
+imágenes  ejecutables y utiliza la   cache  de páginas  para traer  la
+página imagen requerida a memoria física.  
+
+
+Cuando la  página necesitada es cargada en  memoria física, las tablas
+de páginas del proceso son actualizadas.  Puede ser necesario realizar
+determinadas acciones especificas del  hardware para  actualizar estas
+entradas, en  particular si el  procesador utilizar buffers  cache TLB
+(Translatión Look-aside Buffer). Ahora que  el problema con la  página
+que produjo el fallo ha sido resuelto, se  puede olvidar el percance y
+el proceso puede continuar su ejecución en  la instrucción que produjo
+el fallo de página.
+
+
+
+
+\section{La Cache de Páginas de Linux}
+\index{Cache de Páginas}
+\index{Páginas, Cache}
+\begin{figure}
+\begin{center}
+{\centering \includegraphics{mm/page-cache.eps} \par}
+\end{center}
+\caption{La Cache de Páginas de Linux}
+\label{page-cache-figure}
+\end{figure}
+
+El cometido  de la cache  de páginas  en  Linux es  el de  acelerar el
+acceso    a los fichero de  disco.    Las lecturas  sobre los ficheros
+proyectados en memoria se realizan página  a página y estas páginas se
+guardan en la   cache de  páginas. La  Figura~\ref{page-cache-figure}
+muestra    que   la    cache     de     páginas   consta   de       la
+\dsni{page\_hash\_table}\index{page\_hash\_table}    y    un vector de
+punteros a estructuras \ds{mem\_map\_t}.
+\SeeModule{include/\-linux/\-pagemap.h}
+Cada fichero en Linux se identifica  por una estructura \ds{inode} VFS
+(descrita en el Capítulo~\ref{filesystem-chapter}) cada \ds{inode} VFS
+es único y describe a un y solo un fichero.   El índice en la tabla de
+páginas se  construye  a partir del  \ds{inode}  VFS del fichero  y el
+desplazamiento dentro de éste.
+
+Siempre que se lee en una página de  un fichero proyectado en memoria,
+por ejemplo  cuando  se necesita traer a  memoria  una página desde un
+fichero  de intercambio,  la página se  lee  a través de  la  cache de
+páginas.  Si  la  página está presente en   la  cache, se devuelve  un
+puntero  a  la  estructura de datos   \ds{mem\_map\_t} a  la rutina de
+tratamiento de fallos  de página.  En caso  contrario, la página se ha
+de  traer a memoria   desde el sistema  de   ficheros que contiene  la
+imagen.  Linux asigna  una página  física   y lee la página  desde  el
+fichero del disco.
+
+Si es posible, Linux comenzará una lectura de  la siguiente página del
+fichero. Con  esta página de  adelanto se  consigue que si  el proceso
+está accediendo  las paginas de forma  secuencial, la siguiente página
+esté lista y esperando en memoria la petición del proceso.
+
+Con el tiempo, la cache de páginas va  creciendo conforme las imágenes
+se  leen y ejecutan.   Las páginas han  de  ser eliminadas de la cache
+cuando  dejan de utilizarse, por  ejemplo  cuando una  imagen ya no es
+utilizada por  ningún proceso.  Conforme  Linux  utiliza memoria puede
+comenzar  a escasear las páginas  de memoria física. En esta situación
+Linux reducirá el tamaño de la cache de páginas.
+
+
+\section{Intercambiando y Liberando Páginas}
+\index{Intercambio}
+Cuando queda poca memoria física, el subsistema de gestión de memoria
+de Linux tiene  que intentar  liberar  páginas físicas. Este trabajo es 
+realizado por el demonio  de
+intercambio del  núcleo  (\textit{kswapd}).
+\index{Demonio de Intercambio}
+\index{Intercambio, Demonio}
+El demonio de  intercambio del núcleo es  un tipo especial de proceso,
+un hilo de ejecución del núcleo (kernel thread).  Los hilos del núcleo
+son  procesos  que no  tienen memoria  virtual,  en lugar  de ello, se
+ejecutan en modo núcleo en el espacio de memoria física.  Su misión es
+la  de garantizar  que haya suficientes  páginas libres  en el sistema
+para    mantener   al  sistema de   gestión    de  memoria funcionando
+eficientemente.
+
+
+El demonio de intercambio (\textit{kswapd}) es puesto en marcha por el
+proceso  init  del  núcleo  durante el arranque  de   Linux y se queda
+esperando al temporizador  del swap del núcleo a  que lo  despierte de
+forma periódica.
+\SeeCode{kswapd()}{mm/\-vmscan.c}
+Cada  vez  que expira  el  temporizador,   el demonio  de  intercambio
+comprueba que el número de páginas libres no  sea demasiado
+bajo. Utiliza dos variables,  \textit{free\_pages\_high} y
+\textit{free\_pages\_low} para decidir si ha de liberar algunas
+páginas. Mientras el número de páginas  libres del sistema se mantenga
+por encima de \textit{free\_pages\_high}, el demonio de intercambio no
+hace nada; se  duerme hasta que  vuelva a despertarlo el temporizador.
+Linux no quiere enviar a disco de  intercambio demasiadas páginas a la
+vez, por lo que en \textit{nr\_async\_pages} lleva la cuenta de cuantas
+páginas  están  en  ese   momento  siendo    copiadas al   fichero   de
+intercambio. \textit{nr\_async\_pages} es  incrementado cada vez que se
+encola  una página para  ser escrita  en el fichero  de intercambio, y
+decrementado cuando ha concluido la escritura.
+
+Los valores  de\textit{free\_pages\_low}  y \textit{free\_pages\_high}
+se asignan al arrancar el sistema en función del  número de páginas de
+memoria física   del sistema.  
+
+Si hay suficientes páginas libres, el demonio de intercambio se vuelve
+a dormir hasta que el temporizador vuelva a  expirar otra vez, en caso
+contrario,el  demonio intenta  de   tres formas distintas   reducir el
+número de  páginas físicas ocupadas:  
+
+\begin{description}
+        \item Reduciendo el tamaño de la cache de páginas y el buffer
+        cache
+        \item Enviando a disco páginas compartidas,
+        \item Enviando a disco o descartando páginas.
+\end{description}
+Si el número de páginas libres ha caído por debajo de
+\textit{free\_pages\_low}, el demonio de intercambio intentará liberar 
+6 páginas antes de su próxima ejecución.  En caso contrario, intentará
+liberar 3 páginas.  Los métodos  anteriores se intentan uno tras  otro
+de  hasta  que  se  consiguen  liberar  suficientes páginas.  Luego el
+demonio de intercambio se suspende  hasta que el temporizador vuelva a
+expirar. El demonio recuerda cuál fue el último método que empleó para
+liberar páginas, y la próxima vez que  se ejecuta lo vuelve a intentar
+con el mismo método que tuvo éxito.
+
+Tras haber  liberado suficientes páginas, el   demonio se duerme hasta
+que el  temporizador lo vuelva a  despertar.  Si el número  de páginas
+libres había caído por debajo de \textit{free\_pages\_low}, el demonio
+de intercambio sólo dormirá la mitad de su tiempo normal. Sólo volverá
+a dormir el  tiempo normal cuando  consiga que  el número  de páginas
+libres esté por encima de \textit{free\_pages\_low}.
+
+
+\subsection{Reduciendo el tamaño de la Cache de Páginas y el Buffer Cache}
+\index{Mapa de Memoria, reducción de tamaño}
+
+
+Las  páginas  de la  cache de  páginas  y del  buffer cache son buenos
+candidatos   a  ser   liberados   en  el   vector    \dsni{free\_area}
+\index{free\_area vector}. La  Cache de Páginas, que contiene  páginas
+de ficheros proyectados a memoria, puede contener páginas innecesarias
+que están saturando el sistema de memoria. Igualmente, el Buffer Cache
+que contiene buffers  leídos desde o  escritos a dispositivos físicos,
+también  puede    contener  buffers innecesarios.     Cuando comienza a
+escasear   las páginas de   memoria física, liberar   páginas de estas
+caches es  relativamente sencillo pues  no se necesita  escribir sobre
+dispositivos físicos (a diferencia  de cuando se intercambian  páginas
+fuera de memoria).  Descartando    estas páginas no   tiene demasiados
+efectos laterales negativos, excepto  reducir un  poco la velocidad  de
+acceso de los ficheros proyectados en memoria. Se han de descartar las
+páginas de estas caches  de forma justa   para asegurar que todos  los
+procesos se degradan equitativamente.
+
+
+Cada vez que el demonio de intercambio intenta reducir el tamaño de
+estas caches
+\SeeCode{shrink\_mmap()}{mm/\-filemap.c}
+examina un bloque de páginas del vector de páginas  \dsni{mem\_map}\index{mem\_map
+page vector} para ver si se puede liberar alguna de memoria física. 
+La cantidad de páginas examinadas es mayor si el demonio de
+intercambio está haciendo muchos intercambios; esto es, si el número
+de páginas libres ha caído peligrosamente. los bloques de páginas son
+examinados de forma cíclica, se examina un bloque de páginas en cada
+intento de reducción del mapa de memoria. Este esquema se conoce como
+el {\em algoritmo del reloj} (clock algorthim), al igual que  la manecilla de
+de minutos de un reloj de pulsera, todo el vector de
+\dsni{mem\_map}\index{mem\_map page vector} es examinado poco a poco.
+
+Cada página que se examina, se comprueba si está en alguna de las
+dos caches. Es importante destacar que las páginas compartidas no son consideradas en
+este momento para ser descartadas, y que una página no puede estar en
+las dos caches al mismo tiempo. Si la página candidato no está en
+ninguna de las dos tablas, entonces se pasa a examinar la siguiente
+página del vector \dsni{mem\_map}\index{mem\_map page vector}.
+
+Las páginas se guardan en el buffer cache (o mejor dicho, los buffers
+con las páginas son guardados) para hacer que la asignación de
+liberación sea más eficiente. El código de reducción del mapa de
+memoria intenta liberar los buffers contenidos en la página que se
+está examinando.
+
+Si se consigue liberar todos los buffers, entonces las páginas que los 
+contenían también son liberadas. 
+\SeeCode{try\_to\_\\free\_buffer()}{fs/\-buffer.c}
+Si la página considerada está en la
+cache de páginas, se elimina de esta cache y se libera.
+
+Cuando se ha liberado suficientes páginas en un intento, el demonio de 
+intercambio del núcleo se suspende hasta que llegue el siguiente
+instante de activación periódico. Si no ha sido capaz de liberar
+suficientes páginas entonces el demonio pasa a intentar liberar
+paginas compartidas.
+
+\subsection{Intercambio de Páginas compartidas (System V Shared Memory
+Pages)}
+
+El esquema de compartición de memoria de System V es un mecanismo de de 
+comunicación entre procesos que permite que dos procesos compartan un
+espacio de memoria virtual para intercambiarse información entre
+ellos. La forma en la que la memoria es compartida está descrito con
+más detalle en el Capítulo~\ref{IPC-chapter}. Por ahora es suficiente
+con decir que cada área de memoria compartida System V está descrita
+por una estructura de datos \ds{shmid\_ds}. Esta contiene un puntero a 
+una lista de estructuras \ds{vm\_area\_struct}, una por cada proceso
+que comparte esta área de memoria virtual. Cada  \ds{vm\_area\_struct} 
+de memoria compartida System V están enlazadas  una lista
+mediante los punteros \dsni{vm\_next\_shared}  y
+\dsni{vm\_prev\_shared}.  Cada estructura \ds{shmid\_ds} también contiene
+una lista de entradas de tabla de página, cada una de las cuales
+describe la página física sobre la que esta asociada una página de
+memoria virtual compartida.
+
+El demonio de intercambio del núcleo también utiliza el algoritmo del
+reloj para intercambiar las páginas compartidas System V.
+\SeeCode{shm\_swap()}{ipc/\-shm.c}.
+Cada vez que se ejecuta, recuerda cuál fue la última página de memoria 
+virtual compartida que intercambió. Para lo cual utiliza dos índices,
+el primero es un índice al conjunto de estructuras  \ds{shmid\_ds}, el
+segundo apunta a la lista de entradas de tablas de páginas de esta
+área de memoria compartida System V. De esta forma se asegura que
+todas las áreas de memoria compartida tienen la misma probabilidad de
+ser intercambiadas.
+
+Puesto que el número de marco de página físico de cada página virtual
+compartida aparece en las tablas de páginas de todos los procesos que
+comparten el área, el demonio de intercambio ha de modificar todas
+estas tablas de páginas para indicar que la página ya no se encuentra
+en memoria, sino que ahora está en un fichero de intercambio. Para
+cada página de memoria compartida que se intercambia, el demonio de
+intercambio busca la entrada de la tabla de páginas en cada proceso
+que la utiliza (siguiendo un puntero por cada estructura
+\ds{vm\_area\_struct}). Si la entrada de la tabla de páginas de este
+proceso es valida,  entonces la convierte  en invalida, se marca  como
+intercambiada y luego decrementa  el contador de número de referencias
+(de  la página compartida).  El  formato de la  entrada de la tabla de
+páginas  de una  página compartida System   V que ha sido intercambiada
+contiene un índice  a la estructura  \ds{shmid\_ds} y  un índice a  la
+entrada de la tabla de páginas de está memoria compartida.
+\marginpar{Revisar!!! Traducción al Castellano}
+
+Si el contador de referencias de una página
+tiene el valor cero  después de haber  modificado todas las  tablas de
+páginas de páginas de los procesos la comparten, entonces ésta puede
+ser intercambiada a disco.La entrada de la tabla de páginas apuntada
+desde la estructura \ds{shmid\_ds} de esta área de memoria compartida
+se substituye por una entrada de tabla de página previamente
+intercambiada.  Una entrada de página que ha sido intercambiada es
+invalida, pero contiene un índice al conjunto de ficheros de
+intercambio abiertos y el desplazamiento dentro de ese fichero que
+indica donde se encuentra la página. Esta información será utilizada
+cuando se tenga que volver a traer a memoria física.
+
+
+\subsection{Intercambiando y Descartando Páginas}
+\index{Intercambio}
+\index{Intercambiando y Descartando Páginas}
+
+El demonio de swap revisa de uno en uno cada  proceso del sistema para
+ver si  es   un buen  candidato para    intercambiar algunas  de   sus
+páginas. 
+\SeeCode{swap\_out()}{mm/\-vmscan.c}
+Buenos candidatos son procesos  que pueden ser intercambiados
+(algunos procesos no pueden) y que tienen una o más páginas que pueden
+ser   enviadas al  disco  o  descartadas de  memoria.  Las páginas son
+enviadas  al disco  sólo  si  los  datos  que contienen  no pueden ser
+recuperados de otra forma.
+
+
+Una gran cantidad  del contenido de una imagen  ejecutable viene de la
+imagen del  fichero y  puede ser fácilmente  re-leído desde  el  mismo
+fichero.   Por ejemplo, las   instrucciones ejecutables de  una imagen
+nunca se  modifican   por el propio  proceso  y  por tanto  nunca  son
+enviadas al fichero de  intercambio.   Estas páginas sencillamente  se
+pueden descartar; cuando vuelven a reverenciarse por el proceso, éstas
+se traen otra vez a memoria desde la imagen ejecutable del fichero.
+
+Una vez  se  a localizado un   proceso candidato para  enviar a  disco
+algunas  de sus páginas, el  demonio  de intercambio examina todas sus
+regiones   de memoria virtual  buscando  áreas no estén compartidas ni
+bloqueadas. 
+\marginpar{Para hacer esto el demonio recorre los punteros  \ds{vm\_next}
+de las estructuras \ds{vm\_area\_struct} encoladas en la estructura
+\ds{mm\_struct} del proceso.}
+Linux no intercambiará a disco  todas las páginas posibles del proceso
+que ha sido  elegido; sólo quitará un pequeño  número de páginas. 
+\SeeCode{swap\_out\_vma()}{mm/\-vmscan.c}
+Las páginas   bloqueadas   en memoria  no   se  pueden intercambiar ni
+descartar.
+
+
+\index{Envejecimiento de páginas}
+\index{Páginas, envejecimiento}
+
+
+
+El  algoritmo  de intercambio de   Linux emplea  la antigüedad  de las
+páginas. Cada página tiene un contador (localizado en la estructura de
+datos \ds{mem\_map\_tt}) que da  al demonio de intercambio una  cierta
+idea de  si vale la  pena o  no  intercambiar un página.  Las  páginas
+envejecen cuando no son utilizadas y rejuvenecen cuando son accedidas;
+el  demonio  de intercambio sólo  envía a  disco  páginas  viejas.  La
+acción  por defecto cuando se   asigna una página  por  primera vez es
+darle un valor inicial de antigüedad de 3.  Cada vez que se accede, el
+valor de antigüedad se incrementa  en 3 hasta un  máximo de 20.   Cada
+vez   que  el demonio intercambio   se  ejecuta,  envejece las páginas
+decrementando  su valor  en 1.   Estas acciones por  defecto se pueden
+cambiar  y  por  esta razón  (y otra   información  relacionada con el
+intercambio) se guarda en la estructura de datos \ds{swap\_control}.
+
+Si una página es  vieja (\(age  = 0\)), el  demonio de  intercambio la
+procesará.  Páginas sucias  (\textit{Dirty}) son páginas que se pueden
+intercambiar.  Linux utiliza un bit  específico de la arquitectura del
+PTE       para    describir     páginas  de     esta        forma (ver
+Figura~\ref{axp-pte-figure}).   Sin embargo,  no   todas  las   páginas
+\textit{sucias}  son necesariamente copiadas  al fichero  de intercambio.  Cada
+región de memoria  virtual  de  cada proceso   puede tener su   propia
+operación de intercambio (apuntada por el puntero \dsni{vm\_ops} en la
+estructura \ds{vm\_area\_struct}).  En caso  contrario, el demonio  de
+intercambio buscará  una página libre en  el  fichero de intercambio y
+escribirá sobre ésta la página de memoria elegida.
+
+
+La entrada en   la tabla de  páginas se   reemplaza por una  que  está
+marcada como invalida pero  que contiene información  de donde está la
+página en el fichero de intercambio. Linux utiliza el  campo PFN de la
+tabla de páginas para guardar  el desplazamiento dentro del fichero de
+intercambio  donde    está la página  más una    índice al  fichero de
+intercambio (pues pueden haber varios).  Cualquiera  que sea el método
+utilizado, la página física original se ha liberado y se ha devuelto a
+la  \dsni{free\_area}\index{free\_area vector}.     Páginas limpias (o
+mejor  dicho no \textit{sucias}) se pueden  descartar e insertar en la
+estructura    \dsni{free\_area}\index{free\_area    vector}   para ser
+re-utilizada.
+
+Si  se han descartado  o intercambiado suficientes páginas, el demonio
+de intercambio se vuelve a suspender.  La próxima vez que se despierte
+considerará  al siguiente proceso   del  sistema.  De  esta  forma  el
+demonio de  intercambio mordisquea las páginas  de  cada proceso hasta
+que el  sistema  está  otra   vez equilibrado.    Esto  es mucho   más
+equitativo que enviar todo un proceso a disco.
+
+
+
+\section{La cache de Intercambio}
+\index{Cache de Intercambio}
+\index{Intercambio, Cache}
+
+Cuando se tiene que intercambiar páginas a disco, Linux intenta evitar 
+escribirlas. Hay veces que una página está a en un fichero de
+intercambio y en memoria física. Esto sucede cuando una página que fue 
+intercambiada a disco ha sido nuevamente leída a memoria principal
+cuando un proceso la ha necesitado. Mientras la página que está en
+memoria no sea modificada por el proceso, la página que está en disco
+es valida.
+
+Linux  utiliza la cache  de  intercambio para gestionar estas páginas.
+La cache de intercambio es una lista de  entradas de tabla de páginas,
+una por cada página física del sistema. Si una entrada  en la cache de
+intercambio  es distinta de  cero,  entonces representa una página que
+está en el fichero de  intercambio que no  ha  sido modificado. Si  la
+página se modifica posteriormente  (un proceso escribe sobre ella), su
+entrada se borra de la cache de intercambio.
+
+Cuando   Linux necesita  enviar  una  página física   a un fichero  de
+intercambio consulta  la cache  de  intercambio,  si hay  una  entrada
+valida para está página, entonces no  es necesario copiar la página al
+fichero de   intercambio.  Pues la   página  de  memoria no   ha  sido
+modificada desde la última vez que se leyó del fichero de intercambio.
+
+Las  entradas en la cache  de intercambio son entradas  de la tabla de
+páginas de  páginas que estén en  algún fichero de intercambio.  Están
+marcadas como   invalidas  pero contienen  información  que permiten a
+Linux encontrar el fichero de intercambio y  el página correcta dentro
+del fichero de intercambio.
+
+
+\section{Cargando Páginas de Intercambio}
+
+Una página  que ha  sido volcada  a un   fichero de intercambio  puede
+necesitarse después si el proceso  accede a alguna  de las páginas que
+han sido salvadas, por ejemplo cuando una aplicación escribe sobre una
+zona de memoria virtual que está  en un fichero de intercambio. Cuando
+pasa esto se produce un  fallo de página.  La rutina de manejo de  los
+fallos  de página de Linux sabe  que este fallo de  página se debe una
+página intercambiada gracias a la  entrada en su  tabla de páginas. La
+entrada está marcada como invalida  pero el campo  PFN es distinto  de
+cero. El procesador no sabe como traducir de dirección virtual a
+física y por tanto pasa el control al sistema operativo indicándole
+cuál fue la página que produjo el fallo y la razón del fallo. El
+formato de esta información y cómo el procesador pasa el control al
+sistema operativo es específico del procesador.
+ \SeeCode{do\_page\_fault()}{arch/i386/\-mm/fault.c}
+
+
+
+La rutina específica de gestión de fallos de página ha de buscar en la 
+estructura \ds{vm\_area\_struct} el área de memoria que contiene la
+dirección de memoria que ha producido el fallo. Esto lo realiza
+buscando en las estructuras \ds{vm\_area\_struct} de este
+proceso. Esta búsqueda ha de realizarse muy rápidamente para no
+degradar las prestaciones del sistema, para lo cual, las estructuras
+de datos \ds{vm\_area\_struct} están organizadas de forma que la
+búsqueda requiera el menor tiempo posible.
+
+
+Una vez se han realizado las acciones específicas dependientes del
+procesador y se ha encontrado que la página virtual que produjo el
+fallo pertenecía a un área de memoria valida, el resto del procesamiento de
+fallo de página es genérico y aplicable a todos los procesadores sobre 
+los que se ejecuta Linux.
+\SeeCode{do\_no\_page()}{mm/\-memory.c}
+El código genérico de gestión de fallos de página  busca la entrada de
+la  tabla de páginas de la  dirección que falló.  Si  encuentra que la
+página  está intercambiada, Linux tiene que  traer a memoria física la
+página.   El formato  de  la   tabla  de páginas   es dependiente  del
+procesador  pero  todos los   procesadores marcan  estas  páginas como
+invalidas y ponen en la tabla de páginas la información necesaria para
+localizarlas en el fichero de intercambio. Linux necesita esta
+información para volver a traerlas a memoria física.
+
+
+En este punto, \SeeCode{do\_swap\_page()}{mm/\-memory.c} Linux sabe 
+cual es la dirección virtual que fallo y tiene una entrada en la tabla 
+de páginas que contiene información a cerca de dónde fue
+intercambiada. La estructura \ds{vm\_area\_struct} puede contener un
+puntero a una rutina que puede traer cualquier página de memoria
+virtual nuevamente a memoria física. Esta es la operación  {\em
+swapin}. Si hay una operación  {\em swapin} para este área de memoria
+virtual, Linux la utilizará. Este \SeeCode{shm\_swap\_in()}{ipc/shm.c}
+es de hecho cómo las páginas compartidas System V son gestionadas,
+pues requieren una gestión especial ya que el formato de las páginas
+intercambiadas compartidas es un poco distinto respecto las páginas no 
+compartidas.\SeeCode{swap\_in()}{mm/\-page\_alloc.c} Asigna una página 
+libre y lee la página de disco a memoria desde el fichero de
+intercambio. 
+
+Si el acceso  que  causo  el fallo  de   página no fue un   acceso  de
+escritura entonces   la   página  se   mantiene en    el   fichero  de
+intercambio. Su  entrada  en la tabla    de páginas no  se  marca como
+modificable (writable).  Si se escribe sobre la página, se producirá otro fallo de
+página y, en este momento, la página se marca  como sucia y su entrada
+se  elimina  del fichero  de intercambio.  Si  no  se escribe sobre la
+página y se vuelve  a necesitar liberar  la página, Linux puede evitar
+tener que  escribir la página al fichero  de intercambio pues la página
+ya está en éste.
+
+Si el acceso  que produjo el fallo de  página de una página localizada
+en el fichero de intercambio fue una operación de escritura, la pagina
+se elimina del fichero   de intercambio y   su entrada en la tabla  de
+página se marca como sucia y modificable (writable).
+

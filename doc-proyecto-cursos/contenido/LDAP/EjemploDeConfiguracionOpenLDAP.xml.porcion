@@ -1,0 +1,381 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?><!-- -*- xml -*- -->
+
+
+<!DOCTYPE section PUBLIC "-//OASIS//DTD DocBook XML V4.1.2//EN"
+       "file:///usr/share/sgml/docbook/dtd/xml/4.1.2/docbookx.dtd">
+
+<!--
+\porcion{Ejemplo de configuración de OpenLDAP}
+\autor{\LDP}
+\colaborador{}
+\revisor{}
+\traductor{}
+-->
+
+<section>
+  <title>Ejemplo de configuración de OpenLDAP</title>
+
+  <para>Una buena manera de explicar el funcionamiento y configuración
+  de un servidor LDAP es mediante un ejemplo común de la vida real. A
+  continuación se explicará como migrar la base de datos de usuarios y
+  grupos para poder realizar la autenticación a través del protocolo
+  LDAP.</para>
+
+  <section>
+    <title>Configurando el <foreignphrase
+	lang="en">back-end</foreignphrase></title>
+
+    <para>Editando el archivo
+      <filename>/etc/openldap/slapd.conf</filename>, se agrega una
+      base de datos de la siguiente manera:</para>
+
+<screen>
+database    ldbm
+suffix      "dc=ejemplo,dc=net"
+rootdn      "cn=root,dc=ejemplo,dc=net"
+rootpw      {MD5}kuJhGtfsDfglwjhHUTQNmd==
+directory   /var/lib/ldap
+index       objectClass,uid,uidNumber,gidNumber    eq
+index       cn,mail,surname,givenname              eq,subinitial
+</screen>
+
+    <para>La primer línea especifica el back-end de base de datos a
+      utilizar, <quote>ldbm</quote> es la opción mas frecuentemente
+      utilizada. La segunda línea declara el DN de la entrada
+      <emphasis>raíz</emphasis> del árbol LDAP. La tercer y cuarta
+      entrada definen los datos del usuario administrador (algo así
+      como su nombre de usuario y contraseña), ya que esta cuenta no
+      puede estar incluida en la base de datos LDAP antes que se haya
+      configurado. La quinta entrada sirve para definir el directorio
+      donde se almacenarán los archivos correspondientes a esta base
+      de datos y las últimas dos entradas establecen los tipos de
+      índice que se van a utilizar en las distintas entradas, para
+      búsquedas.</para>
+
+    <para>La contraseña <emphasis>rootpw</emphasis> está cifrada con
+      el algoritmo MD5, esto se puede generar con el comando
+      slappasswd de la siguiente manera:</para>
+
+<screen>
+<prompt>#</prompt> <userinput>slappasswd -h {MD5}</userinput>
+</screen>
+
+  </section>
+
+  <section>
+    <title>Configurando las listas de control de acceso</title>
+
+    <para>El siguiente paso es configurar las listas de control de
+      acceso, que definirán la clase de acceso que los distintos tipos
+      de usuarios tendrán en el árbol LDAP.</para>
+
+    <para>En el archivo <filename>/etc/openldap/slapd.conf</filename>
+      o en <filename>/etc/openldap/slapd.access.conf</filename> se
+      agrega lo siguiente:</para>
+
+<screen>
+access to dn=".*,dc=ejemplo,dc=net" attr=userPassword
+       by dn="cn=root,dc=ejemplo,dc=net" write
+       by self write
+       by * auth
+</screen>
+
+    <para>Esta primer lista de control de acceso se puede interpretar
+      como: <remark>Para los atributos userPassword de todas las
+      entradas bajo "dc=ejemplo,dc=net", se dará permiso de escritura
+      al usuario administrador, al usuario propietario, y al resto se
+      les permitirá la operación de autenticación.</remark></para>
+
+    <para>Pero, ¿dónde están los usuarios?. El concepto de usuario tal
+      como se lo conoce normalmente aquí no se aplica, sino que se
+      habla de <foreignphrase lang="en">Bind DN</foreignphrase>, cada
+      cliente LDAP debe autenticarse con el servidor enlazándose
+      (bind) a éste en una determinada entrada de la jerarquía de la
+      base de datos (DN), que necesariamente deberá poseer un atributo
+      <varname>userPassword</varname>.</para>
+
+    <para>Con esta ACL lo que se hace es proteger el atributo de
+      contraseña para que no cualquier pueda siquiera
+      inspeccionarlo. Luego siguen otras ACLs:</para>
+
+<screen>
+access to dn=".*,dc=ejemplo,dc=net" attr=mail
+       by dn="cn=root,dc=ejemplo,dc=net" write
+       by self write
+       by * read
+</screen>
+
+    <para>Este es un ejemplo similar al anterior, pero se permite la
+      lectura del atributo <emphasis>mail</emphasis> (es decir, la
+      dirección de correo electrónico) a cualquiera, mientras que se
+      permite su modificación a la cuenta administrativa y al dueño
+      del atributo.</para>
+
+    <para>Si bajo la entrada con DN
+      <quote>ou=People,dc=ejemplo,dc=net</quote> se almacenan las
+      cuentas de usuario del sistema, entonces deberíamos permitir
+      sólo la lectura de estos datos a todo el mundo (sin permitir la
+      modificación de por ejemplo, el nombre de usuario, ni siquiera
+      al propio usuario) de esta manera:</para>
+
+<screen>
+access to dn=".*,ou=People,dc=ejemplo,dc=net"
+       by * read
+</screen>
+
+    <para>Finalmente se agrega el ACL por defecto, que permite la
+      lectura de todos los atributos por cualquiera, y su modificación
+      por el usuario dueño. Se hace esto de la siguiente forma:</para>
+
+<screen>
+access to dn=".*,dc=ejemplo,dc=net"
+       by self write
+       by * read
+</screen>
+
+    <para>Cada ACL se chequeará en el orden en que fueron declaradas,
+      es por eso que la ACL que se agregó última, no debe declararse
+      antes de otras, porque puede llegar a anular su
+      funcionalidad. Un ejemplo claro es la declaración de la
+      penúltima ACL sobre la última. A primera vista, podría parecer
+      que esa penúltima ACL se encuentra incluída en la última y que
+      por lo tanto podría ser obviada, pero observando detenidamente
+      se puede uno dar cuenta que la penúltima ACL no permite
+      escritura a nadie, bajo la entrada
+      <emphasis>ou=People,dc=ejemplo,dc=net</emphasis>, y que por mas
+      que la última entrada si lo permita, la anterior tiene
+      precedencia.</para>
+
+    <para>Si estas ACLs se agregaron en su propio archivo
+      <filename>/etc/openldap/slapd.access.conf</filename>, entonces
+      habrá que cerciorarse que se incluya este archivo en el archivo
+      de configuración principal
+      <filename>/etc/openldap/slapd.conf</filename> con la siguiente
+      sintaxis:</para>
+
+<screen>
+include /etc/openldap/slapd.access.conf
+</screen>
+
+    <para>Para que se tomen los cambios, recordar de reiniciar el
+      servicio LDAP en el sistema.</para>
+
+  </section>
+
+
+  <section>
+    <title>Migración del los datos al servidor LDAP</title>
+
+    <para>Una vez configurada la base de datos y las listas de control
+      de acceso, se procede a la migración de los datos
+      preexistentes. En la distribución Mandrake, el paquete
+      <emphasis>openldap-migration</emphasis> instala una serie de
+      herramientas para facilitar enormemente esta tarea.</para>
+
+    <para>Dentro del directorio <filename
+	class="directory">/usr/share/openldap/migration/</filename> se
+	deberá editar el archivo
+	<filename>migrate_common.ph</filename> cambiando las
+	siguientes declaraciones de variable:</para>
+
+<screen>
+$DEFAULT_MAIL_DOMAIN = "ejemplo.net";
+$DEFAULT_BASE = "dc=ejemplo,dc=net";
+$DEFAULT_MAIL_HOST = "mail.ejemplo.net";
+$EXTENDED_SCHEMA = 1;
+</screen>
+
+    <para>Lo siguiente es editar el archivo
+      <filename>migrate_all_online.sh</filename> y comentar aquellos
+      servicios que no queremos migrar, como por ejemplo:</para>
+
+<screen>
+#$PERL -I${INSTDIR} ${INSTDIR}migrate_protocols.pl $ETC_PROTOCOLS >> $DB
+</screen>
+
+    <para>Finalmente se ejecuta dicho script ingresando los datos que
+      va pidiendo.</para>
+
+  </section>
+
+  <section>
+    <title>Configurando el <emphasis>usuario proxy</emphasis></title>
+
+    <para>La siguiente etapa, consiste en la creación de una entrada
+      especial en el servidor LDAP, que servirá como <emphasis>usuario
+      proxy</emphasis>. Este usuario se utilizará para leer las
+      entradas <varname>userPassword</varname> de las otras entradas,
+      de tal manera de proveer esa información a los clientes que
+      necesiten autenticarse. Con esto, permitiremos autenticar a
+      aquellos servicios que poseen una interfaz con el servidor LDAP,
+      pero que mantienen su propio esquema de autenticación y por lo
+      tanto no usan la operación <emphasis>auth</emphasis> provista
+      por el servidor LDAP.</para>
+
+    <para>El primer paso entonces es crear un archivo LDIF, por
+      ejemplo en <filename>/tmp/proxy.ldif</filename> cuyo contenido
+      sea el siguiente:</para>
+
+<screen>
+dn: cn=proxyuser,dc=ejemplo,dc=net
+cn: proxyuser
+sn: proxyuser
+objectclass: top
+objectclass: person
+userPassword: {MD5}kihwqmIGdaIhnqLjashOKJ==
+</screen>
+
+    <para>La contraseña se debe crear con el comando
+      <command>slappasswd</command> como se vió anteriormente. Una vez
+      escrito correctamente el archivo LDIF, se lo agrega al servidor
+      ejecutando el comando <command>ldapadd</command> de esta
+      manera:</para>
+
+<screen>
+<prompt>#</prompt> <userinput>ldapadd -x -D "cn=root,dc=ejemplo,dc=net" -W -f /tmp/proxy.ldif</userinput>
+</screen>
+
+    <para>Este comando pedirá la contraseña que se estableció como
+      <emphasis>rootpw</emphasis> en el archivo de configuración, y si
+      todo está correcto, agregará la entrada donde corresponde en la
+      jerarquía de árbol del servidor LDAP.</para>
+
+    <para>Una vez agregado el usuario proxy, habrá que permitirle el
+      acceso de lectura al atributo <varname>userPassword</varname>
+      para que pueda ser utilizado por los mecanismos de autenticación
+      que a continuación configuraremos. Para darle el permiso
+      necesario al usuario proxy, deberemos modificar el primer ACL
+      definido anteriormente, para que quede de esta forma:</para>
+
+<screen>
+access to dn=".*,dc=ejemplo,dc=net" attr=userPassword
+       by dn="cn=root,dc=ejemplo,dc=net" write
+       by dn="cn=proxyuser,dc=ejemplo,dc=net" read
+       by self write
+       by * auth
+</screen>
+
+    <para>Una vez hecho este cambio, se debe reiniciar el servicio
+      LDAP para que tome la nueva configuración. A continuación se
+      puede realizar una consulta al servidor LDAP mediante el comando
+      <command>ldapsearch</command>:</para>
+
+<screen>
+<prompt>#</prompt> <userinput>ldapsearch -LL -H ldap://localhost -b"dc=ejemplo,dc=net" -W -x -D "cn=proxyuser,dc=ejemplo,dc=net" "(uid=pedro)"</userinput>
+</screen>
+
+    <para>Este comando, después de ingresar la clave correspondiente
+      al usuario proxy, muestra en formato LDIF el resultado de la
+      búsqueda de entradas que tengan el atributo
+      <varname>uid</varname> con el nombre <quote>pedro</quote>, a
+      partir de la entrada <emphasis>dc=ejemplo,dc=net</emphasis> en
+      adelante (es decir, todo el árbol). Si todo estuvo correctamente
+      configurado, y existe una entrada con tal atributo, entonces se
+      mostrarán todos sus datos, incluyendose el atributo
+      <varname>userPassword</varname> como se muestra a
+      continuación:</para>
+
+<screen>
+version: 1
+
+dn: userid=pedro,ou=People,dc=ejemplo,dc=net
+objectClass: top
+objectClass: account
+objectClass: person
+objectClass: userSecurityInformation
+uid: pedro
+sn: Picapiedras
+cn: Pedro
+userPassword:: e01ENX1HcWFsOUpQQWowMHV5VkFVb1MyL3dnPT0=
+telephoneNumber: 431-2125
+</screen>
+
+  </section>
+
+  <section>
+    <title>Configuración de los clientes LDAP</title>
+
+    <para>Lo que queda pendiente es configurar aquellas máquinas que
+    vayan a funcionar como clientes del servidor LDAP recién
+    configurado.</para>
+
+    <para>Lo primero que se debe hacer es editar el archivo
+    <filename>/etc/openldap/ldap.conf</filename> y agregarle la
+    siguiente información:</para>
+
+<screen>
+host         &lt;IP_del_servidor_LDAP&gt;
+base         dc=ejemplo,dc=net     # Esta entrada es igual al suffix
+rootbinddn   cn=proxyuser,dc=ejemplo,dc=net
+scope        one
+
+pam_filter                      objectclass=posixaccount
+pam_login_attribute             uid
+pam_member_attribute            gid
+pam_template_login_attribute    uid
+pam_password                    md5
+
+nss_base_passwd     ou=People,dc=ejemplo,dc=net?one
+nss_base_shadow     ou=People,dc=ejemplo,dc=net?one
+nss_base_group      ou=Group,dc=ejemplo,dc=net?one
+nss_base_hosts      ou=Hosts,dc=ejemplo,dc=net?one
+</screen>
+
+    <para>El campo <parameter>rootbinddn</parameter> especifica a qué
+      usuario el root se va a cambiar al intentar conectarse desde la
+      máquina cliente, y la contraseña la va a leer desde el archivo
+      <filename>/etc/openldap/ldap.secret</filename>, que debe tener
+      modo 600 y contener la contraseña del
+      <emphasis>proxyuser</emphasis>, finalizando con una línea en
+      blanco.</para>
+
+    <para>Esto va a permitir que los clientes LDAP para autenticación
+      al querer acceder como root se cambien al usuario proxy y puedan
+      leer los campos userPassword de cada usuario para lograr su
+      finalidad. el inconveniente es que el comando
+      <command>passwd</command> utilizado para que cada usuario se
+      cambie su propia contraseña no funcionaría porque el usuario
+      proxy sólo tiene acceso de lectura sobre ese campo, pero cada
+      usuario podría modificar su contraseña utilizando el comando
+      <command>ldapmodify</command>.</para>
+
+    <para>Si quisiéramos hacer que el comando
+      <command>passwd</command> funcione para cambiar las contraseñas
+      de usuario, deberíamos cambiar el ACL del servidor para que el
+      usuario proxy tenga acceso de escritura al campo
+      <parameter>userPassword</parameter>, pero esto podría ser un
+      problema de seguridad en aquellos casos que las máquinas cliente
+      sean controladas por otras personas no confiables, porque el
+      archivo <filename>/etc/openldap/ldap.secret</filename> de cada
+      máquina cliente sería legible por el root local de cada
+      estación.</para>
+
+  </section>
+
+  <section>
+    <title>Configurando NSS para que use LDAP</title>
+
+    <para>NSS es el <foreignphrase lang="en">Name Service
+	Switch</foreignphrase> que sirve para decirle al sistema
+	cuales son las fuentes de datos para ciertas informaciones, el
+	archivo de configuración es
+	<filename>/etc/nsswitch.conf</filename>:</para>
+
+<screen>
+passwd:    files ldap
+shadow:    files ldap
+group:     files ldap
+hosts:     files ldap dns
+</screen>
+
+    <para>Esto hará que los sistemas clientes consulten primero sus
+    archivos locales, luego hagan búsquedas en LDAP y en el caso de
+    los hosts, hagan consultas por DNS como último recurso.</para>
+
+    <para>En el <filename>/etc/hosts</filename> de los clientes sólo
+    se debería dejar con la entrada del host local, hostname y del
+    servidor LDAP.</para>
+
+  </section>
+
+</section>

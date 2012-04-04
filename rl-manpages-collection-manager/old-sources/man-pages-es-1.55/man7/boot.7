@@ -1,0 +1,203 @@
+.\" Written by Oron Peled <oron@actcom.co.il>.
+.\" May be distributed subject to the GPL.
+.\"
+.\" I tried to be as much generic in the description as possible:
+.\" - General boot sequence is applicable to almost any
+.\" OS/Machine (DOS/PC, Linux/PC, Solaris/SPARC, CMS/S390)
+.\" - kernel and init(8) is applicable to almost any Unix/Linux
+.\" - boot scripts are applicable to SYSV-R4 based Unix/Linux
+.\" Traducida por Miguel Pérez Ibars <mpi79470@alu.um.es> el 25-febrero-2005
+.\"
+.TH BOOT 7 "7 junio 2002" "" ""
+.SH "NOMBRE"
+.LP
+boot\-scripts \- Descripción general de la secuencia de arranque
+.SH "DESCRIPCIÓN"
+.LP 
+La secuencia de arranque varía de un sistema a otro
+pero se puede dividir básicamente en los siguientes pasos:
+(i) arranque del hardware, (ii) cargador del SO,
+(iii) puesta en marcha del núcleo, (iv) init e inittab,
+(v) scripts de arranque.
+Describiremos cada uno de estos pasos a continuación con más detalle.
+
+.SS "Arranque del hardware"
+
+Después de pulsar el botón de encendido o el botón reset, 
+se pasa el control a un programa almacenado en memoria de sólo
+lectura (normalmente PROM). En los PC a este programa se le
+denomina habitualmente 
+\fBBIOS\fR.
+
+This program normally makes a basic self\-test of the
+machine and accesses non\-volatile memory to read
+further parameters. This memory in the PC is
+battery\-backed CMOS memory, so most people
+refer to it as the \fBCMOS\fR, although outside
+of the PC world, it is usually called \fBnvram\fR
+(non\-volatile ram).
+
+Los parámetros almacenados en la memoria nvram varían entre
+sistemas, pero como mínimo el programa de arranque 
+debe saber cuál es el dispositivo de arranque, o qué dispositivos
+probar como posibles dispositivos de arranque.
+
+Después se accede al dispositivo de arranque, se trae a memoria 
+el cargador del S0, que está localizado en una posición fija de
+este dispositivo y se le transfiere el control a éste.
+
+.TP 
+Nota:
+Aquí no estamos tratando cómo arrancar desde la red. Aquellos que
+quieran investigar sobre este tema pueden mirar:
+DHCP, TFTP, PXE, Etherboot.
+
+.SS "Cargador del S0"
+En los PC, el cargador del SO está localizado en el primer sector
+del dispositivo de arranque \- es el llamado \fBMBR\fR
+(Master Boot Record).
+
+En la mayoría de los sistemas, este cargador primario está limitado
+en base a varias restricciones. Incluso en sistemas que no son PC
+hay algunas limitaciones al tamaño y complejidad del cargador, 
+así que, la limitación de tamaño del MBR en PCs (512 bytes incluyendo
+la tabla de particiones) hace casi imposible introducir
+un gestor de arranque completo dentro de él.
+
+Además, la mayoría de sistemas operativos hacen que el cargador
+primario llame a un cargador secundario que puede estar localizado
+en una partición del disco especificada.
+
+En Linux el gestor de arranque es normalmente
+.BR lilo (8)
+o
+.BR grub (8).
+Ambos pueden instalarse o bien como cargadores secundarios
+(donde el MBR instalado por el DOS apunta a ellos), o
+como un cargador en dos partes donde son ellos los que 
+proporcionan un MBR especial que contiene el código de
+arranque necesario para cargar la segunda parte del cargador
+desde la partición raíz.
+
+La principal tarea del gestor de arranque es localizar el núcleo
+en disco, cargarlo y ejecutarlo. La mayoría de gestores de arranque 
+permiten un uso interactivo, para poder especificar un núcleo 
+alternativo (posiblemente una copia de seguridad en caso de que
+el último núcleo compilado no funcione) y para pasar parámetros opcionales
+al núcleo.
+
+.SS "Puesta en marcha del núcleo"
+Una vez que se carga el núcleo, éste inicializa los dispositivos 
+(a través de sus drivers), arranca el intercambiador \- swapper (es un
+"proceso del núcleo", llamado kswapd en los núcleos Linux modernos), y monta
+el sistema de ficheros raíz (/).
+
+Algunos de los parámetros que se le pueden pasar al núcleo
+están relacionados con estas actividades (p.e: puede sobreescribir
+el sistema de ficheros raíz por defecto). Para más información sobre
+los parámetros del núcleo Linux lea
+.BR bootparam (7).
+
+Sólo después el núcleo crea el primer proceso (user land) 
+al que asigna el número 1. Este proceso ejecuta el programa
+.IR /sbin/init ,
+pasándole cualquier parámetro que no haya podido ser manejado
+por el núcleo.
+
+.SS "Init e inittab"
+Cuando init comienza lee el fichero
+.I /etc/inittab
+para obtener más instrucciones.
+Este fichero define lo que debería ejecutarse en los diferentes \fIrun\-levels\fR.
+
+Ésto proporciona al administrador del sistema un sencillo esquema de gestión, donde
+cada nivel de ejecución se asocia con un conjunto de servicios (p.e.:
+\fBS\fR es \fImono\-usuario\fR, en el nivel \fB2\fR se inician la 
+mayoría de servicios de red, etc.). El administrador puede cambiar el nivel de ejecución
+actual con
+.BR init (8)
+y consultarlo con
+.BR runlevel (8).
+
+Sin embargo, puesto que no es conveniente gestionar los servicios
+individuales editando directamente este fichero, inittab solamente lanza
+un conjunto de scripts que son los que realmente arrancan/paran los servicios
+individuales.
+
+.SS "Scripts de arranque"
+
+.TP 
+Nota:
+La siguiente descripción se aplica a los sistemas basados en SYSV\-R4, que
+actualmente siguen la mayoría de los Unix comerciales (Solaris, HPUX, Irix, Tru64)
+así como la mayor parte de las distribuciones Linux (RedHat, Debian, Mandrake,
+Suse, Caldera). Algunos sistemas (Slackware Linux, FreeBSD, OpenBSD)
+tienen un esquema un tanto diferente de scripts de arranque.
+.LP
+
+Para cada servicio gestionado (mail, nfs server, cron, etc.) hay un único
+script de inicialización ubicado en un directorio específico
+.RI ( /etc/init.d
+en la mayoría de versiones de Linux).
+Cada uno de estos scripts acepta como único argumento
+la palabra 'start' \-\- que provoca el arranque del servicio, o la palabra
+'stop' \-\- que provoca que se pare el servicio. Opcionalmente el script
+puede aceptar otros parámetros de "conveniencia" (p.e: 'restart', para parar
+y arrancar, 'status' para mostrar el estado del servicio). Ejecutar el script
+sin parámetros nos mostrará los posibles argumentos.
+
+.SS "Directorios Secuenciales"
+.\" Sequencing Directories => Directorios Secuenciales
+Para conseguir que ciertos scripts determinados se inicien o se paren
+en diferentes niveles de ejecución y en un orden específico, se crearon
+los \fIdirectorios secuenciales\fR. Se encuentran habitualmente en 
+\fB/etc/rc[0\-6S].d\fR. En cada uno de estos directorios
+hay enlaces (normalmente simbólicos) a los scripts que se encuentran en
+el directorio \fIinit.d\fR.
+
+Un script principal (normalmente \fI/etc/rc\fR) es llamado desde inittab(5)
+y es el encargado de invocar a los scripts de servicios a través de los enlaces
+de los directorios secuenciales. Todos los enlaces cuyo nombre comienza
+con 'S' son invocados con el argumento 'start' (por tanto iniciando el servicio).
+Todos los enlaces que comienzan con 'K' son invocados con el argumento 'stop'
+(por tanto parando el servicio).
+
+Para establecer el orden dentro de un mismo nivel de ejecución, los nombres de los enlaces
+contienen números de orden. Además, para hacer los nombres más claros, éstos
+terminan habitualmente con el nombre del servicio al que se refieren. Ejemplo:
+el enlace \fI/etc/rc2.d/S80sendmail\fR lanza el servicio sendmail en el runlevel 2.
+Ésto ocurre despues de ejecutar \fI/etc/rc2.d/S12syslog\fR pero antes de ejecutar
+\fI/etc/rc2.d/S90xfs\fR.
+
+Para gestionar el orden de arranque y los niveles de ejecución (run\-leves), tenemos que 
+manejar estos enlaces.
+Sin embargo, en muchas versiones de Linux, hay disponibles herramientas que nos ayudan
+con esta tarea
+(p.e:
+.BR chkconfig (8)).
+
+.SS "Configuración del arranque"
+Normalmente los demonios lanzados pueden recibir opciones y parámetros
+en la línea de órdenes de manera opcional. Para permitir a los administradores de sistemas
+cambiar estos parámetros sin editar los scripts de arranque por ellos mismos,
+se utilizan los ficheros de configuración. Éstos están localizados en un directorio
+específico (\fI/etc/sysconfig\fR en sistemas RedHat) y son utilizados por
+los scripts de arranque.
+
+En versiones antiguas de Unix, estos ficheros contenían las opciones
+de línea de órdenes reales para los demonios, pero en sistemas Linux modernos 
+(y también en HPUX), estos ficheros tan solo contienen variables del intérprete
+de órdenes. Los scripts de arranque en \fI/etc/init.d\fR \fBcargan\fR los ficheros
+de configuración y usar los valores de las variables.
+.SH "FICHEROS"
+.LP 
+.IR /etc/init.d/ ,
+.IR /etc/rc[S0\-6].d/ .
+.I /etc/sysconfig/
+
+.SH "VÉASE TAMBIÉN"
+.BR inittab (5),
+.BR bootparam (7),
+.BR init (8),
+.BR runlevel (8),
+.BR shutdown (8)

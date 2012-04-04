@@ -1,0 +1,186 @@
+\subsection*{sock}
+
+Cada estructura de datos \ds{sock} mantiene información específica de
+protocolo con referencia a un socket BSD.  Por ejemplo, para un socket
+INET (Internet Address Domain) esta estructura de datos debería tener
+toda la información específica de TCP/IP y UDP/IP.
+\SeeModule{include/linux/\\net.h}
+\begin{tscreen}\begin{verbatim}
+struct sock 
+{
+    /* Esto debe ir primero. */
+    struct sock             *sklist_next;
+    struct sock             *sklist_prev;
+
+    struct options          *opt;
+    atomic_t                wmem_alloc;
+    atomic_t                rmem_alloc;
+    unsigned long           allocation;       /* modo de reserva */
+    __u32                   write_seq;
+    __u32                   sent_seq;
+    __u32                   acked_seq;
+    __u32                   copied_seq;
+    __u32                   rcv_ack_seq;
+    unsigned short          rcv_ack_cnt;      /* cuenta del mismo ack */
+    __u32                   window_seq;
+    __u32                   fin_seq;
+    __u32                   urg_seq;
+    __u32                   urg_data;
+    __u32                   syn_seq;
+    int                     users;            /* cuenta de usuario */
+  /*
+   *    No todos son volátiles, pero algunos lo son,
+   *	así que será mejor creer que todos son volátiles
+   */
+    volatile char           dead,
+                            urginline,
+                            intr,
+                            blog,
+                            done,
+                            reuse,
+                            keepopen,
+                            linger,
+                            delay_acks,
+                            destroy,
+                            ack_timed,
+                            no_check,
+                            zapped,
+                            broadcast,
+                            nonagle,
+                            bsdism;
+    unsigned long           lingertime;
+    int                     proc;
+
+    struct sock             *next;
+    struct sock             **pprev;
+    struct sock             *bind_next;
+    struct sock             **bind_pprev;
+    struct sock             *pair;
+    int                     hashent;
+    struct sock             *prev;
+    struct sk_buff          *volatile send_head;
+    struct sk_buff          *volatile send_next;
+    struct sk_buff          *volatile send_tail;
+    struct sk_buff_head     back_log;
+    struct sk_buff          *partial;
+    struct timer_list       partial_timer;
+    long                    retransmits;
+    struct sk_buff_head     write_queue,
+                            receive_queue;
+    struct proto            *prot;
+    struct wait_queue       **sleep;
+    __u32                   daddr;
+    __u32                   saddr;            /* Dirección que envía */
+    __u32                   rcv_saddr;        /* Dirección enlazada */
+    unsigned short          max_unacked;
+    unsigned short          window;
+    __u32                   lastwin_seq;      /* Número de la secuencia de cuando
+						 actualizamos la ventana ofrecida
+						 por última vez */
+    __u32                   high_seq;         /* Número de secuencia de cuando
+						 hicimos la retransmisión
+						 rápida en curso */
+    volatile unsigned long  ato;              /* ack timeout */
+    volatile unsigned long  lrcvtime;         /* instantes desde la última recepción de datos */
+    volatile unsigned long  idletime;         /* instantes desde la última recepción */
+    unsigned int            bytes_rcv;
+/*
+ *    mss is min(mtu, max_window) 
+ */
+    unsigned short          mtu;              /* mss negociado en el del syn */
+    volatile unsigned short mss;              /* eff. mss en curso - puede cambiar */
+    volatile unsigned short user_mss;         /* mss solicitado por el usuario en ioctl */
+    volatile unsigned short max_window;
+    unsigned long           window_clamp;
+    unsigned int            ssthresh;
+    unsigned short          num;
+    volatile unsigned short cong_window;
+    volatile unsigned short cong_count;
+    volatile unsigned short packets_out;
+    volatile unsigned short shutdown;
+    volatile unsigned long  rtt;
+    volatile unsigned long  mdev;
+    volatile unsigned long  rto;
+ 
+    volatile unsigned short backoff;
+    int                     err, err_soft;    /* Errores soft hold que no
+						 provocan fallos pero son la causa
+						 de un fallo persistente
+                                                 no sólo 'timed out' */
+    unsigned char           protocol;
+    volatile unsigned char  state;
+    unsigned char           ack_backlog;
+    unsigned char           max_ack_backlog;
+    unsigned char           priority;
+    unsigned char           debug;
+    int                     rcvbuf;
+    int                     sndbuf;
+    unsigned short          type;
+    unsigned char           localroute;       /* Enrutar sólo localmente */
+/*
+ *    Aquí es donde existirán todas las áreas privadas (opcionales)
+ *    que no se solapan .
+ */
+    union
+    {
+          struct unix_opt   af_unix;
+#if defined(CONFIG_ATALK) || defined(CONFIG_ATALK_MODULE)
+        struct atalk_sock   af_at;
+#endif
+#if defined(CONFIG_IPX) || defined(CONFIG_IPX_MODULE)
+        struct ipx_opt      af_ipx;
+#endif
+#ifdef CONFIG_INET
+        struct inet_packet_opt  af_packet;
+#ifdef CONFIG_NUTCP        
+        struct tcp_opt      af_tcp;
+#endif        
+#endif
+    } protinfo;          
+/* 
+ *    'área privada' de IP
+ */
+    int                     ip_ttl;           /* ajuste del TTL */
+    int                     ip_tos;           /* TOS */
+    struct tcphdr           dummy_th;
+    struct timer_list       keepalive_timer;  /* hack keepalive para el TCP */
+    struct timer_list       retransmit_timer; /* temporizador de retransmisión
+						 del TCP */
+    struct timer_list       delack_timer;     /* temporizador ack retrasado
+						 del TCP */
+    int                     ip_xmit_timeout;  /* Por qué se está produciendo
+					         el timeout */
+    struct rtable           *ip_route_cache;  /* Ruta cacheada de salida */
+    unsigned char           ip_hdrincl;       /* ¿Incluir cabeceras ? */
+#ifdef CONFIG_IP_MULTICAST  
+    int                     ip_mc_ttl;        /* TTL Multicasting */
+    int                     ip_mc_loop;       /* Loopback */
+    char                    ip_mc_name[MAX_ADDR_LEN]; /* Nombre del
+						dispositivo multicast */
+    struct ip_mc_socklist   *ip_mc_list;      /* Array del grupo */
+#endif  
+
+/*
+ *    Esta parte es usada por las funciones timeout (timer.c).
+ */
+    int                      timeout;         /* ¿Qué estamos esperando? */
+    struct timer_list        timer;           /* Este es el temporizador
+					       * TIME_WAIT/recibir cuando
+					       * estamos haciendo IP
+                                               */
+    struct timeval           stamp;
+ /*
+  *    Identd 
+  */
+    struct socket            *socket;
+  /*
+   *    Callbacks 
+   */
+    void                     (*state_change)(struct sock *sk);
+    void                     (*data_ready)(struct sock *sk,int bytes);
+    void                     (*write_space)(struct sock *sk);
+    void                     (*error_report)(struct sock *sk);
+  
+};
+\end{verbatim}\end{tscreen}
+

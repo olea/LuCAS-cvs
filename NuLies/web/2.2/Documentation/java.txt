@@ -1,0 +1,122 @@
+               Soporte binario Java(tm) en el Kernel de Linux v1.02
+               ----------------------------------------------------
+
+Linux puede con TODOS! Mientras otros S.O.'s HABLAN sobre soporte
+directo de binarios Java en el S.O., ¡Linux lo está haciendo!
+
+Puede ejecutar aplicaciones Java y Applets Java como cualquier
+otro programa tras hacer lo siguiente:
+
+1) Debe PRIMERO instalar el Java Depelopers Kit para Linux (el
+   Kit de Desarrollo de Java). El "Java en Linux HOWTO" da los
+   detalles sobre obtenerlo e instalarlo. Este howto puede
+   encontrarse en:
+
+	ftp://sunsite.unc.edu/pub/Linux/docs/HOWTO/Java-HOWTO
+
+   Debería también especificar una variable de entorno CLASSPATH
+   razonable para usar las aplicaciones Java que hacen uso de
+   las clases no estándar (no incluidas en el mismo directorio
+   que la aplicación en sí).
+
+2) Debe compilar BINFMT_MISC ya sea como módulo o dentro del
+   kernel (CONFIG_BINFMT_MISC) e inicializarlo correctamente.
+   Si elige compilarlo como módulo, deberá insertarlo manualmente
+   con modprobe/insmod, ya que kerneld no puede ofrecer soporte
+   fácilmente para la carga de binfmt_misc.
+   Lea el fichero 'binfmt_misc.txt' en este directorio para
+   conocer más sobre el proceso de configuración.
+
+3) Añada lo siguientes elementos de configuración a binfmt_misc
+   (debería realmente haber leido binfmt_misc.txt):
+   soporte para aplicaciones Java:
+     ':Java:M::\xca\xfe\xba\xbe::/usr/local/java/bin/javawrapper:'
+   soporte para Applets Java:
+     ':Applet:E::html::/usr/local/java/bin/appletviewer:'
+   o lo siguiente, si desea ser algo más selectivo:
+     ':Applet:M::<!--applet::/usr/local/java/bin/appletviewer:'
+
+   Necesitará cambiar los caminos de los ejecutables si instaló
+   el JDK en un sitio diferente a /usr/local/java.
+
+   Nota: para el soporte para Applets selectivo debería modificar
+   los ficheros html existentes para que contengan el tag
+   <!--applet--> en su primera línea ('<' tiene que ser el
+   primer carácter) para su correcto funcionamiento.
+
+   Para los programas Java compilados necesita un script wrapper
+   como el siguiente (esto es debido a que Java está roto en cuanto
+   al manejo de nombres de ficheros). De nuevo debe modificar los
+   caminos (PATHS) de los ficheros, tanto en el script como en
+   las cadenas de configuración dadas anteriomente:
+
+====================== Cortar aquí ===================
+#!/bin/bash
+# /usr/local/java/bin/javawrapper - el wrapper para binfmt_misc/java
+CLASS=$1
+
+# si classname es un link, lo seguimos (se podría hacer más fácil)
+if [ -L "$1" ] ; then
+        CLASS=`ls --color=no -l $1 | tr -s '\t ' '  ' | cut -d ' ' -f 11`
+fi
+CLASSN=`basename $CLASS .class`
+CLASSP=`dirname $CLASS`
+
+FOO=$PATH
+PATH=$CLASSPATH
+if [ -z "`type -p -a $CLASSN.class`" ] ; then
+        # la clase no está en CLASSPATH
+        if [ -e "$CLASSP/$CLASSN.class" ] ; then
+                # añadir directorio de la clase en CLASSPATH
+                if [ -z "${CLASSPATH}" ] ; then
+                        export CLASSPATH=$CLASSP
+                else
+                        export CLASSPATH=$CLASSP:$CLASSPATH
+                fi
+        else
+                # uh! ahora deberíamos crear un enlace simbólico - realmente
+                # feo: imprima un mensaje indicando que debe cambiar la
+                # configuracion.
+                echo "¡Hey! Esta no es una buena configuracion para ejecutar $1."
+                exit 1
+        fi
+fi
+PATH=$FOO
+
+shift
+/usr/local/java/bin/java $CLASSN "$@"
+====================== Cortar aquí ===================
+
+
+Ahora simplemente chmod +x el fichero .class y/o ficheros .html que desea
+ejecutar. Para añadir un programa Java al path mejor inserte un enlace
+simbólico al fichero .class principal dentro de /usr/bin (u otro lugar
+que desee) omitiendo la extensión .class. El directorio conteniendo el
+fichero .class original será añadido a CLASSPATH durante la ejecución.
+
+Para testear la nueva configuración, inserte el siguiente applet
+Java (muy simple) y llámelo "HelloWorld.java":
+
+	class HelloWorld {
+		public static void main(String args[]) {
+			System.out.println("Hello World!");
+		}
+	}
+
+Ahora compile la aplicación con:
+	javac HelloWorld.java
+
+Establezca los permisos de ejecución del fichero binario con:
+	chmod 755 HelloWorld.class
+
+Y finalmente ejecutelo:
+	./HelloWorld.class
+
+Para ejecutar Applets Java, simplemente haga un chmod de los ficheros
+*.html para incluir el bit de ejecución, y luego haga:
+	./Applet.html
+
+
+original de Brian A. Lantz, brian@lantz.com
+duramente editado para binfmt_misc pot Richard Günther.
+traducido por Santiago Romero.

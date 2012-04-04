@@ -1,0 +1,227 @@
+.\" This man page is Copyright (C) 1999 Andi Kleen <ak@muc.de>.
+.\" Permission is granted to distribute possibly modified copies
+.\" of this page provided the header is included verbatim,
+.\" and in case of nontrivial modification author and date
+.\" of the modification is added to the header.
+.\" $Id: cmsg.3,v 1.2 2005/02/21 15:12:12 pepin.jimenez Exp $
+.\"
+.\" Translated on Mon Jun 28 1999 by Juan Piernas <piernas@ditec.um.es>
+.\"
+.TH CMSG 3 "2 octubre 1998" "Página man de Linux" "Manual del Programador de Linux" 
+.SH NONMBRE
+CMSG_ALIGN, CMSG_SPACE, CMSG_NXTHDR, CMSG_FIRSTHDR \- Acceso a datos auxiliares.
+.SH SINOPSIS
+.B #include <sys/socket.h>
+.br
+.sp 2
+.BI "struct cmsghdr *CMSG_FIRSTHDR(struct msghdr *" msgh ");"
+.br
+.BI "struct cmsghdr *CMSG_NXTHDR(struct msghdr *" msgh ", struct cmsghdr *" cmsg ");"
+.br
+.BI "size_t CMSG_ALIGN(size_t " length ");"
+.br
+.BI "size_t CMSG_SPACE(size_t " length ");"
+.br
+.BI "size_t CMSG_LEN(size_t " length ");"
+.br
+.BI "unsigned char *CMSG_DATA(struct cmsghdr *" cmsg ");"       
+.sp
+.nf
+.ta 8n 20n 32n
+struct cmsghdr {
+	socklen_t	cmsg_len;	/* cantidad de bytes de datos,
+			incluyendo la cabecera */
+	int	cmsg_level;	/* protocolo originario */
+	int	cmsg_type;	/* tipo específico del protocolo */
+			/* seguido de
+	unsigned char	cmsg_data[]; */
+};
+.ta
+.fi
+.SH DESCRIPCIÓN 
+Estas macros se usan para crear y acceder a mensajes de control (también
+llamados datos auxiliares) que no son parte del contenido útil de un
+conector.
+Esta información de control puede incluir la interfaz en la que se ha
+recibido el paquete, diferentes campos de cabecera usados raramente, una
+descripción de error ampliada, un conjunto de descriptores de fichero o
+credenciales de Unix. Por ejemplo, los mensajes de control se pueden usar
+para enviar campos de cabecera adicionales tales como opciones IP.
+Los datos auxiliares se envían llamando a
+.BR sendmsg (2)
+y se reciben llamando a
+.BR recvmsg (2).
+Vea sus páginas de manual para más información.
+.PP
+Los datos auxiliares son una secuencia de estructuras
+.B struct cmsghdr
+con datos añadidos. Sólo se debería acceder a esta secuencia usando las
+macros descritas en esta página de manual y nunca directamente.
+Vea las páginas de manual específicas del protocolo para conocer los tipos
+de mensajes de control disponibles.
+El tamaño máximo permitido del buffer auxiliar por conector se puede
+configura con la sysctl
+.BR net.core.optmem_max .
+Vea
+.BR socket (7).  
+.PP
+.B CMSG_FIRSTHDR 
+devuelve un puntero a la primera
+.B cmsghdr 
+en el buffer de datos auxiliares asociado con la
+.B msghdr
+pasada.
+.PP
+.B CMSG_NXTHDR 
+devuelve la siguiente
+.B cmsghdr 
+válida después de la
+.B cmsghdr
+pasada. Devuelve
+.B NULL 
+cuando no queda suficiente espacio en el buffer.
+when there isn't enough space left in the buffer.
+.PP
+.BR CMSG_ALIGN ,
+dada una longitud, la devuelve incluyendo la alineación necesaria. Ésta es
+una expresión constante.
+.PP
+.B CMSG_SPACE
+devuelve la cantidad de bytes que ocupa un elemento auxiliar cuyo 
+contenido útil es de la longitud de datos pasada. Ésta es una expresión
+constante.
+.PP
+.B CMSG_DATA
+devuelve un puntero a la porción de datos de una
+.BR cmsghdr . 
+.PP
+.B CMSG_LEN
+devuelve el valor a almacenar en el miembro
+.I cmsg_len
+de la estructura
+.B cmsghdr 
+teniendo en cuenta cualquier alineación necesaria. Toma como argumento la
+longitud de los datos. Ésta es una expresión constante.
+.PP
+Para crear datos auxiliares, inicialice primero el miembro
+.I msg_controllen
+de la estructura
+.B msghdr 
+con el tamaño del buffer de mensajes de control. Use
+.B CMSG_FIRSTHDR 
+sobre
+.B msghdr 
+para obtener el primer mensaje de control y
+.B CMSG_NEXTHDR
+para obtener los siguientes.
+En cada mensaje de control, inicialice
+.I cmsg_len
+(con 
+.BR CMSG_LEN ), 
+los otros campos cabecera de
+.B cmsghdr 
+y la parte de datos usando
+.BR CMSG_DATA .
+Finalmente, debería asignar al campo
+.I msg_controllen 
+de 
+.B msghdr 
+la suma de los
+.B CMSG_SPACE 
+de las longitudes de todos los mensajes de control del buffer.
+Para más información sobre
+.BR msghdr ,
+vea
+.BR recvmsg (2). 
+.PP
+Cuando el buffer de mensajes de control es demasiado pequeño para almacenar
+todos los mensajes, se activa la bandera
+.B MSG_CTRUNC 
+en el miembro
+.I msg_flags 
+de
+.BR msghdr .
+.SH EJEMPLO
+Este código busca la opción
+.B IP_TTL 
+en un buffer auxiliar recibido:
+.PP
+.RS
+.nf
+.ta 8n 16n 32n
+struct msghdr msgh; 
+struct cmsghdr *cmsg;
+int *ttlptr;
+int received_ttl;
+
+/* Recibir los datos auxiliares en msgh */ 
+for (cmsg = CMSG_FIRSTHDR(&msgh); 
+     cmsg != NULL; 
+     cmsg = CMSG_NXTHDR(&msgh,cmsg) {
+	if (cmsg->cmsg_level == SOL_IP 
+	  && cmsg->cmsg_type == IP_TTL) { 
+		ttlptr = (int *) CMSG_DATA(cmsg);
+		received_ttl = *ttlptr; 
+		break;
+	}
+}
+if (cmsg == NULL) {
+	/* Error: IP_TTL no habilitada o buffer pequeño o
+	 * error de E/S.
+	 */ 
+} 
+.ta
+.fi
+.RE
+.PP
+El siguiente código pasa un vector de descriptores de ficheros mediante un
+conector Unix usando
+.BR SCM_RIGHTS :
+.PP
+.RS
+.nf
+.ta 8n 16n 32n
+struct msghdr msg = {0};
+struct cmsghdr *cmsg;
+int myfds[NUM_FD]; /* Los descriptores de fichero a pasar. */ 
+char buf[CMSG_SPACE(sizeof myfds)];  /* buffer de datos auxiliares */
+int *fdptr;
+
+msg.msg_control = buf; 
+msg.msg_controllen = sizeof buf;
+cmsg = CMSG_FIRSTHDR(&msg); 
+cmsg->cmsg_level = SOL_SOCKET;
+cmsg->cmsg_type = SCM_RIGHTS;
+cmsg->cmsg_len = CMSG_LEN(sizeof(int) * NUM_FD); 
+/* Inicializar el contenido útil: */ 
+fdptr = (int *)CMSG_DATA(cmsg); 
+memcpy(fdptr, myfds, NUM_FD * sizeof(int)); 
+/* Sumar la longitud de todos los mensajes de control en el buffer: */ 
+msg.msg_controllen = cmsg->cmsg_len;
+.ta
+.fi
+.RE
+.SH OBSERVACIONES
+Para transportabilidad, sólo se debería acceder a los datos auxiliares
+usando las macros descritas aquí.
+.B CMSG_ALIGN
+es una extensión de Linux y no debería usarse en programas transportables.
+.PP
+En Linux,
+.BR CMSG_LEN , 
+.BR CMSG_DATA
+y
+.B CMSG_ALIGN
+son expresiones constantes (suponiendo que su argumento sea contante). Esto
+se podría usar para declarar el tamaño de variables globales pero, sin embargo,
+podría no ser transportable.
+.SH CONFORME A
+El modelo de datos auxiliares sigue el borrador POSIX.1003.1g, 4.4BSD-Lite,
+la API avanzada de IPv6 descrita en RFC2292 y the Single Unix specification v2.
+.B
+CMSG_ALIGN 
+es una extensión de Linux. 
+.SH VÉASE TAMBIÉN
+.BR sendmsg "(2), " recvmsg (2)
+.PP
+RFC 2292

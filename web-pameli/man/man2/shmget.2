@@ -1,0 +1,284 @@
+.\" Copyright (c) 1993 Luigi P. Bai (lpb@softint.com) July 28, 1993
+.\"
+.\" Permission is granted to make and distribute verbatim copies of this
+.\" manual provided the copyright notice and this permission notice are
+.\" preserved on all copies.
+.\"
+.\" Permission is granted to copy and distribute modified versions of this
+.\" manual under the conditions for verbatim copying, provided that the
+.\" entire resulting derived work is distributed under the terms of a
+.\" permission notice identical to this one
+.\" 
+.\" Since the Linux kernel and libraries are constantly changing, this
+.\" manual page may be incorrect or out-of-date.  The author(s) assume no
+.\" responsibility for errors or omissions, or for damages resulting from
+.\" the use of the information contained herein.  The author(s) may not
+.\" have taken the same level of care in the production of this manual,
+.\" which is licensed free of charge, as they might when working
+.\" professionally.
+.\" 
+.\" Formatted or processed versions of this manual, if unaccompanied by
+.\" the source, must acknowledge the copyright and authors of this work.
+.\"
+.\" Modified Wed Jul 28 10:57:35 1993, Rik Faith <faith@cs.unc.edu>
+.\" Modified Sun Nov 28 16:43:30 1993, Rik Faith <faith@cs.unc.edu>
+.\"          with material from Giorgio Ciucci <giorgio@crcc.it>
+.\" Portions Copyright 1993 Giorgio Ciucci <giorgio@crcc.it>
+.\" Modified Tue Oct 22 22:03:17 1996 by Eric S. Raymond <esr@thyrsus.com>
+.\"
+.\" Traducción por Urko Lusa <ulusa@arrakis.es> el 28 Ene 98
+.\"
+.TH SHMGET 2 "28 noviembre 1993" "Linux 0.99.11" "Manual del programador de Linux"
+.SH NOMBRE
+shmget \- asigna un segmento de memoria compartida
+.SH SINOPSIS
+.ad l
+.B #include <sys/ipc.h>
+.sp
+.B #include <sys/shm.h>
+.sp
+.BI "int shmget(key_t " key ", int " size ", int " shmflg );
+.ad b
+.SH DESCRIPCIÓN
+.B shmget()
+devuelve el identificativo del segmento de memoria compartida asociado al
+valor del argumento
+.IR key .
+Se crea un nuevo segmento de memoria compartida, de tamaño igual al
+múltiplo de
+.B PAGE_SIZE
+más aproximado (por exceso) a
+.IR size ,
+si
+.I key
+tiene el valor
+.B IPC_PRIVATE
+o
+.I key
+no es
+.BR IPC_PRIVATE ,
+no hay ningún segmento de memoria compartida asociado a
+.IR key ,
+y
+.B IPC_CREAT
+está declarado en
+.I shmflg
+(es decir,
+.IB shmflg &IPC_CREAT
+es distinto de cero).
+La presencia en
+.PP
+.I shmflg
+está compuesta de:
+.TP 12
+.B IPC_CREAT
+para crear un nuevo segmento. Si este indicador no se usa,
+.B shmget()
+encontrará el segmento asociado con \fIkey\fP, comprobará que el usuario
+tenga permiso para recibir el \fIshmid\fP asociado con el segmento, y
+se asegurará de que el segmento no esté marcado para destrucción.
+.TP
+.B IPC_EXCL
+usado con \fBIPC_CREAT\fP para asegurar el fallo si el segmento existe.
+.TP
+.B mode_flags (9 bits más bajos)
+especifican los permisos otorgados al dueño, grupo y resto del mundo.
+Actualmente el sistema no usa los permisos de ejecución.
+.PP
+Si se crea un nuevo segmento, los permisos de acceso de
+.I shmflg
+son copiados al miembro
+.I shm_perm
+de la estructura
+.I shmid_ds
+que define el segmento. La estructura \fIshmid_ds\fP:
+.PP
+.in +0.5i
+.nf
+struct shmid_ds {
+	struct	ipc_perm shm_perm;	/* permisos de operación */
+	int	shm_segsz;		/* tamaño del segmento (bytes) */
+	time_t	shm_atime;		/* tiempo de la última unión */
+	time_t	shm_dtime;		/* tiempo de la última separación */
+	time_t	shm_ctime;		/* tiempo del último cambio */
+	unsigned short	shm_cpid;	/* pid del creador */
+	unsigned short	shm_lpid;	/* pid del último operador */
+	short	shm_nattch;		/* nº de uniones actuales */
+};
+.fi
+.in -0.5i
+.PP
+.in +0.5i
+.nf
+struct ipc_perm
+{
+  key_t  key;
+  ushort uid;   /* euid y egid del dueño */
+  ushort gid;
+  ushort cuid;  /* euid y egid del creador */
+  ushort cgid;
+  ushort mode;  /* 9 bits más bajos de \fIshmflg\fP */
+  ushort seq;   /* número de secuencia */
+};
+.fi
+.PP
+Además, mientras se crea, la llamada del sistema inicializa la estructura
+de datos
+.B shmid_ds
+del segmento de memoria compartida del sistema como sigue:
+.IP
+.B shm_perm.cuid
+y
+.B shm_perm.uid
+son asignados al identificativo de usuario efectivo (euid) del proceso
+creador.
+.IP
+.B shm_perm.cgid
+y
+.B shm_perm.gid
+son asignados al identificativo de grupo efectivo (egid) del proceso
+creador.
+.IP
+Los 9 bits más bajos de
+.B shm_perm.mode
+toman el valor de los 9 bits más bajos de
+.IR shmflg .
+.IP
+.B shm_segsz
+toma el valor de
+.IR size.
+.IP
+.BR shm_lpid ,
+.BR shm_nattch ,
+.B shm_atime
+y
+.B shm_dtime
+son puestos a
+.BR 0.
+.IP
+.B shm_ctime
+toma el valor del tiempo actual.
+.PP
+Si el segmento de memoria compartida ya existe, se verifican los permisos de
+acceso, y se comprueba si está marcado para destrucción.
+.PP
+.SH "LLAMADAS DEL SISTEMA"
+.TP
+.B fork()
+Después de un
+.B fork()
+el hijo hereda los segmentos de memoria compartida unidos.
+.TP
+.B exec()
+Después de un
+.B exec()
+todos los segmentos de memoria compartida unidos son separados (no
+destruidos).
+.TP
+.B exit()
+A través de
+.B exit()
+todos los segmentos de memoria compartida unidos son separados (no
+destruidos).
+.PP
+.SH "VALOR DEVUELTO"
+En caso de éxito se devuelve el identificativo válido de segmento
+.IR shmid .
+En caso de error se devuelve -1.
+.SH ERRORES
+En caso de error,
+.B errno
+tomará uno de los siguientes valores:
+.TP 12
+.B EINVAL
+se devuelve si \fBSHMMIN\fP > \fIsize\fP o \fIsize\fP > \fBSHMMAX\fP, o
+\fIsize\fP es mayor que el tamaño del segmento.
+.TP
+.B EEXIST
+se devuelve si se especificó
+.B IPC_CREAT | IPC_EXCL
+y el segmento existe.
+.TP
+.B EIDRM
+se devuelve si el segmento está marcado como destruido o fue borrado.
+.TP
+.B ENOSPC
+se devuelve si se han usado todos los identificativos posibles de memoria compartida
+.BR "" ( SHMMNI ),
+o si asignar un segmento del tamaño (\fIsize\fP) solicitado
+causaría al sistema exceder su propio límite de memoria compartida
+.BR "" ( SHMALL ).
+.TP
+.B ENOENT
+se devuelve si no existe segmento para el \fIkey\fP dado, y no se
+especificó
+.BR IPC_CREAT .
+.TP
+.B EACCES
+se devuelve si el usuario no tiene permiso para acceder al segmento de
+memoria compartida.
+.TP
+.B ENOMEM
+se devuelve si no pudo asignarse suficiente memoria para el segmento
+requerido.
+.SH NOTAS
+.B IPC_PRIVATE
+no es un indicador, sino un tipo
+.BR key_t .
+Si se usa este valor especial para
+.IR key ,
+la llamada del sistema ignora todos menos los 9 bits más bajos de
+.I shmflg
+y crea un nuevo segmento de memoria compartida (en caso de éxito).
+.PP
+Los siguientes son los límites de los recursos de un segmento de memoria compartida
+afectados por una llamada
+.BR shmget :
+.TP 11
+.B SHMALL
+Máximo número de páginas de memoria compartida de todo el sistema. Dependiente del
+criterio que se use.
+.TP
+.B SHMMAX
+Máximo tamaño en bytes de un segmento de memoria compartida. Dependiente de
+la implementación (actualmente 4M).
+.TP
+.B SHMMIN
+Mínimo tamaño en bytes de un segmento de memoria compartida. Dependiente de
+la implementación (actualmente 1 byte, aunque
+.B PAGE_SIZE
+es el tamaño mínimo efectivo).
+.TP
+.B SHMMNI
+Máximo número de segmentos de memoria compartida de todo el sistema.
+Dependiente de la implementación (actualmente 4096).
+.PP
+La implementación no tiene límites específicos respecto al máximo número de segmentos
+de memoria compartida por proceso
+.RB ( SHMSEG ).
+.SH FALLOS
+El uso de
+.B IPC_PRIVATE
+no impide a otros procesos el acceso al segmento de memoria compartida
+asignado.
+.PP
+Del mismo modo que ocurre con los ficheros, actualmente no hay ningún modo
+intrínseco por el que un proceso pueda asegurarse acceso exclusivo a un
+segmento de memoria compartida.
+Declarar tanto
+.B IPC_CREAT
+como
+.B IPC_EXCL
+en
+.I shmflg
+sólo asegura, en caso de éxito, que se creará un nuevo segmento de memoria
+compartida. No implica acesso exclusivo a dicho segmento.
+.SH "CONFORME A"
+SVr4, SVID.  SVr4 documenta la condición de error adicional EEXIST.
+Ni SVr4 ni SVID documentan una condición EIDRM.
+.SH "VÉASE TAMBIÉN"
+.BR ftok (3),
+.BR ipc (5),
+.BR shmctl (2),
+.BR shmat (2),
+.BR shmdt (2)

@@ -1,0 +1,252 @@
+.\" Copyright (c) 1990, 1993
+.\"	The Regents of the University of California.  All rights reserved.
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions
+.\" are met:
+.\" 1. Redistributions of source code must retain the above copyright
+.\"    notice, this list of conditions and the following disclaimer.
+.\" 2. Redistributions in binary form must reproduce the above copyright
+.\"    notice, this list of conditions and the following disclaimer in the
+.\"    documentation and/or other materials provided with the distribution.
+.\" 3. All advertising materials mentioning features or use of this software
+.\"    must display the following acknowledgement:
+.\"	This product includes software developed by the University of
+.\"	California, Berkeley and its contributors.
+.\" 4. Neither the name of the University nor the names of its contributors
+.\"    may be used to endorse or promote products derived from this software
+.\"    without specific prior written permission.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+.\" ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+.\" ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+.\" FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+.\" DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+.\" OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+.\" HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+.\" LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+.\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+.\" SUCH DAMAGE.
+.\"
+.\"	@(#)btree.3	8.4 (Berkeley) 8/18/94
+.\"
+.\" Translated into Spanish on Wed Apr 14 1999 by
+.\" 	Juan Piernas Cánovas <piernas@ditec.um.es>
+.\"
+.TH BTREE 3 "18 agosto 1994"
+.\".UC 7
+.SH NONMBRE
+btree \- método de acceso a bases de datos árbolB
+.SH SINOPSIS
+.nf
+.ft B
+#include <sys/types.h>
+#include <db.h>
+.ft R
+.fi
+.SH DESCRIPCIÓN
+La rutina
+.IR dbopen
+es la interfaz de biblioteca para los ficheros de bases de datos. Uno de los
+formatos de fichero soportado es el de los ficheros árbolB. La descripción
+general de los métodos de acceso a las bases de datos se encuentra en
+.IR dbopen (3),
+esta página de manual describe únicamente información especifíca de árbolB.
+.PP
+La estructura de datos árbolB es una estructura de árbol balanceado y
+ordenado que almacena pares clave/datos asociados.
+.PP
+La estructura de datos específica del método de acceso a árbolB proporcionada
+por
+.I dbopen
+se define en el fichero cabecera <db.h> como sigue:
+.PP
+typedef struct {
+.RS
+u_long flags;
+.br
+u_int cachesize;
+.br
+int maxkeypage;
+.br
+int minkeypage;
+.br
+u_int psize;
+.br
+int (*compare)(const DBT *key1, const DBT *key2);
+.br
+size_t (*prefix)(const DBT *key1, const DBT *key2);
+.br
+int lorder;
+.RE
+} BTREEINFO;
+.PP
+Los elementos de esta estructura son los siguientes:
+.TP
+flags
+El valor del campo de opciones se especifica mediante un
+.IR O -lógico
+de cualquiera de los siguientes valores:
+.RS
+.TP
+R_DUP
+Permite claves duplicadas en el árbol, es decir, permite la inserción si la
+clave a ser insertada ya existen en el árbol.
+El comportamiento por defecto, como se describe en
+.IR dbopen (3),
+es sobrescribir una clave coincidente cuando se inserta una nueva clave o
+fallar si se especifica la opción R_NOOVERWRITE.
+La opción R_NOOVERWRITE predomina sobre la opción R_DUP y si se especifica la
+opción R_NOOVERWRITE, los intentos de insertar claves duplicadas en el árbol
+fracasarán.
+.IP
+Si la base de datos contiene claves duplicadas, el orden de recuperación de
+los pares clave/datos es indefinido si se usa la rutina
+.I get
+sin embargo, 
+las llamadas a la rutina
+.I seq
+con la opción R_CURSOR activa siempre devolverá el primero ``lógico'' de
+cualquier grupo de claves duplicadas.
+.RE
+.TP
+cachesize
+Un tamaño máximo sugerido (en bytes) de la memoria caché.
+Este valor es
+.B sólo
+consultivo y el método de acceso reservará más memoria antes que fallar.
+Ya que toda búsqueda examina la página raíz del árbol, ocultar en caché las
+páginas más recientemente usadas mejorará sustancialmente el tiempo de
+acceso.
+Además, las escrituras físicas se demorarán tanto como sea posible, por lo
+que una caché moderada puede reducir el número de operaciones de E/S de
+forma significativa.
+Obviamente, usar una caché incrementa (pero sólo incrementa) la probabilidad
+de corrupción o de pérdida de datos si el sistema cae mientras se está
+modificando un árbol.
+Si
+.I cachesize
+es 0 (no se especifica un tamaño) se utiliza un tamaño de caché por defecto.
+.TP
+maxkeypage
+El número máximo de claves que se almacenarán en una única página. No
+implementado actualmente.
+.\" El número máximo de claves que se almacenarán en una única página.
+.\" Debido a la forma en que la estructura de datos árbolB trabaja,
+.\" .I maxkeypage
+.\" siempre debe ser mayor o igual que 2.
+.\" Si
+.\" .I maxkeypage
+.\" es 0 (no se especifica un número máximo de claves) el factor de relleno de
+.\" la página se hará tan grande como sea posible (que es casi
+.\" invariablemente lo que se quiere).
+.TP
+minkeypage
+El número mínimo de claves que se almacenarán en una única página. Este
+valor se usa para determinar qué claves se almacenarán en páginas de
+overflow, es decir, si una clave o elementos de datos es mayor que el tamaño
+de página dividido por el valor de minkeypage, se almacenará en páginas de
+overflow en lugar de en la propia página.
+Si
+.I minkeypage
+es 0 (no se especifica un número mínimo de claves) se usa un valor de 2.
+.TP
+psize
+Es el tamaño (en bytes) de las páginas usadas por los nodos del árbol. El
+tamaño mínimo de página es 512 bytes y el tamaño máximo de página es 64K.
+Si
+.I psize
+es 0 (no se especifica un tamaño de página) se selecciona un tamaño de
+página basado en el tamaño de bloque de E/S del sistema de ficheros
+subyacente.
+.TP
+compare
+Es la función de comparación de claves.
+Debe devolver un entero menor, igual o mayor que cero si se considera que el
+argumento de la primera clave es, respectivamente, menor, igual o mayor que
+el argumento de la segunda clave.
+Se debe usar la misma función de comparación para un árbol dado cada vez que
+se abre.
+Si
+.I compare
+es NULL (no se especifica un función de comparación), las claves se comparan
+léxicamente, considerando las claves más cortas menores que las claves más
+largas.
+.TP
+prefix
+Es la función de comparación de prefijos.
+Si se especifica, esta rutina debe devolver el número de bytes del argumento
+de la segunda clave que se necesitan para determinar que es mayor que el
+argumento de la primera clave.
+Si las claves son iguales, se debería devolver la longitud de la clave.
+Dese cuenta que la utilidad de esta rutina es muy dependiente de los datos
+pero, en algunos conjuntos de datos, puede producir unos tamaños de árbol y
+tiempos de búsqueda reducidos de forma significativa.
+Si
+.I prefix
+es NULL (no se especifica una función de prefijo)
+.B y
+no se especifca una función de comparación, se usa por defecto una rutina de
+comparación léxica.
+Si
+.I prefix
+es NULL y se especifica una función de comparación, no se hace comparación
+de prefijos.
+.TP
+lorder
+El orden de bytes para los enteros de los metadatos almacenados en la base
+de datos. El número debería representar el orden como un entero; por
+ejemplo, el orden `el byte de mayor peso el último' (orden ascendente)
+sería el número 4321.
+Si
+.I lorder
+es 0 (no se especifica un orden) se utiliza el orden del anfitrión actual.
+.PP
+Si el fichero ya existe (y no se ha especificado la opción O_TRUNC), se
+ignoran los valores indicados para las opciones de los parámetros, lorder y
+psize, en favor de los valores usados cuando se creó el árbol.
+.PP
+Los recorridos secuenciales hacia adelante de un árbol van desde la clave
+más pequeña a la más grande.
+.PP
+El espacio liberado al borrar los pares clave/datos del árbol nunca se
+recupera, aunque normalmente se pone a disposición para su reutilización.
+Esto significa que la estructura de almacenamiento árbolB es de sólo
+crecimiento.
+Las únicas soluciones son evitar excesivas eliminaciones o crear
+periódicamente un árbol nuevo recorriendo el que ya existe.
+.PP
+Todas las búsquedas, insercciones y eliminaciones de un árbolB se terminarán
+en un orden O(logaritmo en base N) donde `base' es el factor medio de
+relleno.
+Con frecuencia, la inserción de datos ordenados en un árbolB produce un
+factor de relleno bajo.
+Esta implementación se ha modificado para hacer las inserciones ordenadas el
+caso mejor, produciendo un factor de relleno de páginas mucho mejor de lo
+normal.
+.SH ERRORES
+Las rutinas del método de acceso
+.I árbolB
+pueden fracasar y asignar a
+.I errno
+cualquiera de los errores especificados en la rutina de biblioteca
+.IR dbopen (3).
+.SH "VÉASE TAMBIÉN"
+.IR dbopen (3),
+.IR hash (3),
+.IR mpool (3),
+.IR recno (3)
+.sp
+.IR "The Ubiquitous B-tree" ,
+Douglas Comer, ACM Comput. Surv. 11, 2 (June 1979), 121-138.
+.sp
+.IR "Prefix B-trees" ,
+Bayer and Unterauer, ACM Transactions on Database Systems, Vol. 2, 1
+(March 1977), 11-26.
+.sp
+.IR "The Art of Computer Programming Vol. 3: Sorting and Searching" , 
+D.E. Knuth, 1968, pp 471-480.
+.SH FALLOS
+Sólo se soportan los órdenes de bytes ascendente (el byte de mayor peso el
+último) y descente (el bytes de menor peso el último).

@@ -1,0 +1,327 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML
+><HEAD
+><TITLE
+>Más acerca de PInvoke y llamadas internas</TITLE
+><META
+NAME="GENERATOR"
+CONTENT="Modular DocBook HTML Stylesheet Version 1.77"></HEAD
+><BODY
+CLASS="ARTICLE"
+BGCOLOR="#FFFFFF"
+TEXT="#000000"
+LINK="#0000FF"
+VLINK="#840084"
+ALINK="#0000FF"
+><DIV
+CLASS="ARTICLE"
+><DIV
+CLASS="TITLEPAGE"
+><H1
+CLASS="TITLE"
+><A
+NAME="AEN2"
+></A
+>Más acerca de PInvoke y llamadas internas</H1
+><H3
+CLASS="AUTHOR"
+><A
+NAME="AEN4"
+>Dietmar Maurer</A
+></H3
+><DIV
+CLASS="AFFILIATION"
+><SPAN
+CLASS="ORGNAME"
+>(C) 2001 Ximian, Inc.<BR></SPAN
+><DIV
+CLASS="ADDRESS"
+><P
+CLASS="ADDRESS"
+><TT
+CLASS="EMAIL"
+>&#60;<A
+HREF="mailto:dietmar@ximian.com"
+>dietmar@ximian.com</A
+>&#62;</TT
+></P
+></DIV
+></DIV
+><H3
+CLASS="AUTHOR"
+><A
+NAME="AEN11"
+>Alejandro Sánchez Acosta</A
+></H3
+><DIV
+CLASS="AFFILIATION"
+><SPAN
+CLASS="ORGNAME"
+>Mono Hispano
+<DIV
+CLASS="ADDRESS"
+><P
+CLASS="ADDRESS"
+><TT
+CLASS="EMAIL"
+>&#60;<A
+HREF="mailto:raciel@es.gnu.org"
+>raciel@es.gnu.org</A
+>&#62;</TT
+></P
+></DIV
+><BR></SPAN
+></DIV
+><HR></DIV
+><DIV
+CLASS="TOC"
+><DL
+><DT
+><B
+>Table of Contents</B
+></DT
+><DT
+>1. <A
+HREF="#AEN18"
+>Prefacio</A
+></DT
+><DT
+>2. <A
+HREF="#AEN22"
+>¿Qué es PInvoke?</A
+></DT
+><DT
+>3. <A
+HREF="#AEN28"
+>¿Qué son las llamadas internas?</A
+></DT
+><DT
+>4. <A
+HREF="#AEN34"
+>Consideraciones en tiempo de ejecución</A
+></DT
+><DT
+>5. <A
+HREF="#AEN42"
+>¿Cuando/como hace el entorno de ejecución para llamar código PInvoke no gestionado?</A
+></DT
+><DT
+>6. <A
+HREF="#AEN48"
+>¿cuando/cómo hace el entorno de ejecución para hacer llamadas internas a una llamada nogestionada?</A
+></DT
+><DT
+>7. <A
+HREF="#AEN64"
+>¿Qué se almacena en el LMF?</A
+></DT
+></DL
+></DIV
+><DIV
+CLASS="SECT1"
+><H2
+CLASS="SECT1"
+><A
+NAME="AEN18"
+></A
+>1. Prefacio</H2
+><P
+>        Permission is granted to copy, distribute and/or modify this document
+        under the terms of the GNU Free Documentation License, Version
+        1.1 or any later version published by the Free Software
+        Foundation with no Invariant Sections, no Front-Cover Texts,
+        and no Back-Cover Texts.  A copy of the
+        license can be found in 
+	<A
+HREF="http://www.gnu.org/licenses/fdl.sgml"
+TARGET="_top"
+>GNU
+        Free Documentation License</A
+>.</P
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN22"
+></A
+>2. ¿Qué es PInvoke?</H2
+><P
+>PInvoke significa Invocación de plataforma. Es posible llamar a funciones
+que contengan librerias compartidas nativas, por ejemplo puedes declarar:</P
+><PRE
+CLASS="PROGRAMLISTING"
+>[DllImport("cygwin1.dll", EntryPoint="puts"]
+public static extern int puts (string name);</PRE
+><P
+>Si entonces llamas a "puts(...)" llama a la función nativa "puts" en
+"cygwin1.dll". Es también posible espeficar varios atributos de marshaling en los argumentos, 
+por ejemplo, puedes especificar que  la función puts() que espera la cadena
+en códificación ANSI configurando el atributo CharSet:</P
+><PRE
+CLASS="PROGRAMLISTING"
+>[DllImport("cygwin1.dll", EntryPoint="puts", CharSet=CharSet.Ansi)]
+public static extern int puts (string name);</PRE
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN28"
+></A
+>3. ¿Qué son las llamadas internas?</H2
+><P
+>Algunas funciones de la libreria clase están implementadas en C, debido a esto no es posible implementarlas en C# o a causa de que se quiere ganar	rendimiento. Aquí se muestra un ejemplo para la implementación de nuestro	array:</P
+><PRE
+CLASS="PROGRAMLISTING"
+>[MethodImplAttribute(MethodImplOptions.InternalCall)]
+public extern int GetRank ();</PRE
+><P
+>Si llamas a la función GetRank() invoca (llama) a
+ves_icall_System_Array_GetRank() dentro del entorno de ejecución
+de mono.				   </P
+><P
+>Si escribes tu propio entorno de ejecución puedes añadir llamadas internas
+con la función mono_add_internal_call()</P
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN34"
+></A
+>4. Consideraciones en tiempo de ejecución</H2
+><P
+>Llamar a código nativo (no gestionado) tiene varias implicaciones:</P
+><P
+></P
+><UL
+><LI
+><P
+>- Necesitamos manejar excepciones dentro del código no gestionado. El JIT
+unicamente guarda algo de información en cada transición de código gestionado
+a código no gestionado (en una lista enlazada), llamado Ultimo Marco Gestionado
+(LMF). Si una excepción ocurre el entorno de ejecución mira primero si
+la excepción fue dentro de código gestionado. Si no está debe haber una entrada
+en la LMF que contenga toda la información necesaria para luego
+desapilar la pila.</P
+><P
+>La creación de esta estructura LMF claramente implica algo de sobrecarga,
+por lo que llamar a código no gestionado no es tan barato como parecía 
+en un principio. Quizás podamos introducir un atributo especial para la
+creación de la LMF en métodos que hagan llamadas internas que no 
+puedan lanzar excepciones.</P
+><P
+>- PInvoke tiene la posibilidad de convertir los tipos de argumentos. Por ejemplo
+las cadenas son empaquetadas como Char* (marshaled). Para cada argumento
+String se traduce en un char*. La codificación se especifica en el atributo 
+CharSet del DllImport.</P
+></LI
+></UL
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN42"
+></A
+>5. ¿Cuando/como hace el entorno de ejecución para llamar código PInvoke no gestionado?</H2
+><P
+>- LDFTN, CALLI, Delegate::Invoke, Delegate::BeginInvoke: Debemos generar un 
+código  que haga de wrapper cuando carguemos la función con LFDTN, 
+por lo que todos los argumentos son enviados (marshaled) en el formato
+correcto. Tambien necesitamos guardar/restaurar el LMF.</P
+><P
+>- MethodBase::Invoke (invocación en tiempo de ejecución): Necesitamos enviar (marshal) todos los argumentos en el formato correcto para guardar/restaurar el LMF</P
+><P
+>-CALL:Necesitamos enviar (marshal) todos los argumentos en el formato correcto para guardar/restaurar el LMF.</P
+><P
+>La forma más facil de implementar esto es crear siempre una función que envuelva (wrapper) las llamadas PInvoke, que lleve a cabo el envio de argumentos (marshal) y guarde/restaure el LMF.</P
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN48"
+></A
+>6. ¿cuando/cómo hace el entorno de ejecución para hacer llamadas internas a una llamada nogestionada?</H2
+><P
+>No necesitamos convertir ningún argumento, por lo que necesitamos solo tener
+cuidado de la estructura LMF.</P
+><P
+>- LDFTN, CALLI, Delegate::Invoke, Delegate::BeginInvoke: Tenemos que generar
+un código que haga de wrapper cuando carguemos la función con LDFTN
+que guarde/restaure el LMF.</P
+><P
+>- MethodBase::Invoke (llamada en tiempo de ejecución): Necesitamos guardar/restaurar el LMF.</P
+><P
+>- CALL: Necesitamos guardar/restaurar el LMF.</P
+><P
+>- CALLVIRT ( a través de la vtable): Necesitamos generar un código wrapper que guarde/restaure el LMF.</P
+><P
+>Porfavor notifica que podemos llamar a funciones internas con CALLVIRT, por ejemplo, podemos llamar a esas funciones a través de una VTable. Pero no podemos conocer antes si un slot de la vtable contiene una llamada interna o código gestionado, Por lo que de nuevo es mejor generar funciones wrappers para las llamadas internas para guardar/restaurar el LMF.</P
+><P
+>Desafortunadamente necesitamos meter todos los argumentos en la pila dos veces
+debido a que nosotros guardarmos el LMF, y el LMF está actualmente situado en la pila.
+Por lo que la pila parecería algo como:</P
+><PRE
+CLASS="PROGRAMLISTING"
+>|------------------------------------|
+|       argumentos del método 	     |
+|------------------------------------|
+|              LMF                   |
+|------------------------------------|
+|  	argumentos copiados  	     |
+|------------------------------------|</PRE
+><P
+>Por lo que yo conozco esta es la manera como el ORP funciona. Otra manera
+es asignar el LMF en otro lugar que no sea la pila, pero entonces tendríamos 
+una sobrecarga en la asignación/liberación de las estructuras LMF
+(y otra llamada a arch_get_lmf_addr).</P
+><P
+>Quizás sea posible eliminar esta copia adiccional para llamadas
+internas introduciendo el LMF en la función de C.  A continuación vamos a ver
+como tenemos una función puts() al tratarse de una llamada interna.</P
+><PRE
+CLASS="PROGRAMLISTING"
+>ves_icall_puts (MonoString *string);</PRE
+><P
+>Si sencillamente modificamos eso al incluir el LMF podemos eliminar la copia
+de todos los argumentos.						</P
+><PRE
+CLASS="PROGRAMLISTING"
+>ves_icall_puts (MonoLMF lmf, MonoString *string);</PRE
+><P
+>Pero esto depende de  como sean las conveciones para las llamadas y no sé
+si funcionara en todas las plataformas.</P
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN64"
+></A
+>7. ¿Qué se almacena en el LMF?</H2
+><P
+>- Todas las llamadas guardadas en los registros (ya que podemos manejar código nogestionado)</P
+><P
+>- Puntero a la instrucción de la ultima instrucción gestionada</P
+><P
+>- Un puntero a MonoMethod para la función no gestionada</P
+><P
+>- La dirección del puntero al hilo local lfm_addr (para eliminar otra llamada
+a arch_get_lmf_addr cuando se restaure el LMF)</P
+><P
+>El LFM está almacenado en la pila, por lo que también sabemos la
+posicion de la pila a devolver (unwinding).</P
+></DIV
+></DIV
+></BODY
+></HTML
+>

@@ -1,0 +1,1174 @@
+<?xml version="1.0" encoding="iso-8859-1" ?>
+<!DOCTYPE article PUBLIC "-//OASIS//DTD DocBook V4.1.2//EN"
+"http://www.oasis-open.org/docbook/xml/4.1.2/docbookx.dtd">
+
+<article lang="es">
+
+<articleinfo>
+
+<title>Bridge+Cortafuegos Mini-COMO</title>
+
+<author>
+<firstname>Peter Breuer, <ulink
+url="mailto:ptb@it.uc3m.es"
+>ptb@it.uc3m.es</ulink
+></firstname>
+</author>
+
+<pubdate>v1.2, 19 Diciembre 1997</pubdate>
+
+<abstract>
+
+<para>
+Configuración de un sistema en el que coexista un cortafuegos con
+<emphasis remap="it">bridging</emphasis> de interfaces de red
+</para>
+
+</abstract>
+
+</articleinfo>
+
+<sect1 id="introduccion">
+<title>Introducción
+</title>
+
+<para>
+Debería consultar el documento <emphasis remap="it">Bridging mini-HOWTO</emphasis>, <literal remap="tt"><ulink
+url="ftp://metalab.unc.edu/pub/Linux/docs/HOWTO/mini/Bridge"
+>ftp://sunsite.unc.edu/pub/Linux/docs/HOWTO/mini/Bridge</ulink
+></literal> por Chris
+Cole para obtener otra perspectiva de este TEMA. Su dirección es <literal remap="tt"><ulink
+url="mailto:chris@polymer.uakron.edu"
+>chris@polymer.uakron.edu</ulink
+></literal>.
+La versión de su COMO en la que he basado este documento es la 1.03, con fecha
+del 23 de Agosto de 1996.
+</para>
+
+</sect1>
+
+<sect1 id="queyporque">
+<title>¿Qué y por qué (y cómo)?
+</title>
+
+<sect2 id="que">
+<title>Qué
+</title>
+
+<para>
+Un puente es un cable inteligente que conecta dos tarjetas de red. Un
+cortafuegos es un aislante inteligente.
+</para>
+
+</sect2>
+
+<sect2 id="porque">
+<title>Por qué
+</title>
+
+<para>
+Puede querer un puente cuando tenga varios ordenadores:
+</para>
+
+<para>
+
+<orderedlist>
+<listitem>
+
+<para>
+
+para ahorrar el precio de un nuevo concentrador si resulta tener una tarjeta
+ethernet de sobra.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ 
+para ahorrarse la molestia de aprender sobre reenvío IP y otros trucos
+similares cuando <emphasis remap="bf">ya tiene</emphasis> dos tarjetas en su ordenador.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+ 
+Para evitar el trabajo de mantenimiento cuando las cosas cambien en el futuro.
+
+</para>
+</listitem>
+
+</orderedlist>
+
+</para>
+
+<para>
+«Varios ordenadores» pueden ser tan pocos como tres si están rutando o
+puenteando o simplemente moviéndose por la habitación con frecuencia. También
+puede querer un puente sólo por la diversión de averiguar qué es lo que hace.
+De hecho esto (<xref linkend="bridge1"/>) es para lo que yo lo quería.
+</para>
+
+<para>
+Si realmente está interesado en el punto <xref linkend="bridge1"/>, debe ser
+uno de los pocos.  Lea los documentos Redes-En-Linux-Como, <literal remap="tt"><ulink
+url="http://www.insflug.org/documentos/Redes-En-Linux-Como/"
+>http://www.insflug.org/documentos/Redes-En-Linux-Como/</ulink
+></literal> y Serie-Como
+<literal remap="tt"><ulink
+url="http://www.insflug.org/documentos/Serie-Como/"
+>http://www.insflug.org/documentos/Serie-Como/</ulink
+></literal> en busca de trucos
+mejores.
+</para>
+
+<para>
+Querrá un cortafuegos si
+</para>
+
+<para>
+
+<orderedlist>
+<listitem>
+
+<para>
+trata de proteger su red de accesos externos, o
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+quiere denegar el acceso al mundo exterior desde su
+red.
+
+</para>
+</listitem>
+
+</orderedlist>
+
+</para>
+
+<para>
+Curiosamente yo necesitaba el punto <xref linkend="firewall2"/> también aquí.
+La política de mi universidad es que no debemos actuar como proveedores de
+servicios internet a los pregraduados.
+</para>
+
+</sect2>
+
+<sect2 id="como">
+<title>¿Cómo?
+</title>
+
+<para>
+Comencé haciendo puente entre las tarjetas de red de un cortafuegos, y acabé
+haciendo un cortafuegos sin quitar el puente. Parece funcionar y es más
+flexible que cualquiera de las configuraciones por sí solas. Puedo tirar el
+firewall y seguir haciendo puente o tirar el puente cuando quiero ser más
+prudente.
+</para>
+
+<para>
+Supongo que el código del puente está justo encima del código de la capa física
+y que el código del cortafuegos está una capa más arriba, así que el puente y
+el cortafuegos actúan como si estuvieran ejecutando juntos, «secuencialmente» y
+no «en paralelo» (¡vaya!). diagrama:
+</para>
+
+<para>
+
+<screen>
+-&#62; Entrada-puente -&#62; Entrada-cortafuegos -&#62; Kernel -&#62; Salida-cortafuegos -&#62; Salida-puente -&#62;
+</screen>
+
+</para>
+
+<para>
+No hay otra manera de explicar cómo una máquina puede ser «conductor» y
+«aislante» a la vez. Hay varias advertencias sobre esto, pero las detallaré
+mas tarde. Básicamente deberá rutar los paquetes que quiera sean considerados
+por el firewall. De cualquier manera, parece funcionar bien de manera conjunta.
+Esto es lo que hará...
+</para>
+
+</sect2>
+
+</sect1>
+
+<sect1 id="bridge1">
+<title><emphasis remap="it">Bridging</emphasis>
+</title>
+
+<sect2 id="Software">
+<title>Software
+</title>
+
+<para>
+Obtenga la utilidad de configuración de puentes <literal remap="tt"><ulink
+url="ftp://shadow.cabi.net/pub/Linux/BRCFG.tgz"
+>ftp://shadow.cabi.net/pub/Linux/BRCFG.tgz</ulink
+></literal> de las páginas
+personales de Alan Cox. Esta es la misma referencia que encuentra en el
+documento de Chris. No me había dado cuenta de que era una url de un ftp y no
+de http ...
+</para>
+
+</sect2>
+
+<sect2 id="lecturasprevias">
+<title>Lecturas previas.
+</title>
+
+<para>
+Lea el <emphasis remap="it">Multiple Ethernet HOWTO</emphasis>, <literal remap="tt"><ulink
+url="ftp://sunsite.unc.edu/pub/Linux/docs/HOWTO/mini/Multiple-Ethernet"
+>ftp://sunsite.unc.edu/pub/Linux/docs/HOWTO/mini/Multiple-Ethernet</ulink
+></literal>
+si quiere asesoramiento sobre cómo configurar más de una tarjeta de red en su
+máquina.
+</para>
+
+<para>
+En el <emphasis remap="it">BootPrompt HOWTO</emphasis> <literal remap="tt"><ulink
+url="ftp://sunsite.unc.edu/pub/Linux/docs/HOWTO/BootPrompt-HOWTO"
+>ftp://sunsite.unc.edu/pub/Linux/docs/HOWTO/BootPrompt-HOWTO</ulink
+></literal> podrá
+encontrar aún más detalles de la magia involucrada en el proceso de arranque.
+</para>
+
+<para>
+Puede escapar de la lectura del Redes-En-Linux-Como <literal remap="tt"><ulink
+url="http://www.insflug.org/documentos/Redes-En-Linux-Como/"
+>http://www.insflug.org/documentos/Redes-En-Linux-Como/</ulink
+></literal>. Es una
+lectura bien larga, y tendrá que seleccionar de ella los detalles que necesite.
+</para>
+
+</sect2>
+
+<sect2 id="configuracionarranque">
+<title>Configuración del arranque
+</title>
+
+<para>
+El material de lectura anterior le enseñará lo que necesita para preparar el
+kernel para reconocer un segundo dispositivo ethernet en el arranque, por
+ejemplo añadiendo los siguiente a <filename>/etc/lilo.conf</filename>, y volviendo a
+ejecutar <command>lilo</command>: 
+</para>
+
+<para>
+
+<screen>
+append = "ether=0,0,eth1" 
+</screen>
+
+</para>
+
+<para>
+Observe el &quot;eth1&quot;. &quot;eth0&quot; es la primera tarjeta.
+&quot;eth1&quot; es la segunda tarjeta. Puede añadir los parámetros de arranque
+que quiera a la línea que lilo le ofrece. Esto es para tres tarjetas: 
+</para>
+
+<para>
+
+<screen>
+linux ether=0,0,eth1 ether=0,0,eth2 
+</screen>
+
+</para>
+
+<para>
+Yo uso <command>loadlin</command> para arrancar mi kernel desde DOS: 
+</para>
+
+<para>
+
+<screen>
+loadlin.exe c:\vmlinuz root=/dev/hda3 ro ether=0,0,eth1 ether=0,0,eth2
+</screen>
+
+</para>
+
+<para>
+Fíjese que este truco obliga al kernel a sondear direcciones en el arranque.
+Esto no ocurrirá si carga los controladores ethernet como <emphasis remap="bf">módulos</emphasis> (por
+seguridad, ya que la orden de sondeo no puede ser determinada) así que si usa
+módulos tendrá que añadir los parámetros de IRQ y puerto apropiados para el
+controlador específicamente en su fichero <filename>/etc/conf.modules</filename>. Yo por
+lo menos tengo
+</para>
+
+<para>
+
+<screen>
+alias eth0 3c509
+alias eth1 de620
+options 3c509 irq=5 io=0x210
+options de620 irq=7 bnc=1 
+</screen>
+
+</para>
+
+<para>
+Puede averiguar está usando módulos mediante <command>ps -aux</command> para ver si se
+está ejecutando <command>kerneld</command> y comprobando si hay archivos <literal remap="tt">.o</literal> en
+algún subdirectorio del directorio <filename>/lib/modules</filename>. Necesita el que el
+directorio se llame como le diga <command>uname -r</command>. Si tiene <command>kerneld</command>
+y/o tiene algún archivo como <filename>loquesea.o</filename>, edite
+<filename>/etc/conf.modules</filename> y lea cuidadosamente la página del manual de
+<command>depmod</command>.
+</para>
+
+<para>
+Tenga en cuenta también que hasta hace poco (kernel <literal remap="tt">2.0.25</literal>) el
+controlador <literal remap="tt">3c509</literal> no podía ser usado para más de una tarjeta si era
+usado como módulo. He visto un parche por ahí que soluciona esto. Puede que
+esté integrado en el kernel cuando lea este documento.
+</para>
+
+</sect2>
+
+<sect2 id="configuracionkernel">
+<title>Configuración del kernel </title>
+
+<para>
+Recompile el kernel con bridging activado. 
+</para>
+
+<para>
+
+<screen>
+CONFIG_BRIDGE=y 
+</screen>
+
+</para>
+
+<para>
+Yo compilé con el cortafuegos, reenvío IP, enmascaramiento y lo demás activado.
+Esto es sólo si quiere cortafuegos...
+</para>
+
+<para>
+
+<screen>
+CONFIG_FIREWALL=y           
+CONFIG_NET_ALIAS=y          
+CONFIG_INET=y
+CONFIG_IP_FORWARD=y         
+CONFIG_IP_MULTICAST=y       
+CONFIG_IP_FIREWALL=y        
+CONFIG_IP_FIREWALL_VERBOSE=y
+CONFIG_IP_MASQUERADE=y      
+</screen>
+
+</para>
+
+<para>
+En realidad no necesita todo esto. Lo que sí necesita, además de esto, es la
+configuación normal de la red: 
+</para>
+
+<para>
+
+<screen>
+CONFIG_NET=y 
+</screen>
+
+</para>
+
+<para>
+y no creo que necesite preocuparse de ninguna de las demás opciones de red.  Yo
+tengo opciones sin compilar dentro del kernel disponibles como módulos que
+puedo añadir más tarde.
+</para>
+
+<para>
+Instale el nuevo kernel, vuelva a ejecutar <command>lilo</command> y rearranque con el
+kernel nuevo. ¡No debería haber cambios hasta ahora!
+</para>
+
+</sect2>
+
+<sect2 id="direccionesred">
+<title>Direcciones de red </title>
+
+<para>
+Chris dice que un puente no debería tener dirección IP, pero esta no es la
+configuración que describo aquí.
+</para>
+
+<para>
+Seguro que querrá la máquina para conectarse a la red, así que va a necesitar
+una dirección y necesita asegurarse de que tiene el dispositivo de loopback
+activado de la manera normal, de tal forma que sus programas puedan hablar
+con los lugares que se supone deberían poder hablar. Si la dirección loopback
+no está activada,  el servicio de resolución de nombres, y otros podrían no
+funcionar adecuadamente. Vea el Redes-En-Linux-Como (<literal remap="tt"><ulink
+url="http://www.insflug.org/documentos/Redes-En-Linux-Como/"
+>http://www.insflug.org/documentos/Redes-En-Linux-Como/</ulink
+></literal>), aunque la
+configuración estándard debería haber hecho esto:
+</para>
+
+<para>
+
+<screen>
+ifconfig lo 127.0.0.1 
+route add -net 127.0.0.0 
+</screen>
+
+</para>
+
+<para>
+Va a necesitar dar direcciones a sus tarjetas de red. He modificado el 
+archivo <filename>/etc/rc.d/rc.inet1</filename> de mi slackware (<literal remap="tt">3.x</literal>) para
+configurar dos tarjetas y usted debería buscar en su archivo de configuración
+la manera de doblar o triplicar el número de instrucciones. Suponga que usted
+tiene direcciones en
+</para>
+
+<para>
+
+<screen>
+192.168.2.100
+</screen>
+
+</para>
+
+<para>
+(esto es en el espacio de direcciones reservado para redes privadas, pero no se
+preocupe, no va a hacerle daño a nadie si usa esta dirección por error) así que
+probablemente ya tenga una línea como
+</para>
+
+<para>
+
+<screen>
+ifconfig eth0 192.168.2.100 netmask 255.255.255.0 metric 1 
+</screen>
+
+</para>
+
+<para>
+en su configuración. Lo primero que probablemente quiera hacer es limitar el
+espacio de direcciones que alcance esta tarjeta a la mitad, de tal forma que
+pueda en algún momento puentear o hacer cortafuegos con las dos mitades. Añada
+pues una línea que reduzca la máscara para direccionar un número menor de 
+máquinas:
+</para>
+
+<para>
+
+<screen>
+ifconfig eth0 netmask 255.255.255.128 
+</screen>
+
+</para>
+
+<para>
+Intente esto también. Limita a la tarjeta a, como mucho, las direcciones entre
+<literal remap="tt">.0</literal> y <literal remap="tt">.127</literal>.
+</para>
+
+<para>
+Ahora puede configurar su segunda tarjeta en la otra mitad del espacio de
+direcciones local. Asegúrese que nadie está usando ya las direcciones. Por
+simetria, yo lo pongo en <emphasis remap="it">228=128+100</emphasis>. Cualquier dirección funcionará
+tan pronto como no esté en la máscara de la otra tarjeta. Bueno, seguramente.
+Evite direcciones especiales como <literal remap="tt">.0</literal>, <literal remap="tt">.1</literal>, <literal remap="tt">.128</literal> etc.
+a no ser que de verdad sepa qué hace.
+</para>
+
+<para>
+
+<screen>
+ifconfig eth1 192.168.2.228 netmask 255.255.255.128 metric 1 
+</screen>
+
+</para>
+
+<para>
+Esto evita que la segunda tarjeta direccione entre .128 and .255. 
+</para>
+
+</sect2>
+
+<sect2 id="rutadored">
+<title>Rutado de red </title>
+
+<para>
+Aquí es donde tengo que anunciar las salvedades en el esquema de puenteado y
+cortafuegos: no puede hacer cortafuegos con paquetes que no se ruten. No hay
+rutas, no hay cortafuegos. Al menos esto es verdad en el kernel <literal remap="tt">2.0.30</literal>
+y en kernel más recientes. Los filtros para el cortafuegos están estrechamente
+relacionados con el código de reenvío IP.
+</para>
+
+<para>
+Esto no significa que no pueda hacer puentes. Puede hacer un puente entre dos
+tarjetas y hacer cortafuegos con ellas desde una tercera. Puede tener dos
+tarjetas y hacer un cortafuegos con ellas contra una dirección IP externa como
+un router cercano, siempre y cuando el router sea rutado por usted hasta una de
+las tarjetas.
+</para>
+
+<para>
+En otras palabras, ya que voy a hacer un cortafuegos quiero controlar con
+precisión el destino físico de algunos paquetes. 
+</para>
+
+<para>
+Tengo la pequeña red de máquinas conectadas a un concentrador  que cuelga de
+eth0, por lo que configuro ahí una red: 
+</para>
+
+<para>
+
+<screen>
+route add -net 192.168.2.128 netmask 255.255.255.128 dev eth0
+</screen>
+
+</para>
+
+<para>
+El <literal remap="tt">.128</literal> sería <literal remap="tt">.0</literal> si tuviera una clase C completa allí. No la
+tengo, por definición, ya que he partido a la mitad el espacio de direcciones.
+El <literal remap="tt">dev eth0</literal> es innecesario porque las direcciones de las tarjetas caen
+en la máscara, pero podría ser necesario en su caso. Uno puede necesitar más de
+una tarjeta en esta subred (127 máquinas en un segmento) pero estas tarjetas
+serían puenteadas bajo la misma máscara de red, de tal forma que aparecen como
+una ante el código de rutado.
+</para>
+
+<para>
+En la otra tarjeta tengo un cable directo a un router grande en el que confío. 
+</para>
+
+<para>
+&#60;#if output="latex2e"&#62;&emsp; 
+ &emsp; 
+ &emsp; 
+&#60;/#if&#62;
+</para>
+
+<para>
+
+<screen>
+                                               
+                                                  cliente 129
+          __                                         |    __
+cliente 1   \       .0              .128             |   /   red 1
+cliente 2 --- Hub - eth0 - Kernel - eth1 - Hub - Router ---  red 2
+cliente 3 __/       .100            .228          .2 |   \__ red 3
+                                                     |
+                                                  cliente 254 
+</screen>
+
+</para>
+
+<para>
+Yo pongo la dirección del router a la tarjeta como una ruta fija
+(«estática») porque si no caería entre la máscara de las primeras tarjetas y el
+kernel se confundiría al mandar paquetes al router grande. Voy a hacer
+cortafuegos con estos paquetes, y esta es otra razón por la que rutarlos
+específicamente.
+</para>
+
+<para>
+
+<screen>
+route add 192.168.2.2 dev eth1
+</screen>
+
+</para>
+
+<para>
+No los necesito, ya que no tengo más máquinas en esa mitad del espacio de
+direcciones, pero declaro una red también en la segunda tarjeta. Separar mis
+interfaces en dos grupos mediante el rutado me permitirá hacer unas reglas de
+cortafuegos muy estrictas si lo necesito, pero puede escapar con mucho menos
+rutado específico que el aquí expuesto.
+</para>
+
+<para>
+
+<screen>
+route add -net 192.168.2.128 netmask 255.255.255.128 dev eth1 
+</screen>
+
+</para>
+
+<para>
+Necesito también enviar todos los paquetes no locales al mundo, así que  le
+diré al kernel que se los mande al router grande.
+</para>
+
+<para>
+
+<screen>
+route add default gw 192.168.2.2 
+</screen>
+
+</para>
+
+</sect2>
+
+<sect2 id="configuraciontarjeta">
+<title>Configuración de la tarjeta
+</title>
+
+<para>
+La mayoría de lo que ha visto es configuración estándard de la red, pero
+estamos puenteando, así que también tenemos que escuchar paquetes en ambas
+tarjetas que no se dirijan a nosotros. Lo que sigue debe ir al fichero de
+configuración de red.
+</para>
+
+<para>
+
+<screen>
+ifconfig promisc eth0 
+ifconfig promisc eth1 
+</screen>
+
+</para>
+
+<para>
+La página del manual dice que <literal remap="tt">allmulti</literal> equivale a <literal remap="tt">promisc</literal>,
+pero a mi no me funcionó.
+</para>
+
+</sect2>
+
+<sect2 id="rutadoadicional">
+<title>Rutado adicional </title>
+
+<para>
+Una cosa de la que me di cuenta era que tuve que poner al menos la segunda
+tarjeta en un modo en el que respondiera a las preguntas del router grande
+sobre qué máquinas escondía en mi red local.. 
+</para>
+
+<para>
+
+<screen>
+ifconfig arp eth1
+</screen>
+
+</para>
+
+<para>
+Por si acaso, le hice lo mismo a la otra tarjeta.
+</para>
+
+<para>
+
+<screen>
+ifconfig arp eth0 
+</screen>
+
+</para>
+
+</sect2>
+
+<sect2 id="configuracionpuente">
+<title>Configuración del puente
+</title>
+
+<para>
+Active el puenteo, también en su archivo de configuración de la red:
+</para>
+
+<para>
+
+<screen>
+brcfg -enable 
+</screen>
+
+</para>
+
+<para>
+Debe haber probado esto extensivamente en pruebas reales, por supuesto.  El
+configurador del puente mostrará algunos números. Puede experimentar con
+conectando y desconectando los puertos uno cada vez.
+</para>
+
+<para>
+
+<screen>
+brcfg -port 0 -disable/-enable
+brcfg -port 1 -disable/-enable 
+</screen>
+
+</para>
+
+<para>
+Para comprobar el estado en cualquier momento, ejecute
+</para>
+
+<para>
+
+<screen>
+brcfg 
+</screen>
+
+</para>
+
+<para>
+sin parámetros. Verá cómo el puente escucha, aprende y hace el reenvío. (No
+entiendo por qué el código repite las mismas direcciones físicas en mis dos
+tarjetas, pero no importa, el HOWTO de Chris dice que es así)
+</para>
+
+</sect2>
+
+<sect2 id="probarlo">
+<title>Probarlo
+</title>
+
+<para>
+Si todo funciona como es debido, pruebe su propio archivo de comandos de
+configuración tirando abajo ambas tarjetas y luego ejecutándolo: 
+</para>
+
+<para>
+
+<screen>
+ifconfig eth0 down ifconfig eth1 down 
+/etc/rc.d/rc.inet1 
+</screen>
+
+</para>
+
+<para>
+Con un poco de suerte los varios subsistemas (NFS, <literal remap="tt">ypbind</literal>,
+etc.) ni se enterarán. <emphasis remap="bf">¡No intente esto a no ser que esté delante del
+teclado!</emphasis>
+</para>
+
+<para>
+Si quiere ser aún más cuidadoso, mate tantos demonios primero como pueda, y
+desmonte los directorios nfs. Lo peor que puede pasar es que tenga que resetear
+en modo monousuario (pasando el parámetro <parameter>single</parameter> a <command>lilo</command> o
+<command>loadlin</command>), y deshacer los cambios antes de rearrancar con las cosas
+como estaban antes de que empezara.
+</para>
+
+</sect2>
+
+<sect2 id="comprobaciones">
+<title>Comprobaciones
+</title>
+
+<para>
+Verifique que hay tráfico distinto en cada interfaz:
+</para>
+
+<para>
+
+<screen>
+tcpdump -i eth0 # (en una ventana)
+tcpdump -i eth1 # (en otra ventana)
+</screen>
+
+</para>
+
+<para>
+Debe acostumbrarse a usar <command>tcpdump</command> para buscar cosas que no deberían
+estar pasando o que no pasan y deberían.
+</para>
+
+<para>
+Por ejemplo, busque los paquetes que pasan por el puente a la segunda tarjeta
+desde la red interna. Aquí busco paquetes de la máquina con dirección
+<literal remap="tt">.22</literal>:
+</para>
+
+<para>
+
+<screen>
+tcpdump -i eth1 -e host 192.168.2.22
+</screen>
+
+</para>
+
+<para>
+Ahora le mando un <command>ping</command> desde la máquina <literal remap="tt">.22</literal> al router.
+Debería ver el paquete según informe de <command>tcpdump</command>.
+</para>
+
+<para>
+En esta fase tiene un puente listo que también tiene dos direcciones de red.
+Compruebe que puede hacer ping desde fuera y dentro de su red local, y que
+puede hacer telnet y ftp entre el exterior y el interior.
+</para>
+
+</sect2>
+
+</sect1>
+
+<sect1 id="firewall2">
+<title>Cortafuegos
+</title>
+
+<sect2 id="softwareylecturas">
+<title>Software y lecturas </title>
+
+<para>
+Lea el <emphasis remap="it">Cortafuegos-Como</emphasis>, <literal remap="tt"><ulink
+url="http://www.insflug.org/documentos/Cortafuegos-Como/"
+>http://www.insflug.org/documentos/Cortafuegos-Como/</ulink
+></literal>
+</para>
+
+<para>
+Esto le dirá donde obtener <application>ipfwadm</application> si no lo tiene ya. Hay otras
+herramientas que puede obtener, pero no he hecho avances con ellas hasta que no
+probé <application>ipfwadm</application>. ¡Está muy bien, y es de bajo nivel! Puede ver
+exactamente lo que está pasando.
+</para>
+
+</sect2>
+
+<sect2 id="comprobacionespreliminares">
+<title>Comprobaciones preliminares </title>
+
+<para>
+Ha compilado soporte de reenvío IP y enmascaramiento en el kernel, así que
+querrá comprobar que el cortafuegos está en su estado por defecto (aceptando)
+con
+</para>
+
+<para>
+
+<screen>
+ipfwadm -I -l 
+ipfwadm -O -l 
+ipfwadm -F -l 
+</screen>
+
+</para>
+
+<para>
+Esto es respectivamente: mostrar las reglas que afecten entrantes o salientes o
+reenviando (enmascarando) hacia ambos lados del cortafuegos. El <parameter>-l</parameter>
+significa listar.
+</para>
+
+<para>
+Si también ha compilado soporte de informes (accounting):
+</para>
+
+<para>
+
+<screen>
+ipfwadm -A -l 
+</screen>
+
+</para>
+
+<para>
+Debería ver que no hay reglas definidas y que por defecto se aceptan todos los
+paquetes. Puede volver a este estado en cualquier momento usando
+</para>
+
+<para>
+
+<screen>
+ipfwadm -I -f
+ipfwadm -O -f
+ipfwadm -F -f 
+</screen>
+
+</para>
+
+<para>
+El <parameter>-f</parameter> significa «vaciar». Puede que necesite usarlo.
+</para>
+
+</sect2>
+
+<sect2 id="reglaspordefecto">
+<title>Reglas por defecto </title>
+
+<para>
+Quiero evitar a mi red llegar al mundo, y nada más, por lo que por lo menos
+daré una regla última (por defecto) que diga que el cortafuegos debería ignorar
+aquellos paquetes que vengan de la red interna dirigidos al exterior. Pongo las
+reglas (en este orden) en <filename>/etc/rc.d/rc.firewall</filename>y lo ejecuto desde
+<filename>/etc/rc.d/rc.local</filename> en el arranque.
+</para>
+
+<para>
+
+<screen>
+ipfwadm -I -a reject -S 192.168.2.0/255.255.255.128 -D 0.0.0.0/0.0.0.0 
+</screen>
+
+</para>
+
+<para>
+El <parameter>-S</parameter> es la dirección/máscara origen. El <parameter>-D</parameter> es la
+dirección/máscara de destino. 
+</para>
+
+<para>
+Este formato es demasiado largo. <application>ipfwadm</application> es suficientemente
+inteligente sobre temas de red y entiende algunas abreviaturas. Lea las páginas
+del manual. 
+</para>
+
+<para>
+Posiblemente es más conveniente poner algunas o todas estas reglas en la parte
+saliente del cortafuegos usando <parameter>-O</parameter> en vez de <parameter>-I</parameter>, pero fijaré
+las reglas para la mitad entrante.
+</para>
+
+</sect2>
+
+<sect2 id="huecospordireccion">
+<title>Huecos por dirección </title>
+
+<para>
+Antes de la regla por defecto, tengo que poner algunas reglas que me sirvan
+como excepciones a esta denegación de servicios externos general a los clientes
+internos.
+</para>
+
+<para>
+Quiero tratar las direcciones internas de los cortafuegos en especial. He de
+evitar que la gente entre en el firewall a no ser que tengan un permiso
+especial, pero una vez que entren deberían ser capaces de hablar con el resto
+del mundo.
+</para>
+
+<para>
+
+<screen>
+ipfwadm -I -i accept -S 192.168.2.100/255.255.255.255 -D 0.0.0.0/0.0.0.0
+</screen>
+
+</para>
+
+<para>
+También quiero que los clientes puedan hablar con el cortafuegos. ¡A lo mejor
+le convencen de que les deje salir!
+</para>
+
+<para>
+
+<screen>
+ipfwadm -I -i accept -S 192.168.2.0/255.255.255.128 -D 192.168.2.100/255.255.255.255
+</screen>
+
+</para>
+
+<para>
+Compruebe en este punto de que puede entrar en los clientes desde fuera del
+cortafuegos usando  <command>telnet</command>, pero que no puede salir. Esto debería
+significar que puede hacer el primer contacto, pero los clientes no pueden
+enviarle la línea de comandos. Debe ser capaz de llegar hasta el final si usa
+la máquina cortafuegos como paso intermedio. Intente un <command>rlogin</command> y un
+<command>ping</command> también, con <command>tcpdump</command> ejecutándose en una tarjeta o en
+otra. Debe ser capaz de dar sentido a lo que ve.
+</para>
+
+</sect2>
+
+<sect2 id="huecosporprotocolo">
+<title>Huecos por protocolo
+</title>
+
+<para>
+Seguí relajando las reglas protocolo por protocolo. Quiero permitir los
+<command>ping</command> desde el exterior al interior para obtener un eco de respuesta,
+por ejemplo, así que inserté la regla: 
+</para>
+
+<para>
+
+<screen>
+ipfwadm -I -i accept -P icmp -S 192.168.2.0/255.255.255.128 -D 0.0.0.0/0.0.0.0
+</screen>
+
+</para>
+
+<para>
+El parámetro <parameter>-P icmp</parameter> realiza la magia necesaria a nivel del protocolo.
+</para>
+
+<para>
+Hasta que use un proxy <command>ftp</command> voy a permitir los ftp salientes con
+permisos específicos de puerto. Esto se dirige a los puertos <literal remap="tt">20</literal>
+<literal remap="tt">21</literal> y <literal remap="tt">115</literal> de las máquinas exteriores. 
+</para>
+
+<para>
+
+<screen>
+ipfwadm -I -i accept -P tcp -S 192.168.2.0/255.255.255.128 \
+-D 0.0.0.0/0.0.0.0 20 21 115
+</screen>
+
+</para>
+
+<para>
+No puedo hacer que <application>sendmail</application> funcione entre los clientes locales sin un
+servidor de nombres. En vez de instalar un servidor de nombres en el
+cortafuegos, lo levanto para las peticiones de servicio en el dominio tcp que
+se dirijan al servidor de nombres más cercano, poniendo esta dirección en los
+archivos  <filename>/etc/resolv.conf</filename> de los clientes.(<literal remap="tt">nameserver
+123.456.789.31</literal> en una línea aparte).
+</para>
+
+<para>
+
+<screen>
+ipfwadm -I -i accept -P tcp -S 192.168.2.0/255.255.255.128 \
+ -D 123.456.789.31/255.255.255.255 54 
+</screen>
+
+</para>
+
+<para>
+Puede encontrar el puerto y protocolo usado por un servicio con
+<command>tcpdump</command>. Lance el servicio con un <command>ftp</command> o un <command>telnet</command> o
+lo que sea a o desde la máquina interna y mire lo que ocurre en los puertos de
+entrada y salida del cortafuegos con <command>tcpdump</command>: 
+</para>
+
+<para>
+
+<screen>
+tcpdump -i eth1 -e host client04 
+</screen>
+
+</para>
+
+<para>
+por ejemplo: El archivo <filename>/etc/services</filename> es otra fuente importante de
+pistas. Para permitir <command>telnet</command> y <command>ftp</command> entrantes al cortafuegos
+desde el exterior, debe permitir a los clientes locales llamadas salientes en
+un puerto específico. Entiendo por qué es necesario esto para <command>ftp</command>
+(es el servidor el que establece el flujo de datos al final) pero no sé por qué
+<command>telnet</command> también lo necesita.
+</para>
+
+<para>
+
+<screen>
+ipfwadm -I -i accept -P tcp -S 192.168.2.0/255.255.255.128 ftp telnet \
+ -D 0.0.0.0/0.0.0.0 
+</screen>
+
+</para>
+
+<para>
+Hay un problema específico con algunos demonios que buscan el nombre del
+cortafuegos para buscar su dirección de red. <literal remap="tt">Rpc.yppasswdd</literal> es uno con
+el que tuve problemas. Insiste en transmitir información que diga que está
+fuera del cortafuegos (en la segunda tarjeta). Esto significa que los clientes
+de dentro no pueden contactar con él.
+</para>
+
+<para>
+En vez de empezar a hacer IP aliasing o cambiar el código del demonio, he
+correspondido el nombre a la dirección de la tarjeta interna en los clientes,
+en el archivo <filename>/etc/hosts</filename>.
+</para>
+
+</sect2>
+
+<sect2>
+<title>Comprobaciones</title>
+
+<para>
+Querrá comprobar que puede hacer <command>telnet</command>, <command>rlogin</command> y
+<command>ping</command> desde el exterior. Desde el interior debería poder hacer
+<command>ping</command> hacia fuera. Debería ser capaz también de hacer <command>telnet</command> a la
+máquina cortafuegos desde el interior, y la última debería ser incapaz de hacer
+nada.
+</para>
+
+<para>
+Y ya está. En este momento probablemente quiera aprender cosas sobre
+<application>rpc</application> y <application>NIS/NYS</application> (<emphasis remap="it">Páginas amarillas</emphasis>) y la interacción con el
+archivo de contraseñas. La red con cortafuegos debe funcionar sin que los
+usuarios normales tengan capacidad de entrar al cortafuegos y,
+consiguientemente, salir al exterior. ¡A lo mejor esto es otro COMO!
+</para>
+
+</sect2>
+
+</sect1>
+
+<sect1 id="Insflug">
+<title>Anexo: El INSFLUG </title>
+
+<para>
+El <emphasis remap="it">INSFLUG</emphasis> forma parte del grupo internacional <emphasis remap="it">Linux Documentation
+Project</emphasis>, encargándose de las traducciones al castellano de los Howtos,
+así como de la producción de documentos originales en aquellos casos en los
+que no existe análogo en inglés, centrándose, preferentemente, en documentos
+breves, como los <emphasis>COMOs</emphasis> y <emphasis>PUFs</emphasis> (<emphasis remap="bf">P</emphasis>reguntas de <emphasis remap="bf">U</emphasis>so
+<emphasis remap="bf">F</emphasis>recuente, las <emphasis remap="it">FAQs</emphasis>. <literal remap="tt">:)</literal> ), etc.
+</para>
+
+<para>
+Diríjase a la sede del Insflug para más información al respecto.
+</para>
+
+<para>
+En ella encontrará siempre las <emphasis remap="bf">últimas</emphasis> versiones de las traducciones
+«oficiales»:  <literal remap="tt"><ulink
+url="http://www.insflug.org"
+>http://www.insflug.org</ulink
+></literal>. Asegúrese de comprobar cuál es la última
+versión disponible en el Insflug antes de bajar un documento de un
+servidor réplica. 
+</para>
+
+<para>
+Además, cuenta con un sistema interactivo de gestión de fe de erratas y
+sugerencias en línea, motor de búsqueda específico, y más servicios en los
+que estamos trabajando incesantemente.
+</para>
+
+<para>
+Se proporciona también una lista de los servidores réplica (<emphasis remap="it">mirror</emphasis>)
+del Insflug más cercanos a Vd., e información relativa a otros recursos en
+castellano.
+</para>
+
+<para>
+En <literal remap="tt"><ulink
+url="http://www.insflug.org/insflug/creditos.php3"
+>http://www.insflug.org/insflug/creditos.php3</ulink
+></literal> cuenta con una
+detallada relación de las personas que hacen posible tanto esto como las
+traducciones.
+</para>
+
+<para>
+¡Diríjase a <literal remap="tt"><ulink
+url="http://www.insflug.org/colaboracion/index.php3"
+>http://www.insflug.org/colaboracion/index.php3</ulink
+></literal> si desea
+unirse a nosotros!.
+</para>
+
+<para>
+«Cartel» Insflug, <literal remap="tt"><ulink
+url="mailto:cartel@insflug.org"
+>cartel@insflug.org</ulink
+></literal>. 
+</para>
+
+</sect1>
+
+</article>

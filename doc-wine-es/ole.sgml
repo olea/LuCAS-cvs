@@ -1,0 +1,403 @@
+  <chapter id="ole">
+    <title>COM/OLE en Wine</title>
+
+    <sect1 id="ole-architecture">
+      <title>COM/OLE Arquitectura en Wine</title>
+
+      <para>
+        La sección va a detallar como estan implementados 
+	los COM/OLE2 en Wine.
+	</para>
+    </sect1>
+
+    <sect1 id="ole-binary">
+      <title>Usando los componentes Binary OLE en Wine</title>
+      <para>
+        Esta sección describe como importar componentes COM/OLE
+	precompilados...
+      </para>
+    </sect1>
+
+    <sect1 id="com-writing">
+      <title>Escribiendo componentes OLE para Wine</title>
+
+      <para>
+        Basado en los comentarios de<filename>wine/include/wine/obj_base.h</filename>.
+      </para>
+      <para>
+        Esta sección describe como crear tus propios componentes nativos 
+	compilados COM/OLE.
+      </para>
+
+      <sect2>
+        <title>Macros a definir en una interface COM</title>
+
+        <para>
+          El objetivo del siguiente conjunto de instrucciones es conseguir 
+	  una forma de utilizar las mismas definiciones de ficheros
+	  en interfaces C y C++ orientado a objetos, en interfaces COM.
+	  El tipo de interfaz es seleccionada automaticamente dependiendo
+	  del lenguaje pero siempre es posible conseguir una interfaz C en C++
+ 	  mediante la definicion CINTERFACE.			
+	</para>
+        <para>
+         Está basado en las siguientes suposiciones: 
+	</para>
+        <itemizedlist>
+          <listitem>
+            <para>
+              Todas las interfaces COM que deriven de una IUnknow, no
+	      deberían tener problemas.
+	    </para>
+          </listitem>
+          <listitem>
+            <para>
+	     el encabezamiento de un fichero sólo define la interfaz,
+	     los campos actuales se definen separadamente en el fichero C
+	     implementando la interfaz. 			              
+            </para>
+          </listitem>
+        </itemizedlist>
+        <para>
+          El objetivo natural a este problema seria el estar seguros
+	  de que tenemos clases y metodos virtuales de C++ y una estructura 
+	  con una tabla de punteros a funciones en C.
+	  Desafortunadamente el desplazmiento de la tabla virtual es especifica
+	  de cada compilador, el desplazamiento de las tablas virtuales de g++
+	  no es el mismo que el de la tabla virtual de un egcs, y tampoco es igual
+          a la generada por Visual C+. Hay muchas formas de hacer que las tablas 
+	  virtuales sean compatibles via padding pero desafortunadamente la unica
+	  que es impuesta al emulador Wine por los binaries de Windows, como los de 
+	  Visual C++, es la mas compacta de todas ellas. 	
+        </para>
+        <para>
+          Asi que la solucion que finalmente adopte fue no usar tablas
+	  virtuales. En vez de tablas, uso metodos no virtuales que
+	  realizan el calculo del puntero del metodo ellos mismos y 
+	  realizan la llamada.
+        </para>
+        <para>
+          Tomaremos un ejemplo en Direct3D:
+	</para>
+        <programlisting>#define ICOM_INTERFACE IDirect3D
+#define IDirect3D_METHODS \
+    ICOM_METHOD1(HRESULT,Initialize,    REFIID,) \
+    ICOM_METHOD2(HRESULT,EnumDevices,   LPD3DENUMDEVICESCALLBACK,, LPVOID,) \
+    ICOM_METHOD2(HRESULT,CreateLight,   LPDIRECT3DLIGHT*,, IUnknown*,) \
+    ICOM_METHOD2(HRESULT,CreateMaterial,LPDIRECT3DMATERIAL*,, IUnknown*,) \
+    ICOM_METHOD2(HRESULT,CreateViewport,LPDIRECT3DVIEWPORT*,, IUnknown*,) \
+    ICOM_METHOD2(HRESULT,FindDevice,    LPD3DFINDDEVICESEARCH,, LPD3DFINDDEVICERESULT,)
+#define IDirect3D_IMETHODS \
+    IUnknown_IMETHODS \
+    IDirect3D_METHODS
+ICOM_DEFINE(IDirect3D,IUnknown)
+#undef ICOM_INTERFACE
+
+#ifdef ICOM_CINTERFACE
+// *** IUnknown methods *** //
+#define IDirect3D_QueryInterface(p,a,b) ICOM_CALL2(QueryInterface,p,a,b)
+#define IDirect3D_AddRef(p)             ICOM_CALL (AddRef,p)
+#define IDirect3D_Release(p)            ICOM_CALL (Release,p)
+// *** IDirect3D methods *** //
+#define IDirect3D_Initialize(p,a)       ICOM_CALL1(Initialize,p,a)
+#define IDirect3D_EnumDevices(p,a,b)    ICOM_CALL2(EnumDevice,p,a,b)
+#define IDirect3D_CreateLight(p,a,b)    ICOM_CALL2(CreateLight,p,a,b)
+#define IDirect3D_CreateMaterial(p,a,b) ICOM_CALL2(CreateMaterial,p,a,b)
+#define IDirect3D_CreateViewport(p,a,b) ICOM_CALL2(CreateViewport,p,a,b)
+#define IDirect3D_FindDevice(p,a,b)     ICOM_CALL2(FindDevice,p,a,b)
+#endif</programlisting>
+        <para>
+          Comentarios:
+        </para>
+        <para>
+	  La macro ICOM_INTERFACE es utilizada en las macros ICOM_METHOD
+	  para definir el tipo del puntero 'this'. Definiendo aqui la macro
+	  resolvemos el problema de tener que repetir el nombre de la
+	  interfaz de nuevo. Note sin embargo que a la causa de que el truco
+	  de las macros funcione, una macro como ICOM_METHOD1 no puede usar
+	  'ICOM_INTERFACE##_VTABLE' porque esto seria una 'ICOM_INTERFACE_VTABLE'
+	  y no una 'IDirect3D_VTABLE'.	          
+        </para>
+        <para>
+          ICOM_METHODS define los metodos especificos de esta interfaz. 
+	  Es un agregado a los metodos heredados que forman ICOM_IMETHODS.
+        </para>
+        <para>
+          ICOM_TABLES define la lista de metodos que son inerentes
+          a esta interfaz. Deben ser escritos a mano (en vez de usar
+	  una macro para generar el codigo equivalente) para evitar 
+          la recursion de macro (que no gusta a los compiladores).
+        </para>
+        <para>
+          La ICOM_DEFINE finalmente declara todas las estructuras
+          necesarias para la interfaz. Tenemos que usar explicitamente
+          el nombre de la interfaz de nuevo por motivos de expansion. 
+	  Los metodos heredados son heredados a su vez en C mediante
+	  el uso de la macro IDirect3D_METHODS y de los padres de la macro
+          Xxx_IMETHODS. En C++ necesitamos solo el uso de IDirect3D_METHODS
+          ya que la herencia del metodo es cuidada por el lenguaje.
+        </para>
+        <para>
+	  En C++ las macros ICOM_METHOD generan un prototipo de funcion
+          y una llamada a aun metodo puntero a funcion. Esto significa
+	  usar una sola vez  't1 p1, t2 p2, ...' y una sola vez 'p1, p2'
+	  sin los tipos. La unica forma que encontre para manejar esto
+	  es tener una macro ICOM_METHOD para el numero de parametros
+	  y tener que tomar solo el tipo de la informacion (con const
+	  si fuera necesario) como parametros. El 'undef ICOM_INTERFACE'
+          esta aqui para recordar que usando ICOM_INTERFACE en las 
+	  siguientes macros no funcionara. Esta vez la causa es es que
+          la expansion de la macro ICOM_CALL es hecha solo una vez la 
+          macro 'IDirect3D_Xxx' es expandida. Y de todas formas por esta
+	  vez ICOM_INTERFACE sera una gran ida.   	
+	</para>
+        <para>
+          Debe haberse dado cuenta de las dobles comas despues de cada
+	  tipo de parametro. Esto le permite poner el nombre de cada 
+	  parametro lo cual creo que es bueno para la documentacion.
+	  Esto no se requiere y ademas no sabia que poner para un 
+	  ejemplo (solo pude encontrar documentacion sobre IDirect3D2),
+	  asi que lo deje en blanco.
+	</para>
+        <para>
+          Finalmente el conjunto de macros 'IDirect3D_Xxx' es un conjunto
+	  de macros definidas para facilitar el acceso a los metodos de
+	  la interfaz en C. Desafortunadamente no veo ninguna forma de
+	  evitar el tener que duplicar las definiciones de metodos 
+	  heredados alli. Esta vez podria haber utilizado un atajo al 
+	  usar una unica macro para cualquier numero de parametros pero
+	  preferi trabajar de la misma forma que antes.	 	  
+	</para>
+        <para>
+          Probablemente te habras dado cuenta de que ahora no 
+	  definimos los campos para implementar actualmente esta 
+          interfaz: el contador de referencia, puntero a otros 
+          recursos y los campos del miscelaneo. Esto es porque estas
+          interfaces son lo que son: interfaces. Deben estar 
+          implementadas mas de una vez, en diferentes contextos y 
+          algunas veces no solo en Wine.
+        </para>
+      </sect2>
+
+      <sect2>
+        <title>Bindings en C</title>
+
+        <para>
+          En C esto seria:
+        </para>
+        <programlisting>typedef struct IDirect3DVtbl IDirect3DVtbl;
+struct IDirect3D {
+    IDirect3DVtbl* lpVtbl;
+};
+struct IDirect3DVtbl {
+    HRESULT (*fnQueryInterface)(IDirect3D* me, REFIID riid, LPVOID* ppvObj);
+    ULONG (*fnAddRef)(IDirect3D* me);
+    ULONG (*fnRelease)(IDirect3D* me);
+    HRESULT (*fnInitialize)(IDirect3D* me, REFIID a);
+    HRESULT (*fnEnumDevices)(IDirect3D* me, LPD3DENUMDEVICESCALLBACK a, LPVOID b);
+    HRESULT (*fnCreateLight)(IDirect3D* me, LPDIRECT3DLIGHT* a, IUnknown* b);
+    HRESULT (*fnCreateMaterial)(IDirect3D* me, LPDIRECT3DMATERIAL* a, IUnknown* b);
+    HRESULT (*fnCreateViewport)(IDirect3D* me, LPDIRECT3DVIEWPORT* a, IUnknown* b);
+    HRESULT (*fnFindDevice)(IDirect3D* me, LPD3DFINDDEVICESEARCH a, LPD3DFINDDEVICERESULT b);
+}; 
+
+#ifdef ICOM_CINTERFACE
+// *** IUnknown methods *** //
+#define IDirect3D_QueryInterface(p,a,b) (p)->lpVtbl->fnQueryInterface(p,a,b)
+#define IDirect3D_AddRef(p)             (p)->lpVtbl->fnAddRef(p)
+#define IDirect3D_Release(p)            (p)->lpVtbl->fnRelease(p)
+// *** IDirect3D methods *** //
+#define IDirect3D_Initialize(p,a)       (p)->lpVtbl->fnInitialize(p,a)
+#define IDirect3D_EnumDevices(p,a,b)    (p)->lpVtbl->fnEnumDevice(p,a,b)
+#define IDirect3D_CreateLight(p,a,b)    (p)->lpVtbl->fnCreateLight(p,a,b)
+#define IDirect3D_CreateMaterial(p,a,b) (p)->lpVtbl->fnCreateMaterial(p,a,b)
+#define IDirect3D_CreateViewport(p,a,b) (p)->lpVtbl->fnCreateViewport(p,a,b)
+#define IDirect3D_FindDevice(p,a,b)     (p)->lpVtbl->fnFindDevice(p,a,b)
+#endif</programlisting>
+        <para>
+          Comentarios:
+        </para>
+        <para>
+	  IDirect3D solo contiene un puntero a la tabla de saltos
+	  virtuales de IDirect3D. Esto es lo unico que el usuario
+	  necesita conocer para el uso de la interfaz. Por supuesto
+	  la estructura que definiremos para implementar esta interfaz
+	  tendra mas campos pero el primero correspondera con este
+	  puntero.           
+        </para>
+        <para>
+	  El codigo generado por ICOM_DEFINE define la estructura 
+	  representada por la interfaz y la estructura para la tabla 
+	  de saltos. ICOM_DEFINE usa los metodos padre de la macro
+	  Xxx_IMETHODS para automaticamente repetir los prototipos de
+	  todos los metodos heredados y entonces usa IDirect3D_METHODS
+ 	  para definir los metodos de IDirect3D. 	             
+        </para>
+        <para>
+	  Cada metodo es declarado como un puntero al campo de funcion
+	  en la tabla de saltos. La implementacion rellenara esta tabla
+	  con los valores apropiados, probablemente usando una variable 
+	  estatica, e inicializara el campo lpVtbl para apuntar a esta variable.          
+        </para>
+        <para>
+	  Las macros IDirect3D_Xxx solo hacen referencia al puntero
+	  a lpVtbl y usan el puntero de funcion correspondiente al
+	  nombre de la macro. Esto emula el comportamiento de una 
+	  tabla virtual y deberia ser bastante rapido. 
+        </para>
+        <para>
+	  Este codigo en C deberia ser bastante compatible con las
+	  cabeceras de Windows por el codigo que se utiliza en las
+	  interfaces COM y por el codigo implementado en una interfaz 
+	  COM.          
+        </para>
+      </sect2>
+
+      <sect2>
+        <title>Bindings en C++</title>
+        <para>
+          Y en C++ (con gcc's g++):
+        </para>
+        <programlisting>typedef struct IDirect3D: public IUnknown {
+    private: HRESULT (*fnInitialize)(IDirect3D* me, REFIID a);
+    public: inline HRESULT Initialize(REFIID a) { return ((IDirect3D*)t.lpVtbl)->fnInitialize(this,a); };
+    private: HRESULT (*fnEnumDevices)(IDirect3D* me, LPD3DENUMDEVICESCALLBACK a, LPVOID b);
+    public: inline HRESULT EnumDevices(LPD3DENUMDEVICESCALLBACK a, LPVOID b)
+        { return ((IDirect3D*)t.lpVtbl)->fnEnumDevices(this,a,b); };
+    private: HRESULT (*fnCreateLight)(IDirect3D* me, LPDIRECT3DLIGHT* a, IUnknown* b);
+    public: inline HRESULT CreateLight(LPDIRECT3DLIGHT* a, IUnknown* b)
+        { return ((IDirect3D*)t.lpVtbl)->fnCreateLight(this,a,b); };
+    private: HRESULT (*fnCreateMaterial)(IDirect3D* me, LPDIRECT3DMATERIAL* a, IUnknown* b);
+    public: inline HRESULT CreateMaterial(LPDIRECT3DMATERIAL* a, IUnknown* b)
+        { return ((IDirect3D*)t.lpVtbl)->fnCreateMaterial(this,a,b); };
+    private: HRESULT (*fnCreateViewport)(IDirect3D* me, LPDIRECT3DVIEWPORT* a, IUnknown* b);
+    public: inline HRESULT CreateViewport(LPDIRECT3DVIEWPORT* a, IUnknown* b)
+        { return ((IDirect3D*)t.lpVtbl)->fnCreateViewport(this,a,b); };
+    private:  HRESULT (*fnFindDevice)(IDirect3D* me, LPD3DFINDDEVICESEARCH a, LPD3DFINDDEVICERESULT b);
+    public: inline HRESULT FindDevice(LPD3DFINDDEVICESEARCH a, LPD3DFINDDEVICERESULT b)
+        { return ((IDirect3D*)t.lpVtbl)->fnFindDevice(this,a,b); };
+};</programlisting>
+        <para>
+          Comments:
+        </para>
+        <para>
+	  En C++ IDirect3D tiene un doble costo,la tabla de saltos
+	  virtuales y a la definicion de la interfaz. La razon para 
+	  esto es evitar el tener que duplicar las definiciones de 
+	  metodos: una vez que tenemos los punteros de funciones en
+ 	  la tabla de saltos y una vez que tenemos los metodos en la 
+	  clase de la interfaz. Aqui una macro puede generar ambos.
+	  Esto significa saber que el primer puntero, t.lpVtbl 
+	  definido en IUnknown, debe ser interpretado como el puntero
+	  a la tabla de saltos si interpretamos la estrucutra como
+	  una clase interfaz, y como un puntero de funcion al metodo
+	  QueryInterface, t.fnQueryInterface, si interpretamos la
+	  estructura como la tabla de saltos. Afortunadamente esta
+	  tarea es totalmente tenida en cuenta en la cabecera de 
+	  IUnknown.             
+        </para>
+        <para>
+	  Por supuesto en C++ usamos la herencia por eso no tenemos
+	  que duplicar las definiciones de los metodos.	          
+        </para>
+        <para>
+	  Dado que IDirect3D tiene un doble costo, cada macro
+	  ICOM_METHOD define un puntero de funcion y un metodo no
+	  virtual en linea al que hace referencia en sus llamadas. De 
+	  esta forma el metodo se comporta como un metodo virtual pero
+	  no crea una verdadera tabla virtual C++ que romperia la 
+	  estructura definida. Si se fija en la implementacion de
+	  estos metodos se dara cuenta de que no trabajarian para 
+	  funciones void. Tenemos que devolver algo y afortunadamente
+	  esto parece ser lo que los metodos COM hacen (de otra forma
+	  necesitariamos otro conjunto de macros).           
+        </para>
+        <para>
+	  Dese cuenta de que el ICOM_METHOD genera los tipos mezclados
+	  de prototipos de funcion y los nombres de parametros
+	  formales, y la invocacion del metodo usando solo el nombre
+	  del parametro formal. Esta es la razon por la que 
+	  necesitamos diferentes amcros para manejar los diferentes 
+	  numeros de parametros.           
+        </para>
+        <para>
+          Finalmente no existe la macro IDirect3D_Xxx. No se 
+	  necesitan en C++ a menos que la macro CINTERFACE se
+	  defina en otros casos no utilizados aqui.    
+	</para>
+        <para>
+	  Este codigo en C++ funciona bien para el codigo que solo 
+	  utiliza interfaces COM. Pero no funcionara bien cuando la 
+	  interfaz COM este implementada en C++. Esto es porque este
+	  codigo asume que los metodos de la interfaz son declarados
+	  como metodos virtuales de C++, pero aqui no se da el caso.           
+        </para>
+      </sect2>
+
+      <sect2>
+        <title>Implementando una interfaz COM.</title>
+
+        <para>
+          Esto continua el ejemplo de arriba. Este ejemplo asume que
+	  la implementacion es en C.
+	</para>
+        <programlisting>typedef struct _IDirect3D {
+    void* lpVtbl;
+    // ...
+ } _IDirect3D;
+
+static ICOM_VTABLE(IDirect3D) d3dvt;
+
+// implement the IDirect3D methods here
+
+int IDirect3D_fnQueryInterface(IDirect3D* me)
+{
+    ICOM_THIS(IDirect3D,me);
+    // ...
+}
+
+// ...
+
+static ICOM_VTABLE(IDirect3D) d3dvt = {
+    ICOM_MSVTABLE_COMPAT_DummyRTTIVALUE
+    IDirect3D_fnQueryInterface,
+    IDirect3D_fnAdd,
+    IDirect3D_fnAdd2,
+    IDirect3D_fnInitialize,
+    IDirect3D_fnSetWidth
+};</programlisting>
+        <para>
+          Comments:
+        </para>
+        <para>
+	  Primero definimos lo que la interfaz realmente contiene.
+	  Esto es la estructura _IDirect3D. El primer campo debe
+	  ser por supuesto el puntero de la tabla virtual. Todo lo 
+	  demas es libre. 	          
+        </para>
+        <para>
+          Ahora predeclaramos nuestra variable tabla virtual estatica,
+	  necesitaremos su direccion en algunos metodos para 
+	  inicializar el puntero de la tabla virtual de los objetos
+	  de la interfaz devueltos.
+	</para>
+        <para>
+	  Ahora implementamos los metodos de la interfaz. Para marcar
+	  lo que ha sido declarado en el archivo cabecera deben tener 
+	  un puntero a una estructura IDirect3D y debemos hacer un 
+	  casting a un _IDirect3D para poder manipular los campos. 
+	  Esto es realizado por la macro ICOM_THIS.            
+        </para>
+        <para>
+          Finalmente inicializamos la tabla virtual.
+        </para>
+      </sect2>
+    </sect1>
+  </chapter>
+
+<!-- MAntenga estos comentarios al fin del fichero
+Local variables:
+mode: sgml
+sgml-parent-document:("wine-doc.sgml" "set" "book" "part" "chapter" "")
+End:
+-->

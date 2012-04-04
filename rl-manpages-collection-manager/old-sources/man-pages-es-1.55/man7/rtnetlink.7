@@ -1,0 +1,548 @@
+'\" t
+.\" Don't remove the line above, it tells man that tbl is needed.
+.\" This man page is Copyright (C) 1999 Andi Kleen <ak@muc.de>.
+.\" Permission is granted to distribute possibly modified copies
+.\" of this page provided the header is included verbatim,
+.\" and in case of nontrivial modification author and date
+.\" of the modification is added to the header.
+.\" Based on the original comments from Alexey Kuznetsov, written with
+.\" help from Matthew Wilcox. 
+.\" $Id: rtnetlink.7,v 1.2 2005/03/22 01:19:28 pepin.jimenez Exp $
+.\"
+.\" Translated on Tue Jul 6 1999 by Juan Piernas <piernas@ditec.um.es>
+.\"
+.TH RTNETLINK  7 "30 abril 1999" "Página man de Linux" "Manual del Programador de Linux" 
+.SH NOMBRE
+rtnetlink, NETLINK_ROUTE \- Conector de enrutamiento IPv4 de Linux.
+.SH SINOPSIS
+.B #include <asm/types.h>
+.br
+.B #include <linux/netlink.h>
+.br
+.B #include <linux/rtnetlink.h>
+.br
+.B #include <sys/socket.h>
+
+.BI "rtnetlink_socket = socket(PF_NETLINK, int " socket_type ", NETLINK_ROUTE);"
+
+.SH DESCRIPCIÓN 
+Rtnetlink permite leer y alterar las tablas de enrutamiento del núcleo.  
+Se usa dentro del núcleo para comunicar entre sí varios subsistemas (aunque
+este uso no se documenta aquí) y para la comunicación con programas en el
+espacio de usuario.
+Las rutas de red, las direcciones IP, los parámetros de enlace, las
+configuraciones de vecinos, las disciplinas de encolamiento, las clases
+de intercambio y los clasificadores de paquetes pueden controlarse a través
+de conectores
+.BR NETLINK_ROUTE .
+Todo esto se basa en mensajes netlink. Vea
+.BR netlink (7)
+para más información.
+
+.\" XXX: all these macros could be moved to rtnetlink(3) 
+
+.SH ATRIBUTOS DE ENRUTAMIENTO
+Algunos mensajes rtnetlink poseen atributos opcionales después de la
+cabecera inicial:
+
+.nf
+.ta 4 19 32
+struct rtattr
+{
+	unsigned short	rta_len;	/* Longitud de la opción */
+	unsigned short	rta_type;	/* Tipo de opción */
+	/* Los datos vienen a continuación */ 
+};
+.fi
+
+Estos atributos sólo deberían manipularse usando las macros RTA_* o la
+biblioteca libnetlink. Vea
+.BR rtnetlink (3).
+
+.SH MENSAJES
+Rtnetlink está formado por los siguientes tipos de mensajes
+(además de los mensajes netlink estándares):
+.TP
+.BR RTM_NEWLINK ", " RTM_DELLINK ", " RTM_GETLINK
+Crea, borra u obtiene información de una interfaz de red
+específica. Estos mensajes contienen una estructura
+.B ifinfomsg
+seguida por una serie de estructuras
+.BR rtattr .
+
+.nf
+.ta 4 19 32
+struct ifinfomsg
+{
+	unsigned char	ifi_family;	/* AF_UNSPEC */
+	unsigned short	ifi_type;	/* Tipo del dispositivo */ 
+	int	ifi_index;		/* Índice de la interfaz   */
+	unsigned int	ifi_flags;	/* Opciones del dispositivo  */
+	unsigned int	ifi_change;	/* Máscara de cambios */
+};
+.fi
+
+.\" XXX ifi_type
+.B ifi_flags
+contiene las opciones del dispositivo. Vea
+.BR netdevice(7).
+.B ifi_index
+es el índice de la interfaz.
+.B ifi_change
+se reserva para uso futuro y siempre debe valer 0xFFFFFFFF. 
+
+
+.TS
+tab(:) allbox;
+c s s
+l l l.
+\fIAtributos de enrutamiento\fP
+\fBrta_type\fP:\fBTipo de valor\fP:\fBDescripción\fP
+.\"_
+IFLA_UNSPEC:-:sin especificar.
+IFLA_ADDRESS:dirección hardware:T{
+dirección del Nivel 2 de la interfaz
+T}
+IFLA_BROADCAST:dirección hardware:T{
+dirección de difusión del Nivel 2
+T}
+IFLA_IFNAME:T{
+cadena terminada en cero
+T}:nombre del dispositivo
+IFLA_MTU:entero sin signo:MTU del dispositivo
+IFLA_LINK:entero:tipo de enlace
+IFLA_QDISC:T{
+cadena terminada en cero
+T}:T{
+disciplina de encolamiento
+T}
+IFLA_STATS:T{
+estructura net_device_stats
+T}:T{
+estadísticas de la interfaz
+T}
+.TE
+.TP	
+.BR RTM_NEWADDR ", " RTM_DELADDR ", " RTM_GETADDR
+Añade, elmina o recibe información de una dirección IP asociada con una
+interfaz. En Linux 2.2 una interfaz puede acarrear varias direcciones IP.
+Esto reemplaza el concepto de dispositivo alias de la versión 2.0. En Linux
+2.2 estos mensajes soportan direcciones  IPv4 e IPv6. Contienen una
+estructura
+.B ifaddrmsg
+seguida opcionalmente por atributos de enrutamiento
+.BR rtaddr .
+
+.nf
+.ta 4 19 34
+struct ifaddrmsg
+{
+	unsigned char	ifa_family;	/* Tipo de dirección */
+	unsigned char	ifa_prefixlen;	/* Longitud del prefijo de
+			   la dirección */
+	unsigned char	ifa_flags;	/* Opciones de la dirección */
+	unsigned char	ifa_scope;	/* Ámbito de la dirección */
+	int	ifa_index;		/* Índice de la interfaz */
+};
+.fi
+
+.B ifa_family
+es el tipo de la familia de direcciones (actualmente
+.B AF_INET
+o
+.B AF_INET6), 
+.B ifa_prefixlen
+es la longitud de la máscara de la dirección si ésta está definida
+para la familia (como ocurre con IPv4),
+.B ifa_scope
+es el ámbito de la dirección,
+.B ifa_index
+es el índice de la interfaz con la que la dirección está
+asociada.
+.B ifa_flags
+es una palabra de opciones que contiene
+.B IFA_F_SECONDARY
+para una dirección secundaria (antiguo interfaz alias),
+.B IFA_F_PERMANENT
+para una dirección permanente configurada por el usuario, y otras opciones
+sin documentar.
+
+.TS
+tab(:) allbox;
+c s s
+l l l.
+\fIAtributos\fP
+\fBrta_type\fP:\fBTipo de valor\fP:\fBDescripción\fP
+.\"_
+IFA_UNSPEC:-:sin especificar.
+IFA_ADDRESS:T{
+dirección de protocolo
+T}:T{
+dirección de la interfaz
+T}
+IFA_LOCAL:T{
+dirección de protocolo
+T}:T{
+dirección local
+T}
+IFA_LABEL:T{
+cadena terminada en cero
+T}:T{
+nombre de la interfaz
+T}
+IFA_BROADCAST:T{
+dirección de protocolo
+T}:T{
+dirección de difusión
+T}
+IFA_ANYCAST:T{
+dirección de protocolo
+T}:T{
+dirección de "cualquier destino"
+T}
+IFA_CACHEINFO:T{
+estructura ifa_cacheinfo
+T}:T{
+información de la dirección
+T}
+.TE
+
+.\" XXX struct ifa_cacheinfo
+.TP	
+.BR RTM_NEWROUTE ", " RTM_DELROUTE ", " RTM_GETROUTE
+Crea, borra o recibe información de una ruta de red.
+Estos mensajes contienen una estructura
+.B rtmsg
+con una secuencia opcional a continuación de estructuras
+.BR rtattr . Para
+.B RTM_GETROUTE
+asignar a
+.B rtm_dst_len 
+y a
+.B rtm_src_len 
+el valor 0 implica obtener todas las entradas para la tabla de enrutamiento especificada.
+Para otros campos salvo
+.B rtm_table 
+y
+.B rtm_protocol
+el comodín es 0.
+
+.nf
+.ta 4 19 34
+struct rtmsg
+{
+	unsigned char	rtm_family;	/* Familia de direcciones de
+			   la ruta */
+	unsigned char	rtm_dst_len;	/* Longitud del destino */
+	unsigned char	rtm_src_len;	/* Longitud del origen */ 
+	unsigned char	rtm_tos;	/* Filtro TOS */
+
+	unsigned char	rtm_table;	/* Identificador de la tabla de
+			   enrutamiento */
+	unsigned char	rtm_protocol;	/* Protocolo de enrutamiento.
+			   Ver más abajo */
+	unsigned char	rtm_scope;	/* Ver más abajo */	
+	unsigned char	rtm_type;	/* Ver más abajo */
+
+	unsigned int	rtm_flags;	
+};
+.fi
+
+.TS
+tab(:) allbox;
+l l
+l l.
+\fBrtm_type\fP:\fBTipo de ruta\fP
+.\"_
+RTN_UNSPEC:ruta desconocida
+RTN_UNICAST:una pasarela (gateway) o ruta directa
+RTN_LOCAL:una ruta de la interfaz local
+RTN_BROADCAST:T{
+una ruta de difusión local (enviada en una difusión)
+T}
+RTN_ANYCAST:T{
+una ruta de difusión local (enviada en un unidestino)
+T}
+RTN_MULTICAST:una ruta multidestino
+RTN_BLACKHOLE:una ruta para la pérdida de paquetes
+RTN_UNREACHABLE:un destino inalcanzable
+RTN_PROHIBIT:una ruta de rechazo de paquetes
+RTN_THROW:continuar la búsqueda de rutas en otra tabla
+RTN_NAT:una regla de traducción de direcciones de red
+RTN_XRESOLVE:T{
+remitir a una entidad de resolución externa (no implementado)
+T}
+.TE
+
+.TS
+tab(:) allbox;
+l l.
+\fBrtm_protocol\fP:\fBRuta original\fP
+.\"_
+RTPROT_UNSPEC:desconocido
+RTPROT_REDIRECT:T{
+por una redirección ICMP (no usado actualmente)
+T}
+RTPROT_KERNEL:por el núcleo
+RTPROT_BOOT:durante el arranque
+RTPROT_STATIC:por el administrador
+.TE
+
+Los valores mayores que
+.B RTPROT_STATIC
+no son interpretados por el núcleo, sólo son para información de usuario. Se
+pueden usar para identificar la fuente de una información de enrutamiento o
+para distinguir entre varios demonios de enrutamiento. Vea
+.BR <linux/rtnetlink.h>
+para los indentificadores de los demonios de enrutamiento que ya están
+asignados.
+
+.B rtm_scope 
+es la distancia al destino:
+
+.TS
+tab(:) allbox;
+l l.
+RT_SCOPE_UNIVERSE:ruta global
+RT_SCOPE_SITE:T{
+ruta interior en el sistema autónomo local
+T}
+RT_SCOPE_LINK:ruta en este enlace
+RT_SCOPE_HOST:ruta en el anfitrión local
+RT_SCOPE_NOWHERE:el destino no existe
+.TE
+
+Los valores entre
+.B RT_SCOPE_UNIVERSE
+y
+.B RT_SCOPE_SITE
+están disponibles para el usuario.
+
+.B rtm_flags
+tiene los siguientes significados:
+
+.TS
+tab(:) allbox;
+l l.
+RTM_F_NOTIFY:T{
+si la ruta cambia, informar al usuario mediante rtnetlink
+T}
+RTM_F_CLONED:la ruta es un duplicado de otra ruta
+RTM_F_EQUALIZE:T{
+un equalizador multidestino (no implementado todavía)
+T}
+.TE
+
+.B rtm_table
+especifica la tabla de enrutamiento
+
+.TS
+tab(:) allbox;
+l l.
+RT_TABLE_UNSPEC:una tabla de enrutamiento sin especificar
+RT_TABLE_DEFAULT:la tabla por defecto
+RT_TABLE_MAIN:la tabla principal
+RT_TABLE_LOCAL:la tabla local
+.TE
+
+El usuario puede asignar valores arbitrarios entre
+.B RT_TABLE_UNSPEC
+y
+.BR RT_TABLE_DEFAULT .
+
+.TS
+tab(:) allbox;
+c s s
+l l l.
+\fIAtributos\fP
+\fBrta_type\fP:\fBTipo de valor\fP:\fBDescripción\fP
+.\"_
+RTA_UNSPEC:-:ignorado
+RTA_DST:T{
+dirección de protocolo
+T}:T{
+dirección de destino de la ruta
+T}
+RTA_SRC:T{
+dirección de protocolo
+T}:T{
+dirección de origen de la ruta
+T}
+RTA_IIF:entero:T{
+índice de la interfaz de entrada
+T}
+RTA_OIF:entero:T{
+índice de la interfaz de salida
+T}
+RTA_GATEWAY:T{
+dirección de protocolo
+T}:T{
+la pasarela (gateway) de la ruta
+T}
+RTA_PRIORITY:entero:prioridad de la ruta
+RTA_PREFSRC::
+RTA_METRICS:entero:métrica de la ruta
+RTA_MULTIPATH::
+RTA_PROTOINFO::
+RTA_FLOW::
+RTA_CACHEINFO::
+.TE
+
+.B ¡Esta tabla está incompleta!
+.TP	
+.BR RTM_NEWNEIGH ", " RTM_DELNEIGH  ", " RTM_GETNEIGH
+Añade, borra o recibe información de una entrada de la tabla de vecinos (por
+ejemplo, una entrada ARP). El mensaje contiene una estructura
+.BR ndmsg .
+
+.nf
+.ta 4 19 32
+struct ndmsg
+{
+	unsigned char	ndm_family;
+	int	ndm_ifindex;	/* Índice de la interfaz */
+	__u16	ndm_state;	/* Estado */ 
+	__u8	ndm_flags;	/* Opciones */
+	__u8	ndm_type;   
+};
+
+struct nda_cacheinfo
+{
+	__u32	ndm_confirmed;
+	__u32	ndm_used;
+	__u32	ndm_updated;
+	__u32	ndm_refcnt;
+};
+.fi
+
+.B ndm_state
+es una máscara de bits de los siguientes estados:
+
+.TS
+tab(:) allbox;
+l l.
+NUD_INCOMPLETE:T{
+una entrada de la cache que se está resolviendo actualmente
+T}
+NUD_REACHABLE:T{
+una entrada de la cache que ya se ha confirmado como operativa
+T}
+NUD_STALE:una entrada de la cache caduca
+NUD_DELAY:una entrada que espera a un cronómetro
+NUD_PROBE:T{
+una entrada de la cache que se está sondeando de nuevo actualmente
+T}
+NUD_FAILED:una entrada de la cache inválida
+NUD_NOARP:un dispositivo sin cache de destinos
+NUD_PERMANENT:una entrada estática
+.TE
+
+Los
+.B ndm_flags
+válidos son:
+
+.TS
+tab(:) allbox;
+l l.
+NTF_PROXY:una entrada proxy arp
+NTF_ROUTER:un enrutador IPv6
+.TE
+
+.B Hay que documentar mejor los miembros de la estructura.
+
+La estructura
+.B rtaddr
+tiene los siguientes significados para el campo
+.BR rta_type :
+
+.TS
+tab(:) allbox;
+l l.
+NDA_UNSPEC:tipo desconocido
+NDA_DST:T{
+una dirección de destino de la capa de red de la cache de vecinos
+T}
+NDA_LLADDR:T{
+una dirección de la capa de enlace de la cache de vecinos
+T}
+NDA_CACHEINFO:estadísticas de la cache
+.TE
+
+Si el campo
+.B rta_type
+es
+.BR NDA_CACHEINFO ,
+a continuación viene una cabecera
+.BR "struct nda_cacheinfo" .
+.TP
+.BR RTM_NEWRULE ", " RTM_DELRULE ", " RTM_GETRULE
+Añade, borra o recupera una regla de enrutamiento. Lleva asociada una
+.BR "struct rtmsg" .
+.TP
+.BR RTM_NEWQDISC ", " RTM_DELQDISC ", " RTM_GETQDISC
+Añade, borra u obtiene una disciplina de encolamiento. El mensaje contiene
+una
+.B struct tcmsg
+que puede ir seguida por una serie de atributos.
+
+.nf
+.ta 4 19 32
+struct tcmsg
+{
+	unsigned char	tcm_family;
+	int	tcm_ifindex;	/* Índice de la interfaz */
+	__u32	tcm_handle;	/* Descriptor qdisc */ 
+	__u32	tcm_parent;	/* Qdisc del padre*/
+	__u32	tcm_info;
+};
+.fi
+
+.TS
+tab(:) allbox;
+c s s
+l l l.
+\fIAtributos\fP
+\fBrta_type\fP:\fBTipo de valor\fP:\fBDescripción\fP
+.\"_
+TCA_UNSPEC:-:sin especificar
+TCA_KIND:T{
+cadena terminada en cero
+T}:T{
+nombre de la disciplina de encolamiento
+T}
+TCA_OPTIONS:secuencia de bytes:T{
+opciones específicas de Qdisc que vienen a continuación
+T}
+TCA_STATS:estructura tc_stats:estadísticas qdisc
+TCA_XSTATS:específico de qdisc:T{
+estadísticas específicas del módulo
+T}
+TCA_RATE:estructura tc_estimator:límite de la tasa
+.TE
+
+Además, se permiten otros atributos diferentes específicos del módulo qdisc.
+Para más información, vea los ficheros cabecera adecuados.
+.TP
+.BR RTM_NEWTCLASS ", " RTM_DELTCLASS ", " RTM_GETTCLASS
+Añade, borra u obtiene una clase de intercambio. Estos mensajes contienen una
+.B struct tcmsg
+como la descrita anteriormente.
+.TP
+.BR RTM_NEWTFILTER ", " RTM_DELTFILTER ", " RTM_GETTFILTER
+Añade, borra o recibe información de una filtro de tráfico. Estos mensajes
+contienen una
+.B struct tcmsg
+como la descrita anteriormente.
+.SH VERSIONES
+
+.B rtnetlink
+es una nueva característica de la versión 2.2 de Linux. 
+
+.SH FALLOS
+Esta página de manual es deficiente y está incompleta.
+
+.SH VÉASE TAMBIÉN
+.BR netlink (7),
+.BR cmsg (3),
+.BR ip (7),
+.BR rtnetlink (3)

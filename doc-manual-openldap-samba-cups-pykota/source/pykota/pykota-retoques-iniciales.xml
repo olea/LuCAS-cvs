@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+
+<chapter id="pykota-retoques-iniciales">
+
+<chapterinfo>
+	<keywordset>
+		<keyword>pykota</keyword>
+		<keyword>configuración</keyword>
+	</keywordset>
+</chapterinfo>
+
+<title>Retoques iniciales en el sistema</title>
+
+<!-- CONSIDERACIONES PREVIAS  -->
+
+<sect1 id="pykota-retoques-iniciales-intro">
+	<title>Introducción</title>
+
+	<para>Antes de proceder con la configuración de PyKota, es necesario realizar
+	una serie de ajustes en el sistema. En primer lugar hay que elegir la
+	base de datos sobre la cual se almacenarán los datos de las cuotas.
+	PyKota da la posibilidad de almacenar estos datos sobre Postgresql o
+	sobre un directorio <acronym>LDAP</acronym>.</para>
+
+	<para>La elección ha sido <acronym>LDAP</acronym>, por lo que habrá
+	que modificar el servidor <application>slapd</application> para que soporte
+	los datos de PyKota y, finalmente, crear la estructura necesaria en el
+	directorio <acronym>LDAP</acronym> para PyKota.</para>
+
+	<para>Este capítulo mostrará como realizar estas modificaciones en el sistema.</para>
+</sect1>
+
+<sect1 id="pykota-retoques-iniciales-ldap">
+	<title>Modificaciones en la configuración de <application>slapd</application></title>
+
+	<para>En primer lugar se ha añadir una línea similar a la siguiente en el archivo
+	de configuración de <application>slapd</application> (<filename>/etc/ldap/slapd.conf</filename>),
+	en la sección de definiciones de esquemas y objectClass (añádala al final de la
+	lista de esquemas, para evitar problemas):</para>
+
+<programlisting>include         /etc/ldap/schema/pykota.schema</programlisting>
+
+	<para>Y, finalmente, puede añadir una serie de índices que acelerarán
+	un poco las búsquedas sobre los atributos de PyKota. Para ello añada
+	las siguientes entradas en la sección de índices del archivo de configuración
+	de <application>slapd</application>:</para>
+
+
+<programlisting># PyKota
+index pykotaUserName          pres,eq,sub
+index pykotaGroupName         pres,eq,sub
+index pykotaPrinterName       pres,eq,sub
+index pykotaLastJobIdent      eq</programlisting>
+
+	<para>En este momento sólo queda regenerar los índices de <application>slapd</application>
+	y reiniciar el demonio:</para>
+
+	<example>
+		<title>Regenerando los índices de <acronym>LDAP</acronym> y reiniciando el demonio
+		<application>slapd</application></title>
+
+<screen><prompt>#</prompt> <userinput>/usr/sbin/slapindex -v</userinput>
+<computeroutput>indexing id=00000001
+indexing id=00000002
+indexing id=00000016
+indexing id=00000017
+indexing id=00000018
+indexing id=00000019
+indexing id=0000001b
+indexing id=0000001c
+indexing id=0000001d
+indexing id=0000001e
+indexing id=00000020
+indexing id=00000021
+indexing id=00000022
+indexing id=00000023
+indexing id=00000024
+indexing id=00000025
+indexing id=00000027
+indexing id=00000028
+indexing id=0000002a
+indexing id=0000002b</computeroutput>
+<prompt>#</prompt> <userinput>/etc/init.d/slapd restart</userinput>
+<computeroutput>Stopping OpenLDAP: slapd.
+Starting OpenLDAP: slapd.</computeroutput></screen>
+	</example>
+
+	<para>Con esto finalizarían las modificaciones en el servidor <application>slapd</application>.</para>
+</sect1>
+
+<sect1 id="pykota-retoques-iniciales-ldif">
+	<title>Creación de la estructura para PyKota en <acronym>LDAP</acronym></title>
+
+	<para>En esta sección se creará la estructura para PyKota en el directorio
+	<acronym>LDAP</acronym>. Las siguientes líneas muestran, en formato
+	<acronym>LDIF</acronym>, las entradas que se han de incorporar al
+	directorio <acronym>LDAP</acronym>:</para>
+
+	<note><para>Esta estructura se ha basado en el archivo
+	<filename>/usr/share/doc/pykota/initscripts/ldap/pykota-sample.ldif</filename>
+	que se distribuye con PyKota.</para></note>
+
+<programlisting># Entry 1: ou=pykota,dc=gsr,dc=pt
+dn:ou=pykota,dc=gsr,dc=pt
+ou: pykota
+objectClass: top
+objectClass: organizationalUnit
+
+# Entry 2: ou=printers,ou=pykota,dc=gsr,dc=pt
+dn:ou=printers,ou=pykota,dc=gsr,dc=pt
+ou: printers
+objectClass: top
+objectClass: organizationalUnit
+
+# Entry 3: ou=jobs,ou=pykota,dc=gsr,dc=pt
+dn:ou=jobs,ou=pykota,dc=gsr,dc=pt
+ou: jobs
+objectClass: top
+objectClass: organizationalUnit
+
+# Entry 4: ou=uquotas,ou=pykota,dc=gsr,dc=pt
+dn:ou=uquotas,ou=pykota,dc=gsr,dc=pt
+ou: uquotas
+objectClass: top
+objectClass: organizationalUnit
+
+# Entry 5: ou=gquotas,ou=pykota,dc=gsr,dc=pt
+dn:ou=gquotas,ou=pykota,dc=gsr,dc=pt
+ou: gquotas
+objectClass: top
+objectClass: organizationalUnit
+
+# Entry 6: ou=lastjobs,ou=pykota,dc=gsr,dc=pt
+dn:ou=lastjobs,ou=pykota,dc=gsr,dc=pt
+ou: lastjobs
+objectClass: top
+objectClass: organizationalUnit</programlisting>
+
+	<para>Suponiendo que la estructura anterior se encuentra almacenada en el
+	archivo <filename>pykota.ldif</filename>, ejecute la siguiente orden para
+	incorporarla a su directorio <acronym>LDAP</acronym>:</para>
+
+	<example>
+		<title>Creando la estructura para PyKota en <acronym>LDAP</acronym></title>
+
+<screen><prompt>$</prompt> <userinput>/usr/bin/ldapadd -x -D "cn=admin,dc=gsr,dc=pt" -W -h gsr.pt -f pykota.ldif</userinput>
+<computeroutput>Enter LDAP Password:</computeroutput> <userinput>[clave]</userinput>
+<computeroutput>adding new entry "ou=pykota,dc=gsr,dc=pt"
+
+adding new entry "ou=printers,ou=pykota,dc=gsr,dc=pt"
+
+adding new entry "ou=jobs,ou=pykota,dc=gsr,dc=pt"
+
+adding new entry "ou=uquotas,ou=pykota,dc=gsr,dc=pt"
+
+adding new entry "ou=gquotas,ou=pykota,dc=gsr,dc=pt"
+
+adding new entry "ou=lastjobs,ou=pykota,dc=gsr,dc=pt"
+</computeroutput></screen>
+	</example>
+
+	<para>Esto completaría las modificaciones iniciales a realizar en el sistema,
+	ahora se puede proceder a la configuración de PyKota, para ello
+	vea el <xref linkend="pykota-configuracion"/></para>
+
+</sect1>
+</chapter>

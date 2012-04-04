@@ -1,0 +1,631 @@
+<!doctype article public "-//OASIS//DTD DocBook V4.1//EN"
+ [ <!entity header system "header.sgml">
+ 
+]>
+
+<article lang="en">
+<!-- DocBook file was created by LyX 1.1
+  See http://www.lyx.org/ for more information -->
+  <artheader>
+   <title>
+   Migraciones
+  </title>
+<author><firstname>Jorge</firstname><surname>Llarens</surname><address>llarens@yahoo.com.ar</address></author>
+  <abstract>
+  <para>
+   Uno de los trabajos mas frecuentes (y mas odiosos) lidiando con bases de datos es la conversion de un formato a otro. Esta es una revision de algunas herramientas disponibles para pasar de formato xbase (.DBF) y Access (.MDB) a MySQL.
+  </para>
+  </abstract>
+  </artheader>
+  <sect1>
+   <title>
+   Metodologia básica
+  </title>
+  <para>
+   Básicamente se pueden dividir los metodos en directos e indirectos. Los metodos directos abren los archivos .DBF o .MDB, se conectan a la base de datos MySQL y transfieren sus contenidos a traves de esa conección. Los metodos indirectos generan uno o mas archivos temporales, en base a los que posteriormente se crearan las tablas de la base de datos y/o insertaran los registros.
+  </para>
+  <para>
+   En el caso de metodos indirectos, para cada archivo .dbf o tabla Access, estos son los pasos basicos que han de tomarse para migrar:
+  </para>
+  <orderedlist>
+   <listitem>
+   <para>
+   Generar un archivo ASCII con las instrucciones SQL para la creación de la/s tablas/s.
+   </para>
+  </listitem>
+   <listitem>
+   <para>
+   Exportar desde el archivo .MDB o archivos .DBF a un/unos archivo/s ASCII con: a) las instrucciones SQL para insertar datos en las tablas o b) los datos puros, delimitados por comas/tabulaciones, etc.
+   </para>
+  </listitem>
+   <listitem>
+   <para>
+   Ejecutar el archivo con las instrucciones SQL de creacion de tablas.
+   </para>
+  </listitem>
+   <listitem>
+   <para>
+   Ejecutar el archivo ASCII con instrucciones SQL de insercion, o IMPORTAR archivo ASCII con datos puros usando el comando sql LOAD DATA INFILE.
+   </para>
+  </listitem>
+  </orderedlist>
+  </sect1>
+  <sect1>
+   <title>
+   Entorno de trabajo
+  </title>
+  <para>
+   Para los propositos de este texto, vamos a definir algunos aspectos del ambiente donde trabajar:
+  </para>
+  <itemizedlist>
+   <listitem>
+   <para>
+   Una estacion con Windows y Linux instalados.
+   </para>
+  </listitem>
+   <listitem>
+   <para>
+   En la partición Linux, tener instalado un editor ASCII y la base de datos Mysql como mínimo, con el hostame configurado como localhost (bueh...) y con acceso a la partición windows, para este caso, tener acceso a c:/ en el directorio /mnt/windows).
+   </para>
+  </listitem>
+   <listitem>
+   <para>
+   En la partición Windows tener instalado Microsoft Access version 97 como mínimo. Los archivos temporales de conversión se grabarán en el directorio c:/temp ( /mnt/windows/temp desde linux).
+   </para>
+  </listitem>
+   <listitem>
+   <para>
+   Una base de datos, en ambos formatos .DBF y .MDB, en este caso conteniendo los datos de una colección de libros. Los archivos residiran en el directorio c:&bsol;data.
+   </para>
+  </listitem>
+   <listitem>
+   <para>
+   Para usar la herramienta dbtools, es necesario contar con DOS estaciones conectadas en red, una con Windows y DBTools instalados y otra con Linux y MySQL instalados.
+   </para>
+  </listitem>
+   <listitem>
+   <para>
+   Es recomendable acceder a la base de datos como un usuario comun con privilegios bien acotados, o en todo caso tener disponible varios usuarios tipo dependiendo del trabajo (tipo dba para acceso total, comun para entrada de datos o listados por ejemplo), pero NUNCA como root, porque este usuario tiene todos los privilegios en el sistema, incluso para danarlo seriamente.
+   </para>
+  </listitem>
+  </itemizedlist>
+  </sect1>
+  <sect1>
+   <title>
+   Conversión sin herramientas especificas (o con herramientas nativas, o lo que sea bah...)
+  </title>
+  <para>
+   Hay buenas razones para no depender de herramientas especializadas de conversion (la mas sencilla de las cuales es no disponer de ellas , sin olvidar el masoquismo), como por ejemplo la necesidad de adaptar las tablas a las caracteristicas de la nueva base de datos. En mi caso en particular, siempre he tenido que generar la estructura con algun conversor y modificar o agregar sentencias sql para aprovechar alguna caracteristica ausente o diferente en la base de datos original.
+  </para>
+   <sect2>
+    <title>
+    Generar estructura con editor de texto
+   </title>
+   <para>
+    En ultima instancia he tenido que arreglarme creando las sentencias con cualquier editor ASCII:
+   </para>
+   <programlisting>
+<![ CDATA [CREATE DATABASE libros;
+]]><![ CDATA [CREATE TABLE autores( 
+]]><![ CDATA [ idautor   INT NOT NULL,
+]]><![ CDATA [ nombre    CHAR (50),
+]]><![ CDATA [ apellidos CHAR (50),
+]]><![ CDATA [ PRIMARY KEY (idautor)
+]]><![ CDATA [); 
+]]><![ CDATA [CREATE TABLE autorlib(
+]]><![ CDATA [ idautorlib INT NOT NULL,
+]]><![ CDATA [ idautor    INT,
+]]><![ CDATA [ idlibro    INT,
+]]><![ CDATA [ PRIMARY KEY (idautorlibro)
+]]><![ CDATA [); 
+]]><![ CDATA [CREATE TABLE libros(
+]]><![ CDATA [ idlibro   INT NOT NULL,
+]]><![ CDATA [ cargo     CHAR (50),
+]]><![ CDATA [ idtema    INT,
+]]><![ CDATA [ PRIMARY KEY (idlibro)
+]]><![ CDATA [);
+]]><![ CDATA [CREATE TABLE temas(
+]]><![ CDATA [ idtema   INT NOT NULL,
+]]><![ CDATA [ desctema CHAR (50),
+]]><![ CDATA [ PRIMARY KEY (idtema)
+]]><![ CDATA [);
+]]>   </programlisting>
+   <para>
+    Luego de guardarlo como libros.sql, genero la base de datos pasando libros.sql por la consola mysql:
+   </para>
+   <programlisting>
+<![ CDATA [mysql < /mnt/windows/temp/libros.sql
+]]>   </programlisting>
+   <para>
+    Con esto ya tenemos creada la base de datos LIBROS con sus tablas. Esta estructura nos servira para convertir desde cualquier formato.
+   </para>
+   </sect2>
+   <sect2>
+    <title>
+    Exportar tablas desde Access
+   </title>
+   <para>
+    Despues, volviendo a Windows. desde Access, por cada tabla se usa la opcion &quot;Archivo / Guardar como o exportar... / En un archivo o una base de datos externo&quot;, en la ventana de dialogo, en la opcion &quot;Guardar como tipo:&quot; seleccionar &quot;Archivos de texto&quot;
+   </para>
+   <para>
+    En la ventana &quot;...&quot; seleccionando el boton &quot;Avanzado...&quot; se pueden configurar estas opciones de exportacion sin pasar por los sucesivos pasos del asistente:
+   </para>
+   <para>
+    Formato de archivo: Delimitado Delimitador de campo: , Cualificador de texto: &quot; Orden de la fecha: DMA Un poco confuso todo no? No es para tanto, probando con el programa todo se ve mas claro. Luego de este paso deberiamos tener cuatro archivos: autorlib.txt, autores.txt, libros.txt y temas.txt
+   </para>
+   </sect2>
+   <sect2>
+    <title>
+    Exportar tablas desde xBase
+   </title>
+   <para>
+    Practicamente cualquier dialecto xBase soporta el comando COPY TO (archivo) DELIMITED
+   </para>
+   <para>
+    Para nuestro caso:
+   </para>
+   <programlisting>
+<![ CDATA [USE libros
+]]><![ CDATA [COPY TO libros.txt DELIMITED
+]]><![ CDATA [USE autores
+]]><![ CDATA [COPY TO autores.txt DELIMITED
+]]><![ CDATA [USE autorlib
+]]><![ CDATA [COPY TO autorlib.txt DELIMITED
+]]><![ CDATA [USE temas
+]]><![ CDATA [COPY TO temas.txt DELIMITED
+]]>   </programlisting>
+   <para>
+    Si es un entorno de comando se pueden ejecutar uno por uno, si es un lenguaje compilado como clipper, se graba en archivo .prg, se compila y se ejecuta.
+   </para>
+   <para>
+    Otra vez, deberiamos tener cuatro archivos: autorlib.txt, autores.txt, libros.txt y temas.txt
+   </para>
+   </sect2>
+   <sect2>
+    <title>
+    Importación de tablas a MySQL
+   </title>
+   <para>
+    En cualquiera de los dos casos, otra vez en linux, desde la consola MySQL se ejecuta el comando LOAD DATA INFILE por cada tabla
+   </para>
+   <programlisting>
+<![ CDATA [LOAD DATA INFILE '/mnt/windows/temp/libros.txt' INTO TABLE libros 
+]]><![ CDATA [  FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' LINES TERMINATED BY '\r\n';
+]]><![ CDATA [LOAD DATA INFILE '/mnt/windows/temp/autores.txt' INTO TABLE autores 
+]]><![ CDATA [  FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' LINES TERMINATED BY '\r\n';
+]]><![ CDATA [LOAD DATA INFILE '/mnt/windows/temp/autorlib.txt' INTO TABLE autorlib 
+]]><![ CDATA [  FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' LINES TERMINATED BY '\r\n';
+]]><![ CDATA [LOAD DATA INFILE '/mnt/windows/temp/temas.txt' INTO TABLE temas 
+]]><![ CDATA [  FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' LINES TERMINATED BY '\r\n';
+]]>   </programlisting>
+   </sect2>
+  </sect1>
+  <sect1>
+   <title>
+   Xbase a Mysql
+  </title>
+   <sect2>
+    <title>
+    dbf2mysql
+   </title>
+   <para>
+    http://mysql.vision.cl/Downloads/Contrib/dbf2mysql-1.14.tar.gz&lsqb;1&rsqb; &lt;&num;FTN.MIRROR&gt;
+   </para>
+   <para>
+    dbf2mysql es una pequeña y excelente aplicación que genera información SQL a partir de archivos xBase. He aquí una traducción de sus opciones:
+   </para>
+   <para>
+    <tgroup cols="2" colsep="1" rowsep="1">
+<colspec colname="col0" align="center">
+<colspec colname="col1" align="center">
+<tbody>
+<row>
+<entry align="center" valign="top">-v
+</entry><entry align="center" valign="top">muestra detalles de la conversión -vv muestra más detalles
+</entry></row>
+<row>
+<entry align="center" valign="top">-vvv
+</entry><entry align="center" valign="top">incluye informe de progreso
+</entry></row>
+<row>
+<entry align="center" valign="top">-f
+</entry><entry align="center" valign="top">traduce los nombres de campo a minúsculas
+</entry></row>
+<row>
+<entry align="center" valign="top">-u
+</entry><entry align="center" valign="top">traduce los textos de campos alfanuméricos a mayúsculas
+</entry></row>
+<row>
+<entry align="center" valign="top">-l
+</entry><entry align="center" valign="top">traduce los textos de campos alfanuméricos a minúsculas
+</entry></row>
+<row>
+<entry align="center" valign="top">-n
+</entry><entry align="center" valign="top">no se agrega 'NOT NULL' en las sentancias de creación de tabla
+</entry></row>
+<row>
+<entry align="center" valign="top">-o &lt;lista de campos&gt;
+</entry><entry align="center" valign="top">exporta solo los campos listados
+</entry></row>
+<row>
+<entry align="center" valign="top">-e &lt;archivo&gt;
+</entry><entry align="center" valign="top">archivo para conversion de caracteres
+</entry></row>
+<row>
+<entry align="center" valign="top">-s &lt;lista de campos&gt;
+</entry><entry align="center" valign="top">permite cambiar nombres de campos. Ej -s NOMBRE=AYN,DIR=DIRECCION
+</entry></row>
+<row>
+<entry align="center" valign="top">-i &lt;lista de campos&gt;
+</entry><entry align="center" valign="top">lista de campos a indexar (atte: genera UN indice por campo)
+</entry></row>
+<row>
+<entry align="center" valign="top">-d &lt;database&gt;
+</entry><entry align="center" valign="top">base de datos donde se insertaran los datos
+</entry></row>
+<row>
+<entry align="center" valign="top">-t &lt;tabla&gt;
+</entry><entry align="center" valign="top">tabla donde se insertarán los datos
+</entry></row>
+<row>
+<entry align="center" valign="top">-c
+</entry><entry align="center" valign="top">crea la tabla si no existe
+</entry></row>
+<row>
+<entry align="center" valign="top">-cc
+</entry><entry align="center" valign="top">crea la tabla, pero no inserta registros
+</entry></row>
+<row>
+<entry align="center" valign="top">-p &lt;campo&gt;
+</entry><entry align="center" valign="top">indica la clave primaria
+</entry></row>
+<row>
+<entry align="center" valign="top">-h &lt;host&gt;
+</entry><entry align="center" valign="top">indica server donde conectarse
+</entry></row>
+<row>
+<entry align="center" valign="top">-F 
+</entry><entry align="center" valign="top">los campos caractes se formatean como de longitud fija
+</entry></row>
+<row>
+<entry align="center" valign="top">-q
+</entry><entry align="center" valign="top">modo rapido inserta los registros a través de un archivo temporal usando la sentencia LOAD DATA INFILE
+</entry></row>
+<row>
+<entry align="center" valign="top">-r
+</entry><entry align="center" valign="top">quita espacios antes y despues de datos alfanuméricos
+</entry></row>
+</tbody>
+</tgroup>
+   </para>
+   <para>
+    Suponiendo que quiero hacer una conversion directa, solo necesito crear la base de datos en blanco, por ejemplo desde la consola mysql:
+   </para>
+   <programlisting>
+<![ CDATA [create database libros;
+]]><![ CDATA [quit
+]]>   </programlisting>
+   <para>
+    Y luego ejecutar dbf2mysql para crear las tablas e insertar los datos:
+   </para>
+   <programlisting>
+<![ CDATA [dbf2mysql -h localhost -d libros -t autores -c -f -p idautor /mnt/c/data/autores.dbf
+]]><![ CDATA [dbf2mysql -h localhost -d libros -t libros -c -f -p idlibro /mnt/c/data/libros.dbf
+]]><![ CDATA [dbf2mysql -h localhost -d libros -t temas -c -f -p idtema /mnt/c/data/temas.dbf
+]]><![ CDATA [dbf2mysql -h localhost -d libros -t autorlib -c -f -p idautorlib /mnt/c/data/autorlib.dbf
+]]>   </programlisting>
+   <para>
+    La principal desventaja de este metodo es que no se crean algunos atributos deseables, como es el caso de los campos autoincrementables. En este caso, lo mas recomendable es crear nuestra propia estructura, otra vez volvemos al metodo de crear la estructura con un editor ASCII y generar la base de datos vacia con la consola MySQL. Luego se insertan los datos con este conjunto modificado de comandos dbf2mysql:
+   </para>
+   <programlisting>
+<![ CDATA [dbf2mysql -h localhost -d libros -t autores -f /mnt/c/temp/autores.dbf
+]]><![ CDATA [dbf2mysql -h localhost -d libros -t libros -f /mnt/c/temp/libros.dbf
+]]><![ CDATA [dbf2mysql -h localhost -d libros -t temas -f /mnt/c/temp/temas.dbf
+]]><![ CDATA [dbf2mysql -h localhost -d libros -t autorlib -f /mnt/c/temp/autorlib.dbf
+]]>   </programlisting>
+   </sect2>
+  </sect1>
+  <sect1>
+   <title>
+   Access a Mysql
+  </title>
+   <sect2>
+    <title>
+    access_to_mysql.txt
+   </title>
+   <para>
+    http://mysql.vision.cl/Downloads/Contrib/access_to_mysql.txt
+   </para>
+   <para>
+    Este es un modulo de access que crea un archivo con las instrucciones sql para crear las tablas e insertar los registros, similar a como lo hace el comando mysqldump (bueno, por algo el archivo que se crea se llama mysqldump.txt).
+   </para>
+   <para>
+    Para usarlo, ha de crearse un modulo de access y pegarle el contenido de access_to_mysql.txt para despues ejecutarlo. Al finalizar, quedara creado un archivo mysqldump.txt en el directorio c:/temp.
+   </para>
+   </sect2>
+   <sect2>
+    <title>
+    exportsql
+   </title>
+   <para>
+    http://mysql.vision.cl/Downloads/Contrib/exportsql.txt
+   </para>
+   <para>
+    Este es otro modulo para access que genera archivos con instrucciones sql. La diferencia con el programa anterior radica en que lo podemos configurar a traves de unas variables declaradas al principio, por ejemplo:
+   </para>
+   <itemizedlist>
+    <listitem>
+    <para>
+    ADD_SQL_FILE: contiene el directorio y archivo que contendra las instrucciones SQL de creacion e insercion.
+    </para>
+   </listitem>
+    <listitem>
+    <para>
+    DEL_SQL_FILE: contiene el directorio y archivo que contendra las instrucciones SQL de borrado de las tablas.
+    </para>
+   </listitem>
+    <listitem>
+    <para>
+    DISPLAY_WARNINGS: indica si las advertencias de errores se muestran durante el proceso de conversion (aconsejo cambiarlo a FALSE, porque si se da un error durante la conversión de registros y son muchos registros, se puede cansar de dar OK en el mensaje de error).
+    </para>
+   </listitem>
+   </itemizedlist>
+   <para>
+    Previo a la definición de cada tabla hay instrucciones DROP TABLE, que daran error en el caso de que se lo use con la base de datos vacía, para solucionarlo se pueden borrar estas instrucciones, o bien agregarles la cláusula IF EXIST. A los campos que forman parte de la clave primaria se les debe agregar la cláusula NOT NULL, o el script terminara con error cuando se intente crear las tablas.
+   </para>
+   <para>
+    Despues de generados los archivos con estos modulos, hay que pasar a linux y ejecutarlos, a través de la consola mysql. Para el caso de access_to_mysql, suponiendo que se creo la base de datos y que el archivo reside en /mnt/windows/temp/mysqldump.txt, las tablas se generan con este comando:
+   </para>
+   <programlisting>
+<![ CDATA [mysql < /mnt/windows/temp/mysqldump.txt
+]]>   </programlisting>
+   <para>
+    Para el caso de exportsql.txt, las tablas se generan con el comando:
+   </para>
+   <programlisting>
+<![ CDATA [mysql < /mnt/windows/temp/esql_add.txt
+]]>   </programlisting>
+   </sect2>
+   <sect2>
+    <title>
+    mdbtools
+   </title>
+   <para>
+    http://mdbtools.sourceforge.net
+   </para>
+   <para>
+    Esta es una serie de utilidades linux para conversion y manejo de bases de datos Access:
+   </para>
+   <variablelist>
+    <varlistentry>
+    <term>
+    <tgroup cols="2" colsep="1" rowsep="1">
+<colspec colname="col0" align="center">
+<colspec colname="col1" align="center">
+<tbody>
+<row>
+<entry align="center" valign="top">mdb-ver &lt;archivo&gt;
+</entry><entry align="center" valign="top">imprime la versión de la base de datos de un archivo .mdb (jet3 o 4).
+</entry></row>
+<row>
+<entry align="center" valign="top">mdb-dump &lt;archivo&gt;
+</entry><entry align="center" valign="top">volcado hexadecimal del contenido de un archivo .mdb.
+</entry></row>
+<row>
+<entry align="center" valign="top">mdb-tables &lt;archivo&gt;
+</entry><entry align="center" valign="top">genera una lista simple con las tablas contenidas en la base de datos,  útil para script de shell.
+</entry></row>
+<row>
+<entry align="center" valign="top">mdb-schema &lt;archivo&gt;
+</entry><entry align="center" valign="top">imprime las sentencias de creación de las tablas.
+</entry></row>
+<row>
+<entry align="center" valign="top">mdb-export &lsqb;-H&rsqb; &lsqb;-Q&rsqb; &lsqb;-d &lt;delimitador&gt;&rsqb; &lt;archivo&gt; &lt;tabla&gt;
+</entry><entry align="center" valign="top">exporta una tabla a formato delimitado. La opcion -H suprime los titulos de columna, -Q no corta campos de texto entre comillas y -d cambia el delimitador por defecto.
+</entry></row>
+<row>
+<entry align="center" valign="top">mdb-parsecsv &lt;archivo&gt;
+</entry><entry align="center" valign="top">genera un programa .c a partir de un archivo generado por mdb-export.
+</entry></row>
+<row>
+<entry align="center" valign="top">mdb-header &lt;archivo&gt;
+</entry><entry align="center" valign="top">genera archivos .c y .h a ser usados para exportar archivos .mdb.
+</entry></row>
+<row>
+<entry align="center" valign="top">mdb-sql &lt;archivo&gt;
+</entry><entry align="center" valign="top">motor sql simple.
+</entry></row>
+<row>
+<entry align="center" valign="top">gmdb
+</entry><entry align="center" valign="top">utilidad grafica que aúna varias de las utilidades anteriores.
+</entry></row>
+</tbody>
+</tgroup></term>
+   </listitem>
+   </varlistentry>
+   </variablelist>
+   <para>
+    Este es un paquete que esta en su versión 0.4, asi que no es totalmente funcional, lo cual no quiere decir que no se lo pueda usar en ambiente de producción. Básicamente es posible acceder a las bases de datos sin utilizar Windows, creando el archivo de definición de la base de datos con la utilidad mdb-schema (pero atención, todavia genera las definiciones de índices), crear los archivos temporales de conversión de datos con la utilidad mdb-export y posteriormente importarlos con el comando LOAD DATA INFILE en la consola mysql.
+   </para>
+   </sect2>
+   <sect2>
+    <title>
+    dbtools
+   </title>
+   <para>
+    www.dbtools.com.br
+   </para>
+   <para>
+    Esta es una excelente aplicación de autores brasileños, nativa de windows, que permite entre otras cosas convertir directamente desde muchos formatos, incluyendo Access y Xbase.
+   </para>
+   <para>
+    Para trabajar con la base de datos, lo primero es conectarse al servidor MySQl, desde server manager, cargar los datos del servidor: ip, hostname, base de datos, usuario e iniciar la conección.
+   </para>
+   <para>
+    Se inicia el proceso desde la opcion de menu Data/New Import Data Wizard, el wizard es muy explicativo y bastante exhaustivo y esta en la lengua nativa de la informática: el inglés.
+   </para>
+   <para>
+    En MySQL los nombres de tabla y campos son case-sensitive, es decir Apellido es diferente de apellido. Personalmente, me resulta engorroso recordar/tipear este tipo de informacion, asi que siempre elijo tener todo en minusculas. Access no hace este tipo de distincion, cosa que hay que tener en cuenta cuando se hace la conversion. MySQL tampoco es amigable en lo que se refiere a los nombres con espacios incluidos
+   </para>
+   </sect2>
+  </sect1>
+  <sect1>
+   <title>
+   Conclusión
+  </title>
+  <para>
+   Por mas completas que sean las herramientas, forman parte de un proceso que lleva varios pasos, casi siempre el resultado de la generación de las estructuras debe ser corregido antes de pasarlas a la base de datos, y por lo general el sistema más rapido para insertar datos es el comando LOAD DATA INFILE, asi que una combinación de todos estos metodos suele ser buena alternativa. Y he incluido sólo el tema de convertir, por asi decirlo, tabla a tabla,
+  </para>
+  <para>
+   OTRO tema es la conversion desde un esquema de informacion totalmente diferente a uno normalizado para bases de datos. Por lo general en estos casos, se ha de programar un script de conversion, que tome los datos, por ejemplo de una planilla de cálculo monolítica y la convierta en varias tablas normalizadas.
+  </para>
+  <para>
+   Notas
+  </para>
+  <para>
+   Este es uno de tantos mirrors de esta pagina, la lista completa esta en http://www.mysql.com/downloads/download.php?file=Downloads/Contrib/
+  </para>
+<appendix>
+<title>Datos de ejemplo</title>
+  <para>
+   En caso de no tener acceso a los datos de ejemplo, se puede copiar/pegar desde estas listas
+  </para>
+  <para>
+   Tabla temas
+  </para>
+  <programlisting>
+<![ CDATA [10,"Espionaje"
+]]><![ CDATA [12,"Computacion"
+]]>  </programlisting>
+  <para>
+   Tabla autores
+  </para>
+  <programlisting>
+<![ CDATA [39,,"Varios"
+]]><![ CDATA [56,"Tom","Clancy"
+]]><![ CDATA [73,"Niklaus","Wirth"
+]]><![ CDATA [75,"Elaine","Rich"
+]]><![ CDATA [76,"Kevin","Knight"
+]]><![ CDATA [77,"Jon","Toigo"
+]]><![ CDATA [80,"Frederick","Forsyth"
+]]><![ CDATA [88,"John","le Carré"
+]]><![ CDATA [90,"Steve","Pieczenik"
+]]><![ CDATA [91,"A.J.","Quinnell"
+]]><![ CDATA [94,"Sidney","Sheldon"
+]]><![ CDATA [119,"Malcom","Secrett"
+]]><![ CDATA [120,"Chris","Gane"
+]]><![ CDATA [121,"Trish","Sarson"
+]]><![ CDATA [148,"Luis Tomas","Wayar"
+]]><![ CDATA [149,"Hector Facundo","Arena"
+]]><![ CDATA [152,"Seymour","Papert"
+]]><![ CDATA [153,"Horacio C.","Reggini"
+]]><![ CDATA [154,"Harold","Abelson"
+]]><![ CDATA [155,"Andrea","diSessa"
+]]><![ CDATA [156,"A.A.","Berk"
+]]><![ CDATA [157,"Tohru","Moto-oka"
+]]><![ CDATA [158,"Masaru","Kitsuregawa"
+]]><![ CDATA [166,"Alice Y.H.","Tsai"
+]]><![ CDATA [167,"Pedro J.","Hernandez Muñoz"
+]]><![ CDATA [169,"Stewart","Brand"
+]]><![ CDATA [170,"Mary","Campbell"
+]]><![ CDATA [171,"Brad J.","Cox"
+]]><![ CDATA [172,"Andrew J.","Novobilski"
+]]>  </programlisting>
+  <para>
+   Tabla libros
+  </para>
+  <programlisting>
+<![ CDATA [165,"El cardenal del Kremlin",10
+]]><![ CDATA [171,"Sound Blaster 16 User's guide",12
+]]><![ CDATA [172,"Algoritmos + estructuras de datos = programas",12
+]]><![ CDATA [174,"Inteligencia Artificial",12
+]]><![ CDATA [175,"Disaster Recovery Planning",12
+]]><![ CDATA [181,"El cuarto protocolo",10
+]]><![ CDATA [191,"La casa Rusia",10
+]]><![ CDATA [195,"Peligro Inminente",10
+]]><![ CDATA [196,"Juegos de patriotas",10
+]]><![ CDATA [197,"Op center I / Jaque al Poder",10
+]]><![ CDATA [198,"Op center II / La imagen en el espejo",10
+]]><![ CDATA [199,"Op Center III / Juegos de estado",10
+]]><![ CDATA [200,"Op Center IV / Actos de guerra",10
+]]><![ CDATA [201,"Op center V / Equilibrio de poder",10
+]]><![ CDATA [202,"Op center VI / Estado de sitio",10
+]]><![ CDATA [203,"Operación Rainbow",10
+]]><![ CDATA [204,"Ordenes presidenciales",10
+]]><![ CDATA [205,"El falso mahdi",10
+]]><![ CDATA [211,"La conspiracion del juicio final",10
+]]><![ CDATA [226,"La alternativa del diablo",10
+]]><![ CDATA [239,"Como dominar la hoja de calculo en presupuestos...",12
+]]><![ CDATA [240,"Analisis estructurado de sistemas",12
+]]><![ CDATA [276,"Linux, Manual de referencia",12
+]]><![ CDATA [277,"Linux Avanzado",12
+]]><![ CDATA [281,"Desafio a la mente",12
+]]><![ CDATA [282,"Alas para la mente",12
+]]><![ CDATA [283,"Ideas y formas",12
+]]><![ CDATA [284,"Geometria de la tortuga",12
+]]><![ CDATA [285,"Prolog",12
+]]><![ CDATA [286,"El ordenador de quinta generacion",12
+]]><![ CDATA [295,"Sistemas de bases de datos, administracion  y uso",12
+]]><![ CDATA [298,"Visual Foxpro 5",12
+]]><![ CDATA [299,"Como programar en java",12
+]]><![ CDATA [301,"El laboratorio de medios",12
+]]><![ CDATA [302,"Todo lo que quiso saber sobre ACCESS",12
+]]><![ CDATA [303,"Programacion orientada a objetos",12
+]]>  </programlisting>
+  <para>
+   Tabla autxlib
+  </para>
+  <programlisting>
+<![ CDATA [174,165,56
+]]><![ CDATA [180,171,39
+]]><![ CDATA [181,172,73
+]]><![ CDATA [184,174,75
+]]><![ CDATA [185,174,76
+]]><![ CDATA [186,175,77
+]]><![ CDATA [191,181,80
+]]><![ CDATA [202,191,88
+]]><![ CDATA [206,195,56
+]]><![ CDATA [207,196,56
+]]><![ CDATA [208,197,56
+]]><![ CDATA [209,198,56
+]]><![ CDATA [210,199,56
+]]><![ CDATA [211,200,56
+]]><![ CDATA [212,201,56
+]]><![ CDATA [213,202,56
+]]><![ CDATA [215,202,90
+]]><![ CDATA [216,201,90
+]]><![ CDATA [217,200,90
+]]><![ CDATA [218,199,90
+]]><![ CDATA [219,198,90
+]]><![ CDATA [220,197,90
+]]><![ CDATA [221,203,56
+]]><![ CDATA [222,204,56
+]]><![ CDATA [223,205,91
+]]><![ CDATA [229,211,94
+]]><![ CDATA [248,226,80
+]]><![ CDATA [264,239,119
+]]><![ CDATA [265,240,120
+]]><![ CDATA [266,240,121
+]]><![ CDATA [307,276,148
+]]><![ CDATA [308,277,149
+]]><![ CDATA [312,281,152
+]]><![ CDATA [313,282,153
+]]><![ CDATA [314,283,153
+]]><![ CDATA [315,284,154
+]]><![ CDATA [316,284,155
+]]><![ CDATA [317,285,156
+]]><![ CDATA [318,286,157
+]]><![ CDATA [319,286,158
+]]><![ CDATA [330,295,166
+]]><![ CDATA [334,298,167
+]]><![ CDATA [335,299,39
+]]><![ CDATA [337,301,169
+]]><![ CDATA [338,302,170
+]]><![ CDATA [340,303,171
+]]><![ CDATA [341,303,172
+]]>  </programlisting>
+</appendix>
+  </sect1>
+
+
+</article>

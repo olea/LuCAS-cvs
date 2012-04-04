@@ -1,0 +1,741 @@
+From owner-pgsql-hackers@hub.org Sun Jun 14 18:45:04 1998
+Received: from hub.org (hub.org [209.47.148.200])
+	by candle.pha.pa.us (8.8.5/8.8.5) with ESMTP id SAA03690
+	for <maillist@candle.pha.pa.us>; Sun, 14 Jun 1998 18:45:00 -0400 (EDT)
+Received: from localhost (majordom@localhost) by hub.org (8.8.8/8.7.5) with SMTP id SAA28049; Sun, 14 Jun 1998 18:39:42 -0400 (EDT)
+Received: by hub.org (TLB v0.10a (1.23 tibbs 1997/01/09 00:29:32)); Sun, 14 Jun 1998 18:36:06 +0000 (EDT)
+Received: (from majordom@localhost) by hub.org (8.8.8/8.7.5) id SAA27943 for pgsql-hackers-outgoing; Sun, 14 Jun 1998 18:36:04 -0400 (EDT)
+Received: from angular.illustra.com (ifmxoak.illustra.com [206.175.10.34]) by hub.org (8.8.8/8.7.5) with ESMTP id SAA27925 for <pgsql-hackers@postgresql.org>; Sun, 14 Jun 1998 18:35:47 -0400 (EDT)
+Received: from hawk.illustra.com (hawk.illustra.com [158.58.61.70]) by angular.illustra.com (8.7.4/8.7.3) with SMTP id PAA21293 for <pgsql-hackers@postgresql.org>; Sun, 14 Jun 1998 15:35:12 -0700 (PDT)
+Received: by hawk.illustra.com (5.x/smail2.5/06-10-94/S)
+	id AA07922; Sun, 14 Jun 1998 15:35:13 -0700
+From: dg@illustra.com (David Gould)
+Message-Id: <9806142235.AA07922@hawk.illustra.com>
+Subject: [HACKERS] performance tests, initial results
+To: pgsql-hackers@postgreSQL.org
+Date: Sun, 14 Jun 1998 15:35:13 -0700 (PDT)
+Mime-Version: 1.0
+Content-Type: text/plain; charset=US-ASCII
+Content-Transfer-Encoding: 7bit
+Sender: owner-pgsql-hackers@hub.org
+Precedence: bulk
+Status: RO
+
+
+I have been playing a little with the performance tests found in
+pgsql/src/tests/performance and have a few observations that might be of
+minor interest.
+
+The tests themselves are simple enough although the result parsing in the
+driver did not work on Linux. I am enclosing a patch below to fix this. I
+think it will also work better on the other systems.
+
+A summary of results from my testing are below. Details are at the bottom
+of this message.
+
+My test system is 'leslie':
+
+ linux 2.0.32, gcc version 2.7.2.3
+ P133, HX chipset, 512K L2, 32MB mem
+ NCR810 fast scsi, Quantum Atlas 2GB drive (7200 rpm).
+
+
+                     Results Summary (times in seconds)
+
+                    Single txn 8K txn    Create 8K idx 8K random Simple
+Case Description    8K insert  8K insert Index  Insert Scans     Orderby
+=================== ========== ========= ====== ====== ========= =======
+1 From Distribution
+  P90 FreeBsd -B256      39.56   1190.98   3.69  46.65     65.49    2.27
+  IDE
+
+2 Running on leslie
+  P133 Linux 2.0.32      15.48    326.75   2.99  20.69     35.81    1.68
+  SCSI 32M
+
+3 leslie, -o -F
+  no forced writes       15.90     24.98   2.63  20.46     36.43    1.69
+
+4 leslie, -o -F
+  no ASSERTS             14.92     23.23   1.38  18.67     33.79    1.58
+
+5 leslie, -o -F -B2048
+  more buffers           21.31     42.28   2.65  25.74     42.26    1.72
+
+6 leslie, -o -F -B2048
+  more bufs, no ASSERT   20.52     39.79   1.40  24.77     39.51    1.55
+
+
+
+
+                 Case to Case Difference Factors (+ is faster)
+
+                    Single txn 8K txn    Create 8K idx 8K random Simple
+Case Description    8K insert  8K insert Index  Insert Scans     Orderby
+=================== ========== ========= ====== ====== ========= =======
+
+leslie vs BSD P90.        2.56      3.65   1.23   2.25      1.83    1.35
+
+(noflush -F) vs no -F    -1.03     13.08   1.14   1.01     -1.02    1.00
+
+No Assert vs Assert       1.05      1.07   1.90   1.06      1.07    1.09
+
+-B256 vs -B2048           1.34      1.69   1.01   1.26      1.16    1.02
+
+
+Observations:
+
+ - leslie (P133 linux) appears to be about 1.8 times faster than the
+   P90 BSD system used for the test result distributed with the source, not
+   counting the 8K txn insert case which was completely disk bound.
+
+ - SCSI disks make a big (factor of 3.6) difference. During this test the
+   disk was hammering and cpu utilization was < 10%.
+
+ - Assertion checking seems to cost about 7% except for create index where
+   it costs 90%
+
+ - the -F option to avoid flushing buffers has tremendous effect if there are
+   many very small transactions. Or, another way, flushing at the end of the
+   transaction is a major disaster for performance.
+
+ - Something is very wrong with our buffer cache implementation. Going from
+   256 buffers to 2048 buffers costs an average of 25%. In the 8K txn case
+   it costs about 70%. I see looking at the code and profiling that in the 8K
+   txn case this is in BufferSync() which examines all the buffers at commit
+   time. I don't quite understand why it is so costly for the single 8K row
+   txn (35%) though.
+
+It would be nice to have some more tests. Maybe the Wisconsin stuff will
+be useful.
+
+
+
+----------------- patch to test harness. apply from pgsql ------------
+*** src/test/performance/runtests.pl.orig	Sun Jun 14 11:34:04 1998
+
+Differences %
+
+
+----------------- patch to test harness. apply from pgsql ------------
+*** src/test/performance/runtests.pl.orig	Sun Jun 14 11:34:04 1998
+--- src/test/performance/runtests.pl	Sun Jun 14 12:07:30 1998
+***************
+*** 84,123 ****
+  open (STDERR, ">$TmpFile") or die;
+  select (STDERR); $| = 1;
+  
+! for ($i = 0; $i <= $#perftests; $i++)
+! {
+  	$test = $perftests[$i];
+  	($test, $XACTBLOCK) = split (/ /, $test);
+  	$runtest = $test;
+! 	if ( $test =~ /\.ntm/ )
+! 	{
+! 		# 
+  		# No timing for this queries
+- 		# 
+  		close (STDERR);		# close $TmpFile
+  		open (STDERR, ">/dev/null") or die;
+  		$runtest =~ s/\.ntm//;
+  	}
+! 	else
+! 	{
+  		close (STDOUT);
+  		open(STDOUT, ">&SAVEOUT");
+  		print STDOUT "\nRunning: $perftests[$i+1] ...";
+  		close (STDOUT);
+  		open (STDOUT, ">/dev/null") or die;
+  		select (STDERR); $| = 1;
+! 		printf "$perftests[$i+1]: ";
+  	}
+  
+  	do "sqls/$runtest";
+  
+  	# Restore STDERR to $TmpFile
+! 	if ( $test =~ /\.ntm/ )
+! 	{
+  		close (STDERR);
+  		open (STDERR, ">>$TmpFile") or die;
+  	}
+- 
+  	select (STDERR); $| = 1;
+  	$i++;
+  }
+--- 84,116 ----
+  open (STDERR, ">$TmpFile") or die;
+  select (STDERR); $| = 1;
+  
+! for ($i = 0; $i <= $#perftests; $i++) {
+  	$test = $perftests[$i];
+  	($test, $XACTBLOCK) = split (/ /, $test);
+  	$runtest = $test;
+! 	if ( $test =~ /\.ntm/ ) {
+  		# No timing for this queries
+  		close (STDERR);		# close $TmpFile
+  		open (STDERR, ">/dev/null") or die;
+  		$runtest =~ s/\.ntm//;
+  	}
+! 	else {
+  		close (STDOUT);
+  		open(STDOUT, ">&SAVEOUT");
+  		print STDOUT "\nRunning: $perftests[$i+1] ...";
+  		close (STDOUT);
+  		open (STDOUT, ">/dev/null") or die;
+  		select (STDERR); $| = 1;
+! 		print "$perftests[$i+1]: ";
+  	}
+  
+  	do "sqls/$runtest";
+  
+  	# Restore STDERR to $TmpFile
+! 	if ( $test =~ /\.ntm/ ) {
+  		close (STDERR);
+  		open (STDERR, ">>$TmpFile") or die;
+  	}
+  	select (STDERR); $| = 1;
+  	$i++;
+  }
+***************
+*** 128,138 ****
+  open (TMPF, "<$TmpFile") or die;
+  open (RESF, ">$ResFile") or die;
+  
+! while (<TMPF>)
+! {
+! 	$str = $_;
+! 	($test, $rtime) = split (/:/, $str);
+! 	($tmp, $rtime, $rest) = split (/[ 	]+/, $rtime);
+! 	print RESF "$test: $rtime\n";
+  }
+  
+--- 121,130 ----
+  open (TMPF, "<$TmpFile") or die;
+  open (RESF, ">$ResFile") or die;
+  
+! while (<TMPF>) {
+!         if (m/^(.*: ).* ([0-9:.]+) *elapsed/) {
+! 	    ($test, $rtime) = ($1, $2);
+! 	     print RESF $test, $rtime, "\n";
+!         }
+  }
+
+------------------------------------------------------------------------
+
+  
+------------------------- testcase detail --------------------------
+   
+1. from distribution
+   DBMS:		PostgreSQL 6.2b10
+   OS:		FreeBSD 2.1.5-RELEASE
+   HardWare:	i586/90, 24M RAM, IDE
+   StartUp:	postmaster -B 256 '-o -S 2048' -S
+   Compiler:	gcc 2.6.3
+   Compiled:	-O, without CASSERT checking, with
+   		-DTBL_FREE_CMD_MEMORY (to free memory
+   		if BEGIN/END after each query execution)
+   DB connection startup: 0.20
+   8192 INSERTs INTO SIMPLE (1 xact): 39.58
+   8192 INSERTs INTO SIMPLE (8192 xacts): 1190.98
+   Create INDEX on SIMPLE: 3.69
+   8192 INSERTs INTO SIMPLE with INDEX (1 xact): 46.65
+   8192 random INDEX scans on SIMPLE (1 xact): 65.49
+   ORDER BY SIMPLE: 2.27
+   
+   
+2. run on leslie with asserts
+   DBMS:		PostgreSQL 6.3.2 (plus changes to 98/06/01)
+   OS:		Linux 2.0.32 leslie
+   HardWare:	i586/133 HX 512, 32M RAM, fast SCSI, 7200rpm
+   StartUp:	postmaster -B 256 '-o -S 2048' -S
+   Compiler:	gcc 2.7.2.3
+   Compiled:	-O, WITH CASSERT checking, with
+   		-DTBL_FREE_CMD_MEMORY (to free memory
+   		if BEGIN/END after each query execution)
+   DB connection startup: 0.10
+   8192 INSERTs INTO SIMPLE (1 xact): 15.48
+   8192 INSERTs INTO SIMPLE (8192 xacts): 326.75
+   Create INDEX on SIMPLE: 2.99
+   8192 INSERTs INTO SIMPLE with INDEX (1 xact): 20.69
+   8192 random INDEX scans on SIMPLE (1 xact): 35.81
+   ORDER BY SIMPLE: 1.68
+   
+   
+3. with -F to avoid forced i/o
+   DBMS:		PostgreSQL 6.3.2 (plus changes to 98/06/01)
+   OS:		Linux 2.0.32 leslie
+   HardWare:	i586/133 HX 512, 32M RAM, fast SCSI, 7200rpm
+   StartUp:	postmaster -B 256 '-o -S 2048 -F' -S
+   Compiler:	gcc 2.7.2.3
+   Compiled:	-O, WITH CASSERT checking, with
+   		-DTBL_FREE_CMD_MEMORY (to free memory
+   		if BEGIN/END after each query execution)
+   DB connection startup: 0.10
+   8192 INSERTs INTO SIMPLE (1 xact): 15.90
+   8192 INSERTs INTO SIMPLE (8192 xacts): 24.98
+   Create INDEX on SIMPLE: 2.63
+   8192 INSERTs INTO SIMPLE with INDEX (1 xact): 20.46
+   8192 random INDEX scans on SIMPLE (1 xact): 36.43
+   ORDER BY SIMPLE: 1.69
+   
+   
+4. no asserts, -F to avoid forced I/O
+   DBMS:		PostgreSQL 6.3.2 (plus changes to 98/06/01)
+   OS:		Linux 2.0.32 leslie
+   HardWare:	i586/133 HX 512, 32M RAM, fast SCSI, 7200rpm
+   StartUp:	postmaster -B 256 '-o -S 2048' -S
+   Compiler:	gcc 2.7.2.3
+   Compiled:	-O, No CASSERT checking, with
+   		-DTBL_FREE_CMD_MEMORY (to free memory
+   		if BEGIN/END after each query execution)
+   DB connection startup: 0.10
+   8192 INSERTs INTO SIMPLE (1 xact): 14.92
+   8192 INSERTs INTO SIMPLE (8192 xacts): 23.23
+   Create INDEX on SIMPLE: 1.38
+   8192 INSERTs INTO SIMPLE with INDEX (1 xact): 18.67
+   8192 random INDEX scans on SIMPLE (1 xact): 33.79
+   ORDER BY SIMPLE: 1.58
+   
+   
+5. with more buffers (2048 vs 256) and -F to avoid forced i/o
+   DBMS:		PostgreSQL 6.3.2 (plus changes to 98/06/01)
+   OS:		Linux 2.0.32 leslie
+   HardWare:	i586/133 HX 512, 32M RAM, fast SCSI, 7200rpm
+   StartUp:	postmaster -B 2048 '-o -S 2048 -F' -S
+   Compiler:	gcc 2.7.2.3
+   Compiled:	-O, WITH CASSERT checking, with
+   		-DTBL_FREE_CMD_MEMORY (to free memory
+   		if BEGIN/END after each query execution)
+   DB connection startup: 0.11
+   8192 INSERTs INTO SIMPLE (1 xact): 21.31
+   8192 INSERTs INTO SIMPLE (8192 xacts): 42.28
+   Create INDEX on SIMPLE: 2.65
+   8192 INSERTs INTO SIMPLE with INDEX (1 xact): 25.74
+   8192 random INDEX scans on SIMPLE (1 xact): 42.26
+   ORDER BY SIMPLE: 1.72
+   
+   
+6. No Asserts, more buffers (2048 vs 256) and -F to avoid forced i/o
+   DBMS:		PostgreSQL 6.3.2 (plus changes to 98/06/01)
+   OS:		Linux 2.0.32 leslie
+   HardWare:	i586/133 HX 512, 32M RAM, fast SCSI, 7200rpm
+   StartUp:	postmaster -B 2048 '-o -S 2048 -F' -S
+   Compiler:	gcc 2.7.2.3
+   Compiled:	-O, No CASSERT checking, with
+   		-DTBL_FREE_CMD_MEMORY (to free memory
+   		if BEGIN/END after each query execution)
+   DB connection startup: 0.11
+   8192 INSERTs INTO SIMPLE (1 xact): 20.52
+   8192 INSERTs INTO SIMPLE (8192 xacts): 39.79
+   Create INDEX on SIMPLE: 1.40
+   8192 INSERTs INTO SIMPLE with INDEX (1 xact): 24.77
+   8192 random INDEX scans on SIMPLE (1 xact): 39.51
+   ORDER BY SIMPLE: 1.55
+---------------------------------------------------------------------
+
+-dg
+
+David Gould            dg@illustra.com           510.628.3783 or 510.305.9468 
+Informix Software  (No, really)         300 Lakeside Drive  Oakland, CA 94612
+"Don't worry about people stealing your ideas.  If your ideas are any
+ good, you'll have to ram them down people's throats." -- Howard Aiken
+
+
+From owner-pgsql-hackers@hub.org Tue Oct 19 10:31:10 1999
+Received: from renoir.op.net (root@renoir.op.net [209.152.193.4])
+	by candle.pha.pa.us (8.9.0/8.9.0) with ESMTP id KAA29087
+	for <maillist@candle.pha.pa.us>; Tue, 19 Oct 1999 10:31:08 -0400 (EDT)
+Received: from hub.org (hub.org [216.126.84.1]) by renoir.op.net (o1/$Revision: 1.1 $) with ESMTP id KAA27535 for <maillist@candle.pha.pa.us>; Tue, 19 Oct 1999 10:19:47 -0400 (EDT)
+Received: from localhost (majordom@localhost)
+	by hub.org (8.9.3/8.9.3) with SMTP id KAA30328;
+	Tue, 19 Oct 1999 10:12:10 -0400 (EDT)
+	(envelope-from owner-pgsql-hackers)
+Received: by hub.org (bulk_mailer v1.5); Tue, 19 Oct 1999 10:11:55 -0400
+Received: (from majordom@localhost)
+	by hub.org (8.9.3/8.9.3) id KAA30030
+	for pgsql-hackers-outgoing; Tue, 19 Oct 1999 10:11:00 -0400 (EDT)
+	(envelope-from owner-pgsql-hackers@postgreSQL.org)
+Received: from sss.sss.pgh.pa.us (sss.pgh.pa.us [209.114.166.2])
+	by hub.org (8.9.3/8.9.3) with ESMTP id KAA29914
+	for <pgsql-hackers@postgreSQL.org>; Tue, 19 Oct 1999 10:10:33 -0400 (EDT)
+	(envelope-from tgl@sss.pgh.pa.us)
+Received: from sss.sss.pgh.pa.us (localhost [127.0.0.1])
+	by sss.sss.pgh.pa.us (8.9.1/8.9.1) with ESMTP id KAA09038;
+	Tue, 19 Oct 1999 10:09:15 -0400 (EDT)
+To: "Hiroshi Inoue" <Inoue@tpf.co.jp>
+cc: "Vadim Mikheev" <vadim@krs.ru>, pgsql-hackers@postgreSQL.org
+Subject: Re: [HACKERS] mdnblocks is an amazing time sink in huge relations 
+In-reply-to: Your message of Tue, 19 Oct 1999 19:03:22 +0900 
+             <000801bf1a19$2d88ae20$2801007e@cadzone.tpf.co.jp> 
+Date: Tue, 19 Oct 1999 10:09:15 -0400
+Message-ID: <9036.940342155@sss.pgh.pa.us>
+From: Tom Lane <tgl@sss.pgh.pa.us>
+Sender: owner-pgsql-hackers@postgreSQL.org
+Status: OR
+
+"Hiroshi Inoue" <Inoue@tpf.co.jp> writes:
+> 1. shared cache holds committed system tuples.
+> 2. private cache holds uncommitted system tuples.
+> 3. relpages of shared cache are updated immediately by
+>     phisical change and corresponding buffer pages are
+>     marked dirty.
+> 4. on commit, the contents of uncommitted tuples except
+>    relpages,reltuples,... are copied to correponding tuples
+>    in shared cache and the combined contents are
+>    committed.
+> If so,catalog cache invalidation would be no longer needed.
+> But synchronization of the step 4. may be difficult.
+
+I think the main problem is that relpages and reltuples shouldn't
+be kept in pg_class columns at all, because they need to have
+very different update behavior from the other pg_class columns.
+
+The rest of pg_class is update-on-commit, and we can lock down any one
+row in the normal MVCC way (if transaction A has modified a row and
+transaction B also wants to modify it, B waits for A to commit or abort,
+so it can know which version of the row to start from).  Furthermore,
+there can legitimately be several different values of a row in use in
+different places: the latest committed, an uncommitted modification, and
+one or more old values that are still being used by active transactions
+because they were current when those transactions started.  (BTW, the
+present relcache is pretty bad about maintaining pure MVCC transaction
+semantics like this, but it seems clear to me that that's the direction
+we want to go in.)
+
+relpages cannot operate this way.  To be useful for avoiding lseeks,
+relpages *must* change exactly when the physical file changes.  It
+matters not at all whether the particular transaction that extended the
+file ultimately commits or not.  Moreover there can be only one correct
+value (per relation) across the whole system, because there is only one
+length of the relation file.
+
+If we want to take reltuples seriously and try to maintain it
+on-the-fly, then I think it needs still a third behavior.  Clearly
+it cannot be updated using MVCC rules, or we lose all writer
+concurrency (if A has added tuples to a rel, B would have to wait
+for A to commit before it could update reltuples...).  Furthermore
+"updating" isn't a simple matter of storing what you think the new
+value is; otherwise two transactions adding tuples in parallel would
+leave the wrong answer after B commits and overwrites A's value.
+I think it would work for each transaction to keep track of a net delta
+in reltuples for each table it's changed (total tuples added less total
+tuples deleted), and then atomically add that value to the table's
+shared reltuples counter during commit.  But that still leaves the
+problem of how you use the counter during a transaction to get an
+accurate answer to the question "If I scan this table now, how many tuples
+will I see?"  At the time the question is asked, the current shared
+counter value might include the effects of transactions that have
+committed since your transaction started, and therefore are not visible
+under MVCC rules.  I think getting the correct answer would involve
+making an instantaneous copy of the current counter at the start of
+your xact, and then adding your own private net-uncommitted-delta to
+the saved shared counter value when asked the question.  This doesn't
+look real practical --- you'd have to save the reltuples counts of
+*all* tables in the database at the start of each xact, on the off
+chance that you might need them.  Ugh.  Perhaps someone has a better
+idea.  In any case, reltuples clearly needs different mechanisms than
+the ordinary fields in pg_class do, because updating it will be a
+performance bottleneck otherwise.
+
+If we allow reltuples to be updated only by vacuum-like events, as
+it is now, then I think keeping it in pg_class is still OK.
+
+In short, it seems clear to me that relpages should be removed from
+pg_class and kept somewhere else if we want to make it more reliable
+than it is now, and the same for reltuples (but reltuples doesn't
+behave the same as relpages, and probably ought to be handled
+differently).
+
+			regards, tom lane
+
+************
+
+From owner-pgsql-hackers@hub.org Tue Oct 19 21:25:30 1999
+Received: from renoir.op.net (root@renoir.op.net [209.152.193.4])
+	by candle.pha.pa.us (8.9.0/8.9.0) with ESMTP id VAA28130
+	for <maillist@candle.pha.pa.us>; Tue, 19 Oct 1999 21:25:26 -0400 (EDT)
+Received: from hub.org (hub.org [216.126.84.1]) by renoir.op.net (o1/$Revision: 1.1 $) with ESMTP id VAA10512 for <maillist@candle.pha.pa.us>; Tue, 19 Oct 1999 21:15:28 -0400 (EDT)
+Received: from localhost (majordom@localhost)
+	by hub.org (8.9.3/8.9.3) with SMTP id VAA50745;
+	Tue, 19 Oct 1999 21:07:23 -0400 (EDT)
+	(envelope-from owner-pgsql-hackers)
+Received: by hub.org (bulk_mailer v1.5); Tue, 19 Oct 1999 21:07:01 -0400
+Received: (from majordom@localhost)
+	by hub.org (8.9.3/8.9.3) id VAA50644
+	for pgsql-hackers-outgoing; Tue, 19 Oct 1999 21:06:06 -0400 (EDT)
+	(envelope-from owner-pgsql-hackers@postgreSQL.org)
+Received: from sd.tpf.co.jp (sd.tpf.co.jp [210.161.239.34])
+	by hub.org (8.9.3/8.9.3) with ESMTP id VAA50584
+	for <pgsql-hackers@postgreSQL.org>; Tue, 19 Oct 1999 21:05:26 -0400 (EDT)
+	(envelope-from Inoue@tpf.co.jp)
+Received: from cadzone ([126.0.1.40] (may be forged))
+          by sd.tpf.co.jp (2.5 Build 2640 (Berkeley 8.8.6)/8.8.4) with SMTP
+   id KAA01715; Wed, 20 Oct 1999 10:05:14 +0900
+From: "Hiroshi Inoue" <Inoue@tpf.co.jp>
+To: "Tom Lane" <tgl@sss.pgh.pa.us>
+Cc: <pgsql-hackers@postgreSQL.org>
+Subject: RE: [HACKERS] mdnblocks is an amazing time sink in huge relations 
+Date: Wed, 20 Oct 1999 10:09:13 +0900
+Message-ID: <000501bf1a97$b925a860$2801007e@cadzone.tpf.co.jp>
+MIME-Version: 1.0
+Content-Type: text/plain;
+	charset="iso-8859-1"
+Content-Transfer-Encoding: 7bit
+X-Priority: 3 (Normal)
+X-MSMail-Priority: Normal
+X-Mailer: Microsoft Outlook 8.5, Build 4.71.2173.0
+X-Mimeole: Produced By Microsoft MimeOLE V4.72.2106.4
+Importance: Normal
+Sender: owner-pgsql-hackers@postgreSQL.org
+Status: ORr
+
+> -----Original Message-----
+> From: Hiroshi Inoue [mailto:Inoue@tpf.co.jp]
+> Sent: Tuesday, October 19, 1999 6:45 PM
+> To: Tom Lane
+> Cc: pgsql-hackers@postgreSQL.org
+> Subject: RE: [HACKERS] mdnblocks is an amazing time sink in huge
+> relations 
+> 
+> 
+> > 
+> > "Hiroshi Inoue" <Inoue@tpf.co.jp> writes:
+> 
+> [snip]
+>  
+> > 
+> > > Deletion is necessary only not to consume disk space.
+> > >
+> > > For example vacuum could remove not deleted files.
+> > 
+> > Hmm ... interesting idea ... but I can hear the complaints
+> > from users already...
+> >
+> 
+> My idea is only an analogy of PostgreSQL's simple recovery
+> mechanism of tuples.
+> 
+> And my main point is
+> 	"delete fails after commit" doesn't harm the database
+> 	except that not deleted files consume disk space.
+> 
+> Of cource,it's preferable to delete relation files immediately
+> after(or just when) commit.
+> Useless files are visible though useless tuples are invisible.
+>
+
+Anyway I don't need "DROP TABLE inside transactions" now
+and my idea is originally for that issue.
+
+After a thought,I propose the following solution.
+
+1. mdcreate() couldn't create existent relation files.
+    If the existent file is of length zero,we would overwrite
+    the file.(seems the comment in md.c says so but the
+    code doesn't do so). 
+    If the file is an Index relation file,we would overwrite
+    the file.
+
+2. mdunlink() couldn't unlink non-existent relation files.
+    mdunlink() doesn't call elog(ERROR) even if the file
+    doesn't exist,though I couldn't find where to change
+    now.
+    mdopen() doesn't call elog(ERROR) even if the file
+    doesn't exist and leaves the relation as CLOSED. 
+
+Comments ?
+
+Regards. 
+
+Hiroshi Inoue
+Inoue@tpf.co.jp
+
+************
+
+From pgsql-hackers-owner+M6267@hub.org Sun Aug 27 21:46:37 2000
+Received: from hub.org (root@hub.org [216.126.84.1])
+	by candle.pha.pa.us (8.9.0/8.9.0) with ESMTP id UAA07972
+	for <pgman@candle.pha.pa.us>; Sun, 27 Aug 2000 20:46:36 -0400 (EDT)
+Received: from hub.org (majordom@localhost [127.0.0.1])
+	by hub.org (8.10.1/8.10.1) with SMTP id e7S0kaL27996;
+	Sun, 27 Aug 2000 20:46:36 -0400 (EDT)
+Received: from sss2.sss.pgh.pa.us (sss.pgh.pa.us [209.114.166.2])
+	by hub.org (8.10.1/8.10.1) with ESMTP id e7S05aL24107
+	for <pgsql-hackers@postgreSQL.org>; Sun, 27 Aug 2000 20:05:36 -0400 (EDT)
+Received: from sss2.sss.pgh.pa.us (tgl@localhost [127.0.0.1])
+	by sss2.sss.pgh.pa.us (8.9.3/8.9.3) with ESMTP id UAA01604
+	for <pgsql-hackers@postgreSQL.org>; Sun, 27 Aug 2000 20:05:29 -0400 (EDT)
+To: pgsql-hackers@postgreSQL.org
+Subject: [HACKERS] Possible performance improvement: buffer replacement policy
+Date: Sun, 27 Aug 2000 20:05:29 -0400
+Message-ID: <1601.967421129@sss.pgh.pa.us>
+From: Tom Lane <tgl@sss.pgh.pa.us>
+X-Mailing-List: pgsql-hackers@postgresql.org
+Precedence: bulk
+Sender: pgsql-hackers-owner@hub.org
+Status: ORr
+
+Those of you with long memories may recall a benchmark that Edmund Mergl
+drew our attention to back in May '99.  That test showed extremely slow
+performance for updating a table with many indexes (about 20).  At the
+time, it seemed the problem was due to bad performance of btree with
+many equal keys, so I thought I'd go back and retry the benchmark after
+this latest round of btree hackery.
+
+The good news is that btree itself seems to be pretty well fixed; the
+bad news is that the benchmark is still slow for large numbers of rows.
+The problem is I/O: the CPU mostly sits idle waiting for the disk.
+As best I can tell, the difficulty is that the working set of pages
+needed to update this many indexes is too large compared to the number
+of disk buffers Postgres is using.  (I was running with -B 1000 and
+looking at behavior for a 100000-row test table.  This gave me a table
+size of 3876 pages, plus 11526 pages in 20 indexes.)
+
+Of course, there's only so much we can do when the number of buffers
+is too small, but I still started to wonder if we are using the buffers
+as effectively as we can.  Some tracing showed that most of the pages
+of the indexes were being read and written multiple times within a
+single UPDATE query, while most of the pages of the table proper were
+fetched and written only once.  That says we're not using the buffers
+as well as we could; the index pages are not being kept in memory when
+they should be.  In a query like this, we should displace main-table
+pages sooner to allow keeping more index pages in cache --- but with
+the simple LRU replacement method we use, once a page has been loaded
+it will stay in cache for at least the next NBuffers (-B) page
+references, no matter what.  With a large NBuffers that's a long time.
+
+I've come across an interesting article:
+	The LRU-K Page Replacement Algorithm For Database Disk Buffering
+	Elizabeth J. O'Neil, Patrick E. O'Neil, Gerhard Weikum
+	Proceedings of the 1993 ACM SIGMOD international conference
+	on Management of Data, May 1993
+(If you subscribe to the ACM digital library, you can get a PDF of this
+from there.)  This article argues that standard LRU buffer management is
+inherently not great for database caches, and that it's much better to
+replace pages on the basis of time since the K'th most recent reference,
+not just time since the most recent one.  K=2 is enough to get most of
+the benefit.  The big win is that you are measuring an actual page
+interreference time (between the last two references) and not just
+dealing with a lower-bound guess on the interreference time.  Frequently
+used pages are thus much more likely to stay in cache.
+
+It looks like it wouldn't take too much work to replace shared buffers
+on the basis of LRU-2 instead of LRU, so I'm thinking about trying it.
+
+Has anyone looked into this area?  Is there a better method to try?
+
+			regards, tom lane
+
+From prlw1@newn.cam.ac.uk Fri Jan 19 12:54:45 2001
+Received: from henry.newn.cam.ac.uk (henry.newn.cam.ac.uk [131.111.204.130])
+	by candle.pha.pa.us (8.9.0/8.9.0) with ESMTP id MAA29822
+	for <pgman@candle.pha.pa.us>; Fri, 19 Jan 2001 12:54:44 -0500 (EST)
+Received: from [131.111.204.180] (helo=quartz.newn.cam.ac.uk)
+	by henry.newn.cam.ac.uk with esmtp (Exim 3.13 #1)
+	id 14JfkU-0001WA-00; Fri, 19 Jan 2001 17:54:54 +0000
+Received: from prlw1 by quartz.newn.cam.ac.uk with local (Exim 3.13 #1)
+	id 14Jfj6-0001cq-00; Fri, 19 Jan 2001 17:53:28 +0000
+Date: Fri, 19 Jan 2001 17:53:28 +0000
+From: Patrick Welche <prlw1@newn.cam.ac.uk>
+To: Bruce Momjian <pgman@candle.pha.pa.us>
+Cc: Tom Lane <tgl@sss.pgh.pa.us>, pgsql-hackers@postgreSQL.org
+Subject: Re: [HACKERS] Possible performance improvement: buffer replacement policy
+Message-ID: <20010119175328.A6223@quartz.newn.cam.ac.uk>
+Reply-To: prlw1@cam.ac.uk
+References: <1601.967421129@sss.pgh.pa.us> <200101191703.MAA25873@candle.pha.pa.us>
+Mime-Version: 1.0
+Content-Type: text/plain; charset=us-ascii
+Content-Disposition: inline
+User-Agent: Mutt/1.2i
+In-Reply-To: <200101191703.MAA25873@candle.pha.pa.us>; from pgman@candle.pha.pa.us on Fri, Jan 19, 2001 at 12:03:58PM -0500
+Status: OR
+
+On Fri, Jan 19, 2001 at 12:03:58PM -0500, Bruce Momjian wrote:
+> 
+> Tom, did we ever test this?  I think we did and found that it was the
+> same or worse, right?
+
+(Funnily enough, I just read that message:)
+
+To: Bruce Momjian <pgman@candle.pha.pa.us>
+cc: pgsql-hackers@postgreSQL.org
+Subject: Re: [HACKERS] Possible performance improvement: buffer replacement policy 
+In-reply-to: <200010161541.LAA06653@candle.pha.pa.us> 
+References: <200010161541.LAA06653@candle.pha.pa.us>
+Comments: In-reply-to Bruce Momjian <pgman@candle.pha.pa.us>
+	message dated "Mon, 16 Oct 2000 11:41:41 -0400"
+Date: Mon, 16 Oct 2000 11:49:52 -0400
+Message-ID: <26100.971711392@sss.pgh.pa.us>
+From: Tom Lane <tgl@sss.pgh.pa.us>
+X-Mailing-List: pgsql-hackers@postgresql.org
+Precedence: bulk
+Sender: pgsql-hackers-owner@hub.org
+Status: RO
+Content-Length: 947
+Lines: 19
+
+Bruce Momjian <pgman@candle.pha.pa.us> writes:
+>> It looks like it wouldn't take too much work to replace shared buffers
+>> on the basis of LRU-2 instead of LRU, so I'm thinking about trying it.
+>> 
+>> Has anyone looked into this area?  Is there a better method to try?
+
+> Sounds like a perfect idea.  Good luck.  :-)
+
+Actually, the idea went down in flames :-(, but I neglected to report
+back to pghackers about it.  I did do some code to manage buffers as
+LRU-2.  I didn't have any good performance test cases to try it with,
+but Richard Brosnahan was kind enough to re-run the TPC tests previously
+published by Great Bridge with that code in place.  Wasn't any faster,
+in fact possibly a little slower, likely due to the extra CPU time spent
+on buffer freelist management.  It's possible that other scenarios might
+show a better result, but right now I feel pretty discouraged about the
+LRU-2 idea and am not pursuing it.
+
+			regards, tom lane
+
+
+From pgsql-hackers-owner+M3455@postgresql.org Fri Jan 19 13:18:12 2001
+Received: from mail.postgresql.org (webmail.postgresql.org [216.126.85.28])
+	by candle.pha.pa.us (8.9.0/8.9.0) with ESMTP id NAA02092
+	for <pgman@candle.pha.pa.us>; Fri, 19 Jan 2001 13:18:12 -0500 (EST)
+Received: from mail.postgresql.org (webmail.postgresql.org [216.126.85.28])
+	by mail.postgresql.org (8.11.1/8.11.1) with SMTP id f0JIFJ037872;
+	Fri, 19 Jan 2001 13:15:19 -0500 (EST)
+	(envelope-from pgsql-hackers-owner+M3455@postgresql.org)
+Received: from sectorbase2.sectorbase.com ([208.48.122.131])
+	by mail.postgresql.org (8.11.1/8.11.1) with ESMTP id f0JI7V036780
+	for <pgsql-hackers@postgreSQL.org>; Fri, 19 Jan 2001 13:07:31 -0500 (EST)
+	(envelope-from vmikheev@SECTORBASE.COM)
+Received: by sectorbase2.sectorbase.com with Internet Mail Service (5.5.2653.19)
+	id <DG1W4LRZ>; Fri, 19 Jan 2001 09:46:14 -0800
+Message-ID: <8F4C99C66D04D4118F580090272A7A234D329F@sectorbase1.sectorbase.com>
+From: "Mikheev, Vadim" <vmikheev@SECTORBASE.COM>
+To: "'Tom Lane'" <tgl@sss.pgh.pa.us>, Bruce Momjian <pgman@candle.pha.pa.us>
+Cc: pgsql-hackers@postgresql.org
+Subject: RE: [HACKERS] Possible performance improvement: buffer replacemen
+	t policy 
+Date: Fri, 19 Jan 2001 10:07:27 -0800
+MIME-Version: 1.0
+X-Mailer: Internet Mail Service (5.5.2653.19)
+Content-Type: text/plain;
+	charset="iso-8859-1"
+Precedence: bulk
+Sender: pgsql-hackers-owner@postgresql.org
+Status: OR
+
+> > Tom, did we ever test this?  I think we did and found that 
+> > it was the same or worse, right?
+> 
+> I tried it and didn't see any noticeable improvement on the particular
+> test case I was using, so I got discouraged and didn't pursue the idea
+> further.  I'd like to come back to it someday, though.
+
+I don't know how much useful could be LRU-2 but with WAL we should try
+to reuse undirty free buffers first, not dirty ones, just to postpone
+writes as long as we can. (BTW, this is what Oracle does.)
+So, we probably should put new unfree dirty buffer just before first
+dirty one in LRU.
+
+Vadim
+

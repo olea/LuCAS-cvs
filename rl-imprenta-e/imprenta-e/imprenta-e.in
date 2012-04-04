@@ -1,0 +1,532 @@
+#!/usr/bin/perl -w
+
+# imprenta-e.in
+#
+# Author: Gaspar Oriol	gaspar.oriol@hispalinux.es
+#
+# This program is free software; you can redistribute it and/or 
+# modify it under the terms of the GNU General Public License as 
+# published by the Free Software Foundation; either version 2 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307
+# USA
+#
+
+use strict;
+
+use lib "@prefix@/lib/imprenta-e-tools";
+
+use Utils;
+
+my $OMF_DIR = "@prefix@/share/imprenta-e/omf/";
+my $DTD_DIR = "@prefix@/share/imprenta-e/DTD/";
+my $XSLT_DIR = "@prefix@/share/imprenta-e/XSLT/";
+my $BIN_DIR = "@prefix@/bin";
+
+############################
+# Declaración de variables #
+############################
+my $modules; 				# array bidimensional que contiene los módulos a descargar
+my $i;						# contador
+my $dest;					# directorio donde mover la doc creada
+my @conf_formats;
+my $server_items;		# contiene la configuración del servidor par la imprenta-e
+my @time;					# array que contiene el resultado de la función localtime
+my $taux;					# variable auxiliar para usar time
+########
+# main #
+########
+$server_items = XMLi::getServerConf ("@sysconfdir@/imprenta-e/server.conf");
+
+# inicia el contador de tiempo de ejecución	
+$taux = time;
+	
+	
+$i = 0;
+$modules = XMLi::getConf ("@sysconfdir@/imprenta-e/imprenta-e.conf");
+	
+while ($modules->[$i]) {
+	if ($modules->[$i][0] eq "cvs") {
+		print ("Procesando el módulo $modules->[$i][2].\n");
+		$dest = $modules->[$i][4];
+		
+		@conf_formats = XMLi::getFormats ($modules->[$i][5], $modules->[$i][6], $modules->[$i][7], $modules->[$i][8]);
+		&CVSModuleProcess ($modules->[$i][1], $modules->[$i][2], 
+							$modules->[$i][3], $modules->[$i][9], 
+							$modules->[$i][10], $server_items, @conf_formats);
+	}
+	$i++;
+}
+
+Utilsi::printTotalTime ($taux);
+
+exit 0;
+#############
+# Funciones #
+#############
+
+# función que recibe como parámetros los índices 1, 2 ,3 y 9 del array
+# $modules, las opciones del servidor y los formatos a crear, descarga 
+# el módulo en /tmp y crea los formatos especificados
+sub CVSModuleProcess {
+	my $cvsroot; 				# CVSROOT del cvs de donde descargar los módulos
+	my @formats;				# formatos que deben crearse (ps, pdf, html, html comprimido)
+	my $module;
+	my @param;					# parametros a pasar al impresor-e
+	my $dir;
+	my $dist;      				# contine el nombre del paquete con los fuentes
+	my $aux;
+	my $ext;					# extensión del archivo a procesar
+	my $check;
+	my $omf_file;
+	my $docFormat;				# formato del docuemnto (DocBook, TEX, linuxdoc)
+	my $aop;
+	my $file;
+	my $basename;				# nombre que recibirá el directorio destino 
+	my $web_id;					# identificador del web especificado en el imprenta-e.conf
+	my $items;					# array con el contenido de la configuración del servidor
+	my $type;					# tipò de documento (desarrollo, manual, usuario, Como, etc...)
+	my $stylesheet;				# hoja de estilo a aplicar;
+	my $stylesheet_name;
+	my $url_index;				# url al directorio principal de documentación
+	my $url_doc;				# url al directorio que contiene los directorios creados por la imprenta-e
+	
+	my $channel_hash = {};
+	my $items_hash = {};
+	my $rdf_name;	
+	
+	my $i = 0;		
+	
+	($cvsroot, $module, $aop, $web_id, $type, $items, @formats) = @_;
+		
+	
+	
+	
+	$aux = $module;
+	
+	
+	
+	# descarga el módulo en /tmp
+	chdir ("/tmp");
+	Utilsi::DownloadModuleCVS ($cvsroot, $module);
+	# /descarga
+	
+
+	# crea el paquede con los fuentes del documento
+	if ($module =~/\//) {
+		chdir ("/tmp/$module");
+		
+		# elimina el directorio CVS si existe
+		if (-e "CVS") {
+			print "\nEliminando los directorios CVS\n";
+			system ("rm -rf `find . -name \"CVS\"`");
+		}
+		
+		chdir ("..");
+		while ($module =~/\//) {
+			$module = $';
+		}	
+		$dist = $module;
+	}
+	else {
+		# elimina el directorio CVS si existe
+		chdir ("/tmp/$module");
+		
+		if (-e "CVS") {
+			print "\nEliminando los directorios CVS\n";
+			system ("rm -rf `find . -name \"CVS\"`");
+		}
+		chdir ("..");
+		
+		$dist = $module;
+	}
+	Utilsi::makeDistCVS ($dist);
+
+	# /crear paquete src
+	
+	# cambia el directorio de trabajo al del módulo
+	chdir ($dist);
+
+	$omf_file = "$dist\.omf";
+	# comprueba el OMF	
+	if (installOMF ($omf_file) eq 0) {
+		
+		# lee las instrucciones de procesamiento del módulo
+		$check = XMLi::checkAOP ("$aop");
+		if (!$check) {
+	
+			@param = &processAOP ($aop, @formats);
+			
+			$basename = pop @param; 
+			$docFormat = pop @param;
+			$file = pop @param;
+			$dir = pop @param;
+ 			
+			# se obtiene la información relativa al	servidor
+			$rdf_name = $type;
+
+			while ($items->[$i]) {
+				if ($items->[$i][0] eq $web_id) {				
+					if ($items->[$i][4] eq $rdf_name){
+						$url_index = $items->[$i][1];
+						$url_doc = $items->[$i][2];
+						$stylesheet_name = $items->[$i][3];
+						
+						# datos para el channel RDF RSS
+						$rdf_name = &makeValidName ($rdf_name);
+						$channel_hash->{title} = $items->[$i][5];
+						$channel_hash->{description} = $items->[$i][6];
+						$channel_hash->{link} = $url_index;
+					}
+				}
+				$i++;
+			}
+		
+
+			$stylesheet = "$XSLT_DIR$stylesheet_name";
+	
+	
+	
+	
+			# si falta la / al final la añade
+			if ($url_index !~ /\/$/) {
+				$url_index = "$url_index/";
+			}
+
+			if ($url_doc !~ /\/$/) {
+				$url_doc = "$url_doc/";
+			}
+
+
+			
+			#datos para el item RDF RSS
+			$items_hash->{title} = XMLi::getDocTitleOMF ("$OMF_DIR\/$omf_file");
+			$items_hash->{description} = XMLi::getDocDescriptionOMF ("$OMF_DIR\/$omf_file");
+			$items_hash->{url_doc} = "$url_doc$basename\/";
+
+			
+			$module = $aux;
+			# el impresor-e crea la doc
+			print ("Creando los formatos especificados.\n");
+
+			system ("$BIN_DIR\/impresor-e --format $docFormat @param $file");
+	
+			# mueve el paquete con los fuentes al directorio con los demas formatos
+			system ("cp -r $dist.src.tar.gz $dir");
+	
+			# crea el index.html y lo copia al directorio final
+			chdir ($dir);
+			&makeIndex ("$OMF_DIR\/$omf_file", $stylesheet, $DTD_DIR, $basename, $dist, $url_doc, @param);
+			
+			chdir ("..");
+			# copia el index al directorio final		
+			#system ("cp -r index.html $dir");
+			
+			# mueve la doc al directorio destino se utiliza la variable global $dest
+			print ("Copiando los nuevos formatos de $dir al directorio $dest.\n");
+			if (-e "$dest/$dir") {
+				print "Eliminando copias anteriores de $dir.\n";
+				system ("rm -rf $dest/$dir");
+			}
+		
+			system ("mkdir -p $dest/$dir");
+			system ("cp -r $dir $dest");
+
+			# crea el RDF RSS 
+			&add_item ("$dest\/$rdf_name\.rdf", $channel_hash, $items_hash); 
+			
+			&deleteModule ($module);		
+		}
+		else {
+			print "El archivo $aop no es correcto.\n";
+			&deleteModule ($module);
+		}
+	}
+	else {
+		print "El modulo ya esta instalado.\n";
+		&deleteModule ($module);
+	}
+}
+
+
+# Función que elimina un copia de un módulo del directorio de trabajo
+sub deleteModule {
+	my $module = shift;
+	
+	chdir ("/tmp");
+		
+	print ("Eliminando el módulo $module.\n\n\n");
+
+	if ($module =~/\//) {
+		system ("rm -rf $`");
+	} else {
+		system ("rm -rf $module");
+	}
+	
+}
+
+# Función que procesa el AOP y devuelve un array con los parámetros
+sub processAOP {
+
+	my $docFormat;				# formato del docuemnto (DocBook, TEX, linuxdoc)
+	my $images;					# opción de las imágenes
+	my $samples;				# opción de ejemplos separados de los fuentes
+	my $file;					# nombre del archivo principal
+	my $basename;				# nombre que recibirá el documento final
+	my $aop;
+	my $stylesheet;
+	my @param;					# parametros a pasar al impresor-e
+	my $ext;					# extensión del archivo a procesar
+	my @formats;				# formatos que deben crearse (ps, pdf, html, html comprimido)
+	my $dir;
+	
+	($aop, @formats) = @_;
+	
+	$docFormat = XMLi::getDocFormatAOP ("$aop");
+	
+	if ($docFormat eq "DocBookXML") {
+		$stylesheet = XMLi::getStyleSheetAOP ("$aop");
+	}
+	$basename = XMLi::getBaseNameAOP ("$aop");
+	$file = XMLi::getFileNameAOP ("$aop");
+	$images = XMLi::getImageOptionsAOP ("$aop");
+	$samples = XMLi::getSamplesOptionsAOP ("$aop");
+	
+
+	# obtiene la extensión del archivo a procesar
+	if ($file =~/\./) {
+		$ext = $';
+		while ($ext =~/\./) {
+			$ext = $';
+		}
+	}
+
+	# se renombra el archivo $file por el nombre especificado
+	# en el elemento <nombre_base> del AOP	
+	rename ("$file", "$basename\.$ext");
+	
+	$file = "$basename\.$ext";
+	$dir = $basename;	
+	
+	# añade los formatos al array de parametros
+	@param = @formats;
+	
+	# si hay imagenes, se incluyen las opciones al array de parámetros
+	if ($images) {
+		push (@param, "$images");
+	}
+
+	if ($samples) {
+		push (@param, "$samples");
+	}
+	
+	if ($stylesheet) {
+		push (@param, "$stylesheet");		
+	}
+
+	push (@param, "$dir");		
+	push (@param, "$file");		
+	push (@param, "$docFormat");
+	push (@param, "$basename");	
+
+	return @param;	
+}
+
+# Función que instala el archivo OMF (Open Source Metadata Framework) y
+# decide si procesa el documento devuelve 1 si se debe procesarse el módulo,
+# en caso contrario devuelve la variable vacia
+sub installOMF {
+	my $omf;
+	my $version;
+	my $version1;
+	my $date;
+	my $flag = 1;
+	
+	$omf = shift;
+	
+	print "\n\nComprobando si el modulo existe.\n";
+	if (!-f "$omf") {
+		print "Error, el archivo $omf no existe.\n\n";
+		
+		return $flag;
+	}
+	
+	if (!-e "$OMF_DIR/$omf") {
+		print "Instalando el archivo $omf en el directorio $OMF_DIR\.\n";
+		system ("cp $omf $OMF_DIR");
+		$flag = 0;
+	}
+	else {
+		$version = XMLi::getDocVersionOMF ($omf);
+		$version1 = XMLi::getDocVersionOMF ("$OMF_DIR/$omf");
+		# si la versión es mayor la actualiza
+		if (compareOmfVersion ($version, $version1) eq 0) {
+			print "Actualizando el archivo $omf.\n";
+			system ("cp -rf $omf $OMF_DIR");
+			$flag = 0;
+		}		
+	}
+	
+	return $flag;
+}
+
+# Fucnión que compara las versiones
+sub compareOmfVersion {
+	my $ver;
+	my $ver1;
+	my $version;
+	my $version1;
+	my $i = 0;
+	 
+	($ver, $ver1) = @_;
+	 
+	while ($ver =~ /\./) {
+		$ver = $';
+		$version->[$i] = $`;
+		$i++;		 
+	}
+	
+	if ($i eq 1) {
+		if ($ver > $ver1) {
+			return 0;
+		}
+		else {
+			return 1;
+		}
+	}
+	
+	$i = 0;
+	while ($ver1 =~ /\./) {
+		$ver1 = $';
+		$version1->[$i] = $`;
+		$i++;		 
+	}
+	
+	if ($version->[0] > $version1->[0]) {
+		return 0;
+	}
+	
+	if ($version->[0] eq $version1->[0]) {
+		if ($version->[1] > $version1->[1]) {
+			return 0;
+		}
+		
+		if (($version->[1] eq $version1->[1]) and $version->[2]) {
+			if ($version->[2] > $version1->[2]) {
+				return 0;
+			}
+		}
+		else {
+			return 1;
+		}
+	}
+
+	return 1;
+}
+
+# Función que crea el index.html
+sub makeIndex {
+	my $omf;
+	my $xsl;
+	my $dtd_dir;
+	my $doc_name;
+	my $dest;
+	my $dist;
+	my @formats;
+	
+	($omf, $xsl, $dtd_dir, $doc_name, $dist, $dest, @formats) = @_;
+	
+	# crea el index.xml
+	print "\nCreando el archivo index.html\n";
+	Utilsi::makeIndexDoc ($omf, $xsl, $DTD_DIR, $doc_name, $dist, $dest, @formats);
+
+	# aplica la hoja de estilo
+	system ("xsltproc $xsl index.xml > index.html");
+	
+	# elimina el index.xml
+	system ("rm -rf index.xml");
+}
+
+
+# Función que añade una entrada al RDF RSS
+sub add_item {
+	my $filename;
+	my $channel;
+	my $item;
+
+	($filename, $channel, $item) = @_;
+	
+	if (-e "$filename") {
+		&delete_itemRSS ("$filename", $channel, $item);		
+		RDFi::add_itemRSS ("$filename", $item);
+	}
+			
+	if (!-e "$filename") {
+		RDFi::makeRSS ("$filename", $channel);
+		RDFi::add_itemRSS ("$filename", $item);
+	}
+
+}
+
+sub delete_itemRSS {
+	my $filename;
+	my $item;
+	my $rss;
+	my $rssaux;
+	my $channel;
+	my $aux;
+	my $i = 0;
+	
+	($filename, $channel, $item) = @_;
+	
+	$rss = new XML::RSS (version => '1.0', encoding => 'ISO-8859-1');
+	$rssaux = new XML::RSS (version => '1.0', encoding => 'ISO-8859-1');
+	
+	$rss->parsefile ($filename);
+
+	$rssaux->channel (title 			=> $channel->{title},
+				link 			=> $channel->{link},
+				description		=> $channel->{description}, 
+				dc => 	{
+						creator => 'imprenta-e',
+					});
+
+	
+	foreach $aux (@{$rss->{items}}) {
+		if ($aux->{title} ne $item->{title}) {			
+				$rssaux->add_item (title => $aux->{title},
+									link => $aux->{link},
+									description => $aux->{description});
+		}
+	}		
+
+	$rssaux->save ($filename);	
+	
+}
+# Función que crea un nombre de fichero válido
+sub makeValidName {
+	my $self;
+	my $aux;
+	
+	$self = shift;
+
+	if ($self =~/ /) {
+		$aux = $`;
+		while ($aux =~/ /) {
+			$aux = "$aux\_$'";
+		}
+		$aux = "$aux\_$'";
+	}
+	else {
+		$aux = $self;
+	}
+	return $aux;	
+}

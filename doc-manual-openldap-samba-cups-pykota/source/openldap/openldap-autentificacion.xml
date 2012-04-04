@@ -1,0 +1,837 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+
+<chapter id="openldap-autentificacion-usuarios">
+
+<chapterinfo>
+	<keywordset>
+		<keyword>OpenLDAP</keyword>
+		<keyword>autentificación</keyword>
+	</keywordset>
+</chapterinfo>
+
+<title>Autentificación de usuarios a través de OpenLDAP</title>
+
+<sect1 id="openldap-autentificacion-usuarios-introduccion">
+	<title>Introducción</title>
+
+	<para>En este capítulo se verá como configurar una máquina para que sus usuarios se autentifiquen
+	a través de un servidor <acronym>LDAP</acronym>. Para ello se han de modificar dos aspectos
+	del comportamiento del sistema:</para>
+
+	<itemizedlist mark='fillcircle'>
+		<listitem>
+				<para>El mapeado entre los números de identificación de los usuarios y sus nombres
+				(utilizados, por ejemplo, por <command>/bin/ls -l</command>) o la localización del
+				directorio <emphasis>home</emphasis>. La búsqueda de este tipo de información es
+				responsabilidad	del servicio de nombres, cuyo archivo de configuración es:
+				<filename>/etc/nsswitch.conf</filename>.</para>
+			</listitem>
+			<listitem>
+				<para>La autentificación (comprobación de claves), que es responsabilidad del
+				subsistema <acronym>PAM</acronym>, cuya configuración se hace a través
+				del directorio <filename class="directory">/etc/pam.d/</filename></para>
+			</listitem>
+	</itemizedlist>
+
+	<para>Ambos subsistemas se han de configurar separadamente, pero en este caso, ambos se van
+	a configurar de tal forma que hagan uso de <acronym>LDAP</acronym>.</para>
+
+	<para>En este capítulo sólo se trata la instalación y configuración de los dos aspectos arriba
+	expuestos, de todas formas, hay un tercer punto que, en sistemas en producción, sería interesante
+	abordar: la caché del servicio de nombres. Para ver en qué consiste y como se instala y configura,
+	vea el <xref linkend="openldap-nscd"/>.</para>
+
+	<note><para>Este capítulo se ha basado en la entrada bibliográfica
+	<xref linkend="bibliografia-metaconsultancy-01"/>, entre otras.</para></note>
+
+</sect1>
+
+<sect1 id="openldap-autentificacion-usuarios-instalacion">
+	<title>Instalación del software necesario</title>
+
+	<para>Antes de poder autentificar a los usuarios a través de un
+	servidor <acronym>LDAP</acronym>, es necesario instalar algunas
+	utilidades en el cliente, como pam_ldap y nss_ldap. Esta sección mostrará la forma
+	de instalación de estas utilidades.</para>
+
+	<sect2 id="openldap-autentificacion-usuarios-instalacion-nss-ldap">
+		<title>Instalación de <emphasis>nss-ldap</emphasis></title>
+
+		<para><emphasis>nss-ldap</emphasis> permite a un servidor <acronym>LDAP</acronym>
+		actuar como un servidor de nombres. Esto significa que provee la información
+		de las cuentas de usuario, los <acronym>ID</acronym>s de los grupos,
+		la información de la máquina, los alias, los grupos de red y básicamente
+		cualquier cosa que normalmente se obtiene desde los archivos almacenados bajo
+		<filename class="directory">/etc</filename> o desde un servidor
+		<acronym>NIS</acronym>.</para>
+
+		<para>En Debian <acronym>GNU</acronym>/Linux el paquete
+		<emphasis>libnss-ldap</emphasis> provee esta funcionalidad, por
+		lo que será instalado en la máquina, como muestra el
+		<xref linkend="openldap-autentificacion-usuarios-instalacion-nss-ldap-ejemplo2"/></para>
+
+		<para>Antes de proceder a su instalación, eche un vistazo a la descripción
+		del paquete:</para>
+
+		<example id="openldap-autentificacion-usuarios-instalacion-nss-ldap-ejemplo1">
+			<title>Instalación de <emphasis>libnss-ldap</emphasis></title>
+
+<screen><prompt>$</prompt> <userinput>/usr/bin/apt-cache show libnss-ldap</userinput>
+<computeroutput>Package: libnss-ldap
+Priority: extra
+Section: net
+Installed-Size: 220
+Maintainer: Stephen Frost <![CDATA[<sfrost@debian.org>]]>
+Architecture: i386
+Version: 220-1 <co id="version-libnss-ldap"/>
+Depends: libc6 (>= 2.3.2.ds1-4), libdb4.2, libkrb53 (>= 1.3.2), libldap2 (>= 2.1.17-1), debconf
+Recommends: nscd, libpam-ldap
+Filename: pool/main/libn/libnss-ldap/libnss-ldap_220-1_i386.deb
+Size: 73688
+MD5sum: 1d2667fd13efc134e5baaa1d63f45372
+Description: NSS module for using LDAP as a naming service
+ This package provides a Name Service Switch that allows your LDAP server
+ act as a name service. This means providing user account information,
+ group id's, host information, aliases, netgroups, and basically anything
+ else that you would normally get from /etc flat files or NIS.
+ .
+ If used with glibc 2.1's nscd (Name Service Cache Daemon) it will help
+ reduce your network traffic and speed up lookups for entries.
+
+</computeroutput></screen>
+		</example>
+
+		<calloutlist>
+			<callout arearefs="version-libnss-ldap">
+				<para>Versión de <emphasis>libnss-ldap</emphasis> que se va a instalar</para>
+			</callout>
+		</calloutlist>
+
+		<example id="openldap-autentificacion-usuarios-instalacion-nss-ldap-ejemplo2">
+			<title>Instalación de <emphasis>libnss-ldap</emphasis> (primera parte)</title>
+
+<screen><prompt>#</prompt> <userinput>/usr/bin/apt-get install libnss-ldap</userinput>
+<computeroutput>Leyendo lista de paquetes... Hecho
+Creando árbol de dependencias... Hecho
+Paquetes recomendados
+  nscd libpam-ldap
+Se instalarán los siguientes paquetes NUEVOS:
+  libnss-ldap
+0 actualizados, 1 se instalarán, 0 para eliminar y 27 no actualizados.
+Se necesita descargar 0B/73,7kB de archivos.
+Se utilizarán 225kB de espacio de disco adicional después de desempaquetar.
+Preconfiguring packages ...</computeroutput></screen>
+		</example>
+
+		<note><para>Si ha instalado previamente este paquete, es posible que no se muestren todas las
+		pantallas listadas seguidamente. Para forzar una configuración completa, teclee la siguiente
+		orden:</para>
+
+<screen><prompt>#</prompt> <userinput>/usr/sbin/dpkg-reconfigure --priority=low libnss-ldap</userinput></screen>
+		</note>
+
+<figure>
+	<title>Dirección del servidor <acronym>LDAP</acronym></title>
+	<mediaobject>
+		<imageobject>
+			<imagedata fileref="./imagenes/openldap-instalacion-libnss-ldap1.png" format="PNG"/>
+		</imageobject>
+
+		<caption>
+			<para>Dirección del servidor <acronym>LDAP</acronym> que se va a utilizar
+			para la autentificación de usuarios.</para>
+		</caption>
+	</mediaobject>
+</figure>
+
+<figure>
+	<title>Nombre distintivo de la base de búsquedas</title>
+	<mediaobject>
+		<imageobject>
+			<imagedata fileref="./imagenes/openldap-instalacion-libnss-ldap2.png" format="PNG"/>
+		</imageobject>
+
+		<caption>
+			<para>Nombre distintivo de la base de búsquedas.</para>
+		</caption>
+	</mediaobject>
+</figure>
+
+
+<figure>
+	<title>Versión del protocolo <acronym>LDAP</acronym></title>
+	<mediaobject>
+		<imageobject>
+			<imagedata fileref="./imagenes/openldap-instalacion-libnss-ldap3.png" format="PNG"/>
+		</imageobject>
+
+		<caption>
+			<para>Versión del protocolo <acronym>LDAP</acronym> a utilizar, es recomendable hacer
+			uso de la versión 3.</para>
+		</caption>
+	</mediaobject>
+</figure>
+
+
+<figure>
+	<title>Método de acceso a la base de datos</title>
+	<mediaobject>
+		<imageobject>
+			<imagedata fileref="./imagenes/openldap-instalacion-libnss-ldap4.png" format="PNG"/>
+		</imageobject>
+
+		<caption>
+			<para>En este ejemplo no se necesita autentificarse para acceder a la
+			base de datos <acronym>LDAP</acronym>, por lo que se responde:
+			<emphasis>NO</emphasis>.</para>
+		</caption>
+	</mediaobject>
+</figure>
+
+<figure>
+	<title>Permisos del archivo de configuración</title>
+	<mediaobject>
+		<imageobject>
+			<imagedata fileref="./imagenes/openldap-instalacion-libnss-ldap5.png" format="PNG"/>
+		</imageobject>
+
+		<caption>
+			<para>Es buena idea que sólo el propietario del archivo pueda
+			leer su información, máxime cuando este puede tener claves.
+			Por este motivo se responde que <emphasis>Sí</emphasis> a esta
+			pregunta.</para>
+		</caption>
+	</mediaobject>
+</figure>
+
+<figure>
+	<title>Información sobre <emphasis>libnss-ldap</emphasis></title>
+	<mediaobject>
+		<imageobject>
+			<imagedata fileref="./imagenes/openldap-instalacion-libnss-ldap6.png" format="PNG"/>
+		</imageobject>
+
+		<caption>
+			<para>La configuración del paquete nos muestra información adicional sobre
+			el mismo. Si se quiere ver el ejemplo del archivo <filename>/etc/nsswitch.conf</filename>
+			que provee <emphasis>libnss-ldap</emphasis>, acceda a:
+			<filename>/usr/share/doc/libnss-ldap/examples/nsswitch.ldap</filename>. De todas
+			formas, en el <xref linkend="openldap-nsswitch.conf"/> se dispone de
+			un ejemplo.</para>
+		</caption>
+	</mediaobject>
+</figure>
+
+		<example id="openldap-autentificacion-usuarios-instalacion-nss-ldap-ejemplo3">
+			<title>Instalación de <emphasis>libnss-ldap</emphasis> (segunda parte)</title>
+
+<screen><computeroutput>Seleccionando el paquete libnss-ldap previamente no seleccionado.
+(Leyendo la base de datos ...
+132069 ficheros y directorios instalados actualmente.)
+Desempaquetando libnss-ldap (de .../libnss-ldap_220-1_i386.deb) ...
+Configurando libnss-ldap (220-1) ...
+
+localepurge: checking system for new locale ...
+localepurge: processing locale files ...
+localepurge: processing man pages ...</computeroutput></screen>
+		</example>
+
+		<para>La configuración de <emphasis>nss-ldap</emphasis> se almacena en el archivo
+		<filename>/etc/libnss-ldap.conf</filename>, cuyo contenido se encuentra en el
+		<xref linkend="openldap-libnss-ldap.conf"/>.</para>
+
+		<warning><para>El archivo <filename>/etc/libnss-ldap.conf</filename> se ha de poder leer
+		por todos los usuarios del sistema, para asegurarse de que es legible por todo el mundo,
+		puede ejecutar: <command>/bin/chmod 644 /etc/libnss-ldap.conf</command>.</para></warning>
+
+	</sect2>
+
+	<sect2 id="openldap-autentificacion-usuarios-instalacion-pam-ldap">
+		<title>Instalación de <emphasis>pam_ldap</emphasis></title>
+
+		<para><emphasis>pam_ldap</emphasis> permite hacer uso de un servidor
+		<acronym>LDAP</acronym> para la autentificación de usuarios
+		(comprobación de claves) a aquellas aplicaciones que utilicen
+		<acronym>PAM</acronym>.</para>
+
+		<para>En Debian <acronym>GNU</acronym>/Linux el paquete
+		<emphasis>libpam-ldap</emphasis> provee esta funcionalidad, por
+		lo que será instalado en la máquina, como muestra el
+		<xref linkend="openldap-autentificacion-usuarios-instalacion-pam-ldap-ejemplo2"/></para>
+
+		<para>Antes de proceder con su instalación, eche un vistazo a la descripción
+		del paquete:</para>
+
+		<example id="openldap-autentificacion-usuarios-instalacion-pam-ldap-ejemplo1">
+			<title>Información sobre el paquete <emphasis>libpam-ldap</emphasis></title>
+
+<screen><prompt>$</prompt> <userinput>/usr/bin/apt-cache show libpam-ldap</userinput>
+<computeroutput>Package: libpam-ldap
+Priority: extra
+Section: admin
+Installed-Size: 288
+Maintainer: Stephen Frost <![CDATA[<sfrost@debian.org>]]>
+Architecture: i386
+Version: 169-1 <co id="version-libpam-ldap"/>
+Depends: libc6 (>= 2.3.2.ds1-4), libldap2 (>= 2.1.17-1), libpam0g (>= 0.76), debconf (>= 0.5)
+Suggests: libnss-ldap
+Filename: pool/main/libp/libpam-ldap/libpam-ldap_169-1_i386.deb
+Size: 52158
+MD5sum: 5d1d450ac94b5e86a313a8277f5f84a3
+Description: Pluggable Authentication Module allowing LDAP interfaces
+ This module let's you use you LDAP server to authenticate users with
+ programs that utilize PAM. If used along with libnss-ldap, you can
+ replace your entire flat file (/etc/*) structure or NIS with LDAP.
+
+</computeroutput></screen>
+		</example>
+
+		<calloutlist>
+			<callout arearefs="version-libpam-ldap">
+				<para>Versión de <emphasis>libpam-ldap</emphasis> que acompaña a Debian
+				<acronym>GNU</acronym>/Linux en su versión <quote>en desarrollo</quote>,
+				que va a ser instalada</para>
+			</callout>
+		</calloutlist>
+
+		<example id="openldap-autentificacion-usuarios-instalacion-pam-ldap-ejemplo2">
+			<title>Instalación de <emphasis>libpam-ldap</emphasis> (primera parte)</title>
+
+<screen><prompt>#</prompt> <userinput>/usr/bin/apt-get install libpam-ldap</userinput>
+<computeroutput>Leyendo lista de paquetes... Hecho
+Creando árbol de dependencias... Hecho
+Paquetes sugeridos:
+  libnss-ldap
+Se instalarán los siguientes paquetes NUEVOS:
+  libpam-ldap
+0 actualizados, 1 se instalarán, 0 para eliminar y 27 no actualizados.
+Se necesita descargar 0B/52,2kB de archivos.
+Se utilizarán 295kB de espacio de disco adicional después de desempaquetar.
+
+Preconfiguring packages ...</computeroutput></screen>
+		</example>
+
+		<note><para>Si ha instalado previamente este paquete, es posible que no se muestren todas las
+		pantallas listadas seguidamente. Para forzar una configuración completa, teclee la siguiente
+		orden:</para>
+
+<screen><prompt>#</prompt> <userinput>/usr/sbin/dpkg-reconfigure --priority=low libpam-ldap</userinput></screen>
+		</note>
+
+		<figure>
+			<title><acronym>URL</acronym> del servidor <acronym>LDAP</acronym></title>
+			<mediaobject>
+				<imageobject>
+					<imagedata fileref="./imagenes/openldap-configuracion-libpam-ldap1.png" format="PNG"/>
+				</imageobject>
+		
+				<caption>
+					<para>Dirección del servidor <acronym>LDAP</acronym> que se va a utilizar
+					para la autentificación de usuarios.</para>
+				</caption>
+			</mediaobject>
+		</figure>
+
+		<figure>
+			<title>Nombre distintivo de la base de búsquedas</title>
+			<mediaobject>
+				<imageobject>
+					<imagedata fileref="./imagenes/openldap-configuracion-libpam-ldap2.png" format="PNG"/>
+				</imageobject>
+		
+				<caption>
+					<para>Nombre distintivo de la base de búsquedas.</para>
+				</caption>
+			</mediaobject>
+		</figure>
+
+		<figure>
+			<title>Versión del protocolo <acronym>LDAP</acronym></title>
+			<mediaobject>
+				<imageobject>
+					<imagedata fileref="./imagenes/openldap-configuracion-libpam-ldap3.png" format="PNG"/>
+				</imageobject>
+		
+				<caption>
+					<para>Versión del protocolo <acronym>LDAP</acronym> a utilizar, es recomendable
+					hacer uso de la versión 3.</para>
+				</caption>
+			</mediaobject>
+		</figure>
+
+		<figure>
+			<title>Comportamiento a la hora del cambio de claves</title>
+			<mediaobject>
+				<imageobject>
+					<imagedata fileref="./imagenes/openldap-configuracion-libpam-ldap4.png" format="PNG"/>
+				</imageobject>
+		
+				<caption>
+					<para>Contestamos afirmativamente a esta pregunta, de esta forma, aquellas aplicaciones
+					que cambien claves por medio de <acronym>PAM</acronym>, se comportarán como
+					si lo hiciesen de forma local.</para>
+				</caption>
+			</mediaobject>
+		</figure>
+
+		<figure>
+			<title>¿Necesita autentificación la conexión con la base de datos?</title>
+			<mediaobject>
+				<imageobject>
+					<imagedata fileref="./imagenes/openldap-configuracion-libpam-ldap5.png" format="PNG"/>
+				</imageobject>
+		
+				<caption>
+					<para>En este ejemplo no se necesita autentificarse para acceder a la base de datos
+					LDAP, por lo que se responde que NO.</para>
+				</caption>
+			</mediaobject>
+		</figure>
+
+		<figure>
+			<title>Administrador de <acronym>LDAP</acronym></title>
+			<mediaobject>
+				<imageobject>
+					<imagedata fileref="./imagenes/openldap-configuracion-libpam-ldap6.png" format="PNG"/>
+				</imageobject>
+		
+				<caption>
+					<para>Cuenta del administrador de <acronym>LDAP</acronym>, en este caso
+					<quote>admin</quote>.</para>
+				</caption>
+			</mediaobject>
+		</figure>
+
+		<figure>
+			<title>Clave del administrador de <acronym>LDAP</acronym></title>
+			<mediaobject>
+				<imageobject>
+					<imagedata fileref="./imagenes/openldap-configuracion-libpam-ldap7.png" format="PNG"/>
+				</imageobject>
+		
+				<caption>
+					<para>Se introduce la clave del administrador de <acronym>LDAP</acronym>.</para>
+				</caption>
+			</mediaobject>
+		</figure>
+
+		<figure>
+			<title>Elección el método de cifrado para las claves</title>
+			<mediaobject>
+				<imageobject>
+					<imagedata fileref="./imagenes/openldap-configuracion-libpam-ldap8.png" format="PNG"/>
+				</imageobject>
+		
+				<caption>
+					<para>El método de cifrado elegido para almacenar las claves ha sido
+					<quote>exop</quote>, de esta forma <emphasis>pam-ldap</emphasis> utilizará el
+					algoritmo de hash especificado en el archivo
+					<filename>/etc/ldap/slapd.conf</filename>, en lugar
+					de realizar la operación hash localmente y escribir el resultado en la base de
+					datos directamente.</para>
+				</caption>
+			</mediaobject>
+		</figure>
+
+		<example id="openldap-autentificacion-usuarios-instalacion-pam-ldap-ejemplo3">
+			<title>Instalación de <emphasis>libpam-ldap</emphasis> (segunda parte)</title>
+
+<screen><computeroutput>Seleccionando el paquete libpam-ldap previamente no seleccionado.
+(Leyendo la base de datos ...
+132024 ficheros y directorios instalados actualmente.)
+Desempaquetando libpam-ldap (de .../libpam-ldap_169-1_i386.deb) ...
+Configurando libpam-ldap (169-1) ...
+
+localepurge: checking system for new locale ...
+localepurge: processing locale files ...
+localepurge: processing man pages ...</computeroutput></screen>
+		</example>
+
+		<para>La configuración del módulo <emphasis>pam_ldap.so</emphasis> se almacena en el archivo
+		<filename>/etc/pam_ldap.conf</filename>, cuyo contenido se encuentra en el
+		<xref linkend="openldap-pam_ldap.conf"/>.</para>
+
+		<warning><para>El archivo <filename>/etc/pam_ldap.conf</filename> se ha de poder leer
+		por todos los usuarios del sistema, para asegurarse de que es legible por todo el mundo,
+		puede ejecutar: <command>/bin/chmod 644 /etc/pam_ldap.conf</command>.</para></warning>
+
+		<para>En estos momentos el sistema ya está listo para la configuración de los distintos
+		servicios que utilizan <acronym>PAM</acronym>, de forma que
+		estos utilicen <acronym>LDAP</acronym> para la comprobación de la
+		clave. Cada servicio que hace uso de <acronym>PAM</acronym> para la autentificación, posee
+		su propio archivo bajo el directorio <filename class="directory">/etc/pam.d/</filename>.
+		Para que dicho servicio utilice <acronym>LDAP</acronym> en la comprobación de claves,
+		se ha de modificar su archivo de configuración. Esto se verá en la
+		<xref linkend="openldap-autentificacion-usuarios-configuracion-pam"/>.</para>
+
+	</sect2>
+</sect1>
+
+<sect1 id="openldap-autentificacion-usuarios-configuracion">
+	<title>Configuración de los archivos necesarios</title>
+
+	<warning><para>Tenga en cuenta que va a modificar archivos de configuración
+	utilizados para el ingreso al sistema. Sería recomendable que tuviese
+	en todo momento una consola de root abierta, por si deja de funcionar
+	la autentificación.</para></warning>
+
+	<sect2 id="openldap-autentificacion-usuarios-configuracion-libnss-ldap.conf-pam_ldap.conf">
+		<title><filename>/etc/libnss-ldap.conf</filename> y <filename>/etc/pam_ldap.conf</filename></title>
+
+		<para>Como en ambos archivos se van a modificar las mismas variables, se ha utilizado una
+		única sección para ambos. Las modificaciones que se van a realizar a continuación son, principalmente,
+		necesarias para activar el cifrado en las conexiones con el servidor <acronym>LDAP</acronym>.
+		Esto es necesario si no se quiere que las claves de los usuarios, por ejemplo, viajen
+		por la red en texto plano.</para>
+
+		<note><para>En los apéndices <xref linkend="openldap-libnss-ldap.conf"/> y
+		<xref linkend="openldap-pam_ldap.conf"/> verá un ejemplo completo de estos archivos
+		de configuración.</para></note>
+
+		<sect3 id="openldap-autentificacion-usuarios-configuracion-libnss-ldap.conf-pam_ldap.conf-1">
+			<title>Usuario con el que conectar al directorio <acronym>LDAP</acronym></title>
+
+			<para>Debido a que durante el proceso de configuración de OpenLDAP se va
+			a prohibir a los usuarios anónimos acceder a la información almacenada
+			en el directorio, se hace necesario especificar un usuario válido con el cual autentificarse
+			para realizar las operaciones llevadas a cabo por
+			<emphasis>libnss-ldap</emphasis> y <emphasis>libpam-ldap</emphasis>, entre otras.
+			Este usuario y su clave estarán especificados por las variables
+			<emphasis>binddn</emphasis> y <emphasis>bindpw</emphasis>, respectivamente.</para>
+
+<programlisting>binddn cn=readadmin,dc=gsr,dc=pt <co id="readadmin-binddn" />
+bindpw ********** <co id="readadmin-bindpw"/></programlisting>
+
+			<calloutlist>
+				<callout arearefs="readadmin-binddn">
+					<para>En el <xref linkend="openldap-usuario-readadmin"/> tiene un ejemplo sobre
+					como crear y configurar un usuario que sólo tenga permisos de lectura en el
+					directorio <acronym>LDAP</acronym>.</para>
+				</callout>
+				<callout arearefs="readadmin-bindpw">
+					<para>Clave del usuario en texto plano.</para>
+				</callout>
+			</calloutlist>
+
+			<para>Asegúrese de que está descomentada la variable <quote>rootbinddn</quote>
+			y su valor es el usuario administrador del directorio <acronym>LDAP</acronym>,
+			en este caso: <quote>cn=admin,dc=gsr,dc=pt</quote>.</para>
+
+<programlisting>rootbinddn cn=admin,dc=gsr,dc=pt</programlisting>
+
+			<para>Una vez hecho esto, tendrá que almacenar la clave del administrador
+			en el archivo <filename>/etc/ldap.secret</filename>, para ello teclee:</para>
+
+			<example id="openldap-autentificacion-usuarios-configuracion-libnss-ldap.conf-pam_ldap.conf-1-eje-1">
+				<title>Creación del directorio <filename>/etc/ldap.secret</filename></title>
+
+<screen><prompt>#</prompt> <userinput>/bin/echo "clave-del-administrdor" > /etc/ldap.secret</userinput>
+<prompt>#</prompt> <userinput>/bin/chmod 600 /etc/ldap.secret</userinput></screen>
+			</example>
+
+			<note><para>La clave se almacena en texto plano, por lo que el archivo
+			<filename>/etc/ldap.secret</filename> ha de pertenecer al usuario <emphasis>root</emphasis>
+			y sus permisos han de ser 600.</para></note>
+		</sect3>
+
+		<sect3 id="openldap-autentificacion-usuarios-configuracion-libnss-ldap.conf-pam_ldap.conf-3">
+			<title>Protocolo de cifrado empleado en las comunicaciones</title>
+
+			<para>La primera opción que se activará será el soporte para <acronym>TLS</acronym>, para
+			ello ha de descomentar la línea siguiente en ambos archivos de configuración:</para>
+
+<programlisting>ssl start_tls</programlisting>
+
+			<note><para>Si desea que las conexiones utilicen <acronym>SSL</acronym>, tendrá que sustituir la línea
+			anterior por la siguiente:</para>
+
+<programlisting>ssl on</programlisting>
+
+			<para>En esta documentación se ha preferido utilizar <acronym>TLS</acronym> en las comunicaciones,
+			por lo que se ha empleado la opción <quote>ssl start_tls</quote>.</para></note>
+		</sect3>
+
+		<sect3 id="openldap-autentificacion-usuarios-configuracion-libnss-ldap.conf-pam_ldap.conf-4">
+			<title>Opciones para el cifrado (certificados)</title>
+
+			<para>Para las conexiones cifradas se requiere un certificado en el servidor y este ha
+			de ser válido. Para ello ha de descomentar la siguiente línea:</para>
+
+<programlisting>tls_checkpeer yes</programlisting>
+
+			<para>Para poder verificar la validez del certificado del servidor, se ha de proporcionar
+			la <acronym>CA</acronym> que lo generó, esto se indica con la siguiente línea:</para>
+
+<programlisting>tls_cacertfile /etc/ldap/ssl/cacert.pem</programlisting>
+		</sect3>
+
+		<sect3 id="openldap-autentificacion-usuarios-configuracion-libnss-ldap.conf-pam_ldap.conf-5">
+			<title>Algoritmo de cifrado</title>
+
+			<para>Algoritmos de cifrado que se desean utilizar:</para>
+
+<programlisting>tls_ciphers TLSv1</programlisting>
+		</sect3>
+
+		<sect3 id="openldap-autentificacion-usuarios-configuracion-libnss-ldap.conf-pam_ldap.conf-6">
+			<title>Certificados y llaves de los clientes</title>
+
+			<para>Como en la configuración de OpenLDAP se ha requerido la autentificación del cliente
+			antes de conectarse al servidor (vea el
+			<xref linkend="openldap-certificados-configuracion-openldap-servidor-ejemplo1"/>), se hace
+			necesario descomentar las siguientes líneas:</para>
+
+<programlisting>tls_cert
+tls_key</programlisting>
+		</sect3>
+
+	</sect2>
+
+	<sect2 id="openldap-autentificacion-usuarios-configuracion-nsswitch">
+		<title><filename>/etc/nsswitch.conf</filename></title>
+
+		<para><filename>nsswitch.conf</filename> es el fichero de configuración
+		de las Bases de Datos del Sistema y del sistema de Conmutación de
+		los Servicios de Nombres (Name Service Switch).</para>
+
+		<para>En otras palabras, es un archivo que indica el orden y el procedimiento
+		a seguir para la búsqueda de la información requerida, por ejemplo, para
+		hacer búsquedas de hosts o usuarios.</para>
+
+		<para>La forma de configurar este archivo es muy simple: primero se especifica
+		la base de datos sujeta a la búsqueda (primera columna) seguida del procedimiento
+		que se va a emplear para realizar una búsqueda sobre la misma (columnas
+		siguientes).</para>
+
+		<para>De esta forma, basta con configurar el procedimiento de búsqueda
+		para que haga uso de <acronym>LDAP</acronym> en algún momento. El
+		<xref linkend="openldap-autentificacion-usuarios-configuracion-nsswitch-ejemplo1"/>
+		muestra como hacerlo:</para>
+
+		<example id="openldap-autentificacion-usuarios-configuracion-nsswitch-ejemplo1">
+			<title>Modificaciones en el de configuración <filename>/etc/nsswitch.conf</filename></title>
+
+<programlisting>passwd: <co id="base-datos-passwd"/>         files ldap <co id="busqueda-passwd"/>
+group: <co id="base-datos-group"/>          files ldap <co id="busqueda-group"/>
+shadow: <co id="base-datos-shadow"/>         files ldap <co id="busqueda-shadow"/>
+hosts: <co id="base-datos-host"/>          files ldap dns <co id="busqueda-host"/>
+</programlisting>
+		</example>
+
+		<calloutlist>
+			<callout arearefs="base-datos-passwd base-datos-group base-datos-shadow base-datos-host">
+				<para>Bases de datos de búsqueda</para>
+			</callout>
+			<callout arearefs="busqueda-passwd busqueda-group busqueda-shadow">
+				<para>Procedimiento de búsqueda: primero se mira en los archivos locales y
+				luego en el directorio <acronym>LDAP</acronym>.</para>
+			</callout>
+			<callout arearefs="busqueda-host">
+				<para>Procedimiento de búsqueda: primero se mira en los archivos locales,
+                luego en el directorio <acronym>LDAP</acronym> y finalmente se realiza
+				una consulta al servidor <acronym>DNS</acronym>.</para>
+			</callout>
+		</calloutlist>
+
+		<note><para>En el <xref linkend="openldap-nsswitch.conf"/> se encuentra disponible
+		un ejemplo completo de configuración de <filename>nsswitch.conf</filename>.</para></note>
+
+		<tip><para>Fíjese que no se ha eliminado el uso de los ficheros locales, <quote>files</quote>,
+		ya que algunos usuarios y grupos de usuarios (como por ejemplo root) permanecerán
+		de forma local. Si su sistema no utiliza la entrada <quote>files</quote>, y el servidor
+		<acronym>LDAP</acronym> se cae, nadie, ni siquiera root, podrá entrar al sistema.</para></tip>
+
+		<para><emphasis>nss-ldap</emphasis> espera que las cuentas sean objetos con los siguientes
+		atributos: <emphasis>uid</emphasis>, <emphasis>uidNumber</emphasis>,
+		<emphasis>gidNumber</emphasis>, <emphasis>homeDirectory</emphasis> y
+		<emphasis>loginShell</emphasis>. Estos atributos
+		están permitidos por la clase objeto (objectClass) <emphasis>posixAccount</emphasis>.</para>
+
+		<para>Una vez realizada la configuración, se puede comprobar que todo funciona bien
+		con la orden <command>getent</command> seguido de la base de datos
+		de búsqueda deseada (por ejemplo: <command>/usr/bin/getent hosts</command>). Como resultado
+		se mostrará la base de datos consultada por pantalla.</para>
+
+	</sect2>
+
+	<sect2 id="openldap-autentificacion-usuarios-configuracion-pam">
+		<title>Configuración de <acronym>PAM</acronym></title>
+
+		<para><acronym>PAM</acronym> permite configurar el método de autentificación
+		que van a utilizar las aplicaciones que hagan uso de él. Gracias a esto,
+		se pueden añadir fácilmente distintas opciones de autentificación, como el uso de una base de datos
+		<acronym>LDAP</acronym>.</para>
+
+		<para>En las siguientes secciones se mostrarán los archivos que se han
+		de modificar para lograr la autentificación a través de <acronym>LDAP</acronym>.</para>
+
+		<important><para>Hace relativamente poco tiempo que la versión en desarrollo de Debian
+		(Sid) ha cambiado la forma de configuración de <acronym>PAM</acronym>. Actualmente
+		posee secciones comunes a todos los archivos, estas secciones comunes son
+		aquellos archivos localizados en el directorio <filename class="directory">/etc/pam.d/</filename>
+		que comiencen por <quote>common-</quote>.</para>
+
+		<para>Se ha de tener en cuenta la forma en la que se ha ido actualizando Debian Sid
+		en la última temporada, para determinar si su sistema está utilizando o no dichos
+		archivos comunes para la configuración de <acronym>PAM</acronym>.</para>
+
+		<para>Un buen punto de partida, sería ojear los archivos almacenados bajo
+		<filename class="directory">/etc/pam.d/</filename> y comprobar las diferencias entre
+		los archivos con extensión <emphasis>.dpkg-dist</emphasis> y los que no la tienen.</para></important>
+		
+		<para><emphasis>pam-ldap</emphasis> asume que las cuentas del sistema son objetos con los
+		siguientes atributos: <emphasis>uid</emphasis> y <emphasis>userPassword</emphasis>.
+		Los atributos están permitidos por la clase objeto (objectClass)
+		<emphasis>posixAccount</emphasis>.</para>
+
+		<sect3 id="openldap-autentificacion-usuarios-configuracion-pam-common-account">
+			<title><filename>/etc/pam.d/common-account</filename></title>
+
+			<para>Este archivo ha de tener únicamente estas entradas:</para>
+
+			<example id="openldap-autentificacion-usuarios-configuracion-pam-common-account-ejemplo1">
+				<title>Opciones de configuración para <filename>/etc/pam.d/common-account</filename></title>
+	
+<programlisting>account required          pam_unix.so
+account sufficient        pam_ldap.so</programlisting>
+			</example>
+
+			<note><para>En el <xref linkend="openldap-pam-common-account"/>
+			tiene un ejemplo completo de este archivo de configuración.</para></note>
+
+		</sect3>
+
+		<sect3 id="openldap-autentificacion-usuarios-configuracion-pam-common-auth">
+			<title><filename>/etc/pam.d/common-auth</filename></title>
+
+			<para>Este archivo ha de tener únicamente estas entradas:</para>
+
+			<example id="openldap-autentificacion-usuarios-configuracion-pam-common-auth-ejemplo1">
+				<title>Opciones de configuración para <filename>/etc/pam.d/common-auth</filename></title>
+	
+<programlisting>auth     sufficient     pam_unix.so
+auth     sufficient     pam_ldap.so try_first_pass
+auth     required       pam_env.so
+auth     required       pam_securetty.so
+auth     required       pam_unix_auth.so
+auth     required       pam_warn.so
+auth     required       pam_deny.so</programlisting>
+			</example>
+
+			<note><para>En el <xref linkend="openldap-pam-common-auth"/>
+			tiene un ejemplo completo de este archivo de configuración.</para></note>
+
+		</sect3>
+
+		<sect3 id="openldap-autentificacion-usuarios-configuracion-pam-common-session">
+			<title><filename>/etc/pam.d/common-session</filename></title>
+
+			<para>Este archivo ha de tener únicamente estas entradas:</para>
+
+			<example id="openldap-autentificacion-usuarios-configuracion-pam-common-session-ejemplo1">
+				<title>Opciones de configuración para <filename>/etc/pam.d/common-session</filename></title>
+	
+<programlisting>session required        pam_limits.so
+session required        pam_unix.so
+session optional        pam_ldap.so</programlisting>
+			</example>
+
+			<para>Si desea que el sistema sea capaz de crear directorios
+			home <quote>al vuelo</quote> (piense en el siguiente caso:
+			acaba de añadir un usuario en la base de datos <acronym>LDAP</acronym>,
+			pero no ha creado un directorio home para este usuario en el sistema),
+			puede utilizar el módulo <emphasis>pam_mkhomedir</emphasis>
+			para este propósito. Para ello añada la siguiente línea al principio
+			del archivo <filename>common-session</filename>:</para>
+
+			<example id="openldap-autentificacion-usuarios-configuracion-pam-common-session-ejemplo2">
+				<title>Opción para crear directorios home al vuelo</title>
+
+<programlisting>session required        pam_mkhomedir.so skel=/etc/skel/ umask=0022</programlisting>
+			</example>
+
+			<important><para>El módulo <emphasis>pam_mkhomedir</emphasis> sólo crea
+			directorios de un nivel. Es importante tener esto en cuenta para planificar
+			la estructura del home de los usuarios.</para></important>
+
+			<note><para>En el <xref linkend="openldap-pam-common-session"/>
+			tiene un ejemplo completo de este archivo de configuración.</para></note>
+
+		</sect3>
+
+		<sect3 id="openldap-autentificacion-usuarios-configuracion-pam-common-passwd">
+			<title><filename>/etc/pam.d/common-passwd</filename></title>
+
+			<para>Este archivo ha de tener únicamente estas entradas:</para>
+
+			<example id="openldap-autentificacion-usuarios-configuracion-pam-common-password-ejemplo1">
+			<title>Opciones de configuración para <filename>/etc/pam.d/common-password</filename></title>
+	
+<programlisting>password required       pam_cracklib.so <co id="cracklib"/> retry=3 minlen=8 difok=4
+password sufficient     pam_unix.so use_authtok md5 shadow
+password sufficient     pam_ldap.so use_authtok
+password required       pam_warn.so
+password required       pam_deny.so</programlisting>
+
+				<calloutlist>
+					<callout arearefs="cracklib">
+						<para>Se supone que tiene instalado en su
+						sistema la librería <emphasis>libpam-cracklib</emphasis>,
+						si no es así, instálela o comente esta línea.</para>
+					</callout>
+				</calloutlist>
+			</example>
+
+			<note><para>En el <xref linkend="openldap-pam-common-password"/>
+			tiene un ejemplo completo de este archivo de configuración.</para></note>
+
+		</sect3>
+
+		<sect3 id="openldap-autentificacion-usuarios-configuracion-pam-comprobaciones">
+			<title>Comprobando que todo funciona</title>
+
+			<para>Ahora que ya está el sistema preparado para hacer uso de
+			<acronym>LDAP</acronym> en la autentificación de los usuarios, sería
+			recomendable hacer algunas pruebas con la nueva configuración
+			para ver si todo funciona correctamente.</para>
+
+			<para>La orden <command>pamtest</command> puede ayudar a realizar
+			estas pruebas. <command>pamtest</command> acepta dos parámetros:
+			el primero es el nombre del servicio al cual se va a conectar para
+			realizar la autentificación, el segundo es el nombre del usuario
+			que se va a autentificar sobre dicho servicio. Veamos unos
+			ejemplos:</para>
+
+			<note><para>La orden <command>pamtest</command> se encuentra en el
+			paquete <emphasis>libpam-dotfile</emphasis>, por lo que si no está disponible en
+			su sistema, ha de ejecutar:</para>
+
+<screen><prompt>#</prompt> <userinput>/usr/bin/apt-get install libpam-dotfile</userinput></screen></note>
+
+			<example id="openldap-autentificacion-usuarios-configuracion-pam-comprobaciones-ejemplo1">
+			<title>Comprobando la configuración del sistema con <command>pamtest</command></title>
+	
+<screen><prompt>$</prompt> <userinput>/usr/bin/pamtest passwd sergio</userinput>
+<computeroutput><![CDATA[Trying to authenticate <sergio> for service <passwd>.]]>
+Password:</computeroutput><userinput>[Clave del usuario]</userinput>
+<computeroutput>Authentication successful.</computeroutput>
+<prompt>$</prompt> <userinput>/usr/bin/pamtest ssh sergio</userinput>
+<computeroutput><![CDATA[Trying to authenticate <sergio> for service <ssh>.]]>
+Password:</computeroutput><userinput>[Clave fallida del usuario]</userinput>
+<computeroutput>Failed to authenticate: Authentication service cannot retrieve authentication info.</computeroutput>
+<prompt>$</prompt> <userinput>/usr/bin/pamtest ssh sergio</userinput>
+<computeroutput><![CDATA[Trying to authenticate <sergio> for service <ssh>.]]>
+Password:</computeroutput><userinput>[Clave del usuario]</userinput>
+<computeroutput>Authentication successful.</computeroutput></screen>
+			</example>
+
+			<para>Una vez se ha llegado a este punto, el sistema ya está preparado para autentificar
+			a los usuarios a través de <acronym>LDAP</acronym>. En el apartado dedicado a Samba
+			(<xref linkend="samba-parte"/>) veremos, entre otras cosas, como añadir
+			usuarios a la base de datos <acronym>LDAP</acronym>.</para>
+		</sect3>
+
+	</sect2>
+
+</sect1>
+</chapter>

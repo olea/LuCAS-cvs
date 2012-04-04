@@ -1,0 +1,2348 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+
+<chapter id="cups-configuracion">
+
+<chapterinfo>
+	<keywordset>
+		<keyword>cups</keyword>
+		<keyword>configuración</keyword>
+	</keywordset>
+</chapterinfo>
+
+<title>Configuración</title>
+
+<!-- INTRODUCCIÓN  -->
+
+<sect1 id="cups-configuracion-intro">
+	<title>Introducción</title>
+
+	<para>Este capítulo comienza con la realización de unas comprobaciones en el sistema relacionadas
+	con Samba. Luego se configurarán algunos aspectos necesarios para la integración de
+	<acronym>CUPS</acronym> en <acronym>LDAP</acronym>, la interactuación con los clientes
+	MS Windows, etc. Y finalmente, se simulará la siguiente red de impresión:</para>
+
+	<figure>
+		<title>Estructura de la red de impresión</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/cups-red-impresoras.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>Red de impresión que se simulará en <acronym>CUPS</acronym>. Esta red está
+				formada por tres laboratorios, en los cuales hay una serie de impresoras. La
+				interconexión de los laboratorios se ha realizado mediante cable y red inalámbrica.</para>
+
+				<para>Las impresoras se han agrupado en 5 clases, como se puede observar en la
+				imagen. Las clases de impresoras definidas en este ejemplo no serían muy útiles
+				en un entorno real por diversos motivos; pero sirvan para ilustrar
+				su funcionamiento.</para>
+
+				<para>Si quiere obtener el código fuente de esta imagen, generado
+				con el programa de diagramas <xref linkend="dia"/>, pulse
+				<ulink url="./imagenes/cups-red-impresoras.dia">aquí</ulink>.</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<note><para>La bibliografía consultada, mayoritariamente, para la realización
+	de este capítulo ha sido: el capítulo 18 de la entrada bibliográfica
+	<xref linkend="bibliografia-vernooij-terpstra-carter-01"/> y la
+	entrada bibliográfica <xref linkend="bibliografia-cups02"/>.</para></note>
+</sect1>
+
+<!-- COMPROBACIONES INICIALES  -->
+
+<sect1 id="cups-configuracion-comprobacion">
+	<title>Comprobaciones iniciales</title>
+
+	<para>Antes de proceder con la configuración de <acronym>CUPS</acronym>, se va a comprobar
+	que el servidor Samba está preparado para funcionar junto con <acronym>CUPS</acronym>. Esta
+	comprobación se realizará con la orden <command>ldd</command>, que nos mostrará las librerías
+	compartidas que utiliza el demonio <command>smbd</command>, en este caso. Si entre estas
+	librerías se encuentra la de <acronym>CUPS</acronym>, es que Samba ha sido compilado
+	con soporte para este sistema de impresión:</para>
+
+	<example id="cups-configuracion-comprobacion-ex1">
+		<title>Verificando que Samba se ha compilado con soporte para <acronym>CUPS</acronym></title>
+
+<screen><prompt>$</prompt> <userinput>/usr/bin/ldd `which smbd` | /bin/grep "cups"</userinput>
+<computeroutput>        libcups.so.2 => /usr/lib/libcups.so.2 (0x40109000)</computeroutput></screen>
+	</example>
+
+	<para>Con el ejemplo anterior se comprueba que Samba ha sido compilado con soporte
+	para <acronym>CUPS</acronym>. El siguiente paso va a ser el reinicio de Samba,
+	para comprobar que ya no da error al no encontrar un servidor <acronym>CUPS</acronym>
+	en el sistema (vea <xref linkend="samba-comprobacion-funcionamiento-conf-cups-rehusada"/>
+	para más detalles).</para>
+
+	<para>El procedimiento para reiniciar Samba está descrito en el
+	<xref linkend="samba-comprobacion-funcionamiento-conf-reiniciar"/>. Una vez se ha reiniciado
+	el servidor Samba, se analiza el archivo de log <filename>/var/log/samba/log.smbd</filename>
+	para ver si se produce algún error relacionado con <acronym>CUPS</acronym>,
+	como ocurría en: <xref linkend="samba-comprobacion-funcionamiento-conf-cups-rehusada"/>:</para>
+
+<programlisting>[2004/10/09 20:13:22, 0] smbd/server.c:main(760)
+  smbd version 3.0.7-Debian started.
+  Copyright Andrew Tridgell and the Samba Team 1992-2004</programlisting>
+
+	<para>Se puede comprobar, que ahora ya no se produce ningún error en el arranque del demonio
+	<command>smbd</command> al disponer el sistema de un servidor de impresión <acronym>CUPS</acronym>.</para>
+</sect1>
+
+<sect1 id="cups-configuracion-modificacion-conf">
+	<title>Modificaciones en la configuración del sistema</title>
+
+	<para>Para conseguir integrar <acronym>CUPS</acronym> en el sistema, tal y como se ha
+	configurado hasta el momento, es necesario realizar algunas modificaciones, que se muestran
+	en las siguientes secciones.</para>
+
+	<sect2 id="cups-configuracion-modificacion-conf-pam">
+		<title>Modificaciones de <acronym>PAM</acronym></title>
+
+		<para>Se ha de añadir al sistema de autentificación de <acronym>CUPS</acronym>, la posibilidad
+		de utilizar usuarios almacenados en la base de datos de <acronym>LDAP</acronym>. Esto
+		se realiza en el archivo <filename>/etc/pam.d/cupsys</filename>. Si se echa un vistazo
+		a su contenido, se comprobará que no es necesario realizar ninguna modificación al mismo,
+		ya que en la <xref linkend="openldap-autentificacion-usuarios-configuracion-pam"/>
+		se han realizado todas las modificaciones necesarias.</para>
+
+<programlisting>@include common-auth
+@include common-account
+@include common-session</programlisting>
+
+	</sect2>
+
+	<sect2 id="cups-configuracion-modificacion-conf-samba">
+		<title>Modificaciones en Samba</title>
+
+		<para>Es necesario realizar una pequeña revisión en la configuración de Samba, los
+		cambios se muestran a continuación:</para>
+
+		<example id="cups-configuracion-modificacion-conf-samba-ex1">
+			<title>Diferencia entre la configuración de Samba antes y después de instalar <acronym>CUPS</acronym></title>
+
+<screen><prompt>$</prompt> <userinput>/usr/bin/diff -u /etc/samba/smb.conf-antes /etc/samba/smb.conf</userinput>
+<computeroutput>--- /etc/samba/smb.conf-antes     2004-06-15 16:17:19.000000000 +0100
++++ /etc/samba/smb.conf    2004-06-15 16:15:48.000000000 +0100
+@@ -188,7 +188,7 @@
+ # When using [print$], root is implicitly a 'printer admin', but you can
+ # also give this right to other users to add drivers and set printer
+ # properties
+-   printer admin = @domainadmins
++   printer admin = @domainprintoperator <co id="co-printer-admin0"/>
+
+
+ ######## File sharing ########
+@@ -327,13 +327,15 @@
+
+ [printers]
+    comment = All Printers
+-   path = /tmp
++   path = /var/spool/samba <co id="co-modificacion-path"/>
+    browseable = no
+    public = yes
+    guest ok = no
+    writable = no
+    printable = yes
+    create mask = 0700
++   use client driver = no <co id="co-use-client-driver"/>
++   printer admin = root, @domainprintoperator <co id="co-printer-admin1"/>
+
+ # Windows clients look for this share name as a source of downloadable
+ # printer drivers
+@@ -343,7 +345,7 @@
+    browseable = yes
+    guest ok = no
+    read only = yes
+-   write list = root, @domainadmins
++   write list = root, @domainprintoperator <co id="co-printer-admin2"/>
+
+ [tmp]
+    comment = Temporal</computeroutput></screen>
+
+			<calloutlist>
+				<callout arearefs="co-modificacion-path">
+					<para>Se modifica la ruta de la cola de impresión de Samba. Este es un cambio
+					puramente <emphasis>estético</emphasis>.</para>
+
+					<para>Si no existe el directorio de la cola de impresión para Samba,
+					se tendrá que crear en este momento.</para>
+
+					<warning><para>Tenga especial cuidado con los permisos que le asigna
+					al directorio <filename class="directory">/var/spool/samba</filename>;
+					tenga en cuenta, que todo usuario que quiera imprimir en una
+					impresora compartida por Samba, ha de tener permisos de escritura
+					en dicho directorio.</para>
+
+					<para>En este caso, el directorio tiene los siguientes permisos:</para>
+<screen><prompt>$</prompt> <userinput>/bin/ls -ld /var/spool/samba</userinput>
+<computeroutput>drwxrws---  2 root domainpoweruser 48 2004-10-09 20:28 /var/spool/samba</computeroutput></screen>
+
+					<para>Note que se ha utilizado el grupo <emphasis>domainpoweruser</emphasis>,
+					grupo al que han de pertenecer aquellos usuarios que quieran imprimir
+					vía Samba.</para>
+					</warning>
+
+				</callout>
+				<callout arearefs="co-use-client-driver">
+					<para>Para saber más acerca de esta opción, se recomienda la lectura
+					de la sección <quote>Raw Print Serving Vendor Drivers on Windows Clients</quote>
+					y <quote>How to Recognize If cupsaddsmb Completed Successfully</quote>
+					del capítulo 18 (<emphasis>CUPS Printing Support</emphasis>) de la
+					entrada bibliográfica <xref linkend="bibliografia-vernooij-terpstra-carter-01"/>;
+					así como la página del manual smb.conf(5).</para>
+
+					<para>El valor de esta opción dependerá del comportamiento de su sistema.</para>
+				</callout>
+				<callout arearefs="co-printer-admin0 co-printer-admin1 co-printer-admin2">
+					<para>En el <xref linkend="phpldapadmin-callout-template_config-gids"/>
+					se propone la opción de añadir los grupos de usuarios listados en el
+					archivo <filename>template_config.php</filename> de la aplicación
+					<application>phpLDAPadmin</application>. Esos grupos ya existen en el
+					sistema empleado para la elaboración de esta documentación, por lo que
+					se hará uso de ellos.</para>
+
+					<para>Se selecciona el grupo más adecuado, <quote>domainprintoperator</quote>,
+					para la administración de las impresoras.</para>
+				</callout>
+			</calloutlist>
+		</example>
+
+		<para>Una vez modificada la configuración de Samba, este servidor ha de releer su
+		configuración. En el <xref linkend="samba-comprobacion-funcionamiento-conf-releer-conf"/>
+		se muestra como hacerlo.</para>
+	</sect2>
+
+	<sect2 id="cups-configuracion-modificacion-conf-cups">
+		<title>Modificaciones relativas a <acronym>CUPS</acronym></title>
+
+		<note><para>Para realizar esta sección se ha consultado, principalmente, la
+		entrada bibliográfica <xref linkend="bibliografia-cups02"/>.</para></note>
+
+		<sect3 id="cups-configuracion-modificacion-conf-cups-client.conf">
+			<title>Archivo <filename>/etc/cups/client.conf</filename></title>
+
+			<para>En este archivo se descomentarán dos líneas, la primera hace referencia
+			al servidor donde está instalado <acronym>CUPS</acronym> y la segunda al
+			uso o no de cifrado:</para>
+
+<programlisting>ServerName gsr.pt <co id="cups-servername" />
+Encryption Required <co id="cups-encryption-required" /></programlisting>
+
+			<calloutlist>
+				<callout arearefs="cups-servername">
+					<para>Se especifica donde está alojado el servidor <acronym>CUPS</acronym>.</para>
+				</callout>
+				<callout arearefs="cups-encryption-required">
+					<para>Se hace uso del cifrado <acronym>TLS</acronym> en las comunicaciones.</para>
+				</callout>
+			</calloutlist>
+
+			<note><para>En el <xref linkend="cups-client.conf"/> tiene un ejemplo completo de
+			este archivo de configuración.</para></note>
+
+		</sect3>
+
+		<sect3 id="cups-configuracion-modificacion-conf-cups-cupsd.conf">
+			<title>Archivo <filename>/etc/cups/cupsd.conf</filename></title>
+
+				<para>El archivo de configuración <filename>cupsd.conf</filename> está estructurado
+				en secciones, por este motivo, las opciones de configuración más importantes
+				se irán mostrando en sucesivas secciones, que se corresponderán con las secciones del archivo
+				tratado.</para>
+
+				<note><para>En el <xref linkend="cups-cupsd.conf"/> tiene un ejemplo completo de
+				este archivo de configuración.</para></note>
+
+				<sect4 id="cups-configuracion-modificacion-conf-cups-cupsd.conf-server-identity">
+					<title>Server Identity</title>
+
+<programlisting>ServerName gsr.pt <co id="cups-server-identity-server-name"/>
+ServerAdmin sergio@gsr.pt <co id="cups-server-identity-server-admin" /></programlisting>
+
+				<calloutlist>
+					<callout arearefs="cups-server-identity-server-name">
+						<para>Nombre del servidor donde está alojado <acronym>CUPS</acronym>.</para>
+					</callout>
+					<callout arearefs="cups-server-identity-server-admin">
+						<para>Dirección de correo del administrador de impresión.</para>
+					</callout>
+				</calloutlist>
+
+				</sect4>
+
+				<sect4 id="cups-configuracion-modificacion-conf-cups-cupsd.conf-encryption-support">
+					<title>Encryption Support</title>
+
+					<para>Se han utilizado los mismos certificados creados en la
+					<xref linkend="openldap-certificados-creacion-certificado-entidad-certifificadora"/>,
+					por este motivo se ha copiado el directorio <filename class="directory">/etc/ldap/ssl/</filename> a
+					<filename class="directory">/etc/cups</filename>.</para>
+
+					<example id="cups-configuracion-modificacion-conf-cups-cupsd.conf-encryption-support-ex1">
+						<title>Copiando el contenido del directorio
+						<filename class="directory">/etc/ldap/ssl/</filename> a
+						<filename class="directory">/etc/cups</filename></title>
+
+<screen><prompt>#</prompt> <userinput>/bin/cp -va /etc/ldap/ssl/ /etc/cups/</userinput>
+<computeroutput>«/etc/ldap/ssl/» -> «/etc/cups/ssl»
+«/etc/ldap/ssl/crl» -> «/etc/cups/ssl/crl»
+«/etc/ldap/ssl/certs» -> «/etc/cups/ssl/certs»
+«/etc/ldap/ssl/certs/servidorcert.pem» -> «/etc/cups/ssl/certs/servidorcert.pem»
+«/etc/ldap/ssl/index.txt.old» -> «/etc/cups/ssl/index.txt.old»
+«/etc/ldap/ssl/index.txt» -> «/etc/cups/ssl/index.txt»
+«/etc/ldap/ssl/serial.old» -> «/etc/cups/ssl/serial.old»
+«/etc/ldap/ssl/serial» -> «/etc/cups/ssl/serial»
+«/etc/ldap/ssl/newcerts» -> «/etc/cups/ssl/newcerts»
+«/etc/ldap/ssl/newcerts/01.pem» -> «/etc/cups/ssl/newcerts/01.pem»
+«/etc/ldap/ssl/cacert.pem» -> «/etc/cups/ssl/cacert.pem»
+«/etc/ldap/ssl/index.txt.attr» -> «/etc/cups/ssl/index.txt.attr»
+«/etc/ldap/ssl/private» -> «/etc/cups/ssl/private»
+«/etc/ldap/ssl/private/cakey.pem» -> «/etc/cups/ssl/private/cakey.pem»
+«/etc/ldap/ssl/private/servidorkey.pem» -> «/etc/cups/ssl/private/servidorkey.pem»</computeroutput>
+<prompt>#</prompt> <userinput>/bin/chown root.lpadmin -vR /etc/cups/ssl</userinput>
+<computeroutput>cambiado el propietario de «/etc/cups/ssl» a root:lpadmin
+cambiado el propietario de «/etc/cups/ssl/crl» a root:lpadmin
+cambiado el propietario de «/etc/cups/ssl/certs» a root:lpadmin
+cambiado el propietario de «/etc/cups/ssl/certs/servidorcert.pem» a root:lpadmin
+cambiado el propietario de «/etc/cups/ssl/index.txt.old» a root:lpadmin
+cambiado el propietario de «/etc/cups/ssl/index.txt» a root:lpadmin
+cambiado el propietario de «/etc/cups/ssl/serial.old» a root:lpadmin
+cambiado el propietario de «/etc/cups/ssl/serial» a root:lpadmin
+cambiado el propietario de «/etc/cups/ssl/newcerts» a root:lpadmin
+cambiado el propietario de «/etc/cups/ssl/newcerts/01.pem» a root:lpadmin
+cambiado el propietario de «/etc/cups/ssl/cacert.pem» a root:lpadmin
+cambiado el propietario de «/etc/cups/ssl/index.txt.attr» a root:lpadmin
+cambiado el propietario de «/etc/cups/ssl/private» a root:lpadmin
+cambiado el propietario de «/etc/cups/ssl/private/cakey.pem» a root:lpadmin
+cambiado el propietario de «/etc/cups/ssl/private/servidorkey.pem» a root:lpadmin</computeroutput></screen>
+					</example>
+
+					<para>Las opciones de configuración, por tanto, quedarían de la siguiente forma:</para>
+
+<programlisting>ServerCertificate /etc/cups/ssl/certs/servidorcert.pem
+ServerKey /etc/cups/ssl/private/servidorkey.pem</programlisting>
+
+				</sect4>
+
+				<sect4 id="cups-configuracion-modificacion-conf-cups-cupsd.conf-network-options">
+					<title>Network Options</title>
+
+					<para>Se especifica donde ha de escuchar el servidor <acronym>CUPS</acronym> y
+					en que puertos:</para>
+
+<programlisting>Listen gsr.pt:631 <co id="cups-network-options-listen" />
+SSLListen gsr.pt:6443 <co id="cups-network-options-ssllisten" /></programlisting>
+
+				<calloutlist>
+					<callout arearefs="cups-network-options-listen">
+						<para>Puerto por defecto, destinado a las conexiones sin cifrado.</para>
+					</callout>
+					<callout arearefs="cups-network-options-ssllisten">
+						<para>Puerto destinado a las conexiones con cifrado. Si su sistema no posee
+						el puerto 443 ocupado, sería recomendable utilizarlo.</para>
+					</callout>
+				</calloutlist>
+
+				</sect4>
+
+				<sect4 id="cups-configuracion-modificacion-conf-cups-cupsd.conf-security-options">
+					<title>Security Options</title>
+
+					<para>La única modificación que se realizará en esta sección, será obligar
+					a aquellos directorios que precisan autentificación para su acceso, a hacer
+					uso de cifrado. Para ello se utilizará la directiva
+					<emphasis>Encryption Required</emphasis>.</para>
+
+<programlisting><![CDATA[<Location /jobs>
+
+    AuthType Basic
+    AuthClass User
+
+    Encryption Required
+
+</Location>
+
+<Location /admin>
+
+    AuthType Basic
+    AuthClass System
+
+    Order Deny,Allow
+    Deny From All
+    Allow From 127.0.0.1
+
+    Encryption Required
+
+</Location>]]>
+</programlisting>
+
+				</sect4>
+		</sect3>
+
+		<sect3 id="cups-configuracion-modificacion-conf-cups-reinicio-servidor">
+			<title>Reinicio del servidor <acronym>CUPS</acronym></title>
+
+			<para>Una vez se ha finalizado la configuración de <acronym>CUPS</acronym>, se ha de reiniciar
+			el servidor, para que relea su configuración:</para>
+
+			<example id="cups-configuracion-modificacion-conf-cups-reinicio-servidor-ex1">
+				<title>Reinicio del servidor <acronym>CUPS</acronym></title>
+
+<screen><prompt>#</prompt> <userinput>/etc/init.d/cupsys restart</userinput>
+<computeroutput>Restarting printing system service: cupsd.</computeroutput></screen>
+			</example>
+		</sect3>
+
+	</sect2>
+</sect1>
+
+<sect1 id="cups-configuracion-adicion-impresoras">
+	<title>Creación de la estructura de impresión</title>
+
+	<para>En la introducción de este capítulo (<xref linkend="cups-configuracion-intro"/>)
+	se mostró la estructura de la red de impresión que se va a simular en esta documentación.
+	De forma simplificada, se crearán siete impresoras<footnote><para>Recuérdese que las impresoras
+	van a ser virtuales, gracias al paquete <emphasis>cups-pdf</emphasis>.</para></footnote>
+	y cinco clases.</para>
+
+	<para>En las dos siguientes secciones se mostrará la forma de hacer esto, respectivamente.</para>
+
+	<sect2 id="cups-configuracion-adicion-impresoras-1">
+		<title>Creación de las impresoras</title>
+
+		<para>Las impresoras que se van a crear a continuación son todas del mismo tipo:
+		impresoras <acronym>PDF</acronym> virtuales; el único elemento diferenciador entre ellas
+		será su nombre.</para>
+
+		<para>Los nombres de las impresoras serán:</para>
+
+		<itemizedlist>
+			<listitem>
+				<para>LaserColor</para>
+			</listitem>
+			<listitem>
+				<para>LaserBN</para>
+			</listitem>
+			<listitem>
+				<para>Plotter</para>
+			</listitem>
+			<listitem>
+				<para>InyeccionColor</para>
+			</listitem>
+			<listitem>
+				<para>InyeccionBN</para>
+			</listitem>
+			<listitem>
+				<para>Sublimacion</para>
+			</listitem>
+			<listitem>
+				<para>Multifuncion</para>
+			</listitem>
+		</itemizedlist>
+
+		<para>Las dos secciones siguientes mostrarán como añadir una impresora desde
+		la interfaz de administración web de <acronym>CUPS</acronym> y desde el frontend
+		que provee el escritorio <acronym>KDE</acronym> para la administración
+		de impresoras.</para>
+
+		<sect3 id="cups-configuracion-adicion-impresoras-cupsys">
+			<title>Añadiendo una impresora desde la interfaz de administración web de
+			<acronym>CUPS</acronym></title>
+
+			<para>En esta sección se mostrará el proceso seguido para añadir una impresora
+			desde la interfaz de administración web de <acronym>CUPS</acronym>.</para>
+
+			<figure>
+				<title>Accediendo a la interfaz de administración web de <acronym>CUPS</acronym></title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora1.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Si se encuentra en un entorno de escritorio <acronym>KDE</acronym>,
+						teclee <keycombo action='simul'><keycap>Alt</keycap><keycap>F2</keycap></keycombo>
+						e introduzca la dirección donde se encuentre instalado <acronym>CUPS</acronym>
+						seguido del puerto donde está escuchando. En este caso:
+						<emphasis>https://gsr.pt:6443</emphasis>.</para>
+
+						<note><para>Si se fija en la <acronym>URL</acronym> que se ha tecleado,
+						se ha especificado el protocolo <emphasis>https</emphasis> y el puerto
+						de conexión segura de <acronym>CUPS</acronym>. Esto es necesario
+						si se quiere hacer uso de cifrado en las comunicaciones con
+						<acronym>CUPS</acronym>.</para>
+
+						<para>Si no accede de esta forma a la interfaz web de <acronym>CUPS</acronym>,
+						no podrá realizar labores de administración, ya que se ha obligado
+						en los archivos de configuración de <acronym>CUPS</acronym>, al uso
+						de cifrado en las secciones de administración.</para></note>
+					</caption>
+				</mediaobject>
+			</figure>
+
+			<figure>
+				<title>Aviso acerca del certificado del servidor web I</title>
+					<mediaobject>
+						<imageobject>
+							<imagedata fileref="./imagenes/lam-configuracion-certificado1.png" format="PNG"/>
+						</imageobject>
+					
+						<caption><para>Como se ha accedido a la interfaz web de <acronym>CUPS</acronym>
+						vía el puerto seguro y debido a que la entidad certificadora que se ha creado para las
+						conexiones <acronym>SSL</acronym>/<acronym>TLS</acronym> es desconocida,
+						sale este aviso. Pulse sobre el botón <emphasis>Detalles</emphasis>
+						para obtener más información.</para></caption>
+				</mediaobject>
+			</figure>
+	
+			<figure>
+				<title>Información <acronym>SSL</acronym></title>
+					<mediaobject>
+						<imageobject>
+							<imagedata fileref="./imagenes/lam-configuracion-certificado2.png" format="PNG"/>
+						</imageobject>
+					
+						<caption><para>En esta pantalla se muestra la información del certificado y la
+						entidad certificadora que ha creado dicho certificado. Pulse
+						sobre el botón <emphasis>Cerrar</emphasis> para continuar.</para></caption>
+				</mediaobject>
+			</figure>
+	
+			<figure>
+				<title>Aviso acerca del certificado del servidor web II</title>
+					<mediaobject>
+						<imageobject>
+							<imagedata fileref="./imagenes/lam-configuracion-certificado3.png" format="PNG"/>
+						</imageobject>
+					
+						<caption><para>Pulse ahora sobre el botón <emphasis>Continuar</emphasis> para
+						seguir con la carga de la página.</para></caption>
+				</mediaobject>
+			</figure>
+	
+			<figure>
+				<title>Período de aceptación del certificado</title>
+					<mediaobject>
+						<imageobject>
+							<imagedata fileref="./imagenes/lam-configuracion-certificado4.png" format="PNG"/>
+						</imageobject>
+					
+						<caption><para>Seleccione la opción deseada y pulse sobre ella.</para></caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title>Administrando impresoras</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora2.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Una vez se tenga acceso al interfaz de administración web de
+						<acronym>CUPS</acronym>, pulse sobre el enlace
+						<quote>Manage Printers</quote>.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title>Añadir nueva impresora</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora3.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Pulse sobre el botón <quote>Add Printer</quote> para comenzar el proceso
+						de adición de una impresora al sistema.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title>Clave del administrador</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora4.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Introduzca un usuario con permisos de administración para el sistema
+						de impresión, así como su clave.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title>Información sobre la impresora</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora5.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Teclee el nombre, la localización y una breve descripción
+						de la nueva impresora. Procure no introducir caracteres especiales
+						ni espacios en el nombre de la impresora.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title>Dispositivo de impresión I</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora6.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Seleccione el tipo <emphasis>Virtual Printer (PDF Printer)</emphasis>
+						como dispositivo de impresión...</para>
+
+						<warning><para>En las pruebas realizadas desde la interfaz web de <acronym>CUPS</acronym>
+						por el puerto seguro <emphasis>6443</emphasis>, no se ha conseguido que se
+						muestren los dispositivos de impresión disponibles en el sistema. Por este motivo
+						se ha seguido, a partir de este punto, la configuración por el puerto estándar:
+						el 631.</para>
+
+						<para>Para conseguir esto, se han de comentar (o cambiar al valor adecuado)
+						las directivas <emphasis>Encryption</emphasis> de los directorios
+						<filename class="directory">/admin</filename> y
+						<filename class="directory">/jobs</filename> del archivo de configuración
+						<filename>/etc/cups/cupsd.conf</filename> (más datos sobre
+						estas directivas en la
+						<xref linkend="cups-configuracion-modificacion-conf-cups-cupsd.conf-security-options"/>).</para>
+						</warning>
+					</caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title>Dispositivo de impresión II</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora7.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>... y pulse sobre el botón <quote>Continue</quote>.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title>Modelo</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora8.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Seleccione el modelo <quote>Postsript</quote> y pulse sobre el
+						botón <quote>Continue</quote>.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title>Controlador</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora9.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Seleccione el controlador <quote>Generic postscript color printer
+						(en)</quote> como controlador para la nueva impresora.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title>Nueva impresora lista</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora10.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Esta pantalla informa que se acaba de crear satisfactoriamente
+						la nueva impresora. Para ver los detalles de la misma, pulse sobre el
+						enlace <quote>LaserColor</quote>.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+			<figure>
+				<title>Información sobre la impresora LaserColor</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora11.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Desde esta ventana se puede realizar la administración de la impresora
+						<emphasis>LaserColor</emphasis>, así como observar el estado de la misma
+						en un momento determinado.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+		</sect3>
+
+		<sect3 id="cups-configuracion-adicion-impresoras-kde">
+			<title>Añadiendo una impresora desde <acronym>KDE</acronym></title>
+
+			<para>En esta sección se mostrará el proceso seguido para añadir una impresora
+			desde el administrador de impresión de <acronym>KDE</acronym>.</para>
+
+			<figure>
+				<title>Arrancando el administrador de impresión</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora12.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Acceda al menú de <acronym>KDE</acronym>, y seleccione la
+						herramienta <emphasis>Administrador de impresión</emphasis> desde el
+						mismo; o bien teclee la orden <command>/usr/bin/kcmshell printers</command>.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title>Administrador de impresión</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora13.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Una vez arrancado el administrador de impresión de <acronym>KDE</acronym>,
+						ha de asegurarse que la opción del campo: <emphasis>Sistema de impresión actualmente
+						usado</emphasis> es el sistema de impresión <acronym>CUPS</acronym>.</para>
+
+						<para>Si se fija en la imagen, bajo el directorio
+						<filename class="directory">impresoras</filename> aparece la impresora
+						<emphasis>LaserColor</emphasis>, que se añadió en la sección
+						anterior (<xref linkend="cups-configuracion-adicion-impresoras-cupsys"/>).</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title>Nueva impresora</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora14.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Para añadir una nueva impresora, pulse sobre el botón
+						<quote>Añadir</quote> y seguidamente sobre la opción
+						<emphasis>Añadir impresora/clase...</emphasis></para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title>Bienvenida al asistente de impresión de <acronym>KDE</acronym></title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora15.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Esta pantalla nos da la bienvenida al asistente que guiará el
+						proceso de adición de una nueva impresora al sistema. Pulse sobre el
+						botón <quote>Siguiente</quote> para continuar.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title>Selección del tipo de impresora</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora16.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>En esta pantalla se selecciona el tipo de impresora que se va
+						a añadir al sistema. En este caso, se va a añadir una impresora
+						virtual, por lo que se selecciona la opción <emphasis>Otro tipo de
+						impresora</emphasis> y se pulsa sobre el botón <quote>Siguiente</quote>.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title><acronym>URI</acronym> de la impresora</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora17.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Seleccione el tipo <emphasis>Virtual Printer (PDF Printer)</emphasis>
+						y pulse sobre el botón <quote>Siguiente</quote>.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title>Reconstruyendo la base de datos de controladores</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora18.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Espere a que se finalice la reconstrucción de la base de datos
+						de controladores de impresión.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title>Modelo de la impresora</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora19.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Seleccione el fabricante <quote>POSTSCRIPT</quote> y el modelo
+						<quote>Generic postscript color printer</quote> y pulse sobre el botón
+						<quote>Siguiente</quote> para continuar.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title>Probando la impresora I</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora20.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Desde esta pantalla se permite realizar pruebas con la configuración
+						de la impresora que se está añadiendo, antes de añadirla definitivamente
+						al sistema.</para>
+						<para>Pulse sobre el botón <quote>Preferencias...</quote></para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title>Opciones de configuración del controlador de impresión</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora21.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Dependiendo del controlador de impresión elegido, en esta pantalla
+						aparecerán unas opciones u otras. En el caso de la impresora virtual,
+						esta pantalla muestra las opciones que soporta el controlador, pudiendo
+						variar dichas opciones para adaptarlas a las necesidades del sistema.</para>
+
+						<para>Una vez cambiadas las opciones, pulse sobre el botón
+						<quote>Aceptar</quote> para continuar.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+			<figure>
+				<title>Probando la impresora II</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora20.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Pulse ahora sobre el botón <quote>Probar</quote></para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title>Usuario con privilegios de administración de impresión</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora22.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Teclee los datos de un usuario con privilegios de administración
+						de impresión y pulse sobe el botón <quote>Aceptar</quote>.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+			<figure>
+				<title>Prueba enviada a la impresora</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora23.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Esta pantalla nos informa de que se ha enviado la prueba de impresión
+						a la impresora. Pulse sobre el botón <quote>Aceptar</quote> para continuar.</para>
+
+						<para>Si todo ha ido bien, en el home del usuario que se ha tecleado,
+						aparecerá un nuevo directorio, <filename class="directory">$HOME/cups-pdf</filename>
+						y dentro de este un archivo similar a <filename>Test_Page.pdf</filename>.
+						Si se abre este archivo con un visualizador de archivos <acronym>PDF</acronym>,
+						se podrá comprobar que es una prueba de impresión de <acronym>CUPS</acronym>.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+			<figure id="cups-prueba-impresion" xreflabel="Prueba de impresión">
+				<title>Prueba de impresión</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora24.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>En esta pantalla se puede observar la prueba de impresión que
+						se ha realizado en la imagen anterior.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title>Selección de rótulos</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora25.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para><acronym>CUPS</acronym> permite imprimir páginas separadoras
+						para los trabajos de impresión. Si desea hacer uso de esta característica,
+						seleccione los rótulos que desee en esta pantalla, en caso contrario,
+						pulse directamente sobre el botón <quote>Siguiente</quote>.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title>Cuotas de impresión</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora26.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para><acronym>CUPS</acronym> implemente un <emphasis>rudimentario</emphasis>
+						sistema de cuotas de impresión. Como se va a hacer uso de
+						<xref linkend="bibliografia-pykota"/> para la administración de
+						cuotas, esta opción no se utilizará. Pulse el botón
+						<quote>Siguiente</quote> para continuar.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title>Permisos de acceso a la impresora</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora27.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>En esta pantalla se seleccionan los usuarios a los que se les
+						permite, o no, imprimir. Como este control se realizará con
+						la herramienta <xref linkend="bibliografia-pykota"/>, pulse
+						sobre el botón <quote>Siguiente</quote> directamente.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title>Información sobre la impresora</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora28.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Complete los campos con el nombre, ubicación y descripción para
+						la impresora que se está añadiendo. Pulse sobre el botón
+						<quote>Siguiente</quote> para continuar.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title>Confirmación</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora29.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Esta es la última pantalla antes de crear la nueva impresora.
+						Revise la información sobre la misma, y si todo está correcto, pulse
+						sobre el botón <quote>Finalizar</quote> para crear la impresora.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title>Nueva impresora <emphasis>LaserBN</emphasis></title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora30.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Se puede apreciar en el directorio de impresoras la aparición
+						de una nueva entrada, en este caso la impresora <emphasis>LaserBN</emphasis>.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+		</sect3>
+
+		<sect3 id="cups-configuracion-adicion-resto-impresoras">
+			<title>Añadiendo el resto de impresoras</title>
+
+			<para>El proceso de creación de nuevas impresoras se ha realizado para cada una
+			de las impresoras que se muestran en el esquema de la
+			<xref linkend="cups-configuracion-intro"/>, obteniendo finalmente:</para>
+
+			<figure>
+				<title>Listado de impresoras</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora31.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Impresoras que conforman la red organizacional del esquema
+						mostrado en la <xref linkend="cups-configuracion-intro"/>.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+		</sect3>
+
+	</sect2>
+
+	<sect2 id="cups-configuracion-adicion-clases">
+		<title>Creación de las clases</title>
+
+		<para>Al igual que ya se hizo en la <xref linkend="cups-configuracion-adicion-impresoras-1"/>
+		con las impresoras, en esta sección se añadirán las clases.</para>
+
+		<para>Los nombres y el contenido de las clases será:</para>
+
+		<itemizedlist>
+			<listitem>
+				<para><emphasis>Profesional:</emphasis> Plotter, Sublimacion, LaserColor</para>
+			</listitem>
+			<listitem>
+				<para><emphasis>Color:</emphasis> LaserColor, InyeccionColor</para>
+			</listitem>
+			<listitem>
+				<para><emphasis>BlancoNegro:</emphasis> LaserBN, InyeccionBN</para>
+			</listitem>
+			<listitem>
+				<para><emphasis>Barato:</emphasis> Multifuncion, InyeccionBN</para>
+			</listitem>
+			<listitem>
+				<para><emphasis>Laser:</emphasis> LaserColor, LaserBN</para>
+			</listitem>
+		</itemizedlist>
+
+		<para>Las dos siguientes secciones mostrarán como añadir una clase desde
+		la interfaz de administración web de <acronym>CUPS</acronym> y desde el frontend
+		que provee el escritorio <acronym>KDE</acronym> para la administración
+		de impresoras.</para>
+
+		<sect3 id="cups-configuracion-adicion-clases-cupsys">
+			<title>Añadiendo una clase desde la interfaz de administración web de
+			<acronym>CUPS</acronym></title>
+
+			<para>En esta sección se mostrará el proceso seguido para añadir una clase
+			desde la interfaz de administración web de <acronym>CUPS</acronym>.</para>
+
+			<figure>
+				<title>Accediendo a la interfaz de administración web de <acronym>CUPS</acronym></title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora1.png" format="PNG"/>
+					</imageobject>
+		
+					<caption>
+						<para>Si se encuentra en un entorno de escritorio <acronym>KDE</acronym>,
+						teclee <keycombo action='simul'><keycap>Alt</keycap><keycap>F2</keycap></keycombo>
+						e introduzca la dirección donde se encuentre instalado <acronym>CUPS</acronym>
+						seguido del puerto donde está escuchando. En este caso:
+						<emphasis>https://gsr.pt:6443</emphasis>.</para>
+
+						<note><para>Si se fija en la <acronym>URL</acronym> que se ha tecleado,
+						se ha especificado el protocolo <emphasis>https</emphasis> y el puerto
+						de conexión segura de <acronym>CUPS</acronym>. Esto es necesario
+						si se quiere hacer uso de cifrado en las comunicaciones con
+						<acronym>CUPS</acronym>.</para>
+
+						<para>Si no accede de esta forma a la interfaz web de <acronym>CUPS</acronym>,
+						no podrá realizar labores de administración, ya que se ha obligado
+						en los archivos de configuración de <acronym>CUPS</acronym>, al uso
+						de cifrado en las secciones de administración.</para></note>
+					</caption>
+				</mediaobject>
+			</figure>
+
+			<figure>
+				<title>Aviso acerca del certificado del servidor web I</title>
+					<mediaobject>
+						<imageobject>
+							<imagedata fileref="./imagenes/lam-configuracion-certificado1.png" format="PNG"/>
+						</imageobject>
+					
+						<caption><para>Como se ha accedido a la interfaz web de <acronym>CUPS</acronym>
+						vía el puerto seguro y debido a que la entidad certificadora que se ha creado para las
+						conexiones <acronym>SSL</acronym>/<acronym>TLS</acronym> es desconocida,
+						sale este aviso. Pulse sobre el botón <emphasis>Detalles</emphasis>
+						para obtener más información.</para></caption>
+				</mediaobject>
+			</figure>
+	
+			<figure>
+				<title>Información <acronym>SSL</acronym></title>
+					<mediaobject>
+						<imageobject>
+							<imagedata fileref="./imagenes/lam-configuracion-certificado2.png" format="PNG"/>
+						</imageobject>
+					
+						<caption><para>En esta pantalla se muestra la información del certificado y la
+						entidad certificadora que ha creado dicho certificado. Pulse
+						sobre el botón <emphasis>Cerrar</emphasis> para continuar.</para></caption>
+				</mediaobject>
+			</figure>
+	
+			<figure>
+				<title>Aviso acerca del certificado del servidor web II</title>
+					<mediaobject>
+						<imageobject>
+							<imagedata fileref="./imagenes/lam-configuracion-certificado3.png" format="PNG"/>
+						</imageobject>
+					
+						<caption><para>Pulse ahora sobre el botón <emphasis>Continuar</emphasis> para
+						seguir con la carga de la página.</para></caption>
+				</mediaobject>
+			</figure>
+	
+			<figure>
+				<title>Período de aceptación del certificado</title>
+					<mediaobject>
+						<imageobject>
+							<imagedata fileref="./imagenes/lam-configuracion-certificado4.png" format="PNG"/>
+						</imageobject>
+					
+						<caption><para>Seleccione la opción deseada y pulse sobre ella.</para></caption>
+				</mediaobject>
+			</figure>
+
+			<figure>
+				<title>Administrando clases</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora2.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Una vez se tenga acceso al interfaz de administración web de
+						<acronym>CUPS</acronym>, pulse sobre el enlace
+						<quote>Do Administration Tasks</quote>.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+			<figure>
+				<title>Clave del administrador</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora4.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Introduzca un usuario con permisos de administración para el sistema
+						de impresión, así como su clave.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+			<figure>
+				<title>Añadiendo una clase</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-clase1.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Para comenzar el proceso de adición de una clase, pulse sobre el
+						botón <quote>Add Class</quote>.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+			<figure>
+				<title>Información sobre la clase</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-clase2.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Teclee la información relativa a la clase y pulse sobre el botón
+						<quote>Continue</quote>.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title>Miembros de la clase</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-clase3.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Seleccione las impresoras que van a pertenecer a la clase y pulse
+						sobre el botón <quote>Continue</quote>.</para>
+
+						<warning><para>En las pruebas realizadas desde la interfaz web de <acronym>CUPS</acronym>
+						por el puerto seguro <emphasis>6443</emphasis>, no se ha conseguido que se
+						muestren las impresoras existentes. Por este motivo
+						se ha seguido, a partir de este punto, la configuración por el puerto estandar:
+						el 631.</para>
+
+						<para>Para conseguir esto, se han de comentar (o cambiar al valor adecuado)
+						las directivas <emphasis>Encryption</emphasis> de los directorios
+						<filename class="directory">/admin</filename> y
+						<filename class="directory">/jobs</filename> del archivo de configuración
+						<filename>/etc/cups/cupsd.conf</filename> (más datos sobre
+						estas directivas en la
+						<xref linkend="cups-configuracion-modificacion-conf-cups-cupsd.conf-security-options"/>).</para>
+						</warning>
+					</caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title>Nueva clase lista</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-clase4.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Esta pantalla informa que se acaba de crear satisfactoriamente la nueva
+						clase. Para ver los detalles de la misma, pulse sobre el enlace
+						<quote>Profesional</quote>.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+			<figure>
+				<title>Información sobre la clase <emphasis>Profesional</emphasis></title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-clase5.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Desde esta ventana se puede realizar la administración de la
+						clase <emphasis>Profesional</emphasis>.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+		</sect3>
+
+		<sect3 id="cups-configuracion-adicion-clase-kde">
+			<title>Añadiendo una clase desde <acronym>KDE</acronym></title>
+
+			<para>En esta sección se mostrará el proceso seguido para añadir una clase
+			desde la el administrador de impresión de <acronym>KDE</acronym>.</para>
+
+			<figure>
+				<title>Arrancando el administrador de impresión</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora12.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Acceda al menú de <acronym>KDE</acronym>, y seleccione la
+						herramienta <emphasis>Administrador de impresión</emphasis> desde el
+						mismo; o bien teclee la orden <command>/usr/bin/kcmshell printers</command>.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+			<figure>
+				<title>Administrador de impresión</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-clase6.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>En esta pantalla se puede observar el estado actual del sistema
+						de impresión. A parte de las impresoras que se han añadido anteriormente
+						aparece también la nueva clase que se acaba de añadir.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title>Nueva clase</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-clase7.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Para añadir una nueva clase, pulse sobre el botón <quote>Añadir</quote>
+						y seguidamente sobre la opción <emphasis>Añadir impresora/clase...</emphasis></para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title>Bienvenida al asistente de impresión de KDE</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-impresora15.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Esta pantalla nos da la bienvenida al asistente que guiará el proceso de
+						adición de una nueva clase al sistema. Pulse sobre el botón
+						<quote>Siguiente</quote> para continuar.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title>Selección de la clase impresora</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-clase8.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>En esta pantalla se selecciona el tipo de impresora que se va a añadir al
+						sistema. En este caso, se va a añadir una clase de impresora, por lo que se
+						selecciona la opción <emphasis>Clase de impresora</emphasis> y se pulsa
+						sobre el botón <quote>Siguiente</quote>.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title>Composición de la clase</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-clase9.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Seleccione las impresoras que formarán parte de la clase
+						que se está creando. Una vez seleccionadas, pulse sobre el botón
+						<quote>Siguiente</quote> para continuar.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title>Información sobre la clase</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-clase10.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Complete la información relativa a la nueva clase, y pulse
+						sobre el botón <quote>Siguiente</quote> para continuar.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+
+			<figure>
+				<title>Confirmación de la creación de la nueva clase</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-clase11.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Antes de añadir la nueva clase al sistema, revise los
+						datos de la misma, y una vez esté seguro de que todo está
+						correcto, pulse sobre el botón <quote>Finalizar</quote>, lo que
+						creará la nueva clase en el sistema.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+			<figure>
+				<title>Nueva clase <emphasis>Color</emphasis></title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-clase12.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Se puede apreciar en el directorio de clases la aparición de una nueva entrada,
+						en este caso la clase <emphasis>Color</emphasis>.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+		</sect3>
+
+		<sect3 id="cups-configuracion-adicion-resto-clases">
+			<title>Añadiendo el resto de clases</title>
+
+			<para>El proceso de creación de nuevas clases se ha realizado para cada una de las clases
+			que se muestran en el esquema de la <xref linkend="cups-configuracion-intro"/>,
+			obteniéndose finalmente:</para>
+
+			<figure>
+				<title>Listado de clases</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-aniadir-clase13.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Clases que conforman la red organizacional del esquema mostrado en la
+						<xref linkend="cups-configuracion-intro"/>.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+		</sect3>
+
+		<sect3 id="cups-configuracion-probando-clases">
+			<title>Probando la impresión en las clases</title>
+
+			<para>A continuación se realizará una prueba de impresión sobre una clase
+			de impresoras, para comprobar que funciona. Para ello, ejecute el
+			administrador de impresión de <acronym>KDE</acronym> y seleccione
+			la clase sobre la cual quiera hacer la prueba.</para>
+
+			<figure>
+				<title>Realizando una prueba de impresión sobre una clase</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-prueba-impresion1.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Seleccione una clase sobre la cual realizar la prueba de impresión,
+						y luego acceda a la pestaña <emphasis>Instancias</emphasis> y pulse
+						sobre el botón <quote>Probar...</quote></para>
+
+						<para>Esta acción enviará una prueba de impresión a la clase
+						que haya seleccionado.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+			<figure>
+				<title>Confirmación del envío de la prueba de impresión</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-prueba-impresion2.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>El sistema pide confirmación para realizar la prueba de impresión,
+						pulse sobre <quote>Imprimir página de prueba</quote> para continuar.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+			<figure>
+				<title>Información de envío</title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/cupsys-prueba-impresion3.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>El sistema informa de que la página de prueba ha sido enviada
+						a la clase seleccionada.</para>
+
+						<para>Si ahora echa un vistazo a los logs de <acronym>CUPS</acronym>,
+						más concretamente al archivo de log
+						<filename>/var/log/cups/page_log</filename>, ha de ver una entrada
+						similar a:</para>
+
+<programlisting>Sublimacion sergio 2 [10/Oct/2004:19:52:05 +0200] 1 1 - localhost</programlisting>
+
+						<para>Finalmente, si mira en el directorio
+						<filename class="directory">cups-pdf</filename> localizado en el
+						HOME del usuario que ha realizado la prueba de impresión, tendrá
+						que ver un archivo <acronym>PDF</acronym> denominado
+						<filename>Test_Page.pdf</filename>, cuyo contenido será
+						similar al mostrado en la imagen
+						<xref linkend="cups-prueba-impresion"/>.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+		</sect3>
+
+	</sect2>
+</sect1>
+
+<sect1 id="cups-configuracion-controladores">
+	<title>Instalación de los controladores de impresión para los equipos MS Windows</title>
+
+	<para><acronym>CUPS</acronym> no da soporte, directamente, a los clientes
+	MS Windows; para ello se ha de hacer uso de Samba. La forma de hacerlo, es
+	compartiendo las impresoras gestionadas por <acronym>CUPS</acronym> en
+	Samba, como ya se ha visto en los capítulos dedicados a Samba
+	(<xref linkend="samba-parte"/>).</para>
+
+	<para>En esta sección se verá la forma de exportar los controladores de impresión para los
+	equipos MS Windows. Los controladores se almacenan en la instalación de <acronym>CUPS</acronym>,
+	y se comparten, vía Samba, con los clientes MS Windows. Para realizar esta labor,
+	se puede hacer uso de la herramienta <command>cupsaddsmb</command>.</para>
+
+	<para><command>cupsaddsmb</command> transfiere los controladores de impresión
+	al recurso Samba <emphasis>[print$]</emphasis>. Recuerde que los clientes
+	esperan tener los controladores almacenados en este recurso, al que accederán
+	en el momento de la instalación para bajarse los controladores de impresión.</para>
+
+	<para><command>cupsaddsmb</command> facilita la compartición de cualquier
+	(o todas) impresora <acronym>CUPS</acronym> instalada en el sistema. También
+	puede utilizar los controladores PostScript de Adobe así como los
+	controladores PostScript de <acronym>CUPS</acronym> para Windows NT/2000/XP.</para>
+
+	<para>Los controladores de impresión de <acronym>CUPS</acronym> se pueden obtener
+	desde la sección <emphasis>download</emphasis> de la página de <acronym>CUPS</acronym>.
+	El paquete de controladores se denomina <emphasis>cups-samba-[version].tar.gz</emphasis>.</para>
+
+	<para>Actualmente, <acronym>CUPS</acronym> provee controladores para los clientes
+	Windows NT, 2000 y XP, pero no para los clientes Windows 95, 98 y ME. Estos últimos
+	han de utilizar los drivers que provee Adobe.</para>
+
+	<para>Antes de poder exportar los controladores de impresión, estos se han de ubicar
+	en el directorio <filename class="directory">/usr/share/cups/drivers/</filename>.
+	Las siguientes secciones mostrarán como <quote>instalar</quote> los
+	controladores PostScript de <acronym>CUPS</acronym> y Adobe en este directorio.</para>
+
+
+	<sect2 id="cups-configuracion-controladores-cups">
+		<title>Instalación de los controladores PostScript de <acronym>CUPS</acronym> para Windows
+		NT/2000/XP</title>
+
+		<para>Antes de proceder con la instalación, ha de bajarse los controladores
+		de la página de <acronym>CUPS</acronym><footnote><para>En el momento de generar
+		esta documentación, la versión de estos controladores era la
+		<emphasis>5.0rc3</emphasis></para></footnote>.</para>
+
+		<para>Se supone que el paquete con los controladores se encuentra en el
+		directorio <filename class="directory">/tmp</filename>, por lo que se procederá,
+		en primer lugar, a su desempaquetado:</para>
+
+		<example id="cups-configuracion-controladores-cups-ex1">
+			<title>Desempaquetado de los controladores PostScript de <acronym>CUPS</acronym></title>
+
+<screen><prompt>$</prompt> <userinput>/bin/tar xzvf /tmp/cups-samba-5.0rc3.tar.gz -C /tmp</userinput>
+<computeroutput>cups-samba.install
+cups-samba.license
+cups-samba.readme
+cups-samba.remove
+cups-samba.ss</computeroutput></screen>
+		</example>
+
+		<para>Como el proceso de instalación de los controladores PostScript de
+		<acronym>CUPS</acronym> es muy sencillo, no se va a utilizar el
+		script de instalación, <filename>cups-samba.install</filename>, que
+		adjuntan.</para>
+
+		<para>El archivo <filename>cups-samba.ss</filename> no es más
+		que un archivo <emphasis>tar</emphasis><footnote><screen><prompt>$</prompt> <userinput>/usr/bin/file /tmp/cups-samba.ss</userinput>
+<computeroutput>cups-samba.ss: tar archive</computeroutput></screen></footnote>,
+		cuyo contenido son los controladores en cuestión. Por este motivo se desempaquetará
+		en el directorio <filename class="directory">/usr/share/cups/drivers/</filename>,
+		como se muestra en el siguiente ejemplo:</para>
+
+		<example id="cups-configuracion-controladores-cups-ex2">
+			<title>Desempaquetado de los controladores PostScript de <acronym>CUPS</acronym>
+			en el directorio <filename class="directory">/usr/share/cups/drivers/</filename></title>
+
+<screen><prompt>#</prompt> <userinput>/bin/mkdir -v -m 755 /usr/share/cups/drivers/</userinput>
+<computeroutput>/bin/mkdir: se ha creado el directorio `/usr/share/cups/drivers/'</computeroutput>
+<prompt>#</prompt> <userinput>/bin/tar xvf /tmp/cups-samba.ss -C /</userinput>
+<computeroutput>/usr/share/cups/drivers/cups5.hlp
+/bin/tar: Removing leading `/' from member names
+/usr/share/cups/drivers/cupsdrv5.dll
+/usr/share/cups/drivers/cupsui5.dll</computeroutput></screen>
+		</example>
+
+		<para>A partir de este momento ya se encuentran disponibles los controladores
+		PostScript de <acronym>CUPS</acronym> para Windows NT/2000/XP disponibles. Ahora
+		sólo queda exportarlos en Samba, operación que se verá más adelante
+		(<xref linkend="cups-configuracion-controladores-cupsaddsmb"/>).</para>
+	</sect2>
+
+	<sect2 id="cups-configuracion-controladores-adobe">
+		<title>Instalación de los controladores PostScript de Adobe</title>
+
+		<para>Adobe proporciona controladores PostScript para los sistemas
+		MS Windows 95/98/ME así como para MS Windows NT/2000/XP. Estos se pueden obtener
+		de su página web, <ulink url="http://www.adobe.com/">http://www.adobe.com/</ulink>.</para>
+
+		<para>Los controladores PostScript de Adobe, actualmente, vienen en un archivo
+		autoinstalable para los sistemas MS Windows, por lo que se tendrá que hacer uso
+		de <xref linkend="wine"/> para obtenerlos.</para>
+
+		<para>En primer lugar se ha de bajar el archivo que los contiene, que en este caso
+		se denomina <filename>winstspa.exe</filename> (se corresponde con la versión
+		española de estos controladores).</para>
+
+		<para>Ahora se ha de ejecutar el instalador, para ello se hace uso de
+		<application>wine</application>, como se muestra en el siguiente ejemplo:</para>
+
+		<note><para>Se supone que <application>wine</application> ya se encuentra instalado
+		y correctamente configurado.</para></note>
+
+		<example id="cups-configuracion-controladores-adobe-wine1">
+			<title>Ejecución del instalador de controladores PostScript de Adobe con Wine
+			(primera parte)</title>
+
+<screen><prompt>$</prompt> <userinput>/usr/bin/wine winstspa.exe</userinput></screen>
+		</example>
+
+		<para>Tras la ejecución de la orden del ejemplo anterior, comenzará el proceso de instalación
+		de los controladores PostScript de Adobe en el sistema. Vea las siguientes
+		capturas para más detalles:</para>
+
+		<figure>
+			<title>Proceso de descompresión de los controladores y archivos de instalación</title>
+			<mediaobject>
+				<imageobject>
+					<imagedata fileref="./imagenes/cupsys-drivers-adobe1.png" format="PNG"/>
+				</imageobject>
+		
+				<caption>
+					<para>Justo después de ejecutar el instalador, se procede a la descompresión
+					de los controladores PostScript y de los archivos necesarios para la
+					instalación en los sistemas MS Windows.</para>
+
+					<para>Estos archivos son copiados al directorio
+					<filename class="directory">C:\Windows\Temp\</filename>, que en el caso
+					del sistema donde se ha ejecutado Wine, se encuentra bajo el directorio
+					<filename class="directory">$HOME/.wine/fake_windows/Windows/Temp</filename>.</para>
+
+					<para>El proceso de instalación creará un directorio temporal, cuyo nombre será
+					similar a <filename class="directory">pft3405~tmp</filename>. Este
+					directorio se creará bajo el directorio
+					<filename class="directory">$HOME/.wine/fake_windows/Windows/Temp</filename>,
+					y es ahí de donde se obtendrán los controladores PostScript de Adobe.</para>
+				</caption>
+			</mediaobject>
+		</figure>
+	
+		<figure>
+			<title>Comienza el proceso de instalación</title>
+			<mediaobject>
+				<imageobject>
+					<imagedata fileref="./imagenes/cupsys-drivers-adobe2.png" format="PNG"/>
+				</imageobject>
+		
+				<caption>
+					<para>Tras descomprimir los archivos necesarios para la instalación,
+					se ejecutará el instalador de los controladores PostScript de Adobe.</para>
+				</caption>
+			</mediaobject>
+		</figure>
+	
+		<figure>
+			<title>Pantalla de bienvenida del instalador</title>
+			<mediaobject>
+				<imageobject>
+					<imagedata fileref="./imagenes/cupsys-drivers-adobe3.png" format="PNG"/>
+				</imageobject>
+		
+				<caption>
+					<para>Una vez se ha llegado a la pantalla de bienvenida del instalador
+					de los controladores PostScript de Adobe, se puede terminar la ejecución
+					del programa.</para>
+
+					<important><para>No cancele la instalación desde el programa de instalación
+					de los controladores (ya que esto haría que se borrasen del sistema), simplemente
+					finalice la ejecución de Wine, bien sea matando el proceso o
+					pulsando la combinación de teclas <keycombo action='simul'><keycap>Ctrl</keycap>
+					<keycap>c</keycap></keycombo>, siempre y cuando esté ejecutando Wine desde
+					un terminal, por ejemplo.</para></important>
+				</caption>
+			</mediaobject>
+		</figure>
+
+		<example id="cups-configuracion-controladores-adobe-wine2">
+			<title>Ejecución del instalador de controladores PostScript de Adobe con Wine
+			(segunda parte)</title>
+
+<screen><prompt>$</prompt> <userinput>/usr/bin/wine winstspa.exe [<keycombo action='simul'><keycap>Ctrl</keycap><keycap>c</keycap></keycombo>]</userinput>
+<prompt>$</prompt> <userinput>cd ~/.wine/fake_windows/Windows/Temp</userinput>
+<prompt>$</prompt> <userinput>/usr/bin/tree</userinput>
+<computeroutput>.
+|-- pftc3c~tmp
+|   |-- DATA.TAG
+|   |-- Leame.wri
+|   |-- SETUP.INI
+|   |-- Setup.exe
+|   |-- Win2000 <co id="co-controladores-win2k"/>
+|   |   |-- DEFPRTR2.PPD
+|   |   |-- PS5UI.DLL
+|   |   |-- PSCRIPT.HLP
+|   |   |-- PSCRIPT.NTF
+|   |   |-- PSCRIPT5.DLL
+|   |   `-- PSCRPTFE.NTF
+|   |-- WinNT <co id="co-controladores-winnt"/>
+|   |   |-- ADOBEPSU.HLP
+|   |   |-- AdobeJpn.ntf
+|   |   |-- AdobeKor.ntf
+|   |   |-- AdobePS5.dll
+|   |   |-- AdobePS5.ntf
+|   |   |-- AdobeZhS.ntf
+|   |   |-- AdobeZhT.ntf
+|   |   |-- DEFPRTR2.PPD
+|   |   `-- adobepsu.dll
+|   |-- WinXP <co id="co-controladores-winxp"/>
+|   |   |-- DEFPRTR2.PPD
+|   |   |-- PS5UI.DLL
+|   |   |-- PSCRIPT.HLP
+|   |   |-- PSCRIPT.NTF
+|   |   |-- PSCRIPT5.DLL
+|   |   `-- PSCRPTFE.NTF
+|   |-- Windows <co id="co-controladores-win9x"/>
+|   |   |-- ADOBEPS4.DRV
+|   |   |-- ADOBEPS4.HLP
+|   |   |-- DEFPRTR2.PPD
+|   |   |-- ICONLIB.DLL
+|   |   |-- PSMON.DLL
+|   |   `-- adfonts.mfm
+|   |-- _INST32I.EX_
+|   |-- _ISDel.exe
+|   |-- _Setup.dll
+|   |-- _sys1.cab
+|   |-- _sys1.hdr
+|   |-- _user1.cab
+|   |-- _user1.hdr
+|   |-- data1.cab
+|   |-- data1.hdr
+|   |-- lang.dat
+|   |-- layout.bin
+|   |-- os.dat
+|   |-- pftw1.pkg
+|   |-- setup.bmp
+|   |-- setup.ins
+|   `-- setup.lid
+`-- plfa2b.tmp
+
+5 directories, 48 files</computeroutput></screen>
+
+			<calloutlist>
+				<callout arearefs="co-controladores-win2k">
+					<para>Controladores PostScript de Adobe para MS Windows 2000.</para>
+				</callout>
+				<callout arearefs="co-controladores-winnt">
+					<para>Controladores PostScript de Adobe para MS Windows NT.</para>
+				</callout>
+				<callout arearefs="co-controladores-winxp">
+					<para>Controladores PostScript de Adobe para MS Windows XP.</para>
+				</callout>
+				<callout arearefs="co-controladores-win9x">
+					<para>Controladores PostScript de Adobe para MS Windows 9x.</para>
+				</callout>
+			</calloutlist>
+		</example>
+
+		<para>En el <xref linkend="cups-configuracion-controladores-adobe-wine2"/> se ha
+		mostrado el listado de controladores PostScript que provee Adobe. Antes
+		de copiarlos al directorio <filename class="directory">/usr/share/cups/drivers</filename>
+		se van a renombrar, de forma que queden todos los archivos en mayúsculas.
+		El proceso se muestra a continuación:</para>
+
+		<example id="cups-configuracion-controladores-adobe-wine3">
+			<title>Convirtiendo a mayúsculas los controladores PostScript de Adobe</title>
+
+			<para>En este ejemplo se hace uso del script presente en el
+			<xref linkend="uppercase"/>. Se supone que el script está almacenado
+			en el directorio <filename class="directory">/usr/local/bin</filename>.</para>
+
+<screen><prompt>$</prompt> <userinput>cd ~/.wine/fake_windows/Windows/Temp/pftc3c~tmp</userinput>
+<prompt>$</prompt> <userinput>for x in "Win2000/* Windows/* WinNT/* WinXP/*";
+> do
+>    /bin/bash /usr/local/bin/uppercase $x;
+> done</userinput>
+<computeroutput>/usr/local/bin/uppercase: Win2000/DEFPRTR2.PPD not changed.
+/usr/local/bin/uppercase: Win2000/PS5UI.DLL not changed.
+/usr/local/bin/uppercase: Win2000/PSCRIPT5.DLL not changed.
+/usr/local/bin/uppercase: Win2000/PSCRIPT.HLP not changed.
+/usr/local/bin/uppercase: Win2000/PSCRIPT.NTF not changed.
+/usr/local/bin/uppercase: Win2000/PSCRPTFE.NTF not changed.
+/usr/local/bin/uppercase: Windows/adfonts.mfm -> Windows/ADFONTS.MFM
+/usr/local/bin/uppercase: Windows/ADOBEPS4.DRV not changed.
+/usr/local/bin/uppercase: Windows/ADOBEPS4.HLP not changed.
+/usr/local/bin/uppercase: Windows/DEFPRTR2.PPD not changed.
+/usr/local/bin/uppercase: Windows/ICONLIB.DLL not changed.
+/usr/local/bin/uppercase: Windows/PSMON.DLL not changed.
+/usr/local/bin/uppercase: WinNT/AdobeJpn.ntf -> WinNT/ADOBEJPN.NTF
+/usr/local/bin/uppercase: WinNT/AdobeKor.ntf -> WinNT/ADOBEKOR.NTF
+/usr/local/bin/uppercase: WinNT/AdobePS5.dll -> WinNT/ADOBEPS5.DLL
+/usr/local/bin/uppercase: WinNT/AdobePS5.ntf -> WinNT/ADOBEPS5.NTF
+/usr/local/bin/uppercase: WinNT/adobepsu.dll -> WinNT/ADOBEPSU.DLL
+/usr/local/bin/uppercase: WinNT/ADOBEPSU.HLP not changed.
+/usr/local/bin/uppercase: WinNT/AdobeZhS.ntf -> WinNT/ADOBEZHS.NTF
+/usr/local/bin/uppercase: WinNT/AdobeZhT.ntf -> WinNT/ADOBEZHT.NTF
+/usr/local/bin/uppercase: WinNT/DEFPRTR2.PPD not changed.
+/usr/local/bin/uppercase: WinXP/DEFPRTR2.PPD not changed.
+/usr/local/bin/uppercase: WinXP/PS5UI.DLL not changed.
+/usr/local/bin/uppercase: WinXP/PSCRIPT5.DLL not changed.
+/usr/local/bin/uppercase: WinXP/PSCRIPT.HLP not changed.
+/usr/local/bin/uppercase: WinXP/PSCRIPT.NTF not changed.
+/usr/local/bin/uppercase: WinXP/PSCRPTFE.NTF not changed.</computeroutput></screen>
+		</example>
+
+		<para>Ahora sólo queda copiar los controladores necesarios al directorio
+		<filename class="directory">/usr/share/cups/drivers</filename>. El siguiente
+		ejemplo muestra como hacerlo:</para>
+
+		<example id="cups-configuracion-controladores-adobe-wine4">
+			<title>Copiando los controladores PostScript de Adobe a
+			<filename class="directory">/usr/share/cups/drivers</filename></title>
+
+			<para>Sustituya la variable <emphasis>$HOME</emphasis>, por el
+			directorio home del usuario donde se encuentran los controladores
+			PostScript de Adobe.</para>
+
+			<para>El contenido del script <emphasis>mover-controladores</emphasis>
+			se encuentra en el <xref linkend="mover-controladores"/>.</para>
+
+<screen><prompt>#</prompt> <userinput>cd $HOME/.wine/fake_windows/Windows/Temp/pftc3c~tmp</userinput>
+<prompt>#</prompt> <userinput>/bin/bash /usr/local/bin/mover-controladores</userinput>
+<computeroutput>`PATH/Windows/ADFONTS.MFM' -> `/usr/share/cups/drivers/ADFONTS.MFM'
+`PATH/Windows/ADOBEPS4.DRV' -> `/usr/share/cups/drivers/ADOBEPS4.DRV'
+`PATH/Windows/ADOBEPS4.HLP' -> `/usr/share/cups/drivers/ADOBEPS4.HLP'
+`PATH/WinNT/DEFPRTR2.PPD' -> `/usr/share/cups/drivers/DEFPRTR2.PPD'
+`PATH/WinXP/DEFPRTR2.PPD' -> `/usr/share/cups/drivers/DEFPRTR2.PPD'
+`PATH/Win2000/DEFPRTR2.PPD' -> `/usr/share/cups/drivers/DEFPRTR2.PPD'
+`PATH/Windows/DEFPRTR2.PPD' -> `/usr/share/cups/drivers/DEFPRTR2.PPD'
+`PATH/Windows/ICONLIB.DLL' -> `/usr/share/cups/drivers/ICONLIB.DLL'
+`PATH/Windows/PSMON.DLL' -> `/usr/share/cups/drivers/PSMON.DLL'
+`PATH/WinNT/ADOBEPS5.DLL' -> `/usr/share/cups/drivers/ADOBEPS5.DLL'
+`PATH/WinNT/ADOBEPSU.DLL' -> `/usr/share/cups/drivers/ADOBEPSU.DLL'
+`PATH/WinNT/ADOBEPSU.HLP' -> `/usr/share/cups/drivers/ADOBEPSU.HLP'
+el modo de `/usr/share/cups/drivers/ADFONTS.MFM' cambia a 0644 (rw-r--r--)
+el modo de `/usr/share/cups/drivers/ADOBEPS4.DRV' cambia a 0644 (rw-r--r--)
+el modo de `/usr/share/cups/drivers/ADOBEPS4.HLP' cambia a 0644 (rw-r--r--)
+el modo de `/usr/share/cups/drivers/ADOBEPS5.DLL' cambia a 0644 (rw-r--r--)
+el modo de `/usr/share/cups/drivers/ADOBEPSU.DLL' cambia a 0644 (rw-r--r--)
+el modo de `/usr/share/cups/drivers/ADOBEPSU.HLP' cambia a 0644 (rw-r--r--)
+el modo de `/usr/share/cups/drivers/cups5.hlp' cambia a 0644 (rw-r--r--)
+el modo de `/usr/share/cups/drivers/cupsdrv5.dll' cambia a 0644 (rw-r--r--)
+el modo de `/usr/share/cups/drivers/cupsui5.dll' cambia a 0644 (rw-r--r--)
+el modo de `/usr/share/cups/drivers/DEFPRTR2.PPD' cambia a 0644 (rw-r--r--)
+el modo de `/usr/share/cups/drivers/ICONLIB.DLL' cambia a 0644 (rw-r--r--)
+el modo de `/usr/share/cups/drivers/PSMON.DLL' cambia a 0644 (rw-r--r--)</computeroutput></screen>
+		</example>
+
+	</sect2>
+
+	<sect2 id="cups-configuracion-controladores-cupsaddsmb">
+		<title>Exportando los controladores con <command>cupsaddsmb</command></title>
+
+		<para>Una vez copiados los controladores de impresión PostScript, tanto de 
+		Adobe como de <acronym>CUPS</acronym> al directorio
+		<filename class="directory">/usr/share/cups/drivers/</filename>, se han
+		de exportar en Samba; para ello se hará uso de la herramienta
+		<command>cupsaddsmb</command>.</para>
+
+		<para>A parte de exportar los controladores de Adobe y <acronym>CUPS</acronym>,
+		también se exportarán los controladores de las impresoras que se han
+		añadido en la <xref linkend="cups-configuracion-adicion-impresoras"/>.</para>
+
+		<note><para>Actualmente en el directorio
+		<filename class="directory">/usr/share/cups/drivers/</filename> se encuentran
+		los controladores PostScript, para MS Windows NT/2000/XP, tanto de
+		<acronym>CUPS</acronym> como de Adobe. Al exportar dichos controladores
+		con la herramienta <command>cupsaddsmb</command>, esta priorizará
+		la instalación de los controladores creados por el proyecto
+		<acronym>CUPS</acronym>, sobre los creados por Adobe.</para>
+
+		<para>Esto significa que exportará los controladores del proyecto
+		<acronym>CUPS</acronym> para los sistemas operativos
+		MS Windows NT/2000/XP, en lugar de los controladores que provee
+		Adobe; y los controladores de Adobe para los sistemas operativos
+		MS Windows 95/98/ME.</para></note>
+
+		<para>El siguiente ejemplo mostrará como realizar esta operación:</para>
+
+		<example id="cups-configuracion-controladores-adobe-wine5">
+			<title>Exportando los controladores de impresión con <command>cupsaddsmb</command></title>
+
+			<para>La opción <emphasis>-a</emphasis> le dice a la orden
+			<command>cupsaddsmb</command> que añada todas las impresoras
+			presentes en el sistema.</para>
+
+<screen><prompt>$</prompt> <userinput>/usr/bin/tree /var/lib/samba/printers</userinput>
+<computeroutput>
+/var/lib/samba/printers
+|-- W32X86
+`-- WIN40
+
+2 directories, 0 files</computeroutput>
+<prompt>$</prompt> <userinput>/usr/sbin/cupsaddsmb -U root -a</userinput>
+<computeroutput>Password for root required to access localhost via SAMBA:</computeroutput> <userinput>[Clave]</userinput>
+<prompt>$</prompt> <userinput>/usr/bin/tree /var/lib/samba/printers</userinput>
+<computeroutput>/var/lib/samba/printers
+|-- W32X86 <co id="co-controladores-para-win2k"/>
+|   `-- 2
+|       |-- InyeccionBN.ppd
+|       |-- InyeccionColor.ppd
+|       |-- LaserBN.ppd
+|       |-- LaserColor.ppd
+|       |-- Multifuncion.ppd
+|       |-- Plotter.ppd
+|       |-- Sublimacion.ppd
+|       |-- cups5.hlp
+|       |-- cupsdrv5.dll
+|       `-- cupsui5.dll
+`-- WIN40 <co id="co-controladores-para-win9x"/>
+    `-- 0
+        |-- ADFONTS.MFM
+        |-- ADOBEPS4.DRV
+        |-- ADOBEPS4.HLP
+        |-- DEFPRTR2.PPD
+        |-- ICONLIB.DLL
+        |-- InyeccionBN.PPD
+        |-- InyeccionColor.PPD
+        |-- LaserBN.PPD
+        |-- LaserColor.PPD
+        |-- Multifuncion.PPD
+        |-- PSMON.DLL
+        |-- Plotter.PPD
+        `-- Sublimacion.PPD
+
+4 directories, 23 files</computeroutput></screen>
+
+			<calloutlist>
+				<callout arearefs="co-controladores-para-win2k">
+					<para>Controladores de impresión para MS Windows NT/2000/XP exportados
+					mediante samba, gracias al recurso [print$]</para>
+				</callout>
+				<callout arearefs="co-controladores-para-win9x">
+					<para>Controladores de impresión para MS Windows 95/98/ME exportados
+					mediante samba, gracias al recurso [print$]</para>
+				</callout>
+			</calloutlist>
+		</example>
+
+		<note><para>En el <xref linkend="cupsaddsmb"/> se muestra la ejecución
+		de la orden <command>cupsaddsmb</command> con la opción <emphasis>-v</emphasis>
+		(modo <emphasis>verbose</emphasis>).</para></note>
+
+
+		<para>Una vez finalizada la exportación de los controladores de impresión,
+		ya se tendría el sistema preparado para que los clientes MS Windows
+		hagan uso de las impresoras administradas por <acronym>CUPS</acronym>.</para>
+	</sect2>
+</sect1>
+
+<sect1 id="cups-configuracion-impresion-samba">
+	<title>Impresión desde Samba</title>
+
+	<note><para>Como para la realización de esta documentación no se ha tenido acceso a un
+	sistema MS Windows, no se ha podido comprobar el funcionamiento de la impresión
+	desde dicho sistema operativo.</para></note>
+
+	<para>En esta sección se va a comprobar que las impresoras están realmente presentes
+	en samba, para ello se va a añadir una impresora, compartida por Samba, al sistema.
+	Pero antes de realizar esta operación, se verán los recursos compartidos por
+	Samba, tras la incorporación de <acronym>CUPS</acronym> al sistema:</para>
+
+	<example id="cups-configuracion-impresion-samba-ex1">
+		<title>Recursos compartidos por Samba, tras la instalación de <acronym>CUPS</acronym></title>
+
+<screen><prompt>$</prompt> <userinput>/usr/bin/smbclient -L TODOSCSI -U gsruser</userinput>
+<computeroutput>Password:</computeroutput> <userinput>[Clave]</userinput>
+<computeroutput>Domain=[GSRDOMAIN] OS=[Unix] Server=[Samba 3.0.7-Debian]
+
+        Sharename       Type      Comment
+        ---------       ----      -------
+        netlogon        Disk      Network Logon Service
+        print$          Disk      Printer Drivers
+        tmp             Disk      Temporal
+        cdrom           Disk      Samba server's CD-ROM
+        IPC$            IPC       IPC Service (SAMBA-LDAP PDC server)
+        ADMIN$          IPC       IPC Service (SAMBA-LDAP PDC server)
+        InyeccionBN     Printer   Impresora de inyeccion de tinta a Blanco y Negro
+        LaserBN         Printer   Impresora Laser a Blanco y Negro
+        LaserColor      Printer   Impresora Laser a Color
+        Multifuncion    Printer   Impresora multifuncion
+        Plotter         Printer   Plotter de impresion
+        Barato          Printer   Impresoras para imprimir a bajo coste
+        Sublimacion     Printer   Impresora de sublimacion
+        BlancoNegro     Printer   Impresion a Blanco y Negro
+        Color           Printer   Impresoras a color
+        Laser           Printer   Impresion a Laser
+        Profesional     Printer   Impresoras para trabajos de calidad
+        gsruser         Disk      Home Directories
+Domain=[GSRDOMAIN] OS=[Unix] Server=[Samba 3.0.7-Debian]
+
+        Server               Comment
+        ---------            -------
+        TODOSCSI             SAMBA-LDAP PDC server
+
+        Workgroup            Master
+        ---------            -------
+        GSRDOMAIN            TODOSCSI</computeroutput></screen>
+	</example>
+
+	<para>Se puede comprobar en el ejemplo anterior, que ya se encuentran disponibles varias
+	impresoras en Samba. A continuación se añadirá una impresora, compartida
+	por Samba, al sistema. Para ello se hará uso del administrador de impresión
+	de <acronym>KDE</acronym>.</para>
+
+	<note><para>Esta operación no tiene mucho sentido en un sistema <acronym>GNU</acronym>/Linux,
+	pero sirva este ejemplo como muestra de las posibilidades que brinda el sistema.</para></note>
+
+	<figure>
+		<title>Arrancando el administrador de impresión</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/cupsys-aniadir-impresora12.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>Acceda al menú de <acronym>KDE</acronym>, y seleccione la
+				herramienta <emphasis>Administrador de impresión</emphasis> desde el
+				mismo; o bien teclee la orden <command>/usr/bin/kcmshell printers</command>.</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Nueva impresora</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/cupsys-aniadir-samba1.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>Para añadir una nueva impresora, pulse sobre el botón
+				<quote>Añadir</quote> y seguidamente sobre la opción
+				<emphasis>Añadir impresora/clase...</emphasis></para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Bienvenida al asistente de impresión de <acronym>KDE</acronym></title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/cupsys-aniadir-impresora15.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>Esta pantalla nos da la bienvenida al asistente que guiará el
+				proceso de adición de una nueva impresora al sistema. Pulse sobre el
+				botón <quote>Siguiente</quote> para continuar.</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Selección del tipo de impresora</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/cupsys-aniadir-samba2.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>En esta pantalla se selecciona el tipo de impresora que se va
+				a añadir al sistema. En este caso, se va a añadir una impresora
+				compartida por Samba, por lo que se selecciona la opción <emphasis>Impresora
+				compartida SMB (Windows)</emphasis> y se pulsa sobre el botón
+				<quote>Siguiente</quote>.</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Usuario de acceso a la red Samba</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/cupsys-aniadir-samba3.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>Pulse sobre la opción <quote>Cuenta de normal</quote> y luego
+				teclee un usuario y clave válidos para acceder al sistema Samba. Tenga
+				en cuenta que este usuario ha de tener permisos de impresión (vea
+				el <xref linkend="cups-configuracion-modificacion-conf-samba-ex1"/>
+				para más detalles).</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Monitorizar la red</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/cupsys-aniadir-samba4.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>Pulse sobre el botón <quote>Monitorizar</quote>, para realizar una búsqueda
+				de servidores Samba disponibles en la red.</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Selección de la impresora</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/cupsys-aniadir-samba5.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>Una vez encontrado el servidor Samba, seleccione la impresora que
+				quiera utilizar y pulse sobre el botón <quote>Siguiente</quote>.</para>
+
+				<note><para>Fíjese que en este caso se va a hacer uso de una clase
+				de impresora.</para></note>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Modelo de la impresora</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/cupsys-aniadir-samba6.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>Para esta impresora no es necesario seleccionar un controlador, ya que
+				es <acronym>CUPS</acronym> quien se encarga de procesar el trabajo, no
+				Samba. Por este motivo, seleccione la opción
+				<quote>Impresora en bruto (no necesita controlador)</quote> y pulse
+				sobre el botón <quote>Siguiente</quote>.</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Probando la impresora</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/cupsys-aniadir-samba7.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>Pulse sobre el botón <quote>Probar</quote> para enviar una prueba
+				de impresión a la impresora que se está a punto de añadir.</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Usuario con privilegios de administración de impresión</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/cupsys-aniadir-impresora22.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>Teclee los datos de un usuario con privilegios de administración
+				de impresión y pulse sobe el botón <quote>Aceptar</quote>.</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Prueba enviada a la impresora</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/cupsys-aniadir-impresora23.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>Esta pantalla nos informa de que se ha enviado la prueba de impresión
+				a la impresora. Pulse sobre el botón <quote>Aceptar</quote> para continuar.</para>
+
+				<para>Si todo ha ido bien, en el home del usuario que se ha tecleado,
+				aparecerá un nuevo directorio, <filename class="directory">$HOME/cups-pdf</filename>
+				y dentro de este un archivo similar a <filename>Test_Page.pdf</filename>.
+				Si se abre este archivo con un visualizador de archivos <acronym>PDF</acronym>,
+				se podrá comprobar que es una prueba de impresión de <acronym>CUPS</acronym>.</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Prueba de impresión</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/cupsys-aniadir-impresora24.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>En esta pantalla se puede observar la prueba de impresión que
+				se ha realizado en la imagen anterior.</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Selección de rótulos</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/cupsys-aniadir-impresora25.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para><acronym>CUPS</acronym> permite imprimir páginas separadoras
+				para los trabajos de impresión. Si desea hacer uso de esta característica,
+				seleccione los rótulos que desee en esta pantalla, en caso contrario,
+				pulse directamente sobre el botón <quote>Siguiente</quote>.</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Cuotas de impresión</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/cupsys-aniadir-impresora26.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para><acronym>CUPS</acronym> implemente un <emphasis>rudimentario</emphasis>
+				sistema de cuotas de impresión. Como se va a hacer uso de
+				<xref linkend="bibliografia-pykota"/> para la administración de
+				cuotas, esta opción no se utilizará. Pulse el botón
+				<quote>Siguiente</quote> para continuar.</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Permisos de acceso a la impresora</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/cupsys-aniadir-impresora27.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>En esta pantalla se seleccionan los usuarios a los que se les
+				permite, o no, imprimir. Como este control se realizará con
+				la herramienta <xref linkend="bibliografia-pykota"/>, pulse
+				sobre el botón <quote>Siguiente</quote> directamente.</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Información sobre la impresora</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/cupsys-aniadir-samba8.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>Complete los campos con el nombre, ubicación y descripción para
+				la impresora que se está añadiendo. Pulse sobre el botón
+				<quote>Siguiente</quote> para continuar.</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Confirmación</title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/cupsys-aniadir-samba9.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>Esta es la última pantalla antes de crear la nueva impresora.
+				Revise la información sobre la misma, y si todo está correcto, pulse
+				sobre el botón <quote>Finalizar</quote> para crear la impresora.</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<figure>
+		<title>Nueva impresora <emphasis>CompartidaSamba</emphasis></title>
+		<mediaobject>
+			<imageobject>
+				<imagedata fileref="./imagenes/cupsys-aniadir-samba10.png" format="PNG"/>
+			</imageobject>
+	
+			<caption>
+				<para>Se puede apreciar en el directorio de impresoras la aparición
+				de una nueva entrada, en este caso la impresora <emphasis>CompartidaSamba</emphasis>.</para>
+			</caption>
+		</mediaobject>
+	</figure>
+
+	<para>Aquí finaliza la configuración de <acronym>CUPS</acronym>, el siguiente capítulo
+	estará dedicado a la instalación y configuración de <xref linkend="bibliografia-pykota"/>.</para>
+
+</sect1>
+</chapter>

@@ -1,0 +1,188 @@
+.\" Copyright (c) 1993 Luigi P. Bai (lpb@softint.com) July 28, 1993
+.\"
+.\" Permission is granted to make and distribute verbatim copies of this
+.\" manual provided the copyright notice and this permission notice are
+.\" preserved on all copies.
+.\"
+.\" Permission is granted to copy and distribute modified versions of this
+.\" manual under the conditions for verbatim copying, provided that the
+.\" entire resulting derived work is distributed under the terms of a
+.\" permission notice identical to this one
+.\" 
+.\" Since the Linux kernel and libraries are constantly changing, this
+.\" manual page may be incorrect or out-of-date.  The author(s) assume no
+.\" responsibility for errors or omissions, or for damages resulting from
+.\" the use of the information contained herein.  The author(s) may not
+.\" have taken the same level of care in the production of this manual,
+.\" which is licensed free of charge, as they might when working
+.\" professionally.
+.\" 
+.\" Formatted or processed versions of this manual, if unaccompanied by
+.\" the source, must acknowledge the copyright and authors of this work.
+.\"
+.\" Modified Wed Jul 28 11:03:24 1993, Rik Faith <faith@cs.unc.edu>
+.\" Modified Sun Nov 28 16:43:30 1993, Rik Faith <faith@cs.unc.edu>
+.\"          with material from Giorgio Ciucci <giorgio@crcc.it>
+.\" Portions Copyright 1993 Giorgio Ciucci <giorgio@crcc.it>
+.\" Modified Fri Jan 31 17:24:31 1997 by Eric S. Raymond <esr@thyrsus.com>
+.\"
+.TH SHMCTL 2 "November 28, 1993" "Linux 0.99.11" "Linux Programmer's Manual"
+.SH NAME
+shmctl \- shared memory control
+.SH SYNOPSIS
+.ad l
+.B #include <sys/ipc.h>
+.sp
+.B #include <sys/shm.h>
+.sp
+.BI "int shmctl(int " shmid ", int " cmd ", struct shmid_ds *" buf );
+.ad b
+.SH DESCRIPTION
+\fBshmctl()\fP
+allows the user to receive information on a shared memory segment,
+set the owner, group, and permissions of a shared memory segment,
+or destroy a segment. The information about the segment identified by
+\fIshmid\fP is returned in a \fIshmid_ds\fP
+structure:
+.PP
+.in +0.5i
+.nf
+struct shmid_ds {
+	struct	ipc_perm shm_perm;	/* operation perms */
+	int	shm_segsz;		/* size of segment (bytes) */
+	time_t	shm_atime;		/* last attach time */
+	time_t	shm_dtime;		/* last detach time */
+	time_t	shm_ctime;		/* last change time */
+	unsigned short	shm_cpid;	/* pid of creator */
+	unsigned short	shm_lpid;	/* pid of last operator */
+	short	shm_nattch;		/* no. of current attaches */
+	/* the following are private */
+	unsigned short   shm_npages;  /* size of segment (pages) */
+	unsigned long   *shm_pages;   
+	struct shm_desc *attaches;    /* descriptors for attaches */
+};
+.fi
+.in -0.5i
+.PP
+The fields in the member \fIshm_perm\fP can be set:
+.PP
+.in +0.5i
+.nf
+struct ipc_perm
+{
+  key_t  key;
+  \fBushort uid\fP;   /* \fBowner\fP euid and egid */
+  \fBushort gid\fP;
+  ushort cuid;  /* creator euid and egid */
+  ushort cgid;
+  \fBushort mode\fP;  /* lower 9 bits of access modes */
+  ushort seq;   /* sequence number */
+};
+.fi
+.PP
+The following \fIcmds\fP are available:
+.br
+.TP 12
+.B IPC_STAT
+is used to copy the information about the shared memory segment into
+the buffer \fIbuf\fP. The user must have \fBread\fP access to the 
+shared memory segment.
+.TP
+.B IPC_SET
+is used to apply the changes the user has made to the \fIuid\fP, \fIgid\fP,
+or \fImode\fP members of the \fIshm_perms\fP field.  Only the lowest 9 bits
+of \fImode\fP are used.  The
+.I shm_ctime
+member is also updated.  The user must be the owner, creator, or the
+super-user.
+.TP
+.B IPC_RMID
+is used to mark the segment as destroyed. It will actually be destroyed
+after the last detach.  (I.e., when the
+.I shm_nattch
+member of the associated structure
+.I shmid_ds
+is zero.)  The user must be the owner, creator, or the super-user.
+.PP
+The user \fImust\fP ensure that a segment is eventually destroyed; otherwise
+its pages that were faulted in will remain in memory or swap.
+.PP
+In addition, the \fBsuper-user\fP can prevent or allow swapping of a shared
+memory segment with the following \fIcmds\fP: (Linux only)
+.br
+.TP 12
+.B SHM_LOCK
+prevents swapping of a shared memory segment. The user must fault in
+any pages that are required to be present after locking is enabled.
+.TP
+.B SHM_UNLOCK
+allows the shared memory segment to be swapped out.
+.PP
+The
+.BR IPC_INFO ,
+.BR SHM_STAT
+and
+.B SHM_INFO
+control calls are used by the
+.BR ipcs (8)
+program to provide information on allocated resources.  In the future,
+these man be modified as needed or moved to a proc file system interface.
+.PP
+.SH "SYSTEM CALLS"
+.TP
+.B fork()
+After a
+.B fork()
+the child inherits the attached shared memory segments.
+.TP
+.B exec()
+After an
+.B exec()
+all attached shared memory segments are detached (not destroyed).
+.TP
+.B exit()
+Upon
+.B exit()
+all attached shared memory segments are detached (not destroyed).
+.PP
+.SH "RETURN VALUE"
+0 is returned on success, \-1 on error.
+.SH ERRORS
+On error,
+.B errno
+will be set to one of the following:
+.TP 12
+.B EACCES
+is returned if \fBIPC_STAT\fP is requested and
+\fIshm_perm.modes\fP does not allow read access for
+.IR msqid .
+.TP
+.B EFAULT
+The argument
+.I cmd
+has value
+.B IPC_SET
+or
+.B IPC_STAT
+but the address pointed to by
+.I buf
+isn't accessible.
+.TP
+.B EINVAL
+is returned if \fIshmid\fP is not a valid identifier, or \fIcmd\fP
+is not a valid command.
+.TP
+.B EIDRM
+is returned if \fIshmid\fP points to a removed identifier.
+.TP
+.B EPERM
+is returned if \fBIPC_SET\fP or \fBIPC_RMID\fP is attempted, and the
+user is not the creator, the owner, or the super-user, and the user
+does not have permission granted to their group or to the world.
+.SH "CONFORMING TO"
+SVr4, SVID.  SVr4 documents additional error conditions EINVAL,
+ENOENT, ENOSPC, ENOMEM, EEXIST.  Neither SVr4 nor SVID documents
+an EIDRM error condition.
+.SH "SEE ALSO"
+.BR shmget (2),
+.BR shmop (2)

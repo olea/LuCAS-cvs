@@ -1,0 +1,194 @@
+.\" Hey Emacs! This file is -*- nroff -*- source.
+.\"
+.\" (c) 1993 by Thomas Koenig (ig25@rz.uni-karlsruhe.de)
+.\"
+.\" Permission is granted to make and distribute verbatim copies of this
+.\" manual provided the copyright notice and this permission notice are
+.\" preserved on all copies.
+.\"
+.\" Permission is granted to copy and distribute modified versions of this
+.\" manual under the conditions for verbatim copying, provided that the
+.\" entire resulting derived work is distributed under the terms of a
+.\" permission notice identical to this one
+.\" 
+.\" Since the Linux kernel and libraries are constantly changing, this
+.\" manual page may be incorrect or out-of-date.  The author(s) assume no
+.\" responsibility for errors or omissions, or for damages resulting from
+.\" the use of the information contained herein.  The author(s) may not
+.\" have taken the same level of care in the production of this manual,
+.\" which is licensed free of charge, as they might when working
+.\" professionally.
+.\" 
+.\" Formatted or processed versions of this manual, if unaccompanied by
+.\" the source, must acknowledge the copyright and authors of this work.
+.\" License.
+.\"
+.\" Modified Sat Jul 24 13:30:06 1993 by Rik Faith <faith@cs.unc.edu>
+.\" Modified Sun Aug 21 17:42:42 1994 by Rik Faith <faith@cs.unc.edu>
+.\"          (Thanks to Koen Holtman <koen@win.tue.nl>)
+.\" Modified Wed May 17 15:54:12 1995 by Rik Faith <faith@cs.unc.edu>
+.\"           To remove *'s from status in macros (Thanks to Michael Shields).
+.\" Modified as suggested by Nick Duffek <nsd@bbc.com>, aeb, 960426
+.\" Modified Mon Jun 23 14:09:52 1997 by aeb - add EINTR.
+.\" Modified Thu Nov 26 02:12:45 1998 by aeb - add SIGCHLD stuff.
+.\"
+.TH WAIT 2  "23 June 1997" "Linux" "Linux Programmer's Manual"
+.SH NAME
+wait, waitpid \- wait for process termination
+.SH SYNOPSIS
+.B #include <sys/types.h>
+.br
+.B #include <sys/wait.h>
+.sp
+.BI "pid_t wait(int *" "status" ")"
+.br
+.BI "pid_t waitpid(pid_t " pid ", int *" status ", int " options );
+.SH DESCRIPTION
+The
+.B wait
+function suspends execution of the current process until a child has
+exited, or until a signal is delivered whose action is to terminate
+the current process or to call a signal handling function.  If a child
+has already exited by the time of the call (a so\-called "zombie"
+process), the function returns immediately.  Any system resources used
+by the child are freed.
+
+The
+.B waitpid
+function suspends execution of the current process until a
+child as specified by the
+.I pid
+argument has exited, or until a signal is delivered whose action is to
+terminate the current process or to call a signal handling function.
+If a child as requested by
+.I pid
+has already exited by the time of the call (a so\-called "zombie"
+process), the function returns immediately.  Any system resources used
+by the child are freed.
+
+The value of
+.I pid
+can be one of:
+.IP "< \-1"
+which means to wait for any child process whose process group ID is
+equal to the absolute value of
+.IR pid .
+.IP \-1
+which means to wait for any child process; this is the same
+behaviour which
+.B wait
+exhibits.
+.IP 0
+which means to wait for any child process whose process group ID is
+equal to that of the calling process.
+.IP "> 0"
+which means to wait for the child whose process ID is equal to the
+value of
+.IR pid .
+.PP
+The value of
+.I options
+is an OR of zero or more of the following constants:
+.TP
+.B WNOHANG
+which means to return immediately if no child has exited.
+.TP
+.B WUNTRACED
+which means to also return for children which are stopped, and whose
+status has not been reported.
+.PP
+If
+.I status
+is not
+.BR NULL ,
+.B wait
+or
+.B waitpid
+store status information in the location pointed to by
+.IR status .
+
+This status can be evaluated with the following macros (these macros take
+the stat buffer (an \fBint\fR) as an argument \(em not a pointer to the
+buffer!):
+.TP
+.BI WIFEXITED( status )
+is non\-zero if the child exited normally.
+.TP
+.BI WEXITSTATUS( status )
+evaluates to the least significant eight bits of the return code of
+the child which terminated, which may have been set as the argument to
+a call to
+.B exit()
+or as the argument for a
+.B return
+statement in the main program.  This macro can only be evaluated if
+.B WIFEXITED
+returned non\-zero.
+.TP
+.BI WIFSIGNALED( status )
+returns true if the child process exited because of a signal which was
+not caught.
+.TP
+.BI WTERMSIG( status )
+returns the number of the signal that caused the child process to
+terminate. This macro can only be evaluated if
+.B WIFSIGNALED
+returned non\-zero.
+.TP
+.BI WIFSTOPPED( status )
+returns true if the child process which caused the return is currently
+stopped; this is only possible if the call was done using
+.BR WUNTRACED .
+.TP
+.BI WSTOPSIG( status )
+returns the number of the signal which caused the child to stop.  This
+macro can only be evaluated if
+.B WIFSTOPPED
+returned non\-zero.
+.SH "RETURN VALUE"
+The process ID of the child which exited, \-1 on error or zero if
+.B WNOHANG
+was used and no child was available (in which case,
+.I errno
+is set to an appropriate value).
+.SH "ERRORS"
+.TP
+.B ECHILD
+if the process specified in
+.I pid
+does not exist or is not a child of the calling process.
+(This can happen for one's own child if the action for SIGCHLD
+is set to SIG_IGN.)
+.TP
+.B EINVAL
+if the
+.I options
+argument was invalid.
+.TP
+.B ERESTARTSYS
+if
+.B WNOHANG
+was not set and an unblocked signal or a
+.B SIGCHLD
+was caught. This error is returned by the system call.
+The library interface is not allowed to return
+.BR ERESTARTSYS ,
+but will return
+.BR EINTR .
+.SH "NOTES"
+The Single Unix Specification describes a flag SA_NOCLDWAIT (not present
+under Linux) such that if either this flag is set, or the action for
+SIGCHLD is set to SIG_IGN (which, by the way, is not allowed by POSIX),
+then children that exit do not become zombies and a call to
+.I wait()
+or
+.I waitpid()
+will block until all children have exited, and then fail with
+.I errno
+set to ECHILD.
+.SH "CONFORMING TO"
+SVr4, POSIX.1
+.SH "SEE ALSO"
+.BR signal (2),
+.BR wait4 (2),
+.BR signal (7)

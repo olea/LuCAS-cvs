@@ -1,0 +1,114 @@
+.\" -*- nroff -*-
+.\" Translated 26 May 1998 by Vicente Pastor Gómez <VPASTORG@santandersupernet.com , vicpastor@hotmail.com>
+.TH LOCATEDB 5L
+.SH NOMBRE
+locatedb \- base de datos de cabecera comprimida de nombres de fichero
+.SH DESCRIPCIÓN
+Esta página de manual documenta el formato de las bases de datos de nombres de
+fichero para la versión GNU de
+.BR locate .
+La base de datos de nombres de fichero contiene listas de los ficheros que
+estaban en los árboles de directorios cuando se actualizaron la última vez
+las bases de datos.
+.P
+Puede haber múltiples bases de datos. Los usuarios pueden seleccionar en qué
+bases de datos busca \fBlocate\fP usando una variable de entorno, o una opción
+de línea de comando; ver \fBlocate\fP(1L). El administrador de sistema puede
+elegir el nombre de fichero de la base de datos por defecto, la frecuencia con
+que se actualizan las bases de datos, y los directorios para los que contienen
+entradas. Normalmente, las bases de datos de nombres de fichero se actualizan
+al ejecutar el programa \fBupdatedb\fP periódicamente, típicamente de noche;
+ver \fBupdatedb\fP(1L).
+.P
+\fBupdatedb\fP ejecuta un programa llamado \fBfrcode\fP para comprimir la lista
+de nombres de fichero utilizando compresión de cabeceras, que reduce el tamaño
+de la base de datos por un factor de 4 a 5. La compresión de cabeceras
+(también conocida por codificación incremental) trabaja de la forma que se
+explica a continuación.
+.P
+Las entradas de la base de datos son una lista ordenada (sin tener en cuenta
+mayúsculas y minúsculas, para conveniencia de los usuarios). Como la lista está
+ordenada, es probable que cada entrada comparta un prejijo (cadena de
+caracteres inicial) con la entrada anterior. Cada entrada de la base de datos
+comienza con un byte de diferencia de desplazamiento (offset-differential
+count byte), que es el número adicional de caracteres de prefijo de la entrada
+precedente a utilizar más allá del número que está utilizando la entrada
+precedente de su propio predecesor. (El número puede ser negativo). Tras el
+número queda un resto ASCII terminado en nulo \(em la parte del nombre que
+sigue al prefijo compartido.
+.P
+Si la cuenta diferencial de desplazamiento es mayor que el que puede
+guardarse en un byte (+/\-127), el byte tiene el valor 0x80 y la cuenta sigue
+en una palabra de 2 bytes, con el byte alto primero (orden de byte de red).
+
+.P
+Cada base de datos comienza con una entrada falsa a un fichero llamado
+`LOCATE02', que \fBlocate\fP comprueba para asegurarse que el fichero de base
+de datos tiene el formato correcto; ignora la entrada al hacer la búsqueda.
+.P
+Las bases de datos no pueden ser concatenadas juntas, aunque la primera entrada
+(falsa) se elimine de todas las bases de datos excepto la primera. Esto se debe
+a que las cuentas diferenciales en la primera entrada de la segunda y
+siguientes bases de datos serían incorrectas.
+.P
+También hay un formato antiguo de base de datos, usado por los programas
+.B locate
+y
+.B find
+de Unix y versiones anteriores a las de GNU.
+\fBupdatedb\fP ejecuta los programas llamados
+\fBbigram\fP y \fBcode\fP para producir bases de datos en el formato antiguo.
+El formato antiguo difiere de la descripción de arriba de las siguientes
+maneras. En vez de que cada entrada empiece con un byte de cuenta diferencial
+de desplazamiento y termine con un nulo, los valores del byte de 0 a 28
+indican cuentas diferenciales de desplazamiento de -14 a 14. El valor del
+byte que indica una cuenta de desplazamiento larga es 0x1e (30), no 0x80.
+Las cuentas largas se almacenan en el orden de byte de host, que no es
+necesariamente el orden de byte de red, y con tamaño de palabra de entero de
+host, que normalmente son 4 bytes. También representan una cuenta inferior en
+14 a su valor. Las líneas de la base de datos no tienen byte de terminación;
+el comienzo de la siguiente línea está indicado por su primer byte con valor
+<= 30.
+.P
+Además, en vez de comenzar con una entrada falsa, el formato antiguo de base
+de datos comienza con una tabla de 256 bytes que contiene los 128 bigramas más
+comunes en la lista de ficheros. Un bigrama es un par de bytes adyacentes.
+Los bytes de la base de datos que tienen el bit alto a 1 son índices (con el
+bit alto borrado) a la tabla de bigramas. La codificación de bigramas y cuentas
+diferenciales de desplazamiento hace estas bases de datos 20-25% más pequeñas
+que el nuevo formato, pero hace que no tengan el bit 8 limpio. Cualquier byte
+de un nombre de fichero que esté en los rangos usados para los códigos
+especiales es reemplazado en la base de datos por una interrogación, que no
+es por coincidencia el comodín de la shell para sustituír un carácter
+cualquiera.
+.SH EJEMPLO
+.nf
+
+Entrada a \fBfrcode\fP:
+.\" con nulos cambiados a saltos de línea:
+/usr/src
+/usr/src/cmd/aardvark.c
+/usr/src/cmd/armadillo.c
+/usr/tmp/zoo
+
+Longitud del prefijo más largo a compartir de la entrada precedente:
+0 /usr/src
+8 /cmd/aardvark.c
+14 rmadillo.c
+5 tmp/zoo
+
+.fi
+Salida a \fBfrcode\fP, con nulos al final cambiados a saltos de línea y bytes
+de cuenta hechos imprimibles:
+.nf
+0 LOCATE02
+0 /usr/src
+8 /cmd/aardvark.c
+6 rmadillo.c
+\-9 tmp/zoo
+
+(6 = 14 \- 8, y \-9 = 5 \- 14)
+.fi
+.SH "VÉASE TAMBIÉN"
+\fBfind\fP(1L), \fBlocate\fP(1L), \fBlocatedb\fP(5L), \fBxargs\fP(1L)
+\fBFinding Files\fP (on-line en Info, o impreso)

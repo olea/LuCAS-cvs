@@ -1,0 +1,266 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+
+<!--Converted with jLaTeX2HTML 2002 (1.62) JA patch-1.4
+patched version by:  Kenshi Muto, Debian Project.
+LaTeX2HTML 2002 (1.62),
+original version by:  Nikos Drakos, CBLU, University of Leeds
+* revised and updated by:  Marcus Hennecke, Ross Moore, Herb Swan
+* with significant contributions from:
+  Jens Lippmann, Marek Rouchal, Martin Wilck and others -->
+<HTML>
+<HEAD>
+<TITLE>Teclados en la Arquitectura Intel</TITLE>
+<META NAME="description" CONTENT="Teclados en la Arquitectura Intel">
+<META NAME="keywords" CONTENT="progmodlinux">
+<META NAME="resource-type" CONTENT="document">
+<META NAME="distribution" CONTENT="global">
+
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=iso-8859-1">
+<META NAME="Generator" CONTENT="jLaTeX2HTML v2002 JA patch-1.4">
+<META HTTP-EQUIV="Content-Style-Type" CONTENT="text/css">
+
+<LINK REL="STYLESHEET" HREF="progmodlinux.css">
+
+<LINK REL="previous" HREF="node24.html">
+<LINK REL="up" HREF="node24.html">
+<LINK REL="next" HREF="node26.html">
+</HEAD>
+
+<BODY >
+<!--Navigation Panel-->
+<A NAME="tex2html795"
+  HREF="node26.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next"
+ SRC="file:/usr/share/latex2html/icons/next.png"></A> 
+<A NAME="tex2html789"
+  HREF="node24.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up"
+ SRC="file:/usr/share/latex2html/icons/up.png"></A> 
+<A NAME="tex2html785"
+  HREF="node24.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous"
+ SRC="file:/usr/share/latex2html/icons/prev.png"></A> 
+<A NAME="tex2html791"
+  HREF="node1.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents"
+ SRC="file:/usr/share/latex2html/icons/contents.png"></A> 
+<A NAME="tex2html793"
+  HREF="node35.html">
+<IMG WIDTH="43" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="index"
+ SRC="file:/usr/share/latex2html/icons/index.png"></A> 
+<BR>
+<B> Next:</B> <A NAME="tex2html796"
+  HREF="node26.html">Multi-Procesamiento Simétrico</A>
+<B> Up:</B> <A NAME="tex2html790"
+  HREF="node24.html">Manejadores de Interrupciones</A>
+<B> Previous:</B> <A NAME="tex2html786"
+  HREF="node24.html">Manejadores de Interrupciones</A>
+ &nbsp <B>  <A NAME="tex2html792"
+  HREF="node1.html">Contents</A></B> 
+ &nbsp <B>  <A NAME="tex2html794"
+  HREF="node35.html">Index</A></B> 
+<BR>
+<BR>
+<!--End of Navigation Panel-->
+
+<H1><A NAME="SECTION001310000000000000000"></A><A NAME="teclado"></A>
+<BR>
+Teclados en la Arquitectura Intel
+</H1><A NAME="774"></A><A NAME="775"></A><A NAME="776"></A>
+
+<P>
+<B>Atenci&#243;n: El resto de este cap&#237;tulo es completamente espec&#237;fico de Intel. Si
+no est&#225;s trabajando en una plataforma Intel, no funcionar&#225;. Ni siquiera intentes
+compilar el siguiente c&#243;digo.</B>
+
+<P>
+Yo tuve un problema escribiendo el c&#243;digo de ejemplo para este cap&#237;tulo. Por
+una parte, para un ejemplo, es &#250;til que se ejecutara en las computadores de todo
+el mundo con resultados significativos. Por otra parte, el n&#250;cleo ya incluye
+controladores de dispositivos para todos los dispositivos comunes, y aquellos
+controladores de dispositivos no coexistir&#225;n con lo que voy a escribir. La
+soluci&#243;n que encontr&#233; fue escribir algo para la interrupci&#243;n del teclado, y
+deshabilitar antes el manejador normal de interrupci&#243;n del teclado. Como
+est&#225; definido como un s&#237;mbolo est&#225;tico en los fichero fuentes del n&#250;cleo
+(espec&#237;ficamente, <TT>drivers/char/keyboard.c</TT>), no hay forma de restaurarlo.
+Antes de instalar este c&#243;digo, haz en otro terminal <TT>sleep 120 ; reboot</TT>
+si es que valoras tu sistema.
+
+<P>
+Este c&#243;digo se registra para la IRQ 1, la cual es la IRQ controlada por
+el teclado bajo las arquitecturas Intel. Entonces, cuando recibe una
+interrupci&#243;n de teclado, lee el estado del teclado (que es el prop&#243;sito
+ de <TT>inb(0x64)</TT>) y escanea el c&#243;digo, que es el valor devuelto por el 
+teclado. Tan pronto como el n&#250;cleo piensa que es factible, ejecuta
+<TT>got_char</TT> que da el c&#243;digo de la tecla usada (los siete primeros bits
+del c&#243;digo leido) y cuando est&#225; siendo presionado (si el octavo bit es cero)
+o soltado (si es uno)<A NAME="782"></A>.
+
+<P>
+ex
+
+<FONT SIZE="+1"><B>intrpt.c</B></FONT>
+<A NAME="787"></A><A NAME="788"></A><A NAME="789"></A>
+
+<P>
+<PRE>
+/* intrpt.c - Un manejador de interrupciones. */
+
+
+/* Copyright (C) 1998 por Ori Pomerantz */
+
+
+
+/* Los ficheros de cabeceras necesarios */
+
+/* Estándar en los módulos del núcleo */
+#include &lt;linux/kernel.h&gt;   /* Estamos haciendo trabajo del núcleo */
+#include &lt;linux/module.h&gt;   /* Específicamente, un módulo */
+
+/* Distribuido con CONFIG_MODVERSIONS */
+#if CONFIG_MODVERSIONS==1
+#define MODVERSIONS
+#include &lt;linux/modversions.h&gt;
+#endif        
+
+#include &lt;linux/sched.h&gt;
+#include &lt;linux/tqueue.h&gt;
+
+/* Queremos una interrupción */
+#include &lt;linux/interrupt.h&gt;
+
+#include &lt;asm/io.h&gt;
+
+
+/* En 2.2.3 /usr/include/linux/version.h se incluye una
+ * macro para esto, pero 2.0.35 no lo hace - por lo tanto
+ * lo añado aquí si es necesario. */
+#ifndef KERNEL_VERSION
+#define KERNEL_VERSION(a,b,c) ((a)*65536+(b)*256+(c))
+#endif
+
+
+
+/* Bottom Half - esto será llamado por el núcleo
+ * tan pronto como sea seguro hacer todo lo normalmente 
+ * permitido por los módulos del núcleo. */ 
+static void got_char(void *scancode)
+{
+  printk("Código leído %x %s.\n",
+    (int) *((char *) scancode) &amp; 0x7F,
+    *((char *) scancode) &amp; 0x80 ? "Liberado" : "Presionado");
+}
+
+
+/* Esta función sirve para las interrupciones de teclado. Lee 
+ * la información relevante desde el teclado y entonces
+ * planifica el bottom half para ejecutarse cuando el núcleo
+ * lo considere seguro. */
+void irq_handler(int irq, 
+                 void *dev_id, 
+                 struct pt_regs *regs)
+{
+  /* Estas variables son estáticas porque necesitan ser
+   * accesibles (a través de punteros) por la rutina bottom
+   * half. */
+  static unsigned char scancode;
+  static struct tq_struct task = 
+        {NULL, 0, got_char, &amp;scancode};
+  unsigned char status;
+
+  /* Lee el estado del teclado */
+  status = inb(0x64);
+  scancode = inb(0x60);
+  
+  /* Planifica el bottom half para ejecutarse */
+#if LINUX_VERSION_CODE &gt; KERNEL_VERSION(2,2,0)
+  queue_task(&amp;task, &amp;tq_immediate);
+#else
+  queue_task_irq(&amp;task, &amp;tq_immediate);
+#endif
+  mark_bh(IMMEDIATE_BH);
+}
+
+
+
+/* Inicializa el módulo - registra el manejador de IRQs */
+int init_module()
+{
+  /* Como el manejador de teclado no coexistirá con
+   * otro manejador, tal como nosotros, tenemos que deshabilitarlo
+   * (liberar su IRQ) antes de hacer algo. Ya que nosotros
+   * no conocemos dónde está, no hay forma de reinstalarlo 
+   * después - por lo tanto la computadora tendrá que ser reiniciada
+   * cuando halla sido realizado.
+   */
+  free_irq(1, NULL);
+
+  /* Petición IRQ 1, la IRQ del teclado, para nuestro 
+   * irq_handler. */
+  return request_irq(
+    1,  /* El número de la IRQ del teclado en PCs */ 
+    irq_handler,  /* nuestro manejador */
+    SA_SHIRQ, 
+    /* SA_SHIRQ significa que queremos tener otro
+     * manejador en este IRQ.
+     *
+     * SA_INTERRUPT puede ser usado para
+     * manejarla en una interrupción rápida. 
+     */
+    "test_keyboard_irq_handler", NULL);
+}
+
+
+/* Limpieza */
+void cleanup_module()
+{
+  /* Esto está aquí sólo para completar. Es totalmente
+   * irrelevante, ya que no tenemos forma de restaurar 
+   * la interrupción normal de teclado, por lo tanto
+   * la computadora está totalmente inservible y tiene que
+   * ser reiniciada. */
+  free_irq(1, NULL);
+}
+</PRE>
+
+<P>
+<HR>
+<!--Navigation Panel-->
+<A NAME="tex2html795"
+  HREF="node26.html">
+<IMG WIDTH="37" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="next"
+ SRC="file:/usr/share/latex2html/icons/next.png"></A> 
+<A NAME="tex2html789"
+  HREF="node24.html">
+<IMG WIDTH="26" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="up"
+ SRC="file:/usr/share/latex2html/icons/up.png"></A> 
+<A NAME="tex2html785"
+  HREF="node24.html">
+<IMG WIDTH="63" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="previous"
+ SRC="file:/usr/share/latex2html/icons/prev.png"></A> 
+<A NAME="tex2html791"
+  HREF="node1.html">
+<IMG WIDTH="65" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="contents"
+ SRC="file:/usr/share/latex2html/icons/contents.png"></A> 
+<A NAME="tex2html793"
+  HREF="node35.html">
+<IMG WIDTH="43" HEIGHT="24" ALIGN="BOTTOM" BORDER="0" ALT="index"
+ SRC="file:/usr/share/latex2html/icons/index.png"></A> 
+<BR>
+<B> Next:</B> <A NAME="tex2html796"
+  HREF="node26.html">Multi-Procesamiento Simétrico</A>
+<B> Up:</B> <A NAME="tex2html790"
+  HREF="node24.html">Manejadores de Interrupciones</A>
+<B> Previous:</B> <A NAME="tex2html786"
+  HREF="node24.html">Manejadores de Interrupciones</A>
+ &nbsp <B>  <A NAME="tex2html792"
+  HREF="node1.html">Contents</A></B> 
+ &nbsp <B>  <A NAME="tex2html794"
+  HREF="node35.html">Index</A></B> 
+<!--End of Navigation Panel-->
+<ADDRESS>
+Ismael Olea
+2002-09-22
+</ADDRESS>
+</BODY>
+</HTML>

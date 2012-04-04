@@ -1,0 +1,496 @@
+<!--
+$Header: /home/cvs/lucas/doc-postgresql-es/diferencia/src/sgml/query.sgml,v 1.2 2001/10/08 17:33:23 rssantos Exp $
+-->
+
+ <chapter id="query">
+  <title>The Query Language</title>
+
+  <para>
+   The  <productname>Postgres</productname>  query language is a variant of
+   the <acronym>SQL</acronym> standard. It
+   has many extensions to <acronym>SQL</acronym> such as an
+   extensible type  system,
+   inheritance,  functions and production rules. These are
+   features carried over from the original
+   <productname>Postgres</productname>  query
+   language,  <productname>PostQuel</productname>.
+   This section provides an overview
+   of how to use <productname>Postgres</productname>
+   <acronym>SQL</acronym>  to  perform  simple  operations.
+   This manual is only intended to give you an idea of our
+   flavor of <acronym>SQL</acronym> and is in no way a complete  tutorial  on
+   <acronym>SQL</acronym>.  Numerous  books  have  been  written  on
+   <acronym>SQL92</acronym>, including
+   <xref linkend="MELT93" endterm="MELT93"> and
+   <xref linkend="DATE97" endterm="DATE97">.
+   You should be  aware  that  some language features 
+   are extensions to the standard.
+  </para>
+
+  <sect1 id="query-psql">
+   <title>Interactive Monitor</title>
+
+   <para>
+    In the examples that follow, we assume  that  you  have
+    created  the mydb database as described in the previous
+    subsection and have started <application>psql</application>.
+    Examples  in  this  manual  can  also   be   found   in source distribution
+    in the directory <filename>src/tutorial/</filename>.    Refer   to   the
+    <filename>README</filename> file in that directory for how to use them.   To
+    start the tutorial, do the following:
+
+<screen>
+<prompt>$</prompt> <userinput>cd <replaceable>...</replaceable>/src/tutorial</userinput>
+<prompt>$</prompt> <userinput>psql -s mydb</userinput>
+<computeroutput>
+Welcome to the POSTGRESQL interactive sql monitor:
+  Please read the file COPYRIGHT for copyright terms of POSTGRESQL
+
+   type \? for help on slash commands
+   type \q to quit
+   type \g or terminate with semicolon to execute query
+ You are currently connected to the database: postgres
+</computeroutput>
+
+<prompt>mydb=&gt;</prompt> <userinput>\i basics.sql</userinput>
+</screen>
+   </para>
+
+   <para>
+    The  <literal>\i</literal>  command  read  in  queries  from the specified
+    files. The <literal>-s</literal> option puts you in single step mode which
+    pauses  before  sending a query to the backend. Queries
+    in this section are in the file <filename>basics.sql</filename>.
+   </para>
+
+   <para>
+    <application>psql</application>
+    has a variety of <literal>\d</literal> commands for showing system information.
+    Consult these commands for more details;
+    for a listing, type <literal>\?</literal> at the <application>psql</application> prompt.
+   </para>
+  </sect1>
+
+  <sect1 id="query-concepts">
+   <title>Concepts</title>
+
+   <para>
+    The fundamental notion in <productname>Postgres</productname> is
+    that of a <firstterm>table</firstterm>, which is a named
+    collection of <firstterm>rows</firstterm>.  Each row has the same
+    set of named <firstterm>columns</firstterm>, and each column is of
+    a specific type.  Furthermore, each row has a permanent
+    <firstterm>object identifier</firstterm> (<acronym>OID</acronym>)
+    that is unique throughout the database cluster.  Historially,
+    tables have been called classes in
+    <productname>Postgres</productname>, rows are object instances,
+    and columns are attributes.  This makes sense if you consider the
+    object-relational aspects of the database system, but in this
+    manual we will use the customary <acronym>SQL</acronym>
+    terminology.  As previously discussed,
+    tables are grouped into databases, and a collection of databases
+    managed by a single <application>postmaster</application> process
+    constitutes a database cluster.
+   </para>
+  </sect1>
+
+  <sect1 id="query-table">
+   <title>Creating a New Table</title>
+
+   <para>
+    You  can  create  a  new  table by specifying the table
+    name, along with all column names and their types:
+
+<programlisting>
+CREATE TABLE weather (
+    city            varchar(80),
+    temp_lo         int,           -- low temperature
+    temp_hi         int,           -- high temperature
+    prcp            real,          -- precipitation
+    date            date
+);
+</programlisting>
+   </para>
+
+   <para>
+    Note that both keywords and identifiers are case-insensitive;
+    identifiers can preserve case by surrounding them with
+    double-quotes as allowed
+    by <acronym>SQL92</acronym>.
+    <productname>Postgres</productname>  <acronym>SQL</acronym>
+    supports the usual
+    <acronym>SQL</acronym> types <type>int</type>,
+    <type>float</type>,  <type>real</type>,  <type>smallint</type>,
+<type>char(N)</type>,  
+    <type>varchar(N)</type>,  <type>date</type>, <type>time</type>,
+    and <type>timestamp</type>, as well as other types of general utility and
+    a rich set of geometric types.  As we will 
+    see later, <productname>Postgres</productname> can be customized
+    with an  
+    arbitrary  number  of
+    user-defined  data types.  Consequently, type names are
+    not syntactical keywords, except where required to support special
+    cases in the <acronym>SQL92</acronym> standard.
+    So far, the <productname>Postgres</productname>
+    <command>CREATE</command> command
+    looks exactly  like
+    the  command  used  to  create a table in a traditional
+    relational system.  However, we will presently see that
+    tables  have  properties  that  are  extensions of the
+    relational model.
+   </para>
+  </sect1>
+
+  <sect1 id="query-populate">
+   <title>Populating a Table with Rows</title>
+
+   <para>
+    The <command>INSERT</command> statement is used to populate a table  with
+    rows:
+
+<programlisting>
+INSERT INTO weather VALUES ('San Francisco', 46, 50, 0.25, '1994-11-27');
+</programlisting>
+   </para>
+
+   <para>
+    You can also use <command>COPY</command> to load large
+    amounts of data from flat (<acronym>ASCII</acronym>) files.
+    This is usually faster because the data is read (or written) as a
+    single atomic
+    transaction directly to or from the target table. An example would be:
+
+<programlisting>
+COPY weather FROM '/home/user/weather.txt' USING DELIMITERS '|';
+</programlisting>
+
+    where the path name for the source file must be available to the
+    backend server
+    machine, not the client, since the backend server reads the file directly.
+   </para>
+  </sect1>
+
+  <sect1 id="query-query">
+   <title>Querying a Table</title>
+
+   <para>
+    The <classname>weather</classname> table can be queried with normal relational
+    selection  and projection queries.  A <acronym>SQL</acronym>
+    <command>SELECT</command> 
+    statement is used to do this.  The statement is divided into
+    a target list (the part that lists the columns to be
+    returned) and a qualification (the part that  specifies
+    any  restrictions).   For  example, to retrieve all the
+    rows of weather, type:
+<programlisting>
+SELECT * FROM weather;
+</programlisting>
+
+    and the output should be:
+<programlisting>
++--------------+---------+---------+------+------------+
+|city          | temp_lo | temp_hi | prcp | date       |
++--------------+---------+---------+------+------------+
+|San Francisco | 46      | 50      | 0.25 | 1994-11-27 |
++--------------+---------+---------+------+------------+
+|San Francisco | 43      | 57      | 0    | 1994-11-29 |
++--------------+---------+---------+------+------------+
+|Hayward       | 37      | 54      |      | 1994-11-29 |
++--------------+---------+---------+------+------------+
+</programlisting>
+    You may specify any arbitrary expressions in the  target list. For 
+    example, you can do:
+<programlisting>
+SELECT city, (temp_hi+temp_lo)/2 AS temp_avg, date FROM weather;
+</programlisting>
+   </para>
+
+   <para>
+    Arbitrary  Boolean  operators
+    (<command>AND</command>,  <command>OR</command> and 
+    <command>NOT</command>) are
+    allowed in the qualification of any query.   For  example,
+
+<programlisting>
+SELECT * FROM weather
+    WHERE city = 'San Francisco'
+    AND prcp > 0.0;
+</programlisting>
+results in:
+<programlisting>
++--------------+---------+---------+------+------------+
+|city          | temp_lo | temp_hi | prcp | date       |
++--------------+---------+---------+------+------------+
+|San Francisco | 46      | 50      | 0.25 | 1994-11-27 |
++--------------+---------+---------+------+------------+
+</programlisting>
+   </para>
+
+   <para>
+    As  a final note, you can specify that the results of a
+    select can be returned in a <firstterm>sorted order</firstterm>
+    or with duplicate rows removed.
+
+<programlisting>
+SELECT DISTINCT city
+    FROM weather
+    ORDER BY city;
+</programlisting>
+   </para>
+  </sect1>
+
+  <sect1 id="query-selectinto">
+   <title>Redirecting SELECT Queries</title>
+
+   <para>
+    Any <command>SELECT</command> query can be redirected to a new table
+<programlisting>
+SELECT * INTO TABLE temp FROM weather;
+</programlisting>
+   </para>
+
+   <para>
+    This forms an implicit <command>CREATE</command> command, creating a new
+    table temp with the column names and types specified
+    in  the target list of the <command>SELECT INTO</command> command.  We can
+    then, of course, perform any operations on the  resulting 
+    table that we can perform on other tables.
+   </para>
+  </sect1>
+
+  <sect1 id="query-join">
+   <title>Joins Between Tables</title>
+
+   <para>
+    Thus far, our queries have only accessed one table at a
+    time.  Queries can access multiple tables at once,  or
+    access  the  same  table  in  such  a way that multiple
+    rows of the table are being processed at the  same
+    time.   A query that accesses multiple rows of the
+    same or different tables at one time is called a  join
+    query.
+    As an example, say we wish to find all the records that
+    are in the  temperature  range  of  other  records.  In
+    effect,  we  need  to  compare  the temp_lo and temp_hi
+    columns of each WEATHER  row  to  the  temp_lo  and
+    temp_hi  columns of all other WEATHER columns.
+    <note>
+     <para>
+      This  is only a conceptual model.  The actual join may
+      be performed in a more efficient manner, but this is invisible
+      to the user.
+     </para>
+    </note>
+
+    We can do this with the following query:
+
+<programlisting>
+SELECT W1.city, W1.temp_lo AS low, W1.temp_hi AS high,
+    W2.city, W2.temp_lo AS low, W2.temp_hi AS high
+    FROM weather W1, weather W2
+    WHERE W1.temp_lo < W2.temp_lo
+    AND W1.temp_hi > W2.temp_hi;
+
++--------------+-----+------+---------------+-----+------+
+|city          | low | high | city          | low | high |
++--------------+-----+------+---------------+-----+------+
+|San Francisco | 43  | 57   | San Francisco | 46  | 50   |
++--------------+-----+------+---------------+-----+------+
+|San Francisco | 37  | 54   | San Francisco | 46  | 50   |
++--------------+-----+------+---------------+-----+------+
+</programlisting>     
+
+    <note>
+     <para>
+      The semantics of such a join are 
+      that the qualification
+      is a truth expression defined for the Cartesian  product  of
+      the tables indicated in the query.  For those rows in
+      the Cartesian product for which the qualification  is  true,
+      <productname>Postgres</productname>  computes  and  returns the
+      values specified in the target list.  
+      <productname>Postgres</productname> <acronym>SQL</acronym>
+      does not assign  any  meaning  to
+      duplicate values in such expressions. 
+      This means that <productname>Postgres</productname> 
+      sometimes recomputes the same target list several times;
+      this frequently happens when Boolean expressions are connected 
+      with an "or".  To remove such duplicates, you must  use
+      the <command>SELECT DISTINCT</command> statement.
+     </para>
+    </note>
+   </para>
+
+   <para>
+    In this case, both <literal>W1</literal> and
+    <literal>W2</literal>  are  surrogates for  a
+    row of the table weather, and both range over all
+    rows of the table.  (In the  terminology  of  most
+    database  systems, <literal>W1</literal> and <literal>W2</literal> 
+    are known as <firstterm>range variables</firstterm>.)  
+    A query can contain an  arbitrary  number  of
+    table names and surrogates.
+   </para>
+  </sect1>
+
+  <sect1 id="query-update">
+   <title>Updates</title>
+
+   <para>
+    You can update existing rows using the
+    <command>UPDATE</command> command. 
+    Suppose you discover the temperature readings are
+    all  off  by 2 degrees as of Nov 28, you may update the
+    data as follow:
+
+<programlisting>
+UPDATE weather
+    SET temp_hi = temp_hi - 2,  temp_lo = temp_lo - 2
+    WHERE date > '1994-11-28';
+</programlisting>
+   </para>
+  </sect1>
+
+  <sect1 id="query-delete">
+   <title>Deletions</title>
+
+   <para>
+    Deletions are performed using the <command>DELETE</command> command:
+<programlisting>
+DELETE FROM weather WHERE city = 'Hayward';
+</programlisting>
+
+    All weather recording belonging to Hayward are removed.
+    One should be wary of queries of the form
+<programlisting>
+DELETE FROM <replaceable>tablename</replaceable>;
+</programlisting>
+
+    Without a qualification, <command>DELETE</command> will simply
+    remove  all  rows from the given table, leaving it
+    empty.  The system will not request confirmation before
+    doing this.
+   </para>
+  </sect1>
+
+  <sect1 id="query-agg">
+   <title>Using Aggregate Functions</title>
+
+   <para>
+    Like  most  other relational database products, 
+    <productname>PostgreSQL</productname> supports
+    aggregate functions.
+    An aggregate function computes a single result from multiple input rows.
+    For example, there are aggregates to compute the
+    <function>count</function>, <function>sum</function>,
+    <function>avg</function> (average), <function>max</function> (maximum) and
+    <function>min</function> (minimum) over a set of rows.
+   </para>
+
+   <para>
+    It is important to understand the interaction between aggregates and
+    SQL's <command>WHERE</command> and <command>HAVING</command> clauses.
+    The fundamental difference between <command>WHERE</command> and
+    <command>HAVING</command> is this: <command>WHERE</command> selects
+    input rows before groups and aggregates are computed (thus, it controls
+    which rows go into the aggregate computation), whereas
+    <command>HAVING</command> selects group rows after groups and
+    aggregates are computed.  Thus, the
+    <command>WHERE</command> clause may not contain aggregate functions;
+    it makes no sense to try to use an aggregate to determine which rows
+    will be inputs to the aggregates.  On the other hand,
+    <command>HAVING</command> clauses always contain aggregate functions.
+    (Strictly speaking, you are allowed to write a <command>HAVING</command>
+    clause that doesn't use aggregates, but it's wasteful; the same condition
+    could be used more efficiently at the <command>WHERE</command> stage.)
+   </para>
+
+   <para>
+    As an example, we can find the highest low-temperature reading anywhere
+    with
+
+    <programlisting>
+SELECT max(temp_lo) FROM weather;
+    </programlisting>
+
+    If we want to know what city (or cities) that reading occurred in,
+    we might try
+
+    <programlisting>
+SELECT city FROM weather WHERE temp_lo = max(temp_lo);
+    </programlisting>
+
+    but this will not work since the aggregate
+    <function>max</function> can't be used in
+    <command>WHERE</command>. However, as is often the case the query can be
+    restated to accomplish the intended result; here by using a
+    <firstterm>subselect</firstterm>:
+
+    <programlisting>
+SELECT city FROM weather
+    WHERE temp_lo = (SELECT max(temp_lo) FROM weather);
+    </programlisting>
+
+    This is OK because the sub-select is an independent computation that
+    computes its own aggregate separately from what's happening in the outer
+    select.
+   </para>
+
+   <para>
+    Aggregates are also very useful in combination with
+    <command>GROUP BY</command> clauses.  For example, we can get the
+    maximum low temperature observed in each city with
+
+    <programlisting>
+SELECT city, max(temp_lo)
+    FROM weather
+    GROUP BY city;
+    </programlisting>
+
+    which gives us one output row per city.  We can filter these grouped
+    rows using <command>HAVING</command>:
+
+    <programlisting>
+SELECT city, max(temp_lo)
+    FROM weather
+    GROUP BY city
+    HAVING min(temp_lo) < 0;
+    </programlisting>
+
+    which gives us the same results for only the cities that have some
+    below-zero readings.  Finally, if we only care about cities whose
+    names begin with "<literal>P</literal>", we might do
+
+    <programlisting>
+SELECT city, max(temp_lo)
+    FROM weather
+    WHERE city like 'P%'
+    GROUP BY city
+    HAVING min(temp_lo) < 0;
+    </programlisting>
+
+    Note that we can apply the city-name restriction in
+    <command>WHERE</command>, since it needs no aggregate.  This is
+    more efficient than adding the restriction to <command>HAVING</command>,
+    because we avoid doing the grouping and aggregate calculations
+    for all rows that fail the <command>WHERE</command> check.
+   </para>
+  </sect1>
+ </chapter>
+
+<!-- Keep this comment at the end of the file
+Local variables:
+mode:sgml
+sgml-omittag:nil
+sgml-shorttag:t
+sgml-minimize-attributes:nil
+sgml-always-quote-attributes:t
+sgml-indent-step:1
+sgml-indent-data:t
+sgml-parent-document:nil
+sgml-default-dtd-file:"./reference.ced"
+sgml-exposed-tags:nil
+sgml-local-catalogs:("/usr/lib/sgml/catalog")
+sgml-local-ecat-files:nil
+End:
+-->

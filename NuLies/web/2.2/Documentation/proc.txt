@@ -1,0 +1,1402 @@
+NOTA: Este documento está en parte no traducido. Las partes no traducidas
+   han sido acotadas con la palabra ---FIXME---.
+
+-----------------------------------------------------------------------
+
+          E L   S I S T E M A   D E   F I C H E R O S   /proc
+
+-----------------------------------------------------------------------
+/proc/sys      Terrehon Bowden <terrehon@wpi.com>         27 Enero 1999
+               Bodo Bauer <bb@ricochet.net>                
+
+        Traducción: David Martínez <ender@adi.uam.es> 27 Noviembre 2000
+
+-----------------------------------------------------------------------
+Versión 1.1                                         Kernel version 2.2
+-----------------------------------------------------------------------
+Contenidos
+
+1   Introducción/Créditos.
+
+1.1  Asuntos legales.
+
+2   El sistema de ficheros /proc.
+
+2.1  Subdirectorios específicos de cada proceso.
+2.2  Datos del núcleo.
+2.3  Dispositivos IDE en /proc/ide.
+2.4  Información de red en /proc/net.
+2.5  Información SCSI.
+2.6  Información de puertos paralelos en /proc/parport.
+2.7  Información sobre TTY en /proc/tty.
+
+3   Leyendo y modificando parámetros del núcleo.
+
+3.1  /proc/sys/debug y /proc/sys/proc.
+3.2  /proc/fs - Datos de los sistemas de ficheros.
+3.3  /proc/fs/binfmt_misc - Formatos binarios variados.
+3.4  /proc/sys/kernel - Parámetros generales del núcleo.
+3.5  /proc/sys/vm - El subsistema de memoria virtual.
+3.6  /proc/sys/dev - Parámetros específicos de dispositivos.
+3.7  /proc/sys/sunrpc - Llamadas a procedimiento remoto (RPC's).
+3.8  /proc/sys/net - Cosas relativas a redes.
+3.9  /proc/sys/net/ipv4 - Opciones de IPv4.
+3.10 Appletalk.
+3.11 IPX.
+
+-----------------------------------------------------------------------
+
+1   Introducción/Créditos.
+
+  Esta documentación es parte de un libro que saldrá próximamente a
+la venta publicado por IDG Books en la distribución SuSE de Linux. Como 
+no hay una documentación completa para el sistema de ficheros /proc, y 
+hemos usado muchas fuentes gratuitas para escribir este capítulo, 
+parece normal devolver el trabajo a la comunidad Linux. Este trabajo 
+está basado en las versiones 2.1.132 y los núcleos pre-2.2.0. Me 
+preocupa que este manual esté lejos de estar completo, pero espero que 
+resulte útil. Por lo que sé, este es el primer documento tipo "todo en 
+uno" sobre el sistema de ficheros /proc. Está enfocado en hardware 
+Intel x86, así que si está buscando características de PPC, ARM, SPARC, 
+APX, etc., probablemente no encontrará lo que busca. Además cubre 
+sólamente redes IPv4, pero ni IPv6 ni otros protocolos (lo siento).
+
+  Querríamos dar las gracias a Alan Cox, Rik van Riel, y Alexey 
+Kuznetsov. También queremos extender nuestro agradecimiento a Andi 
+Kleen por su documentación, que usamos de forma intensiva para crear 
+este documento, así como la información adicional que nos consiguió. 
+Gracias también a todo aquel que haya contribuido con fuentes o 
+documentos para el núcleo Linux y haber ayudado a crear una estupenda 
+pieza de software. Si tiene algún comentario, correcciones, o algo 
+para añadir, por favor, no dude en contactar con Bodo Bauer en 
+bb@ricochet.net. Nos alegrará añadirlo a este documento.
+
+  La última versión de este documento está disponible en 
+http://www.suse.com/~bb/Docs/proc.html como fichero HTML, ASCII, y 
+Postscript. 
+
+1.1  Asuntos legales.
+
+  No garantizamos la exactitud de este documento, y si nos viene 
+quejándose sobre cómo se ha cargado su sistema debido a una 
+documentación incorrecta, no nos sentiremos responsables...
+
+-----------------------------------------------------------------------
+
+2   El sistema de ficheros /proc.
+
+  El sistema de ficheros /proc actúa como una interfaz para las 
+estructuras internas de datos del núcleo. Puede usarse para obtener 
+información sobre el sistema y para cambiar ciertos parámetros del 
+núcleo mientras se ejecuta. Contiene (entre otras cosas) un 
+subdirectorio por cada proceso ejecutándose en el sistema ---FIXME-->which is 
+named after the process id (PID) of the process.<--FIXME--- El enlace self apunta 
+al proceso que esté leyendo el sistema de ficheros.
+
+2.1  Subdirectorios específicos de cada proceso.
+
+  Cada subdirectorio de proceso contiene los elementos listados en la tabla 1.1.
+
+      _________________________________________________
+      cmdline Argumentos de la línea de comandos.
+      environ Valores de las variables de entorno.
+      fd      Directorio, que contiene todos los descriptores de ficheros.
+      mem     Memoria retenida por este proceso.
+      stat    Estado del proceso.
+      status  Estado del proceso en forma humanamente legible.
+      cwd     Enlace al directorio actual de trabajo.
+      exe     Enlace al ejecutable de este proceso.
+      maps    Mapas de memoria.
+      root    Enlace al directorio raíz de este proceso.
+      statm   Información del estado de la memoria del proceso.
+     _________________________________________________
+      Tabla 1.1: Elementos específicos de cada proceso en /proc.
+
+   Por ejemplo, para obtener la información de estado de un proceso, todo lo 
+que tiene que hacer es leer el fichero /proc/PID/status:
+
+> cat /proc/self/status
+Name:   cat
+State:  R (running)
+Pid:    5633
+PPid:   5609
+Uid:    501     501     501     501
+Gid:    100     100     100     100
+Groups: 100 16 
+VmSize:      804 kB
+VmLck:         0 kB
+VmRSS:       344 kB
+VmData:       68 kB
+VmStk:        20 kB
+VmExe:        12 kB
+VmLib:       660 kB
+SigPnd: 0000000000000000
+SigBlk: 0000000000000000
+SigIgn: 0000000000000000
+SigCgt: 0000000000000000
+CapInh: 00000000fffffeff
+CapPrm: 0000000000000000
+CapEff: 0000000000000000
+
+   Esto le muestra casi la misma información que obtendría si lo viese con 
+el comando ps. De hecho, ps usa el sistema de ficheros /proc para obtener 
+la información que muestra.
+
+   El fichero statm contiene información más detallada sobre el uso de 
+memoria del proceso. Contiene siete valores que significan lo siguiente:
+
+size       tamaño total del programa.
+resident   size of in memory portions. ---FIXME---
+shared     número de páginas que están compartidas.
+trs        número de páginas que son 'código'.
+drs        número de páginas de datos/pila.
+lrs        número de páginas de biblioteca (library).
+dt         número de páginas marcadas como sucias.
+
+   La relación texto/datos/biblioteca sólo se puede aproximar por 
+heurística.
+
+2.2  Datos del núcleo.
+
+   De manera similar a las entradas para procesos, hay ficheros que dan 
+información sobre el núcleo que está ejecutándose. Los ficheros necesarios 
+para obtener dicha información se hallan en /proc y están listados en la 
+tabla 1.2. No todos estos ficheros estarán presentes en su sistema. 
+Depende de la configuración del núcleo y de los módulos que haya cargados, 
+el que estos ficheros existan o no.
+
+      ________________________________________________
+      apm           Información de la gestión avanzada de energía.
+      cmdline       Línea de comandos del núcleo.
+      cpuinfo       Información sobre la CPU.
+      devices       Dispositivos disponibles (de bloques y de caracteres).
+      dma           Canales DMA usados.
+      filesystems   Sistemas de ficheros soportados.
+      interrupts    Uso de interrupciones.
+      ioports       Uso de puertos de E/S (I/O ports).
+      kcore         Imagen del centro del núcleo. ---FIXME--- ¿Kernel core image?
+      kmsg          Mensajes del núcleo.
+      ksyms         Tabla de símbolos del núcleo.
+      loadavg       Carga media.
+      locks         Bloqueos del núcleo.
+      meminfo       Información de memoria.
+      misc          Miscelánea.
+      modules       Lista de módulos cargados.
+      mounts        Sistemas de ficheros montados.
+      partitions    Tabla de particiones que el sistema conoce.
+      rtc           Reloj en tiempo real.
+      slabinfo      Información de la slab pool ---FIXME---
+      stat          Estadísticas globales. ---FIXME--- Overall statistics?
+      swaps         Utilización del espacio de intercambio.
+      uptime        Tiempo que lleva encendido el sistema.
+      version       Versión del núcleo.
+      ________________________________________________
+           Tabla 1.2: Información del núcleo en /proc.
+
+  Puede, por ejemplo, revisar qué interrupciones estén actualmente en uso 
+y para qué están siendo usadas mirando en el fichero /proc/interrupts:
+
+> cat /proc/interrupts
+           CPU0       
+  0:    8728810          XT-PIC  timer
+  1:        895          XT-PIC  keyboard
+  2:          0          XT-PIC  cascade
+  3:     531695          XT-PIC  aha152x
+  4:    2014133          XT-PIC  serial
+  5:      44401          XT-PIC  pcnet_cs
+  8:          2          XT-PIC  rtc
+ 11:          8          XT-PIC  i82365
+ 12:     182918          XT-PIC  PS/2 Mouse
+ 13:          1          XT-PIC  fpu
+ 14:    1232265          XT-PIC  ide0
+ 15:          7          XT-PIC  ide1
+NMI:          0
+
+   Hay tres directorios más de importancia en /proc: net, scsi y sys. 
+La regla de oro es que los contenidos, o incluso la existencia misma 
+de estos directorios depende de la configuración de su núcleo. Si no 
+está activado el soporte scsi, el directorio scsi puede no existir. 
+Lo mismo es cierto con net, que sólo está ahí cuando el soporte de red 
+está presente en el núcleo actual.
+
+   El fichero slabinfo da información sobre el uso de memoria en el 
+---FIXME--- slab level. Linux usa ---FIXME---slab pools para la gestión 
+de memoria por encima del nivel de página en la versión 2.2. Los 
+objetos usados más comúnmente tienen su propia ---FIXME--- slab pool 
+(como buffers de red, caché de directorio, etc.).
+
+2.3  Dispositivos IDE en /proc/ide.
+
+   Este directorio contiene información sobre todos los dispositivos 
+IDE de los que el núcleo está al tanto. Hay un subdirectorio por 
+cada dispositivo (p.ej. disco duro) que contiene los siguientes 
+ficheros:
+
+       cache             La caché.
+       capacity          Capacidad del medio.
+       driver            Controlador y versión.
+       geometry          Geometría física y lógica.
+       identify          Bloque de identidad del dispositivo.
+       media             Tipo de medio.
+       model             Identificador del dispositivo.
+       settings          Configuración del dispositivo.
+       smart_thresholds  IDE disk management thresholds ---FIXME---
+       smart_values      IDE disk management values
+
+2.4  Información de red en /proc/net.
+
+   Este directorio sigue la tendencia anterior. La tabla 1.3 lista los 
+ficheros y su significado.
+
+     ____________________________________________________
+     arp             Tabla de ARP del núcleo.
+     dev             Dispositivos de red con sus estadísticas.
+     dev_mcast       Lista los grupos multicast Layer2 a los que 
+                     un dispositivo está escuchando (índice de 
+                     interfaz, etiqueta, número de referencias, 
+                     número de direcciones enlazadas).
+     dev_stat        Estado del dispositivo de red.
+     ip_fwchains     Enlaces de cadenas del cortafuegos (firewall 
+                     chain linkage).
+     ip_fwnames      Cadenas del cortafuegos.
+     ip_masq         Directorio que contiene las tablas de 
+                     enmascaramiento.
+     ip_masquerade   Tabla de enmascaramiento mayor (major masquerading table). ---FIXME---
+     netstat         Estadísticas de red.
+     raw             Estadísticas del dispositivo en bruto.
+     route           Tabla de enrutado del núcleo.
+     rpc             Directorio que contiene información de RPC.
+     rt_cache        Caché de enrutado.
+     snmp            Datos sobre SNMP.
+     sockstat        Estadísticas de sockets.
+     tcp             Sockets TCP.
+     tr_rif          Tabla de enrutado RIF para Token Ring.
+     udp             Sockets UDP.
+     unix            Sockets del dominio UNIX.
+     wireless        Datos del interfaz inalámbrico (Wavelan, etc.).
+     igmp            Direcciones multicast IP a las que este ---FIXME---host se ha unido.
+     psched          Parámetros del planificador de paquetes globales. (Global packet scheduler parameters)
+     netlink         Lista de sockets PF_NETLINK.
+     ip_mr_vifs      Lista de interfaces virtuales multicast.
+     ip_mr_cache     Lista del caché de enrutado multicast.
+     udp6            Sockets UDP (IPv6).
+     tcp6            Sockets TCP (IPv6).
+     raw6            Estadísticas del dispositivo en bruto(raw) (IPv6).
+     igmp6           Direcciones multicast IP a las que se ha unido este ---FIXME---host (IPv6).
+     if_inet6        Lista de direcciones de interfaces IPv6.
+     ipv6_route      Tabla de enrutado del núcleo para IPv6.
+     rt6_stats       Estadísticas globales de las tablas de enrutado de IPv6.
+     sockstat6       Estadísticas de sockets (IPv6).
+     snmp6           Datos sobre SNMP (IPv6).
+     ____________________________________________________
+         Tabla 1.3: Información de red en /proc/net.
+
+   Puede usar esta información para ver qué dispositivos de red están 
+disponibles en su sistema y cuánto tráfico fue encaminado a esos 
+dispositivos:
+
+> cat /proc/net/dev
+Inter-|Receive                                                   |[...
+ face |bytes    packets errs drop fifo frame compressed multicast|[...
+    lo:  908188   5596     0    0    0     0          0         0 [...        
+  ppp0:15475140  20721   410    0    0   410          0         0 [... 
+  eth0:  614530   7085     0    0    0     0          0         1 [...
+
+...] Transmit
+...] bytes    packets errs drop fifo colls carrier compressed
+...]  908188     5596    0    0    0     0       0          0
+...] 1375103    17405    0    0    0     0       0          0
+...] 1703981     5535    0    0    0     3       0          0
+
+2.5  Información SCSI.
+
+   Si tiene un adaptador de ---FIXME---host SCSI, encontrará subdirectorios 
+en /proc/scsi que llevan por nombre el controlador del adaptador. También 
+puede ver una lista de todos los dispositivos SCSI reconocidos en /proc/scsi:
+
+>cat /proc/scsi/scsi
+Attached devices: 
+Host: scsi0 Channel: 00 Id: 00 Lun: 00
+  Vendor: QUANTUM  Model: XP34550W         Rev: LXY4
+  Type:   Direct-Access                    ANSI SCSI revision: 02
+Host: scsi0 Channel: 00 Id: 01 Lun: 00
+  Vendor: SEAGATE  Model: ST34501W         Rev: 0018
+  Type:   Direct-Access                    ANSI SCSI revision: 02
+Host: scsi0 Channel: 00 Id: 02 Lun: 00
+  Vendor: SEAGATE  Model: ST34501W         Rev: 0017
+  Type:   Direct-Access                    ANSI SCSI revision: 02
+Host: scsi0 Channel: 00 Id: 04 Lun: 00
+  Vendor: ARCHIVE  Model: Python 04106-XXX Rev: 703b
+  Type:   Sequential-Access                ANSI SCSI revision: 02
+
+   El directorio bajo el nombre de cada controlador contiene un fichero 
+por cada adaptador encontrado en el sistema. Estos ficheros contienen 
+información sobre el dispositivo, como la IRQ y el rango de direcciones 
+de E/S:
+
+>cat /proc/scsi/ncr53c8xx/0
+General información:
+ Chip NCR53C875, device id 0xf, revision id 0x4
+ IO port address 0xec00, IRQ número 11
+ Synchronous period factor 12, max commands per lun 4
+
+2.6  Información de puerto paralelo en /proc/parport.
+
+   El directorio /proc/parport contiene información sobre los puertos 
+paralelos de su sistema. Tiene un subdirectorio por cada puerto, cuyo 
+nombre es el número del puerto (0,1,2,...).
+
+   Este directorio contiene cuatro ficheros:
+
+    autoprobe   Resultados del sondeo automático para este puerto.
+    devices     Módulos de dispositivo conectados.
+    hardware    Información del hardware (tipo de puerto, E/S del puerto, DMA, IRQ, etc.)
+    irq         Interrupción usada, si la hay.
+
+2.7  Información de TTY en /proc/tty.
+
+   Se puede encontrar información sobre las tty's disponibles y las 
+que están siendo usadas, en /proc/tty. En este directorio 
+encontrará entradas para los controladores y las disciplinas de 
+la línea, como se muestra en la tabla inferior:
+
+     drivers       Lista de controladores y su uso.
+     ldiscs        Disciplinas de línea registradas.
+     driver/serial Estadística de uso y estado de las líneas de una sola tty.
+
+   Para ver qué tty's están actualmente en uso, puede mirar 
+sencillamente dentro del fichero /proc/tty/drivers:
+
+>cat /proc/tty/drivers
+pty_slave            /dev/pts      136   0-255 pty:slave
+pty_master           /dev/ptm      128   0-255 pty:master
+pty_slave            /dev/ttyp       3   0-255 pty:slave
+pty_master           /dev/pty        2   0-255 pty:master
+serial               /dev/cua        5   64-67 serial:callout
+serial               /dev/ttyS       4   64-67 serial
+/dev/tty0            /dev/tty0       4       0 system:vtmaster
+/dev/ptmx            /dev/ptmx       5       2 system
+/dev/console         /dev/console    5       1 system:console
+/dev/tty             /dev/tty        5       0 system:/dev/tty
+unknown              /dev/tty        4    1-63 console
+
+-----------------------------------------------------------------------
+
+3   Leyendo y modificando parámetros del núcleo.
+
+   Una parte muy interesante /proc es el directorio /proc/sys. No 
+sólo proporciona información, sino que además le permite cambiar 
+parámetros de dentro del núcleo. Sea muy cuidadoso cuando intente 
+esto. Puede optimizar su sistema, pero también puede dejarlo "fuera 
+de combate". Nunca juegue a tocar los parámetros del núcleo de un 
+sistema en producción. Instale una máquina de desarrollo y haga las 
+pruebas en ella para asegurarse de que todo funciona de la manera que 
+desea. Puede no tener más alternativa que reiniciar la máquina una vez 
+que se ha cometido un error.
+
+   Para cambiar un valor, simplemente escriba el nuevo valor en el 
+fichero. Más abajo se da un ejemplo en la sección de datos del sistema 
+de ficheros. Necesita ser root para hacer esto. Puede crear su propio 
+script de inicio para conseguir que todo esto se haga cada vez que 
+su sistema arranque.
+
+   Los ficheros en /proc/sys pueden usarse para ajustar y controlar 
+distintos aspectos generales de la operación del núcleo Linux. Ya que 
+algunos ficheros pueden interferir de forma inadvertida con su sistema, 
+es aconsejable leer tanto la documentación como las fuentes antes de 
+hacer realmente ajustes. En cualquier caso, sea muy cuidadoso cuando 
+escriba en cualquiera de estos ficheros. Las entradas en /proc pueden 
+cambiar ligeramente entre los núcleos 2.1.* y el núcleo 2.2, así que 
+revise la documentación si le surge alguna duda. Encontrará la 
+documentación en el directorio /usr/src/linux/Documentation/sys. Este 
+capítulo está en gran parte basado en la documentación incluída en 
+los núcleos pre-2.2. Gracias a Rick van Riel por proporcionar toda 
+esa información.
+
+3.1  /proc/sys/debug y /proc/sys/proc.
+
+   Estos dos subdirectorios están vacíos.
+
+3.2  /proc/fs - Datos del sistema de ficheros.
+
+   Este subdirectorio contiene información específica del sistema de 
+ficheros, manipuladores de ficheros, inodos, entradas de directorio 
+(llamadas "dentry") y cuotas.
+
+   Actualmente, estos ficheros están en /proc/sys/fs:
+
+dentry-state
+   Estado del caché de directorios. Ya que las entradas de directorio 
+   son alojadas y desalojadas dinámicamente, este fichero da 
+   información sobre el estado actual. Mantiene seis valores, de los 
+   que los dos últimos son siempre cero y no se usan. Los otros cuatro 
+   significan:
+
+       nr_dentry   Parece ser cero todo el tiempo.
+       nr_unused   Número de entradas del caché sin usar.
+       age_limit   Tiempo en segundos tras el que una entrada puede 
+                   reclamarse, cuando la memoria escasee.
+       want_pages  Interno.
+
+dquot-nr y dquot-max
+   El fichero dquot-max muestra el máximo número de entradas de cuota 
+   de disco en el caché.
+   
+   El fichero dquot-nr muestra el número de entradas de cuotas de disco 
+   alojadas y el número de entradas de cuota de disco libres.
+
+   Si el número de cuotas de disco libres es muy baja y tiene un gran 
+   número de usuarios simultáneos en el sistema, podría querer aumentar 
+   el límite.
+
+file-nr y file-max
+   El núcleo aloja manipuladores de fichero de forma dinámica, pero 
+   al menos por el momento no los libera de nuevo.
+
+   El valor en file-max denota el número máximo de manipuladores de 
+   fichero de forma dinámica que el núcleo de Linux alojará. Si 
+   obtuviese un montón de mensajes de error referentes a escasez de 
+   manipuladores de fichero (running out of file handles), podría 
+   querer aumentar este límite. El valor por defecto es 4096. Para 
+   cambiarlo, simplemente escriba el nuevo valor en el fichero:
+
+   # cat /proc/sys/fs/file-max
+   4096
+   # echo 8192 > /proc/sys/fs/file-max
+   # cat /proc/sys/fs/file-max
+   8192
+
+   Este método de modificación es prácticamente el mismo para todos 
+   los parámetros del núcleo susceptibles de ser modificados; 
+   simplemente introduzca el nuevo valor en el fichero correspondiente.
+  
+   Los tres valores de file-nr denotan el número de manipuladores de 
+   fichero alojados, los usados, y el número máximo de ellos. Cuando 
+   el número de manipuladores de fichero alojados se acerque al máximo, 
+   pero el número de los que estén siendo usados sea mucho menor, habrá 
+   encontrado un pico en el uso de manipuladores y no necesitará 
+   incrementar el máximo.---FIXME---(esto no está claro)
+
+   Sin embargo, hay además un límite en el número de ficheros abiertos 
+   por proceso que, por desgracia, no se puede cambiar tan fácilmente. 
+   Su valor por defecto es 1024. Para cambiarlo tiene que editar los 
+   ficheros limits.h y fs.h del directorio /usr/src/linux/include/linux. 
+   Cambie la definición de NR_OPEN y recompile el núcleo.
+
+inode-state, inode-nr y inode-max
+   Como sucede con los manipuladores de fichero, el núcleo aloja las 
+   estructuras de inodo dinámicamente, pero no las puede liberar de 
+   inmediato.
+
+   El valor en inode-max denota el máximo número of manipuladores de 
+   inodo. Este valor debería ser 3 ó 4 veces más grande que el valor de 
+   file-max, ya que también se necesitan estructuras de inodo para 
+   manejar stdin, stdout, y los sockets de red. Si se queda sin inodos 
+   de una forma regular, debería incrementar este valor.
+
+   El fichero inode-nr contiene los dos primeros valores de inode-state, 
+   así que pasaremos a ese fichero...
+
+   inode-state contiene actualmente tres números y cuatro valores 
+   inútiles. Los números son (por orden) nr_inodes, nr_free_inodes, y 
+   preshrink.
+
+   nr_inodes 
+     Representa el número de inodos que tiene alojados el sistema. Puede 
+     ser ligeramente superior que inode-max porque Linux utiliza páginas 
+     completas de memoria para alojarlos.
+
+   nr_free_inodes 
+     Represents the number of free inodes and pre shrink is nonzero
+     when the nr_inodes > inode-max and the system needs to prune the
+     inode list instead of allocating more.---FIXME--- (frase espantosa donde las haya)
+
+super-nr y super-max
+   De nuevo, el núcleo aloja estructuras de superbloque pero no las 
+   libera. El fichero super-max contiene el número máximo de 
+   manipuladores de superbloque, mientras que super-nr muestra el 
+   número de los alojados actualmente.
+
+   Cada sistema de ficheros montado necesita un superbloque, así que 
+   si planea montar montones de sistemas de ficheros, puede que 
+   necesite aumentar estos valores.
+
+3.3  /proc/fs/binfmt_misc - Formatos binarios variados.
+
+   Para estos ficheros, existe el subdirectorio
+/proc/sys/fs/binfmt_misc. Éste maneja el soporte que el núcleo 
+proporciona para formatos binarios variados.
+
+   Binfmt_misc proporciona la posibilidad de registrar formatos 
+binarios adicionales en el núcleo sin tener que compilar un módulo o 
+núcleo adicional. Es por ello que binfmt_misc necesita conocer los 
+números mágicos (o «magic») del comienzo del fichero o la extensión 
+de fichero del binario en cuestión.
+
+   Funciona manteniendo una lista enlazada de estructuras que contienen 
+una descripción del formato binario, incluyendo un número mágico y su 
+tamaño (o la extensión del fichero), offset y máscara, y el nombre del 
+intérprete. Cuando se solicita, se inicia el intérprete especificado 
+con el programa original como argumento, como hacen binfmt_java, 
+binfmt_em86 y binfmt_mz.
+
+   Ya que binfmt_misc no define ningún formato binario por defecto, 
+habrá de registrar un formato adicional.
+
+  Hay dos ficheros generales en binfmt_misc y un fichero por cada 
+formato registrado. Los dos ficheros generales son register y status.
+
+Cómo registrar un nuevo formato binario
+
+echo :nombre:tipo:offset:magic:máscara:intérprete: > /proc/sys/fs/binfmt_misc/register 
+
+con valores apropiados en nombre (el nombre para la entrada del 
+directorio /proc), offset (por defecto 0, si se omite), número mágico 
+(magic) y máscara (que pueden ser omitidos, valiendo por defecto 0xff) 
+y por último pero no por ello menos importante, el intérprete al que 
+se va a llamar (por ejemplo, y para probar, '/bin/echo'). El tipo puede 
+ser M para usar número mágico o E para usar una extensión de fichero 
+(dé la extensión en lugar del número mágico).
+
+Para revisar o poner a cero el estado del manipulador de formato binario:
+
+  Si hace un cat en el fichero /proc/sys/fs/binfmt_misc/status, 
+obtendrá el estado actual (activado/desactivado) de binfmt_misc. Cambie 
+el estado escribiendo 0 (desactivar) o 1 (activar) o -1 (cuidado: esta 
+opción borra todo formato binario registrado con anterioridad) en 
+status. Por ejemplo, escriba echo 0 > status para desactivar binfmt_misc 
+(temporalmente).
+
+Estado de un manipulador
+
+  Cada manipulador registrado tiene una entrada en /proc/sys/fs/binfmt_misc. 
+Estos ficheros realizan la misma función que status, pero su ámbito de 
+acción se limita al formato binario actual. Leyendo el contenido de este 
+fichero, recibirá toda la informacíon relativa al intérprete o al número 
+mágico del formato binario.
+
+Un ejemplo de uso de binfmt_misc (emulando binfmt_java)
+
+cd /proc/sys/fs/binfmt_misc
+echo ':Java:M::\xca\xfe\xba\xbe::/usr/local/java/bin/javawrapper:' > register
+echo ':HTML:E::html::/usr/local/java/bin/appletviewer:' > register
+echo ':Applet:M::<!--applet::/usr/local/java/bin/appletviewer:' > register
+echo ':DEXE:M::\x0eDEX::/usr/bin/dosexec:' > register
+
+  Estas tres líneas añaden soporte para ejecutables Java y applets Java 
+(como hacía binfmt_java, y además reconociendo la extensión .html para 
+que no haga falta poner <!--applet> por cada applet). Tiene que instalar 
+el JDK y el shell-script /usr/local/java/bin/javawrapper también. Éste 
+proporciona un arreglo de los problemas de Java del manejo de nombres 
+de fichero. Para añadir un binario Java, simplemente cree un enlace al 
+fichero clase en algún directorio accesible normalmente.
+
+3.4  /proc/sys/kernel - general kernel parameters
+
+This directory reflects general kernel behaviors. As I've said before,
+the contents are depend on your configuration. I'll list the most
+important files, along with descriptions of what they mean and how to
+use them.
+
+acct
+   The file contains three values; highwater, lowwater, and
+   frequency.
+
+   It exists only when BSD-style process accounting is enabled. These
+   values control its behavior. If the free space on the file system
+   where the log lives goes below lowwater%, accounting suspends. If
+   it goes above highwater%, accounting resumes. Frequency determines
+   how often you check the amount of free space (value is in
+   seconds). Default settings are: 4, 2, and 30. That is, suspend
+   accounting if there left <= 2% free; resume it if we have a value
+   >=3%; consider información about the amount of free space valid
+   for 30 seconds
+
+ctrl-alt-del
+   When the value in this file is 0, ctrl-alt-del is trapped and sent
+   to the init(1) program to handle a graceful restart. However, when
+   the value is > 0, Linux's reaction to this key combination will be
+   an immediate reboot, without syncing its dirty buffers.
+
+   Note: when a program (like dosemu) has the keyboard in raw mode,
+   the ctrl-alt-del is intercepted by the program before it ever
+   reaches the kernel tty layer, and it is up to the program to decide
+   what to do with it.
+
+domainname and hostname
+   These files can be controlled to set the NIS domainname and
+   hostname of your box. For the classic darkstar.frop.org a simple:
+
+   # echo "darkstar" > /proc/sys/kernel/hostname
+   # echo "frop.org" > /proc/sys/kernel/domainname
+
+   would suffice to set your hostname and NIS domainname.
+
+osrelease, ostype and version
+
+   The names make it pretty obvious what these fields contain:
+
+   >cat /proc/sys/kernel/osrelease
+   2.1.131
+   >cat /proc/sys/kernel/ostype
+   Linux
+   >cat /proc/sys/kernel/version
+   #8 Mon Jan 25 19:45:02 PST 1999
+ 
+   The files osrelease and ostype should be clear enough. Version
+   needs a little more clarification however. The #8 means that this
+   is the 8th kernel built from this source base and the date behind
+   it indicates the time the kernel was built. The only way to tune
+   these values is to rebuild the kernel.
+
+panic 
+   The value in this file represents the número of seconds the kernel
+   waits before rebooting on a panic. When you use the software
+   watchdog, the recommended setting is 60. If set to 0, the auto
+   reboot after a kernel panic is disabled, this is the default
+   setting.
+
+printk
+   The four values in printk denote console_loglevel,
+   default_message_loglevel, minimum_console_level, and
+   default_console_loglevel respectively.
+
+   These values influence printk() behavior when printing or logging
+   error messages, which come from inside the kernel. See syslog(2)
+   for more información on the different log levels.
+
+   console_loglevel
+     Messages with a higher priority than this will be printed to
+     the console.
+
+   default_message_level
+     Messages without an explicit priority will be printed with
+     this priority.
+
+   minimum_console_loglevel
+     Minimum (highest) value to which the console_loglevel can be set.
+
+   default_console_loglevel
+     Default value for console_loglevel.
+
+sg-big-buff
+   This file shows the size of the generic SCSI (sg) buffer. At this
+   point, you can't tune it yet, but you can change it at compile time
+   by editing include/scsi/sg.h and changing the value of
+   SG_BIG_BUFF.
+
+   If you use a scanner with SANE (Scanner Access now easy) you
+   might want to set this to a higher value. Look into the SANE
+   documentation on this issue.
+
+modprobe
+   The location where the modprobe binary is located. The kernel
+   uses this program to load modules on demand.
+
+3.5  /proc/sys/vm - The virtual memory subsystem
+
+The files in this directory can be used to tune the operation of the
+virtual memory (VM) subsystem of the Linux kernel. In addition, one of
+the files (bdflush) has a little influence on disk usage.
+
+bdflush
+   This file controls the operation of the bdflush kernel daemon. It
+   currently contains 9 integer values, 6 of which are actually used
+   by the kernel:
+
+    nfract      Percentage of buffer cache dirty to
+                activate bdflush
+    ndirty      Maximum número of dirty blocks to
+                write out per-wake-cycle
+    nrefill     número of clean buffers to try to obtain
+                each time we call refill
+    nref_dirt   Dirty buffer threshold for activating bdflush
+                when trying to refill buffers.
+    dummy       unused
+    age_buffer  Time for normal buffer to age before you flush it
+    age_super   Time for superblock to age before you flush it
+    dummy       unused
+    dummy       unused
+
+   nfract
+     This parameter governs the maximum número of dirty buffers
+     in the buffer cache. Dirty means that the contents of the
+     buffer still have to be written to disk (as opposed to a
+     clean buffer, which can just be forgotten about). Setting
+     this to a high value means that Linux can delay disk writes
+     for a long time, but it also means that it will have to do a
+     lot of I/O at once when memory becomes short. A low value
+     will spread out disk I/O more evenly.
+
+   ndirty
+     Ndirty gives the maximum número of dirty buffers that
+     bdflush can write to the disk at one time. A high value will
+     mean delayed, bursty I/O, while a small value can lead to
+     memory shortage when bdflush isn't woken up often enough.
+
+   nrefill
+     This the número of buffers that bdflush will add to the list
+     of free buffers when refill_freelist() is called. It is
+     necessary to allocate free buffers beforehand, since the
+     buffers are often different sizes than the memory pages
+     and some bookkeeping needs to be done beforehand. The
+     higher the número, the more memory will be wasted and the
+     less often refill_freelist() will need to run.
+
+   nref_dirt
+     When refill_freelist() comes across more than nref_dirt
+     dirty buffers, it will wake up bdflush.
+
+   age_buffer and age_super
+     Finally, the age_buffer and age_super parameters govern the
+     maximum time Linux waits before writing out a dirty buffer
+     to disk. The value is expressed in jiffies (clockticks), the
+     número of jiffies per second is 100. Age_buffer is the
+     maximum age for data blocks, while age_super is for
+     filesystems meta data.
+
+buffermem
+   The three values in this file control how much memory should be
+   used for buffer memory. The percentage is calculated as a
+   percentage of total system memory.
+
+   The values are:
+
+   min_percent
+     This is the minimum percentage of memory that should be
+     spent on buffer memory.
+
+   borrow_percent
+     When Linux is short on memory, and the buffer cache uses more
+     than it has been allotted, the memory mangement (MM) subsystem
+     will prune the buffer cache more heavily than other memory to
+     compensate.
+
+   max_percent
+     This is the maximum amount of memory that can be used for
+     buffer memory.
+
+freepages
+   This file contains three values: min, low and high:
+
+   min
+     When the número of free pages in the system reaches this número,
+     only the kernel can allocate more memory.
+
+   low
+     If the número of free pages gets below this point, the kernel
+     starts swapping aggressively.
+
+   high
+     The kernel tries to keep up to this amount of memory free; if
+     memory comes below this point, the kernel gently starts swapping
+     in the hopes that it never has to do really aggressive swapping.
+
+kswapd
+   Kswapd is the kernel swap out daemon. That is, kswapd is that piece
+   of the kernel that frees memory when it gets fragmented or
+   full. Since every system is different, you'll probably want some
+   control over this piece of the system.
+
+   The file contains three números:
+
+   tries_base
+     The maximum número of pages kswapd tries to free in one round is
+     calculated from this número. Usually this número will be divided
+     by 4 or 8 (see mm/vmscan.c), so it isn't as big as it looks.
+
+     When you need to increase the bandwidth to/from swap, you'll want
+     to increase this número.
+
+   tries_min
+     This is the minimum número of times kswapd tries to free a page
+     each time it is called. Basically it's just there to make sure
+     that kswapd frees some pages even when it's being called with
+     minimum priority.
+
+
+  swap_cluster
+     This is probably the greatest influence on system
+     performance. swap_cluster is the número of pages kswapd writes in
+     one turn. You'll want this value to be large so that kswapd does
+     its I/O in large chunks and the disk doesn't have to seek as
+     often., but you don't want it to be too large since that would
+     flood the request queue.
+
+overcommit_memory
+   This file contains one value. The following algorithm is used to
+   decide if there's enough memory: if the value of overcommit_memory
+   is positive, then there's always enough memory. This is a useful
+   feature, since programs often malloc() huge amounts of memory 'just
+   in case', while they only use a small part of it. Leaving this
+   value at 0 will lead to the failure of such a huge malloc(), when
+   in fact the system has enough memory for the program to run.
+
+   On the other hand, enabling this feature can cause you to run out
+   of memory and thrash the system to death, so large and/or important
+   servers will want to set this value to 0.
+
+pagecache
+   This file does exactly the same as buffermem, only this file
+   controls the amount of memory allowed for memory mapping and
+   generic caching of files.
+
+   You don't want the minimum level to be too low, otherwise your
+   system might thrash when memory is tight or fragmentation is
+   high.
+
+pagetable_cache
+   The kernel keeps a número of page tables in a per-processor cache
+   (this helps a lot on SMP systems). The cache size for each
+   processor will be between the low and the high value.
+
+   On a low-memory, single CPU system, you can safely set these values
+   to 0 so you don't waste memory. It is used on SMP systems so that
+   the system can perform fast pagetable allocations without having to
+   aquire the kernel memory lock.
+
+   For large systems, the settings are probably fine. For normal
+   systems they won't hurt a bit. For small systems (<16MB ram) it
+   might be advantageous to set both values to 0.
+
+swapctl
+   This file contains no less than 8 variables. All of these values
+   are used by kswapd.
+
+   The first four variables sc_max_page_age, sc_page_advance,
+   sc_page_decline and sc_page_initial_age are used to keep track of
+   Linux's page aging. Page aging is a bookkeeping method to track
+   which pages of memory are often used, and which pages can be
+   swapped out without consequences.
+
+   When a page is swapped in, it starts at sc_page_initial_age
+   (default 3) and when the page is scanned by kswapd, its age is
+   adjusted according to the following scheme:
+
+    o If the page was used since the last time we scanned, its age
+      is increased by sc_page_advance (default 3) up to a
+      maximum of sc_max_page_age (default 20).
+
+    o Else (meaning it wasn't used) its age is decreased by
+      sc_page_decline (default 1).
+
+   When a page reaches age 0, it's ready to be swapped out.
+
+   The next four variables sc_age_cluster_fract, sc_age_cluster_min,
+   sc_pageout_weight and sc_bufferout_weight, can be used to control
+   kswapd's aggressiveness in swapping out pages.
+
+   Sc_age_cluster_fract is used to calculate how many pages from a
+   process are to be scanned by kswapd. The formula used is
+
+           sc_age_cluster_fract
+           -------------------- * resident set size
+              1024   =20
+
+   So if you want kswapd to scan the whole process,
+   sc_age_cluster_fract needs to have a value of 1024. The minimum
+   número of pages kswapd will scan is represented by
+   sc_age_cluster_min, this is done so kswapd will also scan small
+   processes.
+
+   The values of sc_pageout_weight and sc_bufferout_weight are used
+   to control how many tries kswapd will make in order to swap out
+   one page/buffer. These values can be used to fine-tune the ratio
+   between user pages and buffer/cache memory. When you find that
+   your Linux system is swapping out too many process pages in order
+   to satisfy buffer memory demands, you might want to either
+   increase sc_bufferout_weight, or decrease the value of
+   sc_pageout_weight.
+
+3.6  /proc/sys/dev - Device specific parameters
+
+Currently there is only support for CDROM drives, and for those, there
+is only one read only file containing información about the CD-ROM
+drives attached to the system:
+
+>cat /proc/sys/dev/cdrom/info
+CD-ROM information
+
+drive name:           sr0  hdc
+drive speed:           0    6
+drive # of slots:      1    0
+Can close tray:        1    1
+Can open tray:         1    1
+Can lock tray:         1    1
+Can change speed:      1    1
+Can select disk:       0    1
+Can read multisession: 1    1
+Can read MCN:          1    1
+Reports media changed: 1    1
+Can play audio:        1    1
+
+You see two drives, sr0 and hdc, and their lists of features.
+
+3.7  /proc/sys/sunrpc - Remote procedure calls
+
+This directory contains four files, which enable or disable debugging
+for the RPC functions NFS, NFS-daemon, RPC and NLM. The default values
+are 0. They can be set to one, to turn debugging on.  (The default
+value is 0 for each)
+
+3.8  /proc/sys/net - Networking stuff
+
+The interface to the networking parts of the kernel is located in
+/proc/sys/net. The table below shows all possible subdirectories. You
+may see only some of them, depending on the configuration of your
+kernel:
+
++-------------------------------------------------------------+
+| core     General parameter   |appletalk  Appletalk protocol |
+| unix     Unix domain sockets |netrom     NET/ROM            |
+| 802      E802 protocol       |ax25       AX25               |
+| ethernet Ethernet protocol   |rose       X.25 PLP layer     |
+| ipv4     IP version 4        |x25        X.25 protocol      |
+| ipx      IPX                 |token-ring IBM token ring     |
+| bridge   Bridging            |decnet     DEC net            |
+| ipv6     IP version 6        |                              |
++-------------------------------------------------------------+
+
+We will concentrate on IP networking here. As AX15, X.25, and DEC Net
+are only minor players in the Linux world, we'll skip them in this
+chapter. You'll find some short info to Appletalk and IPX further down
+in section 3.10 and 3.11. Please look in the online documentation and
+the kernel source to get a detailed view of the parameters for those
+protocols. In this section we'll discuss the subdirectories printed in
+bold letters in the table above. As default values are suitable for
+most needs, there is no need to change these values.
+
+/proc/sys/net/core - Network core options
+
+rmem_default
+   The default setting of the socket receive buffer in bytes.
+
+rmem_max
+   The maximum receive socket buffer size in bytes.
+
+wmem_default
+   The default setting (in bytes) of the socket send buffer.
+
+wmem_max
+   The maximum send socket buffer size in bytes.
+
+message_burst and message_cost
+   These parameters are used to limit the warning messages written to
+   the kernel log from the networking code. They enforce a rate limit
+   to make a denial-of-service attack impossible. The higher the
+   message_cost factor is, the less messages will be
+   written. Message_burst controls when messages will be dropped. The
+   default settings limit warning messages to one every five seconds.
+
+netdev_max_backlog
+   Maximal número of packets, queued on INPUT side, when the interface
+   receives packets faster than kernel can process them.
+
+optmem_max
+   Maximum ancillary buffer size allowed per socket. Ancillary data is
+   a sequence of struct cmsghdr structures with appended data.
+
+/proc/sys/net/unix - Parameters for UNIX domain sockets
+
+There are only two files in this subdirectory. They control the delays
+for deleting and destroying socket descriptors.
+
+3.9  /proc/sys/net/ipv4 - IPV4 settings
+
+IP version 4 is still the most used protocol in Unix networking. It
+will be replaced by IP version 6 in the next couple of years, but for
+the moment it's the de facto standard for the internet and is used in
+most networking environments around the world. Because of the
+importance of this protocol, we'll have a deeper look into the subtree
+controlling the behavior of the IPv4 subsystem of the Linux kernel.
+
+Let's start with the entries in /proc/sys/net/ipv4 itself.
+
+ICMP settings
+
+icmp_echo_ignore_all and icmp_echo_ignore_broadcasts
+   Turn on (1) or off (0), if the kernel should ignore all ICMP ECHO
+   requests, or just those to broadcast and multicast addresses.
+
+   Please note that if you accept ICMP echo requests with a
+   broadcast/multicast destination address your network may be used
+   as an exploder for denial of service packet flooding attacks to
+   other hosts.
+
+icmp_destunreach_rate, icmp_echoreply_rate,
+icmp_paramprob_rate and icmp_timeexeed_rate
+   Sets limits for sending ICMP packets to specific targets. A value of
+   zero disables all limiting. Any positive value sets the maximum
+   package rate in hundredths of a second (on Intel systems).
+
+IP settings
+
+ip_autoconfig
+   This file contains one, if the host got its IP configuration by
+   RARP, BOOTP, DHCP or a similar mechanism. Otherwise it is zero.
+
+ip_default_ttl
+   TTL (Time To Live) for IPv4 interfaces. This is simply the
+   maximum número of hops a packet may travel.
+
+ip_dynaddr
+   Enable dynamic socket address rewriting on interface address change. This
+   is useful for dialup interface with changing IP addresses.
+
+ip_forward
+   Enable or disable forwarding of IP packages between interfaces. A
+   change of this value resets all other parameters to their default
+   values. They differ if the kernel is configured as host or router.
+
+ip_local_port_range
+   Range of ports used by TCP and UDP to choose the local
+   port. Contains two números, the first número is the lowest port,
+   the second número the highest local port. Default is 1024-4999.
+   Should be changed to 32768-61000 for high-usage systems.
+
+ip_no_pmtu_disc
+   Global switch to turn path MTU discovery off. It can also be set
+   on a per socket basis by the applications or on a per route
+   basis.
+
+ip_masq_debug
+   Enable/disable debugging of IP masquerading.
+
+
+IP fragmentation settings
+
+ip_always_defrag
+   Replaces the former Kernel-Configuration option:
+       CONFIG_IP_ALWAYS_DEFRAG
+   All incoming fragments (parts of IP packets
+   that arose when some host between origin and destination decided
+   that the packets were too large and cut them into pieces) will be
+   reassembled (defragmented) before being processed, even if they are
+   about to be forwarded.
+
+   Only say Y here if running either a firewall that is the sole link
+   to your network or a transparent proxy; never ever say Y here for a
+   normal router or host.
+
+   This is automagically enabled when enabling masquerading.
+
+ipfrag_high_trash and ipfrag_low_trash
+   Maximum memory used to reassemble IP fragments. When
+   ipfrag_high_thresh bytes of memory is allocated for this purpose,
+   the fragment handler will toss packets until ipfrag_low_thresh is
+   reached.
+
+
+ipfrag_time
+   Time in seconds to keep an IP fragment in memory.
+
+TCP settings
+
+tcp_retrans_collapse
+   Bug-to-bug compatibility with some broken printers. On retransmit
+   try to send bigger packets to work around bugs in certain TCP
+   stacks. Can be turned off by setting it to zero.
+
+tcp_keepalive_probes
+   número of keep alive probes TCP sends out, until it decides that the
+   connection is broken.
+
+tcp_keepalive_time
+   How often TCP sends out keep alive messages, when keep alive is
+   enabled. The default is 2 hours.
+
+tcp_syn_retries
+   número of times initial SYNs for a TCP connection attempt will be
+   retransmitted. Should not be higher than 255. This is only the
+   timeout for outgoing connections, for incoming connections the
+   número of retransmits is defined by tcp_retries1.
+
+tcp_sack
+   Enable select acknowledgments after RFC2018.
+
+tcp_timestamps
+   Enable timestamps as defined in RFC1323.
+
+tcp_stdurg
+   Enable the strict RFC793 interpretation of the TCP urgent pointer
+   field. The default is to use the BSD compatible interpretation
+   of the urgent pointer pointing to the first byte after the urgent
+   data. The RFC793 interpretation is to have it point to the last
+   byte of urgent data. Enabling this option may lead to
+   interoperatibility problems. Disabled by default.
+
+tcp_syncookies
+   Only valid when the kernel was compiled with
+   CONFIG_SYNCOOKIES. Send out syncookies when the syn backlog queue
+   of a socket overflows. This is to prevent against the common 'syn
+   flood attack'. Disabled by default.
+
+   Note that the concept of a socket backlog is abandoned, this
+   means the peer may not receive reliable error messages from an
+   over loaded server with syncookies enabled.
+
+tcp_window_scaling
+   Enable window scaling as defined in RFC1323.
+
+tcp_fin_timeout
+   How many seconds to wait for a final FIN before the socket is
+   always closed. This is strictly a violation of the TCP
+   specification, but required to prevent denial-of-service attacks.
+
+tcp_max_ka_probes
+   How many keepalive probes are sent per slow timer run. Shouldn't be
+   set too high to prevent bursts.
+
+tcp_max_syn_backlog
+   Length of the per socket backlog queue. Since Linux 2.2 the backlog
+   specified in listen(2) only specifies the length of the backlog
+   queue of already established sockets. When more connection requests
+   arrive Linux starts to drop packets. When syncookies are enabled
+   the packets are still answered and the maximum queue is effectively
+   ignored.
+
+tcp_retries1
+   Defines how often an answer to a TCP connection request is
+   retransmitted before giving up.
+
+tcp_retries2
+   Defines how often a TCP packet is retransmitted before giving up.
+
+Interface specific settings
+
+In the directory /proc/sys/net/ipv4/conf you'll find one subdirectory
+for each interface the system knows about and one directory calls
+all. Changes in the all subdirectory affect all interfaces, where
+changes in the other subdirectories affect only one interface.
+
+All directories have the same entries:
+
+accept_redirects
+   This switch decides if the kernel accepts ICMP redirect messages
+   or not. The default is 'yes', if the kernel is configured for a
+   regular host; and 'no' for a router configuration.
+
+accept_source_route
+   Should source routed packages be accepted or declined. The
+   default is dependent on the kernel configuration. It's 'yes' for
+   routers and 'no' for hosts.
+
+bootp_relay
+   Accept packets with source address 0.b.c.d destined not to this
+   host as local ones. It is supposed that BOOTP relay daemon will
+   catch and forward such packets.
+
+   The default is 'no', as this feature is not implemented yet
+   (kernel version 2.2.0-pre?).
+
+forwarding
+   Enable or disable IP forwarding on this interface.
+
+log_martians
+   Log packets with source addresses with no known route to kernel log.
+
+mc_forwarding
+   Do multicast routing. The kernel needs to be compiled with
+   CONFIG_MROUTE and a multicast routing daemon is required.
+
+proxy_arp
+   Do (1) or don't (0) do proxy ARP.
+
+rp_filter
+   Integer value deciding if source validation should be made. 
+   1 means yes, 0 means no. Disabled by default, but 
+   local/broadcast address spoofing is always on.
+
+   If you set this to 1 on a router that is the only connection
+   for a network to the net , it evidently prevents spoofing attacks
+   against your internal networks (external addresses can still be
+   spoofed), without the need for additional firewall rules.
+
+secure_redirects
+   Accept ICMP redirect messages only for gateways, listed in
+   default gateway list. Enabled by default.
+
+hidden
+   Hide addresses attached to this device from another devices.
+   Such addresses will never be selected by source address autoselection
+   mechanism, host does not answer broadcast ARP requests for them,
+   does not announce it as source address of ARP requests,     but they
+   are still reachable via IP. This flag is activated only if it is
+   enabled both in specific device section and in "all" section.
+
+shared_media
+   If it is not set the kernel does not assume that different subnets
+   on this device can communicate directly. Default setting is 'yes'.  
+
+send_redirects
+   Determines if or if not to send ICMP redirects to other hosts.
+
+
+Routing settings
+
+The directory /proc/sys/net/ipv4/route contains several file to
+control routing issues.
+
+error_burst and error_cost
+   These parameters are used to limit the warning messages written to
+   the kernel log from the routing code. The higher the error_cost
+   factor is, the fewer messages will be written. Error_burst controls
+   when messages will be dropped. The default settings limit warning
+   messages to one every five seconds.
+
+flush
+   Writing to this file results in a flush of the routing cache.
+
+gc_elastic, gc_interval, gc_min_interval, gc_tresh, gc_timeout
+   Values to control the frequency and behavior of the garbage
+   collection algorithm for the routing cache.
+
+max_size
+   Maximum size of the routing cache. Old entries will be purged
+   once the cache has this size.
+
+max_delay, min_delay
+   Delays for flushing the routing cache.
+
+redirect_load, redirect_número
+   Factors which determine if more ICPM redirects should be sent to
+   a specific host. No redirects will be sent once the load limit or
+   the maximum número of redirects has been reached.
+
+redirect_silence
+
+   Timeout for redirects. After this period redirects will be sent
+   again, even if this has been stopped, because the load or número
+   limit has been reached.
+
+Network Neighbor handling
+
+Settings about how to handle connections with direct neighbors (nodes
+attached to the same link) can be found in the directory
+/proc/sys/net/ipv4/neigh.
+
+As we saw it in the conf directory, there is a default subdirectory
+which holds the default values, and one directory for each
+interface. The contents of the directories are identical, with the
+single exception that the default settings contain additional options
+to set garbage collection parameters.
+
+In the interface directories you'll find the following entries:
+
+base_reachable_time
+   A base value used for computing the random reachable time value
+   as specified in RFC2461.
+
+retrans_time
+   The time, expressed in jiffies (1/100 sec), between retransmitted
+   Neighbor Solicitation messages. Used for address resolution and to
+   determine if a neighbor is unreachable.
+
+unres_qlen
+   Maximum queue length for a pending arp request - how many packets
+   are accepted from other layers while the arp address is still
+   resolved.
+
+anycast_delay
+   Maximum for random delay of answers to neighbor solicitation
+   messages in jiffies (1/100 sec). Not yet implemented (Linux does
+   not have anycast support yet).
+
+ucast_solicit
+   Maximum número of retries for unicast solicitation.
+
+mcast_solicit
+   Maximum número of retries for multicast solicitation.
+
+delay_first_probe_time
+   Delay for the first time probe if the neighbor is reachable. (see
+   gc_stale_time).
+
+locktime
+   An ARP/neighbor entry is only replaced with a new one if the old
+   is at least locktime old. This prevents ARP cache thrashing.
+
+proxy_delay
+   Maximum time (real time is random [0..proxytime]) before
+   answering to an arp request for which we have an proxy arp entry.
+   In some cases, this is used to prevent network flooding.
+
+proxy_qlen
+   Maximum queue length of the delayed proxy arp timer (see
+   proxy_delay).
+
+app_solcit
+   Determines the número of requests to send to the user level arp
+   daemon. 0 to turn off.
+
+gc_stale_time
+   Determines how often to check for stale ARP entries. After an ARP
+   entry is stale it will be resolved again (useful when an IP address
+   migrates to another machine). When ucast_solicit is > 0 it first
+   tries to send an ARP packet directly to the known host, when that
+   fails and mcast_solicit is > 0, an ARP request is broadcasted.
+
+3.10  Appletalk
+
+The /proc/sys/net/appletalk directory holds the Appletalk
+configuration data when Appletalk is loaded. The configurable
+parameters are:
+
+aarp-expiry-time
+   The amount of time we keep an AARP entry before expiring
+   it. Used to age out old hosts.
+
+aarp-resolve-time
+   The amount of time we will spend trying to resolve an Appletalk
+   address.
+
+aarp-retransmit-limit
+   The número of times we will retransmit a query before giving up.
+
+aarp-tick-time
+   Controls the rate at which expiries are checked.
+
+
+The directory /proc/net/appletalk holds the list of active appletalk
+sockets on a machine.
+
+The fields indicate the DDP type, the local address (in network:node
+format) the remote address, the size of the transmit pending queue,
+the size of the received queue (bytes waiting for applications to
+read) the state and the uid owning the socket.
+
+/proc/net/atalk_iface lists all the interfaces configured for
+appletalk.It shows the name of the interface, its appletalk address,
+the network range on that ad- dress (or network número for phase 1
+networks), and the status of the interface.
+
+/proc/net/atalk_route lists each known network route. It lists the
+target (network) that the route leads to, the router (may be directly
+connected), the route flags, and the device the route is via.
+
+3.11  IPX
+
+The IPX protocol has no tunable values in /proc/sys/net.
+
+The IPX protocol does, however, provide /proc/net/ipx. This lists each
+IPX socket giving the local and remote addresses in Novell format
+(that is network:node:port). In accordance with the strange Novell
+tradition, everything but the port is in hex. Not_Connected is
+displayed for sockets that are not tied to a specific remote
+address. The Tx and Rx queue sizes indicate the número of bytes
+pending for transmit and receive. The state indicates the state the
+socket is in and the uid is the owning uid of the socket.
+
+The /proc/net/ipx_interface file lists all IPX interfaces. For each
+interface it gives the network número, the node número, and indicates
+if the network is the primary network. It also indicates which device it is bound to (or
+Internal for internal networks) and the Frame Type if
+appropriate. Linux supports 802.3, 802.2, 802.2 SNAP and DIX (Blue
+Book) ethernet framing for IPX.
+
+The /proc/net/ipx_route table holds a list of IPX routes. For each
+route it gives the destination network, the router node (or Directly)
+and the network address of the router (or Connected) for internal
+networks.
+
+

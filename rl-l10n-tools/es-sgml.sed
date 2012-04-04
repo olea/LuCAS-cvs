@@ -1,0 +1,15 @@
+s/&aacute;/á/g
+s/&eacute;/é/g
+s/&iacute;/í/g
+s/&oacute;/ó/g
+s/&uacute;/ú/g
+s/&ntilde;/ñ/g
+s/&Aacute;/Á/g
+s/&Eacute;/É/g
+s/&Iacute;/Í/g
+s/&Oacute;/Ó/g
+s/&Uacute;/Ú/g
+s/&Ntilde;/Ñ/g
+s/&Uuml;/Ü/g
+s/&uuml;/ü/g
+s/&tilde;/~/g

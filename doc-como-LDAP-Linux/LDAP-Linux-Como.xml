@@ -1,0 +1,3195 @@
+<?xml version="1.0" encoding="iso-8859-1" ?>
+<!DOCTYPE article PUBLIC "-//OASIS//DTD DocBook V4.1.2//EN"
+"http://www.oasis-open.org/docbook/xml/4.1.2/docbookx.dtd">
+
+<article>
+
+<articleinfo>
+
+<title>LDAP-Linux-Como</title>
+
+<author>
+<firstname>Luiz Ernesto Pinheiro Malere, malere@yahoo.com. Traducción de J. Iván Juanes Prieto, kerberos@insflug.org.</firstname>
+</author>
+
+<pubdate>v1.01, 15 febrero 2000</pubdate>
+
+<abstract>
+
+<para>
+En este documento se presenta la información acerca de la instalación,
+configuración, ejecución y mantenimiento de un servidor del Protocolo
+Ligero de Acceso a Directorios (LDAP) en una máquina Linux. También se
+dan detalles sobre cómo crear bases de datos LDAP, cómo actualizar y
+borrar información de la base de datos, cómo implementar acceso móvil
+y cómo utilizar la Libreta de Direcciones (Address Book) de
+Netscape. Este documento está fuertemente inspirado en las páginas
+informativas de LDAP de la Universidad de Michigan.
+</para>
+
+</abstract>
+
+</articleinfo>
+
+<sect1>
+<title>Introducción</title>
+
+<para>
+La finalidad principal de este documento es permitirle configurar y
+utilizar un Servidor de directorio LDAP (Protocolo Ligero de Acceso a
+Directorios) en su máquina Linux. Aprenderá cómo instalar, configurar,
+ejecutar y mantener el servidor LDAP. Después, aprenderá también cómo
+almacenar, recuperar y actualizar información en su Directorio,
+utilizando las utilidades y clientes LDAP. El demonio o programa
+servidor para el directorio LDAP se llama <emphasis>slapd</emphasis> y puede
+ejecutarse sobre muchas plataformas UNIX diferentes.
+</para>
+
+<para>
+Hay otro demonio o programa servidor que se encarga de la replicación
+entre servidores. Su nombre es <literal remap="tt">slurpd</literal> y por el momento no
+necesitará preocuparse de él. En este documento, ejecutaremos un
+<emphasis>slapd</emphasis> que proporciona servicio de directorio para su dominio
+local únicamente, es decir, sin <emphasis>slurpd</emphasis>.
+</para>
+
+<para>
+He aquí una configuración sencilla del servidor, válida para empezar,
+pero fácil también de actualizar a una configuración distinta más
+adelante, si lo desea. La información que se presenta en este
+documento representa una buena forma de iniciarse en el uso del
+protocolo LDAP. Es probable que tras la lectura del documento se
+sienta con fuerzas para ampliar las capacidades de su servidor, e
+incluso con ganas de escribir sus propios clientes, usando los
+entornos de desarrollo ya existentes para C, C++ y Java.
+</para>
+
+<sect2>
+<title>¿Qué es LDAP?</title>
+
+<para>
+LDAP (``Lightweight Directory Access Protocol'', «Protocolo Ligero de
+Acceso a Directorios») es un protocolo de tipo cliente-servidor para
+acceder a un servicio de directorio. Se usó inicialmente como un
+<emphasis>front-end</emphasis> o interfaz final para X.500, pero también puede usarse con
+servidores de directorio únicos y con otros tipos de servidores de
+directorio.
+</para>
+
+</sect2>
+
+<sect2>
+<title>¿Qué es un servicio de directorio?</title>
+
+<para>
+Un directorio es como una base de datos, pero en general contiene
+información más descriptiva y más basada en atributos. La información
+contenida en un directorio normalmente es lee mucho más de lo que se
+escribe. Como consecuencia los directorios no implementan normalmente
+los complicados esquemas para transacciones o esquemas de reducción
+(<emphasis>rollback</emphasis>) que las bases de datos utilizan para llevar a cabo
+actualizaciones complejas de grandes volúmenes de datos. Por contra,
+las actualizaciones en un directorio son usualmente cambios sencillos
+de «todo o nada», si es que se permiten en algo.
+</para>
+
+<para>
+Los directorios están afinados para proporcionar una repuesta rápida a
+operaciones de búsqueda o consulta. Pueden tener la capacidad de
+replicar información de forma amplia, con el fin de aumentar la
+disponibilidad y la fiabilidad, y a la vez reducir el tiempo de
+respuesta. Cuando se duplica (o se replica) la información del
+directorio, pueden aceptarse inconsistencias temporales entre la
+información que hay en las réplicas, siempre que finalmente exista una
+sincronización.
+</para>
+
+<para>
+Existen muchas maneras distintas de proporcionar un servicio de
+directorio. Los diferentes métodos permiten almacenar en el directorio
+diferentes tipos de información, establecer requisitos diferentes para
+hacer referencias a la información, consultarla y actualizarla,
+la forma en que protege al directorio de accesos no autorizados, etc.
+Algunos servicios de directorio son locales, proporcionando servicios
+a un contexto restringido (por ejemplo, el servicio de <literal remap="tt">finger</literal> en una
+única máquina). Otros servicios son globales, proporcionando servicio
+en un contexto mucho más amplio.
+</para>
+
+</sect2>
+
+<sect2>
+<title>¿Cómo funciona LDAP?</title>
+
+<para>
+El servicio de directorio LDAP se basa en un modelo
+cliente-servidor. Uno o más servidores LDAP contienen los datos que
+conforman el árbol del directorio LDAP o base de datos troncal. el
+cliente ldap se conecta con el servidor LDAP y le hace una
+consulta. El servidor contesta con la respuesta correspondiente, o
+bien con una indicación de dónde puede el cliente hallar más
+información (normalmente otro servidor LDAP). No importa con qué
+servidor LDAP se conecte el cliente: siempre observará la misma vista
+del directorio; el nombre que se le presenta a un servidor LDAP hace
+referencia a la misma entrada a la que haría referencia en otro
+servidor LDAP. Es ésta una característica importante de un servicio de
+directorios universal como LDAP.
+</para>
+
+</sect2>
+
+<sect2>
+<title>Backends, objetos y atributos en LDAP </title>
+
+<para>
+<emphasis>slapd</emphasis> se suministra con tres diferentes bases de datos de backend
+(dorsal, o base de datos de segundo plano) entre las que elegir. Se
+trata de LDBM, una base de datos de gran rendimiento basada en disco:
+SHELL, una interfaz de base de datos para órdenes arbitrarias de UNIX
+o guiones (scripts) del intérprete de órdenes (shell); y PASSWD, una 
+sencilla base de datos de contraseñas.
+</para>
+
+<para>
+En el desarrollo de este documento, se da por supuesto que ha elegido
+la base de datos LDBM.
+</para>
+
+<para>
+La base de datos LDBM funciona asignando un identificador compacto de
+cuatro bytes, único para cada entrada de la base de datos. La base de
+datos utiliza este identificador para hacer referencia a entradas en
+los índices. La base de datos está compuesta de un fichero índice
+principal, llamado <literal remap="tt">id2entry</literal>, que mapea el identificador único de una
+entrada en la representación en texto de esa misma entrada. También se
+da mantenimiento a otros ficheros índice.
+</para>
+
+<para>
+Para importar y exportar información de directorio entre servidores de
+directorios basados en LDAP, o para describir una serie de cambios que
+han de aplicarse al directorio, se usa en general del fichero de
+formato conocido como LDIF (siglas de <emphasis>"LDAP interchange format"</emphasis>,
+«formato de intercambio de LDAP»). Un fichero LDIF almacena
+información en jerarquías de entradas orientadas a objeto. El paquete
+de software LDAP que va a utilizar incluye una utilidad para convertir
+ficheros LDIF a formato LDBM.
+</para>
+
+<para>
+Un fichero LDIF corriente tiene este aspecto:
+</para>
+
+<para>
+
+<screen>
+dn: o=Insflug, c=ES
+o: Insflug
+objectclass: organization
+dn: cn=Luiz Malere, o=Insflug, c=ES
+cn: Luiz Malere
+sn: Malere
+mail: malere@yahoo.com
+objectclass: person
+</screen>
+
+</para>
+
+<para>
+Como puede comprobar, cada entrada está identificada unívocamente por
+un nombre distintivo (<literal remap="tt">DN</literal>, <emphasis>"distinguished name"</emphasis>). El DN
+(nombre distintivo) está compuesto por el nombre de la entrada en
+cuestión, más la ruta de nombres que permiten rastrear la entrada
+hacia atrás hasta la parte superior de la jerarquía del directorio.
+</para>
+
+<para>
+En LDAP, una clase de objetos define la colección de atributos que
+pueden usarse para definir una entrada. El estándar LDAP proporciona
+estos tipos básicos para las clases de objetos:
+
+<itemizedlist>
+<listitem>
+
+<para>
+Grupos en el directorio, entre ellos listas no ordenadas de
+objetos individuales o de grupos de objetos.
+</para>
+</listitem>
+<listitem>
+
+<para>
+Emplazamientos, como por ejemplo el nombre del país y su
+descripción. 
+</para>
+</listitem>
+<listitem>
+
+<para>
+Organizaciones que están en el directorio.
+</para>
+</listitem>
+<listitem>
+
+<para>
+Personas que están en el directorio.
+</para>
+</listitem>
+
+</itemizedlist>
+
+</para>
+
+<para>
+Una entrada determinada puede pertenecer a más de una clase de
+objetos. Por ejemplo, la entrada para personas se define mediante la
+clase de objetos <literal remap="tt">person</literal>, pero también puede definirse mediante
+atributos en las clases de objetos <literal remap="tt">inetOrgPerson</literal>,
+<literal remap="tt">groupOfNames</literal> y <literal remap="tt">organization</literal>. La estructura de clases de
+objetos del servidor (su esquema) determina la lista total de
+atributos requeridos y permitidos para una entrada concreta.
+</para>
+
+<para>
+Los datos del directorio se representan mediante pares de atributo y
+su valor. Cualquier pieza de información específica se asocia con un
+atributo descriptivo.
+</para>
+
+<para>
+Por ejemplo el atributo  <literal remap="tt">commonName</literal>, o <literal remap="tt">cn</literal> («nombre de pila»), se
+usa para almacenar el nombre de una persona. Puede representarse en el
+directorio a una persona llamada Jonás Saqueiro mediante
+</para>
+
+<para>
+
+<screen>
+cn: Jonás Saqueiro
+</screen>
+
+</para>
+
+<para>
+Cada persona que se introduzca en el directorio se define mediante la
+colección de atributos que hay en la clase de objetos
+<emphasis>person</emphasis>. Otros atributos que se usan para definir esta entrada
+serán: 
+
+<screen>
+givenname: Jonás
+surname: Saqueiro
+mail: jonass@midominio.com
+</screen>
+
+</para>
+
+<para>
+Los atributos requeridos son aquellos que deben estar presentes en las
+entradas que utilicen la clase de objetos. Todas las entradas precisan
+del atributo <literal remap="tt">objectClass</literal>, que lista las clases de objeto a las que
+pertenece una entrada. 
+</para>
+
+<para>
+Los atributos permitidos son aquellos que pueden estar presentes en
+las entradas que utilicen la clase de objetos. Por ejemplo, en la
+clase de objetos <literal remap="tt">person</literal>, se requieren los atributos <literal remap="tt">cn</literal> y 
+<literal remap="tt">sn</literal>. Los atributos <literal remap="tt">description</literal> («descripción»),
+<literal remap="tt">telephoneNumber</literal> («número de teléfono»), <literal remap="tt">seeAlso</literal> («véase
+también»), y <literal remap="tt">userpassword</literal> («contraseña del usuario») se permiten
+pero no se requieren.
+</para>
+
+<para>
+Cada atributo tiene la definición de sintaxis que le corresponde. La
+definición de sintaxis describe el tipo de información que proporciona
+ese atributo: 
+
+<itemizedlist>
+<listitem>
+
+<para>
+<literal remap="tt">bin</literal> binario
+</para>
+</listitem>
+<listitem>
+
+<para>
+<literal remap="tt">ces</literal> cadena con mayúsculas y minúsculas exactas (las mayúsculas y
+minúsculas son significativas durante las comparaciones)
+</para>
+</listitem>
+<listitem>
+
+<para>
+<literal remap="tt">cis</literal> cadena con mayúsculas y minúsculas ignoradas (las mayúsculas
+y minúsculas no son significativas durante las comparaciones)
+</para>
+</listitem>
+<listitem>
+
+<para>
+<literal remap="tt">tel</literal> cadena de número de teléfono (como <literal remap="tt">cis</literal>, pero durante las
+comparaciones se ignoran los espacios en blanco y los guiones "-")
+</para>
+</listitem>
+<listitem>
+
+<para>
+<literal remap="tt">dn</literal> "distinguished name" («nombre distintivo»)
+</para>
+</listitem>
+
+</itemizedlist>
+
+</para>
+
+<para>
+ 
+Para conocer en qué lugar de su sistema se emplazan las definiciones
+de clases de objetos y de atributos, véase el primer párrafo de la
+<xref linkend="i-3"/>. 
+</para>
+
+</sect2>
+
+<sect2>
+<title>Nuevas versiones de este documento.</title>
+
+<para>
+Este documento puede experimentar actualizaciones y correcciones en
+razón de la respuesta que suscite entre sus lectores. Por favor busque
+nuevas versiones del original inglés en:
+</para>
+
+<para>
+<ulink
+url="http://www.ddtc.dimes.tudelft.nl/~malere/LDAP-Linux-HOWTO.html"
+>http://www.ddtc.dimes.tudelft.nl/~malere/LDAP-Linux-HOWTO.html</ulink
+>
+</para>
+
+<para>
+(y nuevas versiones de la traducción castellana de este <emphasis>Cómo</emphasis> en 
+<ulink
+url="http://www.insflug.org/"
+>http://www.insflug.org/</ulink
+>,
+<emphasis remap="bf">N. del T.</emphasis>)
+</para>
+
+</sect2>
+
+<sect2>
+<title>Opiniones y sugerencias</title>
+
+<para>
+Si tiene alguna duda sobre cualquier información disponible en este
+documento, por favor contacte con nosotros en la siguiente dirección
+de correo electrónico:
+</para>
+
+<para>
+<ulink
+url="mailto:malere@yahoo.com"
+>malere@yahoo.com</ulink
+>
+</para>
+
+<para>
+Si tiene algún comentario o sugerencia, no dude en comunicármelo.
+</para>
+
+</sect2>
+
+<sect2>
+<title>Agradecimientos </title>
+
+<para>
+Este <emphasis>Cómo</emphasis> es el resultado de unas prácticas que
+hemos realizado en la universidad de TUDelft, en Holanda. Queremos dar
+las gracias a las personas que nos animaron a escribir este documento:
+Rene van Leuken y Wim Tiwon. Muchísimas gracias. También ellos son
+entusiastas del Linux como nosotros.
+</para>
+
+</sect2>
+
+<sect2>
+<title>Copyright y descargo de responsabilidad.</title>
+
+<para>
+El <emphasis>LDAP-Linux-Cómo</emphasis> es Copyright 1999 de Luiz Ernesto Pinheiro
+Malere. Puede redistribuirse libremente. No puede modificarse. Si
+tiene cualquier tipo de sugerencia, por favor envíeme un correo
+electrónico (actualizaré el documento si la sugerencia es adecuada).
+</para>
+
+<para>
+Si desea una traducción, por ejemplo al Portugués, puede enviarme
+también un correo sobre el particular.
+</para>
+
+<para>
+No liability for the contents of this document can be accepted. I have
+no responsability about the consequences of following the Steps
+provided in this document.
+</para>
+
+<para>
+Si tiene preguntas, por favor contacte con el coordinador de Linux
+HOWTO en 
+</para>
+
+<para>
+<ulink
+url="linux-howto@metalab.unc.edu"
+>linux-howto@metalab.unc.edu</ulink
+>
+</para>
+
+</sect2>
+
+</sect1>
+
+<sect1>
+<title>Instalación del servidor LDAP</title>
+
+<para>
+Cuatro pasos son necesarios para instalar el servidor: obtener el
+paquete, descomprimir y desempaquetar el servidor, configurar los
+ficheros <literal remap="tt">Makefile</literal> del programa y compilar el servidor.
+</para>
+
+<sect2>
+<title>Obtención del paquete</title>
+
+<para>
+Existen dos servidores LDAP que se distribuyen libremente: el servidor
+LDAP de la Universidad de Michigan y el servidor
+<emphasis>OpenLDAP</emphasis>. También está el <emphasis>Netscape Directory Server</emphasis>, que es
+libre sólo bajo ciertas condiciones (por ejemplo, las instituciones
+educativas lo pueden obtener gratis). El servidor <emphasis>OpenLDAP</emphasis> está
+basado en la última versión del servidor de la Universidad de
+Michigan, y hay disponibles listas de correo y documentación adicional
+para él. Este documento da por supuesto que está Usted utilizando el
+servidor <emphasis>OpenLDAP</emphasis>.
+</para>
+
+<para>
+La versión comprimida en formato <literal remap="tt">.gz</literal> está disponible en la siguiente
+dirección: 
+</para>
+
+<para>
+<ulink
+url="http://www.openldap.org"
+>http://www.openldap.org</ulink
+>
+</para>
+
+<para>
+Si desea obtener la última versión del servidor de la Universidad de
+Michigan, diríjase a esta dirección:
+</para>
+
+<para>
+<ulink
+url="ftp://terminator.rs.itd.umich.edu/ldap"
+>ftp://terminator.rs.itd.umich.edu/ldap</ulink
+>
+</para>
+
+<para>
+Para escribir este documento nos hemos basado en la última versión
+estable de <emphasis>OpenLDAP</emphasis>, utilizando OpenLDAP 1.2.8 sobre un servidor
+Slackware Linux con núcleo 2.2.6. En la sede Web de <emphasis>OpenLDAP</emphasis>
+encontrará las últimas versiones estables y de desarrollo del servidor
+OpenLDAP. En el momento de actualizar este documento, la última
+versión era <literal remap="tt">/openldap-stable-20000129.tgz</literal>. La última versión
+de desarrollo era <literal remap="tt">openldap-1.2.9.tgz</literal> (eran las últimas
+versiones en el momento de traducir, <emphasis remap="bf">N. del T.</emphasis>)
+</para>
+
+</sect2>
+
+<sect2>
+<title>Desempaquetado del servidor</title>
+
+<para>
+Ahora que ya dispone del archivo <literal remap="tt">.tar.gz</literal> en su máquina local, puede
+desempaquetarlo. 
+</para>
+
+<para>
+En primer lugar, copie el paquete en un directorio de su conveniencia,
+por ejemplo <literal remap="tt">/usr/local</literal>.
+</para>
+
+<para>
+Luego utilice la siguiente orden:
+</para>
+
+<para>
+
+<screen>
+tar xvzf openldap-stable.tgz 
+</screen>
+
+</para>
+
+<para>
+También puede usar la siguiente orden:
+</para>
+
+<para>
+
+<screen>
+gunzip openldap-stable.tgz | tar xvf - 
+</screen>
+
+</para>
+
+</sect2>
+
+<sect2>
+<title>Configuración del programa</title>
+
+<para>
+Hay varias opciones que tal vez desee personalizar, de manera que el
+programa se construya de la forma más adaptada a sus sistema.
+</para>
+
+<para>
+Para configurar el programa sólo necesita dos pasos:
+
+<itemizedlist>
+<listitem>
+
+<para>
+Edite el fichero <literal remap="tt">ldapconfig.h.edit</literal>, situado en el
+subdirectorio <literal remap="tt">include/</literal> que cuelga del directorio en el que ha
+desempaquetado el programa.
+</para>
+</listitem>
+<listitem>
+
+<para>
+Ejecute el guión <literal remap="tt">./configure</literal>. Si le gustan las emociones
+fuertes, puede editar igualmente el fichero <literal remap="tt">Make-common</literal> en lugar
+de ejecutar el guión de configuración  :&circ;) 
+</para>
+</listitem>
+
+</itemizedlist>
+
+</para>
+
+<para>
+En el fichero <literal remap="tt">include/ldapconfig.h.edit</literal> puede configurar
+opciones como el emplazamiento de los demonios <emphasis>slapd</emphasis> y
+<emphasis>slurpd</emphasis>. El fichero propiamente dicho contiene muchos comentarios
+y sus opciones por defecto también reflejan las opciones que los
+administradores eligen con más frecuencia, de manera que si tiene
+prisa puede saltarse este paso y ejecutar directamente:
+</para>
+
+<para>
+
+<screen>
+vi include/ldapconfig.h.edit 
+</screen>
+
+</para>
+
+<para>
+El código fuente de <emphasis>OpenLDAP</emphasis> se distribuye con un guión de
+configuración para ajustar opciones como por ejemplo el directorio de
+instalación y las ««banderas»» del compilador y del enlazador. Escriba
+la orden siguiente en el directorio donde haya desempaquetado el
+programa: 
+
+<screen>
+./configure --help 
+</screen>
+
+</para>
+
+<para>
+Ello mostrará por pantalla todas las opciones que puede personalizar
+con el guión <literal remap="tt">configure</literal> antes de compilar el programa. Algunas
+opciones útiles para establecer los directorios de instalación son
+<literal remap="tt">--prefix=pref</literal>, <literal remap="tt">--exec-prefix=eprefix</literal> y
+<literal remap="tt">--bindir=dir</literal>. Normalmente, si ejecuta <literal remap="tt">./configure</literal>
+sin opciones, él mismo autodetectará las opciones adecuadas y se
+preparará para construir el paquete en la localización común
+predeterminada. Así pues, teclee:
+</para>
+
+<para>
+
+<screen>
+./configure 
+</screen>
+
+Y observe el resultado por pantalla para verificar que no se produce
+ningún error.
+</para>
+
+</sect2>
+
+<sect2>
+<title>Compilación del servidor</title>
+
+<para>
+Después de configurar el programa puede empezar a compilarlo. Primero
+construya las dependencias mediante la orden:
+</para>
+
+<para>
+
+<screen>
+make depend 
+</screen>
+
+Después compile el servidor mediante la orden:
+
+<screen>
+make 
+</screen>
+
+</para>
+
+<para>
+Si todo va bien, el servidor se compilará tal y como se haya
+configurado. En caso contrario, vuelva al paso anterior para revisar
+las opciones de configuración. Revise las sugerencias específicas para
+su plataforma, que se hallan en la ruta <literal remap="tt">doc/install/hints</literal> que
+cuelga del directorio en el que desempaquetó el software.
+</para>
+
+<para>
+Instale luego los ejecutables y las páginas de manual. Es posible que
+precise de permisos de superusuario para poder llevarlo a cabo
+(depende del lugar en donde instale los ficheros):
+</para>
+
+<para>
+
+<screen>
+su 
+make install 
+</screen>
+
+</para>
+
+<para>
+Es todo. Ya dispone del ejecutable del servidor y de los ejecutables
+de otras varias utilidades. Para saber cómo configurar el
+funcionamiento de su servidor LDAP, véase la sección 
+<xref linkend="i-3"/>.
+</para>
+
+<para>
+Si antes de aprender cómo se configura su servidor LDAP desea
+verificar los ejecutables recién compilados, las últimas versiones del
+servidor <emphasis>OpenLDAP</emphasis> vienen con un guión de verificación. Cuando se
+actualizó este documento el guión de verificación no era estable al
+100% para todos los diagnósticos que llevaba a cabo. De todas maneras
+pruébelo y ejecútelo, si algún aspecto del guión no funciona bien,
+siempre puede pararlo pulsando <literal remap="tt">Ctrl+C</literal>. En nuestro caso, antes
+de que el guión o script se detuviera, pudimos observar algunos
+mensajes que mostraban que los diagnósticos más comunes se habían
+llevado a cabo con éxito. Para ejecutar el guión de verificación,
+cámbiese al subdirectorio <literal remap="tt">test/</literal> que cuelga de la ruta en la
+que desempaquetó el software, y luego teclee:  
+</para>
+
+<para>
+
+<screen>
+make
+</screen>
+
+</para>
+
+</sect2>
+
+</sect1>
+
+<sect1 id="i-3">
+<title>Configuración del servidor LDAP</title>
+
+<para>
+Cuando el software se haya compilado e instalado, ya puede
+configurarlo para utilizarlo en su servidor. Toda la configuración en
+tiempo de ejecución de <emphasis>slapd</emphasis> se realiza mediante el fichero
+<literal remap="tt">slapd.conf</literal>, que se instala en el directorio que haya especificado
+en <literal remap="tt">--prefix</literal> en el guión de configuración, o bien, si no
+especificó ninguno, en <literal remap="tt">/usr/local/etc/openldap</literal> de forma
+predeterminada.
+</para>
+
+<para>
+En este directorio hallará asimismo los ficheros <literal remap="tt">slapd.oc.conf</literal> y
+<literal remap="tt">slapd.at.conf</literal> que se incluyen en el fichero <literal remap="tt">slad.conf</literal> (véase
+la opción <emphasis>include</emphasis> en la <xref linkend="i-3.2"/>) y que
+incluyen, respectivamente, las definiciones de clases de objetos
+(<emphasis>objectclasses</emphasis>) y atributos para la base de datos de segundo
+plano de LDAP (<emphasis>backend</emphasis>). Lo que sigue es una descripción del formato
+general del fichero de configuración, y continuaremos con una
+descripción detallada de cada opción del fichero de configuración.
+</para>
+
+<sect2>
+<title>Formato del fichero de configuración</title>
+
+<para>
+El fichero <literal remap="tt">slapd.conf</literal> está compuesto por una serie de
+opciones globales de configuración que afectan a <literal remap="tt">slapd</literal> en su
+conjunto (incluyendo todas las bases de datos de segundo plano o
+<emphasis>backends</emphasis>), seguido por cero o más definiciones de <emphasis>backends</emphasis>,
+las cuales contienen información específica de una instancia de
+<emphasis>backend</emphasis>.
+</para>
+
+<para>
+Las opciones globales de configuración pueden anularse en un
+<emphasis>backend</emphasis> determinado (para opciones que aparecen más de una vez,
+se usa la última aparición en el fichero de configuración
+<literal remap="tt">slapd.conf</literal>). Se ignoran las líneas en blanco y las líneas de
+comentario que comienzan por el carácter de «#». Si una línea
+comienza por un espacio en blanco, se considera una continuación de la
+línea anterior. El formato general del fichero <literal remap="tt">slapd.conf</literal> es el
+siguiente: 
+</para>
+
+<para>
+
+<screen>
+     # comentario - estas opciones se aplican a cualquier base de datos
+     &lt;opciones de configuración globales&gt; 
+     # definición de la base de datos y opciones de configuración
+     database &lt;backend tipo 1&gt;
+     &lt;opciones de configuración específicas del backend tipo 1&gt; 
+     #definición de la segunda base de datos y opciones de configuración
+     database &lt;backend tipo 2&gt;
+     &lt;opciones de configuración específicas del backend tipo 2&gt; 
+     # definiciones subsiguientes de bases de datos y opciones de configuración 
+     ... 
+</screen>
+
+</para>
+
+<para>
+Los argumentos de la línea de configuración están separados por
+espacios en blanco. Si un argumento contiene espacios en blanco, el
+argumento debe encerrarse entre comillas dobles "de esta manera". Si
+un argumento contiene unas dobles comillas o una barra invertida
+`&bsol;', el carácter ha de ir precedido de una barra invertida
+`&bsol;', (p. ej. `&bsol;&bsol;d').
+</para>
+
+<para>
+La distribución de <emphasis>OpenLDAP</emphasis> contiene un fichero de configuración de
+ejemplo que se instalará en el directorio de configuración
+especificado en <literal remap="tt">--prefix</literal>. También se proporcionan un
+<literal remap="tt">slapd.at.conf</literal>, que contiene muchas definiciones de atributos
+utilizadas a menudo, y <literal remap="tt">slapd.oc.conf</literal>, que contiene muchas
+definiciones de clases usadas con frecuencia.
+</para>
+
+</sect2>
+
+<sect2 id="i-3.2">
+<title>Opciones globales</title>
+
+<para>
+Las opciones que se describen en esta sección se aplican a todos los
+<emphasis>backends</emphasis>, a menos que se sobreescriban o anulen específicamente
+en la definición de un <emphasis>backend</emphasis> concreto. Los argumentos de opción
+que han de sustituirse por texto de verdad se muestran entre signos de
+«mayor que» y «menor que» &lt;&gt;.
+</para>
+
+<para>
+<variablelist>
+
+<varlistentry>
+<term>access to &lt;algo&gt; &lsqb; by &lt;quién&gt;
+&lt;niveldeacceso&gt; &rsqb;+</term>
+<listitem>
+<para>
+Esta opción concede acceso (especificado en &lt;niveldeacceso&gt;) a
+una serie de entradas o atributos (especificados por &lt;algo&gt;)
+para uno o más peticionarios (especificados en &lt;quién&gt;). Véanse
+los ejemplos de control de acceso para más detalles.
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>attribute &lt;nombre&gt; &lsqb;&lt;nombre2&gt;&rsqb; &lcub; bin
+| ces | cis | tel | dn &rcub; </term>
+<listitem>
+<para>
+Esta opción asocia a una sintaxis con un nombre de atributo. Por
+defecto se supone que un atributo tiene sintaxis «cis». Se le puede
+proporcionar a un atributo un nombre alternativo opcional. Las
+posibles reglas de sintaxis y su significado son éstas:
+
+<itemizedlist>
+<listitem>
+
+<para>
+bin: binario
+</para>
+</listitem>
+<listitem>
+
+<para>
+ces: cadena con mayúsculas y minúsculas exactas (las mayúsculas y
+minúsculas son significativas durante las comparaciones)
+</para>
+</listitem>
+<listitem>
+
+<para>
+cis: cadena con mayúsculas y minúsculas ignoradas (las mayúsculas
+y minúsculas no son significativas durante las comparaciones)
+</para>
+</listitem>
+<listitem>
+
+<para>
+tel: cadena de número de teléfono (como «cis», pero durante las 
+comparaciones se ignoran los espacios en blanco y los guiones "-")
+</para>
+</listitem>
+<listitem>
+
+<para>
+dn:  "distinguished name" («nombre distintivo»)
+</para>
+</listitem>
+
+</itemizedlist>
+
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>defaultaccess &lcub; none | compare | search |
+read | write &rcub; </term>
+<listitem>
+<para>
+Esta opción especifica el acceso por defecto que se concederá a los
+solicitantes que no coincidan con ninguna otra línea de acceso (véanse
+los ejemplos de control de acceso más abajo). Nótese que un nivel de
+acceso implica en sí también los niveles de acceso inferiores a
+él. Por ejemplo, el acceso a escritura implica el acceso a lectura, el
+acceso a búsqueda y el acceso a comparación. 
+</para>
+
+<para>
+Valor predeterminado: <literal remap="tt">defaultaccess read</literal>
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>include &lt;nombrefichero&gt;</term>
+<listitem>
+<para>
+Esta opción ordena a <emphasis>slapd</emphasis> que lea información adicional de
+configuración desde el fichero especificado, antes de continuar con la
+línea siguiente del fichero actual. El fichero que se especifica ha de
+seguir el formato normal de configuración de <emphasis>slapd</emphasis>. Utilice esta 
+opción para incluir ficheros que contengan las clases de objetos
+(<emphasis>objectclass</emphasis>) y definiciones de atributo (<emphasis>attribute
+definitions</emphasis>) de su base de datos de segundo plano o <emphasis>backend</emphasis>. El
+paquete de software de LDAP viene con los ficheros <literal remap="tt">slapd.oc.conf</literal> y
+<literal remap="tt">slapd.at.conf</literal>. 
+</para>
+
+<para>
+<emphasis remap="bf">Nota:</emphasis> Tenga cuidado al utilizar esta opción. No hay límite mínimo en
+el número de opciones <literal remap="tt">include</literal> anidadas, ni tampoco se hace una
+detección de anidamiento para el caso de bucles sin fin. 
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>loglevel &lt;numeroentero&gt;</term>
+<listitem>
+<para>
+Esta opción especifica el nivel de detalle con el que el sistema debe
+registrar en un archivo de registro (syslog) las informaciones de
+depuración y las estadísticas de funcionamiento (en este caso se
+registran mediante el servicio LOCAL4 de <literal remap="tt">syslogd(8)</literal>. Para que esta
+característica esté habilitada, es necesario haber compilado
+<emphasis>slapd</emphasis> con la opción de compilación <literal remap="tt">-DLDAP_DEBUG</literal>, excepto
+para los dos niveles de estadísticas, que están siempre
+habilitados. Los niveles de registro son acumulativos. Para visualizar
+qué números corresponden a cada tipo de depuración, ejecute <literal remap="tt">slapd</literal>
+con la opción <literal remap="tt">-?</literal> o consulte la tabla de más abajo. Los valores
+posibles para &lt;numeroentero&gt; son: 
+
+<itemizedlist>
+<listitem>
+
+<para>
+1 trazado de llamadas a función
+</para>
+</listitem>
+<listitem>
+
+<para>
+2 manejo de paquetes de depurado
+</para>
+</listitem>
+<listitem>
+
+<para>
+4 depurado de trazado intensivo <emphasis>heavy trace</emphasis>
+</para>
+</listitem>
+<listitem>
+
+<para>
+8 gestión de conexiones
+</para>
+</listitem>
+<listitem>
+
+<para>
+16 mostrar los paquetes enviados y recibidos
+</para>
+</listitem>
+<listitem>
+
+<para>
+32 procesado del filtro de búsqueda
+</para>
+</listitem>
+<listitem>
+
+<para>
+64 procesado de ficheros de configuración
+</para>
+</listitem>
+<listitem>
+
+<para>
+128 procesado de listas de control de acceso
+</para>
+</listitem>
+<listitem>
+
+<para>
+256 estadísticas de registro de conexiones/operaciones/resultados
+</para>
+</listitem>
+<listitem>
+
+<para>
+512 enviar las entradas de registro de estadísticas
+</para>
+</listitem>
+<listitem>
+
+<para>
+1024 imprimir los <emphasis>backends</emphasis> de comunicación con el
+intérprete de órdenes
+</para>
+</listitem>
+<listitem>
+
+<para>
+2048 imprimir el análisis completo de depuración
+</para>
+</listitem>
+
+</itemizedlist>
+
+</para>
+
+<para>
+Ejemplo: <literal remap="tt">loglevel 255</literal> hará que grandes cantidades de información vayan a un archivo de registro a través de syslog.
+</para>
+
+<para>
+Valor predeterminado: <literal remap="tt">loglevel 256</literal>
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>objectclass &lt;nombre&gt;</term>
+<listitem>
+<para>
+objectclass &lt;nombre&gt;
+&lsqb; requires &lt;atributos&gt; &rsqb; 
+&lsqb; allows &lt;atributos&gt; &rsqb;
+</para>
+
+<para>
+Esta opción define las reglas de estructura o esquema para la clase de
+objetos (<emphasis>objectclass</emphasis>) especificada. Se usa junto con la opción
+<emphasis remap="bf">schemacheck</emphasis>. 
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>referral &lt;url&gt;</term>
+<listitem>
+<para>
+Esta opción especifica la autoridad en la que basarse cuando
+<emphasis>slapd</emphasis> no pueda hallar una base de datos local para gestionar una
+petición.  
+</para>
+
+<para>
+Ejemplo: 
+<literal remap="tt">referral ldap://ldap.itd.umich.edu</literal>
+</para>
+
+<para>
+Esto remitirá las consultas no locales al servidor LDAP de la
+Universidad de Michigan. Algunos clientes LDAP con capacidades
+inteligentes podrán redirigir su consulta a dicho servidor, pero tenga
+en cuanta que la mayoría de esos clientes no gestionarán urls
+sencillas de LDAP que contengan una parte de nombre de máquina y, como
+opción, una parte de nombre distintivo (<literal remap="tt">dn</literal>).
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>schemacheck &lcub; on | off &rcub; </term>
+<listitem>
+<para>
+Esta opción activa (<emphasis remap="bf">on</emphasis>) o desactiva (<emphasis remap="bf">off</emphasis>) la verificación de
+estructura. Si la verificación de estructura está activada, se
+comprobarán las entradas que se añadan o modifiquen, con el fin de
+garantizar que obedecen a las reglas de estructura o esquema que
+implica la clase de objetos (<emphasis>objectclass</emphasis>) a la que pertenecen,
+tal y como las definen las correspondientes opciones de la clase de
+objetos correspondiente. Si la verificación de estructura está
+desactivada (<emphasis remap="bf">off</emphasis>), esta verificación no se realiza.
+</para>
+
+<para>
+Valor predeterminado: <literal remap="tt">schemacheck off</literal>
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>sizelimit &lt;numeroentero&gt;</term>
+<listitem>
+<para>
+Esta opción especifica el número máximo de entradas que hay que
+devolver de una operación de búsqueda.
+</para>
+
+<para>
+Valor predeterminado: <literal remap="tt">sizelimit 500</literal>
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>srvtab &lt;nombrefichero&gt;</term>
+<listitem>
+<para>
+Esta opción especifica el fichero <literal remap="tt">srvtab</literal> en el que <emphasis>slapd</emphasis>
+puede encontrar las claves <emphasis>kerberos</emphasis> necesarias para autentificar
+a los clientes que usen <emphasis>kerberos</emphasis>. Esto opción es significativa
+únicamente si Usted utiliza autentificación por <emphasis>kerberos</emphasis>, que ha
+de activarse en el momento de la compilación incluyendo las
+definiciones apropiadas en el fichero <literal remap="tt">Make-common</literal>.
+</para>
+
+<para>
+Valor predeterminado: <literal remap="tt">srvtab /etc/srvtab</literal>
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>timelimit &lt;numeroentero&gt;</term>
+<listitem>
+<para>
+Esta opción especifica el número máximo de segundos (en tiempo real)
+que <emphasis>slapd</emphasis> pasará contestando una petición de búsqueda. Si pasado
+ese tiempo no se ha contestado una petición, se devolverá un resultado
+que indicará <emphasis>exceeding time</emphasis>, «tiempo sobrepasado». 
+</para>
+
+<para>
+Valor predeterminado: <literal remap="tt">timelimit 3600 </literal>
+</para>
+</listitem></varlistentry>
+</variablelist>
+</para>
+
+</sect2>
+
+<sect2>
+<title>Opciones generales del backend</title>
+
+<para>
+Las opciones de esta sección sólo se aplican al <emphasis>backend</emphasis> en el que
+estén definidas. Estas opciones están soportadas para todos los tipos
+de <emphasis>backend</emphasis>. 
+</para>
+
+<para>
+<variablelist>
+
+<varlistentry>
+<term>database &lt;tipobasededatos&gt;</term>
+<listitem>
+<para>
+Esta opción marca el comienzo de la definición de una nueva instancia
+de base de datos.  <emphasis remap="bf">&lt;tipobasededatos&gt;</emphasis> debe ser una de las
+siguientes: ldbm, shell, o passwd dependiendo del <emphasis>backend</emphasis> sobre
+el que servirá la base de datos.
+</para>
+
+<para>
+Ejemplo: <literal remap="tt">database ldbm</literal> marca el comienzo de la definición de una
+nueva instancia de una base de datos con <emphasis>backend</emphasis> LDBM. 
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>lastmod &lcub; on | off &rcub; </term>
+<listitem>
+<para>
+Esta opción controla si <emphasis>slapd</emphasis> mantendrá automáticamente para cada
+entrada los atributos <literal remap="tt">modifiersName</literal>, <literal remap="tt">modifyTimestamp</literal>,
+<literal remap="tt">creatorsName</literal> y <literal remap="tt">createTimestamp</literal>.
+</para>
+
+<para>
+Valor predeterminado: <literal remap="tt">lastmod off</literal> 
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>readonly &lcub; on | off &rcub; </term>
+<listitem>
+<para>
+Esta opción pone a la base de datos en modo «sólo lectura». Cualquier
+intento de modificar la base de datos devolverá un error de "unwilling
+to perform" («no se llevará a cabo la operación»).
+</para>
+
+<para>
+Valor predeterminado: <literal remap="tt">readonly off </literal>
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>replica host=&lt;nombredemaquina&gt;&lsqb;:&lt;puerto&gt;&rsqb; </term>
+<listitem>
+<para>
+replica host=&lt;nombredemaquina&gt;&lsqb;:&lt;puerto&gt;&rsqb;
+"binddn=&lt;DN&gt;"
+bindmethod=&lcub; simple | kerberos &rcub; 
+&lsqb;credentials=&lt;contraseña&gt;&rsqb; 
+&lsqb;srvtab=&lt;nombrefichero&gt;&rsqb;
+</para>
+
+<para>
+Esta opción especifica una dirección para la duplicación o réplica
+esta base de datos. El parámetro <literal remap="tt">host=</literal> especifica en qué máquina
+(y opcionalmente, en qué puerto) puede encontrarse la instancia del 
+<emphasis>slapd</emphasis> esclavo. para <literal remap="tt">&lt;nombremáquina&gt;</literal> puede usarse lo
+mismo un nombre que una dirección IP. Si no se proporciona el
+parámetro <literal remap="tt">&lt;puerto&gt;</literal> se usará el puerto estándar de LDAP, el
+389. 
+</para>
+
+<para>
+El parámetro <literal remap="tt">binddn</literal> proporciona el <literal remap="tt">DN</literal> al que se vinculará el
+<emphasis>slapd</emphasis> esclavo para sus actualizaciones. Ha de tratarse de un
+<literal remap="tt">DN</literal> que tenga acceso de lectura y escritura a la base de datos del
+esclavo, que normalmente aparece como <literal remap="tt">rootdn</literal> en el fichero de
+configuración del esclavo. También tiene que coincidir con la opción
+<literal remap="tt">updatedn</literal> en el fichero de configuración del <emphasis>slapd</emphasis> esclavo. 
+Puesto que los <literal remap="tt">DN</literal> son proclives a contener espacios incrustados,
+la cadena completa <literal remap="tt">"binddn=&lt;DN&gt;"</literal> ha de estar encerrada
+entre comillas. 
+</para>
+
+<para>
+<literal remap="tt">bindmethod</literal> puede ser o bien <literal remap="tt">simple</literal> o bien <literal remap="tt">kerberos</literal>,
+dependiendo de si se usa autentificación sencilla basada en
+contraseñas o bien kerberos cuando se conecte con el <emphasis>slapd</emphasis>
+esclavo. La autentificación sencilla precisa que se proporcione una
+contraseña válida. La autentificación mediante kerberos precisa de un
+fichero <literal remap="tt">srvtab</literal> válido. 
+</para>
+
+<para>
+El parámetro <literal remap="tt">credentials=</literal>, que sólo se precisa si se usa
+autentificación sencilla, proporciona la contraseña para <literal remap="tt">binddn</literal>
+en el <emphasis>slapd</emphasis> esclavo. 
+</para>
+
+<para>
+El parámetro <literal remap="tt">srvtab=</literal>, que sólo se precisa si se usa
+autentificación mediante kerberos, especifica el nombre de fichero que
+aloja la llave kerberos para el <emphasis>slapd</emphasis> esclavo. Si se omite, se
+utiliza el fichero <literal remap="tt">/etc/srvtab</literal>. 
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>replogfile &lt;nombrefichero&gt; </term>
+<listitem>
+<para>
+Esta opción especifica el nombre del fichero de registro de
+duplicación (registro de réplica) en el cual <emphasis>slapd</emphasis> registrará los
+cambios. El registro de duplicación generalmente lo escribe <emphasis>slapd</emphasis>
+y lo lee <emphasis>slurpd</emphasis>. Esta opción normalmente sólo tiene efecto si se
+usa <emphasis>slurpd</emphasis> para duplicar la base de datos. Sin embargo, puede 
+utilizarla también para generar un registro de transacciones, si
+<emphasis>slurpd</emphasis> no se está ejecutando. En este caso, necesitará truncar
+periódicamente el fichero, pues de otra manera crecería
+indefinidamente. 
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>rootdn &lt;dn&gt; </term>
+<listitem>
+<para>
+Esta opción identifica al <literal remap="tt">DN</literal> de una entrada no sujeta a control
+de acceso o a restricciones en los permisos de administración para las
+operaciones en esta base de datos.
+</para>
+
+<para>
+Ejemplo: <literal remap="tt">rootdn "cn=Manager, o=U of M, c=US" </literal>
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>rootkrbname &lt;nombrekerberos&gt; </term>
+<listitem>
+<para>
+Esta opción especifica un nombre kerberos que funcionará en todos los
+casos para el <literal remap="tt">DN</literal> dado anteriormente, con independencia de que
+exista una entrada con el <literal remap="tt">DN</literal> especificado o de que tenga el atributo
+<literal remap="tt">krbName</literal>. Esta opción es útil al crear una base de datos y también
+cuando se utilice <emphasis>slurpd</emphasis> para proporcionar servicios de
+duplicación (servicios de réplica).
+</para>
+
+<para>
+Ejemplo: <literal remap="tt">rootkrbname admin@umich.edu </literal>
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>rootpw &lt;password&gt; </term>
+<listitem>
+<para>
+Esta opción especifica una contraseña, que funcionará en todos los
+casos, para el <literal remap="tt">DN</literal> dado anteriormente, con independencia de que el
+<literal remap="tt">DN</literal> en cuestión exista o ya tenga contraseña. Esta opción es útil
+al crear una base de datos y también cuando se utilice <emphasis>slurpd</emphasis>
+para proporcionar servicios de duplicación (servicios de réplica).
+Evite tener una contraseña de texto sencillo acompañando a esta
+opción. Proporcione una contraseña cifrada (puede usar una entrada
+del fichero de Unix <literal remap="tt">/etc/passwd/</literal>). <emphasis>slapd</emphasis> soporta también
+otros métodos de cifrado.
+</para>
+
+<para>
+Ejemplos: 
+<literal remap="tt">rootpw secret</literal>
+<literal remap="tt">rootpw &lcub;crypto&rcub;contraseña_cifrada_va_aquí </literal>
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>suffix &lt;dn sufijo&gt; </term>
+<listitem>
+<para>
+Esta opción especifica el sufijo <literal remap="tt">DN</literal> de consultas que se le pasará
+a la base de datos de <emphasis>backend</emphasis>. Pueden proporcionarse múltiples
+líneas de sufijo, y se requiere al menos una para cada definición de
+base de datos. 
+</para>
+
+<para>
+Ejemplo: <literal remap="tt">suffix "o=University of Michigan, c=US" </literal>
+</para>
+
+<para>
+Las consultas que tengan un <literal remap="tt">DN</literal> terminado en <literal remap="tt">"o=University of
+Michigan, c=US"</literal> se le pasarán a este <emphasis>backend</emphasis> de base de datos.
+</para>
+
+<para>
+<emphasis remap="bf">Nota:</emphasis> cuando se selecciona el <emphasis>backend</emphasis> al que hay que pasarle
+la consulta, <emphasis>slapd</emphasis> examina la línea o líneas de sufijo en cada
+definición de base de datos en el orden en que aparecen en el
+fichero. De esta manera, si el sufijo de una base de datos es el
+prefijo de otra, dicho sufijo debe aparecer después que el prefijo en
+el fichero de configuración.
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>updatedn &lt;dn&gt; </term>
+<listitem>
+<para>
+Esta opción sólo se aplica a un <emphasis>slapd</emphasis> esclavo. Especifica el
+<literal remap="tt">DN</literal> al que se le permite hacer cambios en la
+duplicación. Generalmente se trata del <literal remap="tt">DN</literal> al que <emphasis>slurpd</emphasis> se
+vincula cuando hace cambios a la duplicación o réplica.
+</para>
+</listitem></varlistentry>
+</variablelist>
+</para>
+
+</sect2>
+
+<sect2>
+<title>Opciones específicas del <emphasis>backend</emphasis> LDBM</title>
+
+<para>
+Las opciones de esta categoría sólo se aplican a la base de datos de
+<literal remap="tt">backend</literal> LDBM. Es decir, tienen que ir después de una línea
+<literal remap="tt">"database ldbm"</literal> y antes de otra línea de <literal remap="tt">"database"</literal>.
+</para>
+
+<para>
+<variablelist>
+
+<varlistentry>
+<term>cachesize &lt;numeroentero&gt; </term>
+<listitem>
+<para>
+Esta opción especifica a instancia de la base de datos de <emphasis>backend</emphasis>
+LDBM el número de entradas en la memoria caché interna que ha de
+mantener. 
+</para>
+
+<para>
+Valor predeterminado:
+<literal remap="tt">cachesize 1000 </literal>
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>dbcachesize &lt;numeroentero&gt; </term>
+<listitem>
+<para>
+Esta opción especifica el tamaño en bytes de la memoria caché interna
+asociada con cada fichero de índice abierto. En caso de no estar
+soportada por el método de base de datos subyacente, esta opción se
+ignora sin mayores avisos. El incremento de este número utilizará más
+memoria, pero también causará un aumento espectacular del
+rendimiento, especialmente durante las modificaciones o a la hora de
+construir los índices. 
+</para>
+
+<para>
+Valor predeterminado: <literal remap="tt">dbcachesize 100000 </literal>
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>directory &lt;directorio&gt; </term>
+<listitem>
+<para>
+Esta opción especifica el directorio donde residen los ficheros LDBM
+que contienen la base de datos y sus ficheros asociados.
+</para>
+
+<para>
+Valor predeterminado: <literal remap="tt">directory </literal>usr/tmp /
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>index &lcub;&lt;listadeatributos&gt; | default&rcub; &lsqb;pres,eq,approx,sub,none&rsqb; </term>
+<listitem>
+<para>
+Esta opción especifica qué índices hay que mantener para un atributo
+especificado. Si se proporciona únicamente una
+&lt;listadeatributos&gt; se mantendrán todos los índices posibles.
+</para>
+
+<para>
+Ejemplos:
+<literal remap="tt">index cn </literal>
+<literal remap="tt">index sn,uid eq,sub,approx </literal>
+<literal remap="tt">index default none </literal>
+</para>
+
+<para>
+Este ejemplo hará que se dé mantenimiento a todos los índices para el
+atributo <literal remap="tt">cn</literal>: que se mantengan índices de igualdad, subcadenas y
+cadenas aproximadas en el caso de los atributos <literal remap="tt">sn</literal> y <literal remap="tt">uid</literal>; y
+que no se mantengan índices para todos los demás atributos.
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>mode &lt;numeroentero&gt; </term>
+<listitem>
+<para>
+Esta opción especifica qué permisos de ficheros (modo de protección)
+debe tener el índice de la base de datos recién creada.
+</para>
+
+<para>
+Valor predeterminado: <literal remap="tt">mode 0600 </literal>
+</para>
+</listitem></varlistentry>
+</variablelist>
+</para>
+
+</sect2>
+
+<sect2 id="bla">
+<title>Ejemplos de control de acceso</title>
+
+<para>
+La característica de control de acceso presentada en la <xref linkend="i-3.2"/> es bastante potente. En esta sección se muestran
+varios ejemplos de su uso. Primeramente, algunos ejemplos sencillos: 
+</para>
+
+<para>
+
+<screen>
+access to * by * read 
+</screen>
+
+</para>
+
+<para>
+Esta directiva de acceso concede acceso de lectura a todo el mundo. Si
+aparece en solitario tiene el mismo efecto que la siguiente línea de 
+<literal remap="tt">defaultaccess</literal>: 
+
+<screen>
+defaultaccess read 
+</screen>
+
+</para>
+
+<para>
+El siguiente ejemplo muestra el uso de una expresión regular para
+seleccionar las entradas por <literal remap="tt">DN</literal> en dos directivas de acceso en
+las que el orden es significativo.
+
+<screen>
+access to dn=".*, o=U of M, c=US" 
+by * search 
+access to dn=".*, c=US" 
+by * read 
+</screen>
+
+</para>
+
+<para>
+El acceso en modo lectura se concede a las entradas que están bajo el
+sub-árbol <literal remap="tt">"o=University of Michigan, c=US"</literal>, al que se permite el
+acceso en modo lectura. Si su hubiera invertido el orden de las
+directivas de acceso, la directiva específica de la Universidad de
+Michigan nunca hubiera coincidido, puesto que todas las entradas de la
+U. de M. son también entradas de <literal remap="tt">c=US</literal>.  
+</para>
+
+<para>
+El próximo ejemplo vuelve a mostrar la importancia del orden, tanto en
+lo que se refiere a las directivas de acceso como a las cláusulas
+<literal remap="tt">"by"</literal>. También muestra el uso de un selector de atributos para
+conceder acceso a un atributo específico y a varios selectores
+&lt;quién&gt; (&lt;who&gt;).
+
+<screen>
+access to dn=".*, o=U of M, c=US" attr=homePhone 
+by self write 
+by dn=".*, o=U of M, c=US" search 
+by domain=.*&bsol;.umich&bsol;.edu read 
+by * compare 
+access to dn=".*, o=U of M, c=US" 
+by self write 
+by dn=".*, o=U of M, c=US" search 
+by * none 
+</screen>
+
+</para>
+
+<para>
+Este ejemplo se aplica a las entradas en el sub-árbol <literal remap="tt">"o=U of M,
+c=US"</literal>. Para todos los atributos excepto <literal remap="tt">homePhone</literal>, la propia
+entrada tiene puede escribirlos, otras entradas de "U of M" pueden
+buscar por ellas, y nadie más tiene acceso. La entrada tiene permisos
+de escritura sobre el atributo <literal remap="tt">homePhone</literal>, permisos de búsqueda
+para otras entradas de la "U of M", permisos de lectura para otros
+clientes que conecten desde algún lugar del dominio umich.edu, y
+permisos de comparación para el resto del mundo. 
+</para>
+
+<para>
+A veces es útil permitir que un <literal remap="tt">DN</literal> particular se añada o elimine
+a sí mismo de un atributo. Por ejemplo, si se desea crear un grupo y
+permitir que los usuarios lo añadan y eliminen de su atributo
+<literal remap="tt">member</literal> en su propio <literal remap="tt">DN</literal>, puede lograrse con una directiva de
+acceso como la siguiente:
+
+<screen>
+access to attr=member,entry 
+by dnattr=member selfwrite 
+</screen>
+
+</para>
+
+<para>
+El selector <literal remap="tt">dnattr &lt;quién&gt;</literal> nos dice que el acceso se aplica
+a entradas listadas en el atributo <literal remap="tt">member</literal>. El selector
+<literal remap="tt">selfwrite access</literal> especifica que tales miembros sólo pueden añadir
+o eliminar del atributo su propio <literal remap="tt">DN</literal> y no otros valores. El
+añadido del atributo <literal remap="tt">entry</literal> es necesario, ya que se requiere el
+<literal remap="tt">access</literal> de la entrada para acceder a alguno de los atributos de
+esa entrada. 
+</para>
+
+<para>
+Observe que la construcción <literal remap="tt">attr=member</literal> en la cláusula
+<literal remap="tt">&lt;qué&gt;</literal> es un atajo para la cláusula <literal remap="tt">"dn=* attr=member"</literal>
+(es decir, que coincide con el atributo <literal remap="tt">member</literal> en todas las
+entradas). 
+</para>
+
+</sect2>
+
+</sect1>
+
+<sect1 id="i-4">
+<title>Ejecución del servidor LDAP </title>
+
+<para>
+<emphasis>Slapd</emphasis> puede ejecutarse de dos maneras diferentes, como demonio o
+servicio permanente, o bien desde <literal remap="tt">inetd(8)</literal>. Se recomienda la
+ejecución como demonio permanente, sobre todo si usa el <emphasis>backend</emphasis>
+de LDBM. Ello permitirá al <literal remap="tt">backend</literal> beneficiarse del uso de
+memoria de almacenamiento intermedio (<emphasis>caché</emphasis>) y evita problemas de
+acceso compartido a los ficheros de índices de LDBM. Si únicamente
+ejecuta un <emphasis>backend</emphasis> de tipo SHELL o PASSWD, entonces sí puede
+considerar la opción de ejecutar <emphasis>slapd</emphasis> desde <literal remap="tt">inetd</literal>. 
+</para>
+
+<sect2 id="i-4.1">
+<title>Opciones desde la línea de órdenes</title>
+
+<para>
+<emphasis>Slapd</emphasis> soporta las siguientes opciones de línea de órdenes: 
+<variablelist>
+
+<varlistentry>
+<term>-d &lt;nivel&gt; | ? </term>
+<listitem>
+<para>
+Esta opción fija el nivel de depuración de <emphasis>slapd</emphasis> en
+<literal remap="tt">&lt;nivel&gt;</literal>. Cuando el nivel es un carácter  <literal remap="tt">`?</literal>', se
+muestran los distintos niveles de depuración y <emphasis>slapd</emphasis> termina, con
+independencia de cualquier otra opción que se introduzca. Los niveles
+de depuración existentes son: 
+</para>
+
+<para>
+
+<itemizedlist>
+<listitem>
+
+<para>
+1 trazado de llamadas a función
+</para>
+</listitem>
+<listitem>
+
+<para>
+2 manejo de paquetes de depurado
+</para>
+</listitem>
+<listitem>
+
+<para>
+4 depurado de trazado intensivo <emphasis>heavy trace</emphasis>
+</para>
+</listitem>
+<listitem>
+
+<para>
+8 gestión de conexiones
+</para>
+</listitem>
+<listitem>
+
+<para>
+16 mostrar los paquetes enviados y recibidos
+</para>
+</listitem>
+<listitem>
+
+<para>
+32 procesado del filtro de búsqueda
+</para>
+</listitem>
+<listitem>
+
+<para>
+64 procesado de ficheros de configuración
+</para>
+</listitem>
+<listitem>
+
+<para>
+128 procesado de listas de control de acceso
+</para>
+</listitem>
+<listitem>
+
+<para>
+256 estadísticas de registro de conexiones/operaciones/resultados
+</para>
+</listitem>
+<listitem>
+
+<para>
+512 enviar las entradas de registro de estadísticas
+</para>
+</listitem>
+<listitem>
+
+<para>
+1024 imprimir los <emphasis>backends</emphasis> de comunicación con el
+intérprete de órdenes
+</para>
+</listitem>
+<listitem>
+
+<para>
+2048 imprimir el análisis completo de depuración
+</para>
+</listitem>
+<listitem>
+
+<para>
+65535 activar depuración completa
+</para>
+</listitem>
+
+</itemizedlist>
+
+</para>
+
+<para>
+Los niveles de depuración son acumulativos. Si desea trazar llamadas a
+funciones y observar qué fichero de configuración se está procesando,
+fije el nivel de depuración al resultado de la suma de estos dos
+niveles ( en este caso, 65). Consulte el fichero <literal remap="tt">&lt;ldap.h&gt;</literal>
+para más detalles. 
+</para>
+
+<para>
+Observe que <emphasis>slapd</emphasis> se tendrá que haber compilado con la opción
+<literal remap="tt">-DLDAP_DEBUG</literal> definida, si se desea un nivel de depuración
+superior a los dos niveles de estadísticas disponibles.
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>-f &lt;nombrefichero&gt; </term>
+<listitem>
+<para>
+Esta opción especifica un fichero de configuración alternativo para
+<emphasis>slapd</emphasis>
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>-i </term>
+<listitem>
+<para>
+Esta opción le especifica a <emphasis>slapd</emphasis> que se ejecute desde <literal remap="tt">inetd</literal>
+en vez de hacerlo como un demonio o servicio independiente. En la
+próxima sección encontrará más detalles sobre la ejecución de
+<emphasis>slapd</emphasis> desde <literal remap="tt">inetd</literal>.
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>-p &lt;puerto&gt; </term>
+<listitem>
+<para>
+Esta opción especifica un puerto TCP alternativo en el que <emphasis>slapd</emphasis>
+se mantendrá a la escucha para las conexiones. El puerto por defecto
+es el 389.
+</para>
+</listitem></varlistentry>
+</variablelist>
+</para>
+
+</sect2>
+
+<sect2 id="i-42">
+<title>Ejecución de <emphasis>slapd</emphasis> como demonio o servicio independiente</title>
+
+<para>
+Como norma general, <emphasis>slapd</emphasis> se ejecuta de la siguiente manera:
+</para>
+
+<para>
+
+<screen>
+# $(ETCDIR)/slapd &lsqb;&lt;opción&gt;&rsqb;* 
+</screen>
+
+</para>
+
+<para>
+donde ETCDIR tiene el valor que le haya asignado en el fichero
+<literal remap="tt">Make-common</literal> o en el guión <literal remap="tt">./configure</literal> durante la
+configuración previa a la compilación, y <literal remap="tt">&lt;opción&gt;</literal> es una de
+las opciones descritas más arriba.
+A menos que haya especificado un nivel de depuración, <emphasis>slapd</emphasis> se
+desvinculará automáticamente del terminal desde el que lo lanzó, y se
+ejecutará en segundo plano, en modo demonio o servicio. Cualquiera de
+las opciones de más arriba pueden darse en la línea de órdenes para
+hacer que <emphasis>slapd</emphasis> cargue un fichero de configuración diferente, o
+que escuche en otro puerto, etcétera.
+</para>
+
+<para>
+Véase el siguiente ejemplo de comienzo de <emphasis>slapd</emphasis>: 
+</para>
+
+<para>
+
+<screen>
+$(ETCDIR)/slapd -f /home/malere/mi_slapd.conf -d 255 
+</screen>
+
+</para>
+
+</sect2>
+
+<sect2>
+<title>Ejecución de slapd desde inetd</title>
+
+<para>
+En primer lugar, asegúrese de que sea una buena idea ejecutar
+<emphasis>slapd</emphasis> desde <literal remap="tt">inetd</literal>. Si está usando el <emphasis>backend</emphasis> LDBM,
+entonces no es buena idea. Si está en un entorno de mucho servicio,
+entonces la sobrecarga que supone ejecutarlo desde <literal remap="tt">inetd</literal> también
+lo convierte en una mala idea. Si no es su caso puede seguir adelante
+con los dos pasos necesarios.
+</para>
+
+<para>
+El primer paso es añadir a <literal remap="tt">/etc/services/</literal> una línea como la
+siguiente: 
+
+<screen>
+ldap 389 # ldap directory service 
+</screen>
+
+</para>
+
+<para>
+El segundo paso es añadir una línea como la siguiente a su fichero
+<literal remap="tt">/etc/inetd.conf</literal>: 
+
+<screen>
+ldap stream tcp nowait nobody $(ETCDIR)/slapd slapd -i 
+</screen>
+
+</para>
+
+<para>
+donde ETCDIR tiene el valor que le haya asignado en el fichero
+<literal remap="tt">Make-common</literal> o en el guión <literal remap="tt">./configure</literal> durante la
+configuración previa a la compilación. 
+Finalmente envíele a <literal remap="tt">inetd</literal> una señal <literal remap="tt">-HUP</literal> y ya tendrá su
+configuración. (<emphasis remap="bf">N. del T.:</emphasis> pruebe con <literal remap="tt">killall -HUP inetd</literal> o mejor
+todavía <literal remap="tt">kill -HUP $(pidof inetd)</literal> o 
+<literal remap="tt">kill -TERM `cat $(ETCDIR)/inetd.pid`</literal>)
+</para>
+
+</sect2>
+
+</sect1>
+
+<sect1>
+<title>Creación y mantenimiento de bases de datos</title>
+
+<para>
+Esta sección le explica cómo crear una base de datos de <emphasis>slapd</emphasis>
+empezando desde cero. Hay dos maneras de crear una base de datos: la
+primera, puede crear la base de datos en línea, usando LDAP. Con este
+método, sólo tiene que ejecutar <emphasis>slapd</emphasis> y añadir entradas usando el
+cliente LDAP de su elección. Este método es adecuado para bases de
+datos relativamente pequeñas (algunos cientos o miles de entradas,
+dependiendo de los requerimientos).
+</para>
+
+<para>
+El segundo método de creación de bases de datos es no hacerlo en
+línea, sin mediante herramientas de generación de índices. Este es el
+mejor método si tiene que crear muchos miles de entradas, que si se
+introdujeran con el método LDAP llevarían un tiempo intolerablemente
+largo. También es útil si desea asegurarse de que no se accederá a la
+base de datos durante su creación.
+</para>
+
+<sect2>
+<title>Creación de una base de datos en línea</title>
+
+<para>
+El paquete de software <emphasis>OpenLDAP</emphasis> viene con una utilidad llamada
+<literal remap="tt">ldapadd</literal>, que se utiliza para añadir entradas mientras el servidor
+LDAP se ejecuta. Si decide crear en línea la base de datos, puede
+utilizar la herramienta <literal remap="tt">ldapadd</literal> para añadir las entradas. Tras 
+de añadir las primeras entradas, puede seguir usando posteriormente
+<literal remap="tt">ldapadd</literal> para añadir más entradas. Antes de iniciar <emphasis>slapd</emphasis>,
+asegúrese de que activa las siguientes opciones de configuración en su
+fichero <literal remap="tt">sladp.conf</literal>:
+</para>
+
+<para>
+<literal remap="tt">suffix &lt;dn&gt; </literal>
+</para>
+
+<para>
+Tal como se explicó en la <xref linkend="i-3"/>, esta opción
+describe qué entradas se mantendrán en esta base de datos. Deberá dar
+a esta opción el valor del <literal remap="tt">DN</literal> de la raíz del sub-árbol que va a
+crear. Por ejemplo: 
+</para>
+
+<para>
+<literal remap="tt">suffix "o=TUDelft, c=NL" </literal>
+</para>
+
+<para>
+Asegúrese de especificar en qué directorio se crearán los archivos de
+configuración: 
+</para>
+
+<para>
+<literal remap="tt">directory &lt;directorio&gt;</literal>
+</para>
+
+<para>
+Por ejemplo:
+</para>
+
+<para>
+<literal remap="tt">directory /usr/local/tudelft</literal>
+</para>
+
+<para>
+Tendrá que realizar el siguiente paso para poder conectar con <emphasis>slapd</emphasis>
+como usuario con permisos para añadir entradas. Se lleva a cabo
+añadiendo las dos siguientes opciones en la definición de la base de
+datos: 
+</para>
+
+<para>
+<literal remap="tt">rootdn &lt;dn&gt; </literal>
+</para>
+
+<para>
+<literal remap="tt">rootpw &lt;contraseña&gt;</literal> /* ¡Recuerde usar contraseña «cripto» aquí ! */
+</para>
+
+<para>
+Estas opciones especifican un <literal remap="tt">DN</literal> y una contraseña que pueden
+usarse para autentificarse como la entrada «superusuario» de una base
+de datos (es decir, la entrada que tiene permisos para realizar
+cualquier tarea). El <literal remap="tt">DN</literal> y la contraseña especificados aquí
+funcionarán siempre, con independencia de que la entrada de <literal remap="tt">DN</literal>
+exista realmente o tenga una contraseña válida igual a la
+especificada. Así se arregla del problema del qué va primero, si el
+huevo o la gallina, a la hora de autentificarse y añadir entradas
+antes de que las propias entradas existan siquiera.
+</para>
+
+<para>
+Finalmente debe asegurarse de que la definición de base de datos
+contiene las definiciones de índices que usted desea:
+</para>
+
+<para>
+<literal remap="tt">index &lcub;&lt;attrlist&gt; | default&rcub; &lsqb;pres,eq,approx,sub,none&rsqb; </literal>
+</para>
+
+<para>
+Para indexar los atributos de clase de objetos (<literal remap="tt">objectclass</literal>)
+<literal remap="tt">cn</literal>, <literal remap="tt">sn</literal> y <literal remap="tt">uid</literal> se pueden usar por ejemplo las siguientes
+líneas de configuración:
+</para>
+
+<para>
+<literal remap="tt"> index cn,sn,uid </literal>
+</para>
+
+<para>
+<literal remap="tt">index objectclass pres,eq </literal>
+</para>
+
+<para>
+<literal remap="tt">index default none </literal>
+</para>
+
+<para>
+Una vez que haya configurado las cuestiones a su gusto, arranque su
+cliente LDAP y comience a añadir entradas. Por ejemplo, para añadir
+la entrada <literal remap="tt">TUDelft</literal> seguida de una entrada <literal remap="tt">Postmaster</literal>
+utilizando la herramienta <literal remap="tt">ldapadd</literal>, puede crear un fichero llamado <literal remap="tt">/tmp/entradanueva</literal> con el contenido: 
+
+<screen>
+o=TUDelft, c=NL 
+objectClass=organization 
+
+o=TUDelft 
+description=Technical University of Delft Netherlands 
+
+cn=Postmaster, o=TUDelft, c=NL 
+objectClass=organizationalRole 
+cn=Postmaster 
+description= TUDelft postmaster - postmaster@tudelft.nl 
+</screen>
+
+</para>
+
+<para>
+y luego utilizar una orden como la siguiente para crear de verdad la
+entrada:  
+
+<screen>
+ldapadd -f /tmp/entradanueva -D "cn=Manager, o=TUDelft, c=NL" -w secret 
+</screen>
+
+</para>
+
+<para>
+Estar orden supone que Usted ha configurado <literal remap="tt">rootdn</literal> como
+<literal remap="tt">"cn=Manager, o=TUDelft, c=NL"</literal> y que la contraseña <literal remap="tt">rootpw</literal> es
+«secret». 
+Si no desea escribir la contraseña en la línea de órdenes, utilice la
+opción <literal remap="tt">-W</literal> de la orden <literal remap="tt">ldapadd</literal>, en lugar de <literal remap="tt">-w
+"contraseña"</literal>. Se le pedirá que introduzca interactivamente la
+contraseña: 
+
+<screen>
+ldapadd -f /tmp/entradanueva -D "cn=Manager, o=TUDelft, c=NL" -W 
+Enter LDAP Password : 
+</screen>
+
+</para>
+
+</sect2>
+
+<sect2>
+<title>Creación de una base de datos sin estar en línea</title>
+
+<para>
+El segundo método de creación de una base de datos es hacerlo sin
+estar en línea, usando las herramientas de generación de índices
+descritas más abajo. Este es el mejor método si tiene que crear muchos
+miles de entradas, y crearlas con el método interactivo de LDAP
+descrito arriba llevaría mucho tiempo. Estas herramientas leen el
+fichero de configuración de <emphasis>slapd</emphasis> y un fichero de entrada LDIF
+que contiene una representación de las entradas que hay que añadir en
+formato de texto. Estas herramientas generan los ficheros de índices
+LDBM directamente. Deberá asegurarse de la activación de varias
+opciones de configuración importantes, de manera que se encuentren
+primero en la definición de base de datos del fichero de
+configuración:  
+</para>
+
+<para>
+<literal remap="tt">suffix &lt;dn&gt; </literal>
+</para>
+
+<para>
+Tal y como se ha descrito en la sección anterior, esta opción
+especifica qué entradas se mantendrán mediante esta base de
+datos. Debe Usted ajustarla al <literal remap="tt">DN</literal> de la raíz del sub-árbol que
+intenta crear, por ejemplo: 
+</para>
+
+<para>
+suffix "o=TUDelft, c=NL" 
+</para>
+
+<para>
+Asegúrese de especificar un directorio en el que crear los ficheros de
+índice:
+</para>
+
+<para>
+<literal remap="tt">directory &lt;directorio&gt; </literal>
+</para>
+
+<para>
+Por ejemplo:
+</para>
+
+<para>
+<literal remap="tt">directory /usr/local/tudelft</literal>
+</para>
+
+<para>
+Después querrá seguramente aumentar el tamaño de la memoria de
+almacenamiento intermedio (<emphasis>caché</emphasis>) interna de la aplicación, y que
+se utiliza para cada fichero de índice abierto. Para un mejor
+rendimiento durante la creación del fichero de índices, la situación
+de rendimiento ideal es aquella en la que el fichero completo se carga
+en memoria. 
+Si el volumen de sus datos no permite esta operación, o bien si no
+dispone de mucha memoria, todavía podrá darle un valor alto a este
+parámetro y dejar que haga su trabajo la paginación a disco del
+sistema. El tamaño se configura con la opción siguiente:
+</para>
+
+<para>
+dbcachesize &lt;númeroentero&gt; 
+</para>
+
+<para>
+Por ejemplo:
+</para>
+
+<para>
+dbcachesize 50000000 
+</para>
+
+<para>
+Esto creará una memoria de almacenamiento intermedio (<emphasis>caché</emphasis>) de
+un tamaño de 50 MB, que ya es bastante grande (en la Universidad de
+Michigan la base de datos tiene cerca de 125.000 entradas, y el mayor
+fichero de índices ocupa aproximadamente 45 MB). Experimente Usted
+varias veces con este parámetro y con el grado de paralelismo (ver más
+abajo), con el fin de ver qué combinación funcione mejor en su
+sistema. Acuérdese de devolver a este número su valor original después
+de crear los ficheros de índices y antes de ejecutar <emphasis>slapd</emphasis>. 
+</para>
+
+<para>
+Finalmente tendrá que especificar concretamente qué índices desea
+construir. Esto se consigue con una o más opciones que se aplican a
+los índices.
+</para>
+
+<para>
+<literal remap="tt">index &lcub;&lt;listaatributos&gt; | default&rcub; &lsqb;pres,eq,approx,sub,none&rsqb; </literal>
+</para>
+
+<para>
+Por ejemplo: 
+</para>
+
+<para>
+<literal remap="tt">index cn,sn,uid pres,eq,approx </literal>
+</para>
+
+<para>
+<literal remap="tt">index default none </literal>
+</para>
+
+<para>
+Esto creará índices de presencia (<emphasis>presence</emphasis>), igualdad
+(<emphasis>equality</emphasis>) y aproximación (<emphasis>approximate</emphasis>) de los atributos
+<literal remap="tt">cn</literal>, <literal remap="tt">sn</literal> y <literal remap="tt">uid</literal>, y no creará ningún índice para ningún
+otro atributo. Para más información acerca de esta opción, véase el
+fichero de configuración en la  <xref linkend="i-3"/>. 
+</para>
+
+<para>
+Una vez que haya configurado estos parámetros según sus preferencias,
+cree los índices ejecutando el programa <literal remap="tt">ldif2ldbm</literal>:
+</para>
+
+<para>
+<literal remap="tt">ldif2ldbm -i &lt;ficheroentrada&gt; -f &lt;ficheroconfigslapd&gt; &lsqb;-d &lt;niveldepuración&gt;&rsqb; &lsqb;-j &lt;númeroentero&gt;&rsqb; &lsqb;-n &lt;numerodebasedatos&gt;&rsqb; &lsqb;-e &lt;directorioetc&gt;&rsqb; </literal>
+</para>
+
+<para>
+Los argumentos tienen estos significados:
+</para>
+
+<para>
+<literal remap="tt">-i &lt;ficheroentrada&gt; </literal>
+</para>
+
+<para>
+Especifica el fichero de entrada LDIF que contiene en formato de texto
+las entradas por añadir.
+</para>
+
+<para>
+-f &lt;ficheroconfigslapd&gt; 
+</para>
+
+<para>
+Especifica el fichero de configuración de <emphasis>slapd</emphasis> que indica dónde
+crear los índices, qué índices hay que crear, etc.
+</para>
+
+<para>
+<literal remap="tt">-d &lt;niveldepuración&gt; </literal>
+</para>
+
+<para>
+Activa la depuración, según se especifique en &lt;niveldepuración&gt;.
+Los niveles de depuración son los mismos que para <emphasis>slapd</emphasis> (véase la
+<xref linkend="i-4.1"/>). 
+</para>
+
+<para>
+<literal remap="tt">-j &lt;númeroentero&gt; </literal>
+</para>
+
+<para>
+Es un argumento opcional que especifica que, como mínimo la cantidad
+&lt;númeroentero&gt;  de procesos han de iniciarse en paralelo en el
+momento de construir los índices. El valor por defecto es 1. Si se
+especifica un valor superior a 1, <literal remap="tt">ldif2ldbm</literal> creará como mínimo
+ese número de subprocesos a la hora de construir los índices. Para
+construir cada índice de atributos se crea un subproceso separado. La
+ejecución en paralelo de estos procesos puede acelerar grandemente el
+resultado, pero tenga cuidado de no crear demasiados procesos que
+compitan todos a la vez por los recursos de disco y memoria. 
+</para>
+
+<para>
+<literal remap="tt">-n &lt;númerodebasedatos&gt; </literal>
+</para>
+
+<para>
+Es un argumento opcional que especifica la base de datos del fichero
+de configuración para la cual hay que construir los índices. La
+primera base de datos aparece listada como «1», la segunda como «2»,
+etc. Se usa por defecto la primera base de datos LDBM que aparezca en
+el fichero de configuración.
+</para>
+
+<para>
+<literal remap="tt">-e &lt;etcdir&gt; </literal>
+</para>
+
+<para>
+Es un argumento opcional que especifica el directorio en donde
+<literal remap="tt">ldif2ldbm</literal> podrá hallar las otras herramientas de conversión de
+bases de datos que precisa para ejecutarse (<literal remap="tt">ldif2index</literal> y
+similares). El valor por defecto es el directorio de instalación que
+se especificó en el guión de instalación. Véase el siguiente ejemplo
+del uso de la orden <literal remap="tt">ldif2ldbm</literal>:
+</para>
+
+<para>
+<literal remap="tt">/usr/local/sbin/ldif2ldbm -i nuevas_entradas -f myslapd.conf </literal>
+</para>
+
+</sect2>
+
+<sect2>
+<title>Cuestiones adicionales sobre el formato LDIF</title>
+
+<para>
+El formato de intercambio de datos de LDAP (<emphasis>LDAP Data Interchange
+Format</emphasis>, LDIF) se usa para representar entradas de LDAP en formato de
+texto sencillo. La forma básica de una entrada es:
+
+<screen>
+&lsqb;&lt;id&gt;&rsqb; 
+dn: &lt;distinguished name&gt; 
+&lt;tipodeatributo&gt;: &lt;valordel_atributo&gt; 
+&lt;tipodeatributo&gt;: &lt;valordel_atributo&gt; 
+... 
+</screen>
+
+</para>
+
+<para>
+en donde <literal remap="tt">&lt;id&gt;</literal> el ID opcional de la entrada (un número
+decimal positivo). No se suele pasar este parámetro, permitiendo que
+la base de datos lo haga por usted. El programa <literal remap="tt">ldbmcat</literal>, no
+obstante, produce un formato LDIF que incluye <literal remap="tt">&lt;id&gt;</literal> de
+manera que los nuevos índices que se creen sean consistentes. 
+</para>
+
+<para>
+Puede continuarse una línea añadiendo un espacio al principio de la
+siguiente, p. ej.:
+
+<screen>
+dn: cn=Barbara J Jensen, o=University of Michi
+ gan, c=US 
+</screen>
+
+</para>
+
+<para>
+Múltiples valores de un atributo se especifican en líneas separadas,
+por ejemplo:
+
+<screen>
+cn: Barbara J Jensen 
+cn: Babs Jensen 
+</screen>
+
+</para>
+
+<para>
+Si un &lt;valordel_atributo&gt; contiene un carácter no imprimible, o
+comienza con un espacio o con dos puntos «:», entonces el
+&lt;tipodeatributo&gt;  va seguido con el signo los dos puntos, dos
+veces, y el valor se codifica en notación de base 64; por ejemplo, el
+valor " begins with a space" se codificaría de la manera siguiente:
+
+<screen>
+cn:: IGJlZ2lucyB3aXRoIGEgc3BhY2U= 
+</screen>
+
+</para>
+
+<para>
+En el mismo fichero LDIF, las entradas múltiples se separan por líneas
+en blanco. He aquí un ejemplo de un fichero LDIF que contiene tres
+entradas:
+
+<screen>
+dn: cn=Barbara J Jensen, o=University of Michigan, c=US 
+cn: Barbara J Jensen 
+cn: Babs Jensen 
+objectclass: person 
+sn: Jensen 
+
+dn: cn=Bjorn J Jensen, o=University of Michigan, c=US 
+cn: Bjorn J Jensen 
+cn: Bjorn Jensen 
+objectclass: person 
+sn: Jensen 
+
+dn: cn=Jennifer J Jensen, o=University of Michigan, c=US 
+cn: Jennifer J Jensen 
+cn: Jennifer Jensen 
+objectclass: person 
+sn: Jensen
+jpegPhoto:: /9j/4AAQSkZJRgABAAAAAQABAAD/2wBDABALD 
+A4MChAODQ4SERATGCgaGBYWGDEjJR0oOjM9PDkzODdASFxOQ 
+ERXRTc4UG1RV19iZ2hnPk1xeXBkeFxlZ2P/2wBDARESEhgVG 
+... 
+</screen>
+
+</para>
+
+<para>
+Nótese que el tipo de atributo <literal remap="tt">jpegPhoto</literal> en la entrada de
+Jennifer Jensen se codifica usando base64. El programa <emphasis>ldif</emphasis> que
+viene con el paquete <emphasis>OpenLDAP</emphasis> puede usarse para producir el formato
+LDIF. 
+</para>
+
+<para>
+<emphasis remap="bf">Nota:</emphasis> en un fichero LDIF, los espacios finales no se eliminan de
+los valores, ni tampoco se comprimen múltiples espacios internnnos. Si
+no los quiere en sus datos, no debe incluirlos.
+</para>
+
+</sect2>
+
+<sect2>
+<title>Las utilidades ldapsearch, ldapdelete y ldapmodify</title>
+
+<para>
+<literal remap="tt">ldapsearch</literal> - <emphasis>ldapsearch</emphasis> es una interfaz, accesible desde la
+línea de órdenes, para la llamada a biblioteca
+<emphasis>ldap_search(3)</emphasis>. Use esta utilidad para buscar entradas en el
+dorsal (<emphasis>backend</emphasis>) de nuestra base de datos LDAP.
+</para>
+
+<para>
+La sinopsis de las opciones de <emphasis>ldapsearch</emphasis> es la siguiente (véase
+la página de manual de <literal remap="tt">ldapsearch(1)</literal> para conocer el significado
+de cada opción): 
+
+<screen>
+ldapsearch  &lsqb;-n&rsqb;  &lsqb;-u&rsqb;  &lsqb;-v&rsqb;
+&lsqb;-k&rsqb;  &lsqb;-K&rsqb;  &lsqb;-t&rsqb;  &lsqb;-A&rsqb;
+&lsqb;-B&rsqb; &lsqb;-L&rsqb; &lsqb;-R&rsqb; 
+&lsqb;-d niveldepuración&rsqb; &lsqb;-F separador&rsqb; 
+&lsqb;-f fichero&rsqb; &lsqb;-D dn_deacceso&rsqb;  &lsqb;-W&rsqb;  
+&lsqb;-w contraseña_acceso&rsqb;  &lsqb;-h servidorldap&rsqb;  
+&lsqb;-p puertoldap&rsqb;   &lsqb;-b basebúsqueda&rsqb;   
+&lsqb;-s base|one|sub&rsqb;  
+&lsqb;-a never|always|search|find&rsqb; 
+&lsqb;-l límitetiempo&rsqb; &lsqb;-z límitetamaño&rsqb; filtro
+&lsqb;atributos...&rsqb;  
+</screen>
+
+</para>
+
+<para>
+<literal remap="tt">ldapsearch</literal> abre una conexión a un servidor LDAP, se «engancha» a
+él y lleva a cabo una búsqueda utilizando el filtro <literal remap="tt">filtro</literal>. Este
+filtro debe ajustarse a la representación de cadenas de texto para
+filtros LDAP, tal y como se definen en el Request for Comments 1558
+(RFC 1558). Si <emphasis>ldapsearch</emphasis> encuentra una o más entradas, se
+obtienen los atributos especificados en <literal remap="tt">atributos</literal> y se imprimen
+por salida estándar las entradas y sus valores. Si no se listan
+atributos, se devuelven todos los atributos.
+</para>
+
+<para>
+He aquí algunos ejemplos del uso de <emphasis>ldapsearch</emphasis>:
+
+<screen>
+ldapsearch -b 'o=TUDelft,c=NL' 'objectclass=*' 
+
+ldapsearch -b 'o=TUDelft,c=NL' 'cn=Rene van Leuken' 
+
+ldasearch -u -b 'o=TUDelft,c=NL' 'cn=Luiz Malere' sn mail 
+</screen>
+
+</para>
+
+<para>
+La opción <literal remap="tt">-b</literal> representa la base de búsqueda (el punto inicial de
+la búsqueda) y la opción <literal remap="tt">-u</literal> representa la opción «amigable para
+el usuario», refiriéndose a la información de salida.
+</para>
+
+<para>
+<literal remap="tt">ldapdelete</literal> - <emphasis>ldapdelete</emphasis> es una interfaz, accesible desde la
+línea de órdenes, para la llamada a biblioteca <emphasis>ldap_delete(3)</emphasis>. Use
+esta utilidad para buscar entradas en el dorsal (<emphasis>backend</emphasis>) de 
+nuestra base de datos LDAP.
+</para>
+
+<para>
+La sinopsis de las opciones de <emphasis>ldapdelete</emphasis> es la siguiente (véase
+la página de manual de <literal remap="tt">ldapdelete(1)</literal> para conocer el significado
+de cada opción): 
+
+<screen>
+ldapdelete   &lsqb;-n&rsqb;   &lsqb;-v&rsqb;  &lsqb;-k&rsqb;
+&lsqb;-K&rsqb;  &lsqb;-c&rsqb;  &lsqb;-d nivel_depuración&rsqb;
+&lsqb;-f fichero&rsqb;  &lsqb;-D dn_de_enganche&rsqb;  &lsqb;-W&rsqb;
+&lsqb;-w contraseña&rsqb;  &lsqb;-h servidorldap&rsqb; 
+&lsqb;-p puertoldap&rsqb; &lsqb;dn&rsqb;... 
+</screen>
+
+</para>
+
+<para>
+<emphasis>ldapdelete</emphasis> abre una conexión con un servidor LDAP, se «engancha»
+a él, y borra una o más entradas. Si se proporcionan uno o más
+argumentos de <literal remap="tt">dn</literal>, se borrarán las entradas con estos
+<literal remap="tt">Distinguished Names</literal>. Cada <literal remap="tt">dn</literal> debe se la representación
+mediante una cadena de un <literal remap="tt">DN</literal> de la forma especificada en el RFC
+1779. Si no se proporcionan argumentos de <literal remap="tt">dn</literal>, entonces se leerá
+la lista de <literal remap="tt">DNs</literal> desde la entrada estándar (o bien desde un
+fichero si se utiliza la opción <literal remap="tt">-f</literal>).
+</para>
+
+<para>
+He aquí algunos ejemplos del uso de <emphasis>ldapdelete</emphasis>:
+
+<screen>
+ldapdelete 'cn=Luiz Malere,o=TUDelft,c=NL' 
+
+ldapdelete -v 'cn=Rene van Leuken,o=TUDelft,c=NL' -D 'cn=Luiz Malere,o=TUDelft,c=NL' -W 
+</screen>
+
+</para>
+
+<para>
+La opción <literal remap="tt">-v</literal> representa el modo verboso. La opción <literal remap="tt">-D</literal>
+representa el DN de enganche (<emphasis>Binddn</emphasis>) y la opción <literal remap="tt">-W</literal> sirve
+para que se nos pregunte interactivamente por la contraseña.
+</para>
+
+<para>
+<literal remap="tt">ldapmodify</literal> - <emphasis>ldapmodify</emphasis> es una interfaz, accesible desde la
+línea de órdenes, para la llamada a biblioteca <emphasis>ldap_modify(3)</emphasis> y
+<emphasis>ldap_add(3)</emphasis>. Use esta utilidad para modificar entradas en el
+dorsal (<emphasis>backend</emphasis>) de nuestra base de datos LDAP. 
+</para>
+
+<para>
+La sinopsis de las opciones de <emphasis>ldapmodify</emphasis> es la siguiente (véase
+la página de manual de <literal remap="tt">ldapmodify(1)</literal> para conocer el significado
+de cada opción): 
+
+<screen>
+ldapmodify   &lsqb;-a&rsqb;  &lsqb;-b&rsqb;  &lsqb;-c&rsqb;
+&lsqb;-r&rsqb;  &lsqb;-n&rsqb;  &lsqb;-v&rsqb;  &lsqb;-k&rsqb;
+&lsqb;-d nivelde_depuración&rsqb;  &lsqb;-D dn_de_enganche&rsqb;
+&lsqb;-W&rsqb;  &lsqb;-w contraseña&rsqb;  &lsqb;-h servidorldap&rsqb;
+&lsqb;-p puertoldap&rsqb; &lsqb;-f fichero&rsqb; 
+
+ldapadd &lsqb;-b&rsqb; &lsqb;-c&rsqb; &lsqb;-r&rsqb; &lsqb;-n&rsqb;
+&lsqb;-v&rsqb;  &lsqb;-k&rsqb;  &lsqb;-K&rsqb;  
+&lsqb;-d nivelde_depuración&rsqb;  &lsqb;-D dn_de_enganche&rsqb;  
+&lsqb;-w contraseña&rsqb;  &lsqb;-h servidorldap&rsqb;  
+&lsqb;-p puertoldap&rsqb; &lsqb;-f fichero&rsqb; 
+</screen>
+
+</para>
+
+<para>
+<emphasis>ldapadd</emphasis> está implementado en forma de enlace no simbólico 
+(<emphasis>hard link</emphasis>) a la utilidad <emphasis>ldapmodify</emphasis>. Cuando se llama a la
+utilidad en la forma <literal remap="tt">ldapadd</literal>, la opción <literal remap="tt">-a</literal> (añadir nueva
+entrada) se activa automáticamente.
+</para>
+
+<para>
+<emphasis>ldapmodify</emphasis> abre una conexión con un servidor LDAP, se «engancha»
+a él, y modifica o añade entradas. La información sobre la entrada que
+hay que modificar se lee desde la entrada estándar o desde un fichero
+a través de la opción <literal remap="tt">-f</literal>.
+</para>
+
+<para>
+He aquí algunos ejemplos del uso de ldapmodify:
+</para>
+
+<para>
+Suponiendo que el fichero <literal remap="tt">/tmp/entrymods</literal> exista y tenga un
+contenido: 
+
+<screen>
+dn: cn=Modify Me, o=University of Michigan, c=US 
+changetype: modify 
+replace: mail 
+mail: modme@terminator.rs.itd.umich.edu 
+- 
+add: title 
+title: Grand Poobah 
+- 
+add: jpegPhoto 
+jpegPhoto: /tmp/modme.jpeg 
+- 
+delete: description 
+- 
+</screen>
+
+</para>
+
+<para>
+La orden:  
+
+<screen>
+ldapmodify -b -r -f /tmp/modif_entrada
+</screen>
+
+</para>
+
+<para>
+sustituirá el contenido del atributo <literal remap="tt">mail</literal> de la entrada
+<literal remap="tt">"Modify Me"</literal> con el valor
+<literal remap="tt">"modme@terminator.rs.itd.umich.edu"</literal>, le añadirá el título de 
+<literal remap="tt">"Grand Poobah"</literal>, el contenido del fichero <emphasis>/tmp/modme.jpeg</emphasis>
+como <literal remap="tt">jpegPhoto</literal>, y eliminará completamente el atributo
+<literal remap="tt">description</literal>. 
+</para>
+
+<para>
+Pueden llevarse a cabo las mismas modificaciones usando el formato de
+introducción más antiguo de <emphasis>ldapmodify</emphasis>: 
+
+<screen>
+cn=Modify Me, o=University of Michigan, c=US 
+mail=modme@terminator.rs.itd.umich.edu 
++title=Grand Poobah 
++jpegPhoto=/tmp/modme.jpeg 
+-description 
+</screen>
+
+</para>
+
+<para>
+Esto más la orden siguiente:
+
+<screen>
+ldapmodify -b -r -f /tmp/modif_entrada 
+</screen>
+
+</para>
+
+<para>
+Eso suponiendo que el fichero /tmp/newentry exista y tenga el
+siguiente contenido:
+
+<screen>
+dn: cn=Barbara Jensen, o=University of Michigan, c=US 
+objectClass: person 
+cn: Barbara Jensen 
+cn: Babs Jensen 
+sn: Jensen 
+title: the world's most famous manager 
+mail: bjensen@terminator.rs.itd.umich.edu 
+uid: bjensen 
+</screen>
+
+</para>
+
+<para>
+La orden:
+
+<screen>
+ldapadd -f /tmp/modif_entrada
+</screen>
+
+</para>
+
+<para>
+Suponiendo que el fichero /tmp/modif_entrada exista y tenga el contenido:
+
+<screen>
+dn: cn=Barbara Jensen, o=University of Michigan, c=US 
+changetype: delete 
+</screen>
+
+</para>
+
+<para>
+La orden:
+
+<screen>
+ldapmodify -f /tmp/modif_entrada 
+</screen>
+
+</para>
+
+<para>
+eliminará la entrada de Babs Jensen.
+</para>
+
+<para>
+La opción -f representa «fichero» (leer las modificaciones desde un
+fichero en vez de hacerlo desde la entrada estándar). La opción -b
+representa a «binario», es decir, cualquier tipo de valores que
+empiecen por '/' en el fichero de entrada se interpretan como
+binarios, y la -r representa «reemplazar» (sustituir los valores
+existentes de forma predeterminada). 
+</para>
+
+</sect2>
+
+</sect1>
+
+<sect1>
+<title>Más información y características adicionales</title>
+
+<para>
+En esta sección hallará información sobre el Libro de Direcciones de
+Netscape, un cliente LDAP que puede utilizar para consultar su
+Directorio; también presentamos los detalles sobre cómo implementar
+acceso móvil o itinerante (<emphasis>roaming access</emphasis>) utilizando el Netscape
+Navigator en sus versiones 4.5 y superiores más su servidor LDAP. Se
+ha vertido mucha tinta electrónica en las listas de correo de
+<emphasis>OpenLDAP</emphasis> sobre el acceso itinerante, pues se trata de una
+característica todavía no implementada totalmente. A muchas personas
+no les agrada la forma en que Netscape Navigator interactúa con el
+servidor LDAP a la hora de realizar grabaciones y recuperaciones de
+datos. Así pues, si tras la lectura de estas líneas tiene la impresión
+de que el acceso itinerante no funciona de la forma que usted
+desearía, no se preocupe; muchas personas tienen la misma impresión
+que usted. La finalidad de la introducción de esta característica ha
+sido principalmente dar a la gente una idea de las posibilidades del
+protocolo LDAP, más que otras consideraciones. Para terminar, verá
+algunas informaciones sobre cómo matar con seguridad el proceso
+<emphasis>slapd</emphasis> y sobre los ficheros de registro (logs) de <emphasis>slapd</emphasis>.
+</para>
+
+<sect2>
+<title>Acceso itinerante (perfiles móviles)</title>
+
+<para>
+El objetivo del acceso itinerante (llamado en Netscape «perfiles
+móviles») es que, desde cualquier lugar de la Red donde se encuentre,
+pueda obtener localmente sus marcadores de url's, preferencias que
+personalizan la aplicación, filtros de correo, etcétera, mediante la
+utilización de un Navegador Netscape y un servidor LDAP.
+</para>
+
+<para>
+Se trata de una característica muy conveniente. Imagine que desde
+cualquier lugar al que pueda acceder a la Web, pueda tener sus propias
+preferencias en el navegador. Si va a viajar y precisa acceder a ese
+sitio de cambio de divisas que tiene almacenado en sus marcadores
+personales (<emphasis>bookmarks</emphasis>), no se inquiete; simplemente cargue sus
+marcadores y otros ficheros de configuración en un servidor LDAP y
+podrá recuperarlos todos después con independencia del lugar en el que
+se encuentre. 
+</para>
+
+<para>
+Para implementar acceso itinerante (en inglés <emphasis>roaming access</emphasis>) ha
+de seguir los pasos que se detallan a continuación:
+
+<itemizedlist>
+<listitem>
+
+<para>
+Cambiar su fichero de descripción de atributos
+</para>
+</listitem>
+<listitem>
+
+<para>
+Cambiar su fichero de descripción de clases de objetos (<literal remap="tt">objectclass</literal>).
+</para>
+</listitem>
+<listitem>
+
+<para>
+Cambiar el fichero LDIF para que incluya perfiles
+</para>
+</listitem>
+<listitem>
+
+<para>
+Configurar el Netscape Navigator para que utilice el servidor LDAP como el servidor de acceso itinerante.
+</para>
+</listitem>
+<listitem>
+
+<para>
+Reiniciar el servidor LDAP con la nueva configuración.
+</para>
+</listitem>
+
+</itemizedlist>
+
+</para>
+
+<para>
+- Cambiar el fichero de atributos
+Es preciso que añada nuevos atributos a la lista existente en el
+fichero <literal remap="tt">slapd.at.conf</literal>; es este el fichero que se incluye en su
+<literal remap="tt">slapd.conf</literal> y que normalmente se localiza en
+/usr/local/etc/openldap (<emphasis remap="bf">N. del T.:</emphasis> si ha instalado su distribución
+OpenLDAP a partir de un fichero <literal remap="tt">.deb</literal> o de un <literal remap="tt">.rpm</literal>, el lugar
+más probable será <literal remap="tt">/etc/openldap/</literal>)
+: 
+
+<screen>
+attribute	nsLIPtrurl		ces 
+attribute	nsLIPrefs		ces 
+attribute	nsLIProfileName		cis 
+attribute	nsLIData		bin 
+attribute	nsLIElementType		cis 
+attribute	nsLIServerType		cis 
+attribute	nsLIVersion		cis 
+</screen>
+
+</para>
+
+<para>
+- Cambiar el fichero <literal remap="tt">objectclass</literal>:
+Debe añadir algunas clases nuevas a su fichero <literal remap="tt">lapd.oc.conf</literal> (es
+otro fichero que se incluye en su <literal remap="tt">slapd.conf</literal> y que se localiza
+normalmente en <literal remap="tt">/usr/local/etc/openldap</literal>, para habilitar el
+acceso itinerante (<emphasis remap="bf">N. del T.:</emphasis> si ha instalado su distribución
+OpenLDAP a partir de un fichero <literal remap="tt">.deb</literal> o de un <literal remap="tt">.rpm</literal>, el lugar
+más probable será <literal remap="tt">/etc/openldap/</literal>):
+</para>
+
+<para>
+
+<screen>
+objectclass nsLIPtr 
+requires 
+	objectclass 
+allows 
+	nsliptrurl, 
+	owner 
+
+objectclass nsLIProfile 
+requires 
+	objectclass, 
+	nsliprofilename 
+allows 
+	nsliprefs, 
+	uid, 
+	owner 
+
+objectclass nsLIProfileElement 
+requires 
+	objectclass, 
+	nslielementtype 
+allows 
+	owner, 
+	nslidata, 
+	nsliversion
+
+objectclass nsLIServer 
+requires 
+	objectclass, 
+	serverhostname 
+allows 
+	description, 
+	cn, 
+	nsserverport, 
+	nsliservertype, 
+	serverroot 
+</screen>
+
+</para>
+
+<para>
+- Cambiar el fichero LDIF: 
+Ahora ha de modificar el fichero LDIF, añadiéndole entradas de
+perfiles relativas a cada usuario que desee probar la característica
+de perfiles móviles del Netscape. Obsérvese un ejemplo de un fichero
+LDIF sencillo con entradas de perfiles:
+</para>
+
+<para>
+
+<screen>
+dn: o=myOrg,c=NL 
+o: myOrg 
+objectclass: organization
+
+dn: cn=seallers,ou=People,o=myOrg,c=NL 
+cn: seallers 
+userpassword: MiClaVE 
+objectclass: top 
+objectclass: person 
+
+dn: nsLIProfileName=seallers,ou=Roaming,o=myOrg,c=NL 
+changetype: add 
+objectclass: top 
+owner: cn=seallers,ou=People,o=myOrg,c=NL 
+objectclass: top 
+objectclass: nsLIProfile 
+</screen>
+
+El paso siguiente es configurar Netscape para que habilite los
+perfiles móviles basados en su servidor LDAP. Sólo tiene que seguir la
+secuencia:
+</para>
+
+<para>
+- Vaya al menú Edit -&gt; Preferences -&gt; Roaming User 
+</para>
+
+<para>
+Ahora tiene que activar el perfil móvil (<emphasis>Roaming Access</emphasis>) para
+este perfil, haciendo click sobre la casilla de verificación
+correspondiente a esta opción. 
+</para>
+
+<para>
+- Rellene la caja del nombre de usuario (<emphasis>username</emphasis>) con el
+contenido apropiado, por ejemplo john 
+</para>
+
+<para>
+Despliegue la flecha de la opción de Roaming User en la parte
+izquierda de la ventana de preferencias, para poder ver las opciones
+detalladas del acceso itinerante (perfiles móviles).
+</para>
+
+<para>
+- Haga click sobre Server Information, habilite la opción LDAP Server
+y rellene las cajas de diálogo con la siguiente información:
+</para>
+
+<para>
+Address: ldap://myHost/nsLIProfileName=$USERID,ou=Roaming,o=myOrg,c=NL 
+</para>
+
+<para>
+User DN: cn=$USERID,ou=People,o=myOrg,c=NL 
+</para>
+
+<para>
+<emphasis remap="bf">IMPORTANTE:</emphasis> Netscape sustituye automáticamente la variable
+$USERID por el nombre del perfil que haya seleccionado al arrancar el
+navegador. De manera que si ha elegido el perfil <emphasis remap="bf">sanchez</emphasis>, sustituirá 
+$USERID por sanchez, y si ha seleccionado el prefil <emphasis remap="bf">gonzalez</emphasis>,
+sustituirá $USERID por gonzalez. Si no está familiarizado con los
+perfiles, ejecute la aplicación <emphasis>Profile Manager</emphasis> que se incluye en
+el paquete del Netscape Communicator (<emphasis remap="bf">N. del T.:</emphasis> a partir de la
+versión 6.0, Netscape ha dejado otra vez de llamarse Communicator). El
+<emphasis>Profile Manager</emphasis> es una aplicación diseñada para satisfacer a
+múltiples usuarios de un navegador en una misma máquina, de manera que
+cada uno de ellos pueda tener sus propia configuración en el
+navegador. 
+</para>
+
+<para>
+El último paso consiste en reiniciar el servidor; examine la <xref linkend="i-6.3"/> para ver la manera de hacerlo con
+seguridad, y la <xref linkend="i-4"/> para ver cómo
+reiniciarlo. 
+</para>
+
+</sect2>
+
+<sect2>
+<title>Libreta de direcciones de Netscape (Address Book)</title>
+
+<para>
+Una vez que tenga su servidor LDAP configurado y en marcha, puede
+acceder a él a través de clientes muy diferentes (por ejemplo la
+utilidad de línea de órdenes <emphasis>ldapsearch</emphasis>). Un cliente muy
+interesante es la Libreta de direcciones de Netscape (Address
+Book). Está disponible a partir de la versión 4.x de Netscape pero,
+para interactuar de manera estable con su servidor LDAP, tendrá que
+usar la versión 4.5 o superiores (<emphasis remap="bf">N. del T.:</emphasis> ya está disponible el
+Netscape 6.0). 
+</para>
+
+<para>
+Sólo tiene que seguir la secuencia:
+</para>
+
+<para>
+Abra Netscape Navigator -&gt; Vaya al ménu Communicator -&gt; Address Book
+</para>
+
+<para>
+La libreta de direcciones (Address Book) de Netscape arrancará con
+algunos directorios LDAP predeterminados. Ha de añadir también su
+propio directorio LDAP, evidentemente.
+</para>
+
+<para>
+Vaya al menú File -&gt; New Directory 
+</para>
+
+<para>
+Complete los cuadros de diálogo con la información de su servidor, por
+ejemplo: 
+</para>
+
+<para>
+- Description : TUDelft 
+</para>
+
+<para>
+- LDAP Server : dutedin.et.tudelft.nl 
+</para>
+
+<para>
+- Server Root : o=TUDelft, c=NL 
+</para>
+
+<para>
+El puerto por defecto para LDAP es 389; no debe cambiarlo, a menos que
+cambiara esta opción al compilar su servidor.
+</para>
+
+<para>
+Realice ahora consultas sencillas a su servidor, unsando el cuadro de
+diálogo Show Names Containing, o consultas avanzadas, usando el botón
+Search for.
+</para>
+
+</sect2>
+
+<sect2 id="i-6.3">
+<title>Matar al servidor LDAP </title>
+
+<para>
+Para matar con seguridad al servidor <emphasis>slapd</emphasis>, debe utilizar una
+línea de órdenes como la siguiente:
+</para>
+
+<para>
+
+<screen>
+kill -TERM `cat $(ETCDIR)/slapd.pid` 
+</screen>
+
+</para>
+
+<para>
+(<emphasis remap="bf">N. del T.:</emphasis> en RedHat y distribuciones basadas en rh, como
+Mandrake y Esware, valdrá simplemente con <literal remap="tt">/etc/rc.d/init.d/opeldap
+stop</literal>, mientras que en Debian y distribuciones basadas en Debian
+(Corel, Storm, Citius) bastará con un <literal remap="tt">/etc/init.d/openldap
+stop</literal>. En otras distribuciones el procedimiento es similar,
+buscando tal vez <literal remap="tt">slapd</literal> en vez de <literal remap="tt">openldap</literal>).  
+</para>
+
+<para>
+Matar <emphasis remap="it">slapd</emphasis> de una manera más drástica puede provocar corrupción
+de las bases de datos, pues puede ser preciso vaciar ciertos tampones
+de almacenamiento intermedio antes de salir del servidor. Nótese que
+<emphasis>slapd</emphasis> escribe su PID en un fichero llamado <literal remap="tt">slapd.pid</literal> en el
+directorio que haya configurado en el fichero <literal remap="tt">slapd.conf</literal>, por
+ejemplo en <literal remap="tt">/var/pid/slapd.pid</literal> (<emphasis remap="bf">N. del T.:</emphasis> es éste
+precisamente el caso de Debian). 
+</para>
+
+<para>
+Puede cambiar la localización de este fichero PID cambiando la
+variable SLAPD_PIDFILE en <literal remap="tt">include/ldapconfig.h.edit</literal>.
+</para>
+
+<para>
+<emphasis>slapd</emphasis> escribirá también sus argumentos en un fichero llamado
+<literal remap="tt">slapd.args</literal> en el directorio que haya configurado en el fichero
+<literal remap="tt">slapd.conf</literal> por ejemplo en <literal remap="tt">/usr/local/var/slapd.args</literal>
+</para>
+
+<para>
+Podrá cambiar la ubicación del fichero <literal remap="tt">slapd.args</literal> si cambia
+la variable SLAPD_ARGSFILE en <literal remap="tt">include/ldapconfig.h.edit</literal>.
+</para>
+
+</sect2>
+
+<sect2>
+<title>Ficheros de registro (logs)</title>
+
+<para>
+<emphasis>slapd</emphasis> utiliza el recurso <literal remap="tt">syslog(8)</literal> para generar registros de
+sus actividad. El usuario predeterminado del recurso <literal remap="tt">the
+syslog(8)</literal> es LOCAL4, pero se permiten valores que van de LOCAL0,
+LOCAL1, hasta LOCAL7.
+</para>
+
+<para>
+Para habilitar la característica de generación de archivos de registro
+(logs), debe editar el fichero <literal remap="tt">syslog.conf</literal>, situado generalmente
+en el directorio <literal remap="tt">/etc</literal>.
+</para>
+
+<para>
+Cree una línea como la siguiente:
+</para>
+
+<para>
+local4.*     /usr/adm/ldalog 
+</para>
+
+<para>
+Esto hará que se utilice el usuario predeterminado LOCAL4 para el
+recurso <emphasis>syslog</emphasis>. Si no está familiarizado con la sintaxis de esta
+línea, examine las páginas de manual de <literal remap="tt">syslog</literal>,
+<literal remap="tt">syslog.conf(5)</literal> y <literal remap="tt">syslogd(8)</literal> para el recurso de syslog.  Si
+desea cambiar el usuario predeterminado o especificar el nivel de
+detalle de los registros generados (logs), tiene disponibles las
+siguientes opciones en el momento de arrancar <emphasis>slapd</emphasis>:
+</para>
+
+<para>
+-s nivel-de-syslog
+Esta opción le dice a <emphasis>slapd</emphasis> en qué nivel de detalle deben
+registrarse las informaciones sobre depuración en el recurso
+<literal remap="tt">syslog(8)</literal>. El nivel especifica la gravedad del mensaje, y
+representa una palabra clave tomada de la siguiente lista ordenada (de
+mayor a menor gravedad):  emerg, alert, crit, err, warning, notice,
+info, y debug.  Ejemplo:
+<literal remap="tt">slapd -f myslapd.conf -s debug</literal>
+</para>
+
+<para>
+-l usuario-local-de-syslog
+Selecciona el usuario local del recurso syslog(8). Los valores
+pueden ir desde LOCAL0, LOCAL1, y así hasta LOCAL7. El valor
+predeterminado es LOCAL4. No obstante, esta opción se permite
+únicamente en sistemas que soportan usuarios locales en el recurso
+syslog(8). 
+</para>
+
+<para>
+Eche un vistazo en este momento a los registros generados (logs);
+pueden ayudarle a resolver problemas con consultas, actualizaciones,
+enganches (bindings), etc.
+</para>
+
+</sect2>
+
+</sect1>
+
+<sect1>
+<title>Referencias</title>
+
+<sect2>
+<title>Vínculos (urls)</title>
+
+<para>
+Se ofrecen aquí urls que contienen información muy útil acerca de
+LDAP. Se ha redactado este <emphasis>Cómo</emphasis> a partir de estas urls, así que
+si necesita información mas específica tras la lectura de este
+documento, es probable que la encuentre aquí:
+
+<itemizedlist>
+<listitem>
+<para>
+Página del LDAP de la Universidad de Michigan:
+</para>
+<para>
+<ulink
+url="http://www.umich.edu/&#732;dirsvcs/ldap/index.html"
+>http://www.umich.edu/&#732;dirsvcs/ldap/index.html</ulink
+>
+</para>
+</listitem>
+<listitem>
+<para>
+Página de documentación del LDAP de la Universidad de Michigan:
+</para>
+<para>
+<ulink
+url="http://www.umich.edu/&#732;dirsvcs/ldap/doc/"
+>http://www.umich.edu/&#732;dirsvcs/ldap/doc/</ulink
+>
+</para>
+</listitem>
+<listitem>
+<para>
+Implementar manualmente el acceso itinerante (perfiles móviles)
+</para>
+<para>
+<ulink
+url="http://help.netscape.com/products/client/communicator/manual_roaming2.html"
+>http://help.netscape.com/products/client/communicator/manual_roaming2.html</ulink
+>
+</para>
+</listitem>
+<listitem>
+<para>
+Personalizar las opciones de LDAP para Communicator 4.5:
+</para>
+<para>
+<ulink
+url="http://developer.netscape.com/docs/manuals/communicator/ldap45.htm"
+>http://developer.netscape.com/docs/manuals/communicator/ldap45.htm</ulink
+>
+</para>
+</listitem>
+<listitem>
+<para>
+Linux Directory Service (Servicio de Directorio en Linux)
+</para>
+<para>
+<ulink
+url="http://www.rage.net/ldap/"
+>http://www.rage.net/ldap/</ulink
+>
+</para>
+</listitem>
+
+</itemizedlist>
+
+</para>
+
+</sect2>
+
+<sect2>
+<title>Libros</title>
+
+<para>
+He aquí los libros más populares acerca de LDAP:
+
+<itemizedlist>
+<listitem>
+
+<para>
+<emphasis>LDAP: Programming Directory-Enabled Applications with Lightweight
+Directory Access Protocol</emphasis>, por Howes and Smith
+</para>
+</listitem>
+<listitem>
+
+<para>
+<emphasis>Understanding and Deploying LDAP Directory Servers</emphasis>, por Howes, Smith,
+and Good
+</para>
+</listitem>
+
+</itemizedlist>
+
+</para>
+
+</sect2>
+
+<sect2>
+<title>RFCs</title>
+
+<para>
+He aquí los RFC que se refieren a la cuestión de LDAP. 
+(<emphasis remap="bf">N. del T.:</emphasis> si desea estar actualizado en los RFC de LDAP, teclee
+en Debian (v 2.2. y siguientes) : <literal remap="tt">apt-get install ldap-rfc</literal>) 
+
+<itemizedlist>
+<listitem>
+
+<para>
+RFC 1558: A String Representation of LDAP Search Filters
+(«Representación en cadenas de los filtros de búsqueda de LDAP»)
+</para>
+</listitem>
+<listitem>
+
+<para>
+RFC 1777: Lightweight Directory Access Protocol («Protocolo
+ligero de acceso a directorios»)
+</para>
+</listitem>
+<listitem>
+
+<para>
+RFC 1778: The String Representation of Standard Attribute
+Syntaxes («Representación en cadenas de las sintaxis estándar de los
+atributos»)  
+</para>
+</listitem>
+<listitem>
+
+<para>
+RFC 1779: A String Representation of Distinguished Names
+(«Representación en cadenas de los nombres distintivos»)
+</para>
+</listitem>
+<listitem>
+
+<para>
+RFC 1781: Using the OSI Directory to Achieve User Friendly
+Naming («Utilización del directorio OSI para obtener denominaciones
+amigables para el usuario»)
+</para>
+</listitem>
+<listitem>
+
+<para>
+RFC 1798: Connectionless LDAP («LDAP sin conexión»)
+</para>
+</listitem>
+<listitem>
+
+<para>
+RFC 1823: The LDAP Application Programming Interface («La
+interfaz de programación de aplicaciones LDAP»)
+</para>
+</listitem>
+<listitem>
+
+<para>
+RFC 1959: An LDAP url Format («Formato de urls para LDAP»)
+</para>
+</listitem>
+<listitem>
+
+<para>
+RFC 1960: A String Representation of LDAP Search Filters («Representación en cadenas de los filtros de búsqueda de LDAP»)
+</para>
+</listitem>
+<listitem>
+
+<para>
+RFC 2251: Lightweight Directory Access Protocol (v3) («Protocolo
+ligero de acceso a directorios, versión 3») 
+</para>
+</listitem>
+<listitem>
+
+<para>
+RFC 2307: LDAP as a Network Information Service («LDAP como
+servicio de información en redes»)
+</para>
+</listitem>
+
+</itemizedlist>
+
+</para>
+
+</sect2>
+
+</sect1>
+
+</article>

@@ -1,0 +1,167 @@
+.\" Copyright (c) 1993 Michael Haardt (michael@moria.de)
+.\" Copyright (c) 1999 Andries Brouwer (aeb@cwi.nl)
+.\" Fri Jun 25 00:34:07 CEST 1999
+.\"
+.\" This is free documentation; you can redistribute it and/or
+.\" modify it under the terms of the GNU General Public License as
+.\" published by the Free Software Foundation; either version 2 of
+.\" the License, or (at your option) any later version.
+.\"
+.\" The GNU General Public License's references to "object code"
+.\" and "executables" are to be interpreted as the output of any
+.\" document formatting or typesetting system, including
+.\" intermediate and printed output.
+.\"
+.\" This manual is distributed in the hope that it will be useful,
+.\" but WITHOUT ANY WARRANTY; without even the implied warranty of
+.\" MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+.\" GNU General Public License for more details.
+.\"
+.\" You should have received a copy of the GNU General Public
+.\" License along with this manual; if not, write to the Free
+.\" Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111,
+.\" USA.
+.\"
+.\" Modified Sun Jul 25 11:02:22 1993 by Rik Faith (faith@cs.unc.edu)
+.\" Translated into Spanish Thu Jan 22 1998 by
+.\"	Gerardo Aburruzaga García <gerardo.aburruzaga@uca.es>
+.\" Translation revised Tue Apr 18 2000 by Juan Piernas <piernas@ditec.um.es>
+.\"
+.TH FTW 3 "25 junio 1999" "Linux" "Manual del Programador de Linux"
+.SH NOMBRE
+ftw, nftw \- recorre un árbol de ficheros
+.SH SINOPSIS
+.B #include <ftw.h>
+.BI "int ftw (const char *" directorio ", int (*" fn ")(const"
+.BI "char *" fichero ", const struct stat *" sb ", int " flag ),
+.BI "int " profun );
+.sp
+.BI "int nftw (const char *" directorio ", int (*" fn ")(const"
+.BI "char *" fichero ", const struct stat *" sb ", int " flag ,
+.BI "struct FTW *" s ),
+.BI "int " profun ", int " flags );
+.SH DESCRIPCIÓN
+\fBftw\fP() recorre un árbol de directorios empezando por el 
+\fIdirectorio\fP indicado.  Para cada entrada encontrada en el árbol,
+llama a \fIfn\fP() con el nombre de camino completo de la entrada,
+un puntero a la estructura
+.BR stat (2)
+para la entrada, y un int, cuyo valor será uno de los siguientes:
+.TP
+.B FTW_F
+El ítem es un fichero normal
+.TP
+.B FTW_D
+El ítem es un directorio
+.TP
+.B FTW_DNR
+El ítem es un directorio que no se puede leer
+.TP
+.B FTW_SL
+El ítem es un enlace simbólico
+.TP
+.B FTW_NS
+stat ha fallado en el ítem que no es un enlace simbólico
+.LP
+Si el ítem es un enlace simbólico y `stat' ha fallado, XPG4v2 establece
+que el estado queda indefinido si se usa FTW_NS o FTW_SL.
+.PP
+\fBftw\fP() se llama a sí misma recursivamente para atravesar los
+directorios que encuentra,
+tratando un directorio antes que sus ficheros o subdirectorios.
+Para evitar el uso de todos los descriptores de fichero de un
+programa, el argumento \fIprofun\fP especifica el número de
+directorios abiertos simultáneamente. Cuando la profundidad es
+sobrepasada, \fBftw\fP() se ralentizará porque los directorios deberán
+cerrarse y volverse a abrir. \fBftw\fP() usa, como mucho, un
+descriptor de fichero para cada nivel de la jerarquía de ficheros.
+.PP
+Para detener el recorrido por el árbol, \fIfn\fP() devuelve un
+valor no-cero. Este valor se convertirá en el devuelto por
+\fBftw\fP().  De otro modo, \fBftw\fP() continuará hasta que haya
+recorrido el árbol entero, en cuyo caso devolverá cero, o hasta que
+ocurra un error distinto de EACCES (como un fallo de
+.BR malloc (3)),
+en cuyo caso devolverá \-1.
+.PP
+Puesto que  \fBftw()\fP usa estructuras de datos dinámicas, la única
+forma segura de salir de un recorrido por un árbol es devolver un
+valor no cero. Para manejar interrupciones, por ejemplo, marque que ha
+ocurrido una interrupción y devuelva un valor no-cero (no emplee
+.BR longjmp (3)
+a menos que el programa vaya a terminar).
+
+La función \fBnftw\fP() hace precisamente lo mismo que \fBftw\fP(), excepto
+que tiene un argumento \fIflags\fP adicional (y llama a la función
+proporcionada con un argumento más).
+Este argumento \fIflags\fP es un
+.BR O \-lógico
+de cero o más de las siguientes opciones:
+.TP
+.B FTW_CHDIR
+Llama a
+.IR chdir ()
+para moverse a un directorio antes de manejar su contenido.
+.TP
+.B FTW_DEPTH
+Realiza una búsqueda primero en profundidad, es decir, llama a la función
+para el propio directorio sólo después de tratar el contenido del directorio
+y de sus subdirectorios.
+.TP
+.B FTW_MOUNT
+Permanece dentro del mismo sistema de ficheros.
+.TP
+.B FTW_PHYS
+No sigas enlaces simbólicos (esto es lo que desea). Cuando no está activa,
+se siguen los enlaces simbólicos, pero ningún fichero aparece dos veces.
+.LP
+Si la opción FTW_PHYS no está activa, pero FTW_DEPTH sí, entonces nunca se
+llama a la función
+.IR fn ()
+para un directorio que sería descendiente de sí mismo.
+.LP
+La función
+.IR fn ()
+se llama con cuatro argumentos: la ruta de la entrada encontrada, un puntero
+a una estructura `stat' para esa entrada, un entero que describe su tipo y
+un puntero a una estructura FTW. El tipo será uno de los siguientes:
+FTW_F, FTW_D, FTW_DNR, FTW_SL, FTW_NS
+(con el significado de antes. FTW_SL se da sólo con FTW_PHYS activa) o
+.TP
+.B FTW_DP
+El ítem es un directorio y todos sus descendientes ya han sido tratados.
+(Esto sólo ocurre cuando FTW_DEPTH está activa).
+.TP
+.B FTW_SLN
+El ítem es un enlace simbólico que apunta a un fichero inexistente.
+(Esto ocurre sólo cuando FTW_PHYS no está activa.)
+.LP
+La estructura FTW apuntada por el cuarto argumento de
+.IR fn ()
+tiene al menos los campos
+.IR base ,
+el desplazamiento del nombre de fichero del ítem en la ruta dada como primer
+argumento de
+.IR fn (),
+y
+.IR level ,
+la profundidad del ítem relativo al punto de comienzo (que tiene profundidad
+0).
+.SH NOTA
+La función
+.IR nftw ()
+y el uso de FTW_SL con
+.IR ftw ()
+se introdujeron en XPG4v2.
+Bajo Linux, libc4, libc5 y glibc 2.0.6 usarán
+FTW_F para todos los objetos (ficheros, enlaces simbólicos, FIFOs, etc)
+sobre los que se pueda aplicar la función
+.BR stat (2),
+y que no sean un directorio.
+La primera glibc 2.1 suporta FTW_SL y
+.IR nftw ().
+.SH "CONFORME A"
+AES, SVID2, SVID3, XPG2, XPG3, XPG4 y XPG4v2.
+
+.SH "VÉASE TAMBIÉN"
+.BR stat (2)

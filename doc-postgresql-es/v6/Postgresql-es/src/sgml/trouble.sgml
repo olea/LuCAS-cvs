@@ -1,0 +1,288 @@
+ <Chapter Id="trouble">
+  <Title>Tratamiento de problemas</Title>
+
+  <sect1>
+   <title>Fallos de inicio de Postmaster</title>
+
+   <para>
+    Hay varias posibles razones para que postmaster no pueda
+    inicializarse. Compruebe el fichero de registro de postmaster, o
+    inícielo manualmente (sin redirigir la salida estándar o la de
+    errores) para ver los mensajes que aparecen. Alguno de los posibles
+    mensajes de error son autoexplicativos, pero los hay que pueden no
+    serlos tanto:
+   </para>
+
+   <para>
+    <ProgramListing>
+FATAL: StreamServerPort: bind() failed: Address already in use
+        Is another postmaster already running on that port?
+    </ProgramListing>
+    Esto normalmente significa lo que sugiere: accidentalmente ha
+    iniciado una segunda instancia de postmaster en el mismo puerto en el
+    que ya se está ejecutando uno. Sin embargo, si el mensaje de error
+    del núcleo no es "Address already in use" o alguna variante, puede
+    estar ocurriendo otro problema. Por ejemplo, el tratar de iniciar una
+    sesión de postmaster en un puerto de error reservado puede producir
+    algo como: 
+    <ProgramListing>
+$ postmaster -i -p 666
+FATAL: StreamServerPort: bind() failed: Permission denied
+        Is another postmaster already running on that port?
+    </ProgramListing>
+   </para>
+
+   <para>
+    <ProgramListing>
+IpcMemoryCreate: shmget failed (Invalid argument) key=5440001, size=83918612, permission=600
+FATAL 1:  ShmemCreate: cannot create region
+    </ProgramListing>
+    Un mensaje como éste posiblemente indica que el limite impuesto al
+    tamaño de las zonas de memoria compartidas es menor que área de
+    «buffer» que Postgres está intentando crear. (O puede significar que no
+    dispone de soporte para la memoria compartida de tipo SysV configurado
+    en su núcleo.) Como arreglo temporal puede tratar de iniciar
+    postmaster con un número de «buffers» menor de lo normal (parámetro -B).
+    Sin embargo, debería reconfigurar su núcleo para incrementar el 
+    tamaño permitido para la memoria compartida. 
+    Este mensaje puede aparecer cuando trate de iniciar varias sesiones de
+    postmaster en la misma máquina, si el total de espacio necesario
+    excede el límite impuesto por el núcleo.
+   </para>
+
+   <para>
+    <ProgramListing>
+IpcSemaphoreCreate: semget failed (No space left on device) key=5440026, num=16, permission=600
+    </ProgramListing>
+    Un mensaje como éste <emphasis>no</emphasis> significa que se haya
+    quedado sin espacio en el disco; significa que la cantidad máxima de
+    semáforos permitidos por el núcleo para el SysV es menor que la
+    cantidad que Postgres intenta crear. Como antes, puede evitar este
+    problema iniciando el postmaster con un numero de procesos «backend»
+    menor (parámetro -N), pero sería mejor que incrementara el límite 
+    impuesto por el núcleo.
+   </para>
+
+  </sect1>
+
+  <sect1>
+   <title>Problemas con la conexión del Cliente</title>
+
+   <para>
+    Una vez que tiene el postmaster en ejecución, al tratar de conectar
+    con él mediante una aplicación cliente puede producirse un fallo por
+    varias razones. 
+    Los ejemplos de mensajes de error mostrados aquí son para clientes
+    basados en las versiones recientes de libpq; los clientes basados en
+    otras bibliotecas de interfaz pueden producir otros mensajes, con más
+    o menos información.
+   </para>
+
+   <para>
+    <ProgramListing>
+connectDB() -- connect() failed: Connection refused
+Is the postmaster running (with -i) at 'server.joe.com' and accepting connections on TCP/IP port '5432'?
+    </ProgramListing>
+    Este el es fallo genérico de 'No puedo encontrar un postmaster con el
+    que comunicarme'. Puede ocurrir algo así cuando se intenta una
+    comunicación TCP/IP o mediante socket Unix con un postmaster local:
+    <ProgramListing>
+connectDB() -- connect() failed: No such file or directory
+Is the postmaster running at 'localhost' and accepting connections on Unix socket '5432'?
+    </ProgramListing>
+    La última línea es útil para verificar que el cliente está tratando de
+    conectar donde se supone que debe hacerlo. Si en realidad no hay
+    ningún postmaster ejecutándose allí, el mensaje de error del núcleo
+    será del tipo de 'Conexión rehusada' o de 'No existe el fichero o
+    directorio', como los anteriores. (Es particularmente importante tener
+    en cuenta que 'Conexión rehusada' en este contexto
+    <emphasis>no</emphasis> no significa que el postmaster haya recibido
+    la petición de conexión y la haya rechazado; en este caso se produce
+    un mensaje diferente, como se verá.) 
+    Otros mensajes de error, como el de "Connection timed out" sí indican
+    problemas más importantes, como la falta de conectividad en la red.
+   </para>
+
+   <para>
+    <ProgramListing>
+No pg_hba.conf entry for host 123.123.123.123, user joeblow, database testdb
+    </ProgramListing>
+    Esto es lo más probable que obtenga si consigue contactar con un
+    postmaster, pero éste no quiere hablar con usted. Como sugiere el
+    mensaje, el postmaster rehúsa la petición de conexión porque no
+    encuentra un renglón de autorización en su fichero de configuración
+    pg_hba.conf
+   </para>
+
+   <para>
+    <ProgramListing>
+Password authentication failed for user 'joeblow'
+    </ProgramListing>
+    Los mensajes como éste indican que ha contactado con el postmaster, y
+    éste está dispuesto a hablar con usted, pero no lo hará hasta que
+    supere el método de autorización especificado en el fichero
+    pg_hba.conf. Compruebe la clave que está enviando, o su programa IDENT
+    o Kerberos, si el mensaje de error menciona alguno de esos tipos de
+    autenticación.
+   </para>
+
+   <para>
+    <ProgramListing>
+FATAL 1:  SetUserId: user 'joeblow' is not in 'pg_shadow'
+    </ProgramListing>
+    Esta es otra variante de fallo de autenticación: no se ha
+    ejecutado la orden de Postgres 'create_user' para el nombre de
+    usuario indicado.
+   </para>
+
+   <para>
+    <ProgramListing>
+FATAL 1:  Database testdb does not exist in pg_database
+    </ProgramListing>
+    No hay base de datos con ese nombre bajo el control de ese postmaster.
+    Nótese que si no especifica el nombre de la base de datos, se aplica
+    por defecto su nombre de usuario en Postgres, lo que puede no ser lo 
+    correcto.
+   </para>
+
+  </sect1>
+
+  <sect1>
+   <title>Depuración de mensajes</title>
+
+   <para>
+    El <Application>postmaster</Application> presenta ocasionalmente
+    mensajes que pueden ser de ayuda en la solución de problemas. Si desea
+    ver mensajes de depuración de <Application>postmaster</Application>,
+    puede iniciarlo con la opción -d y redirigir la salida a un fichero de
+    registro:
+
+    <ProgramListing>
+% postmaster -d > pm.log 2>&1 &
+    </ProgramListing>
+
+    Si no desea ver estos mensajes, puede escribir
+    <ProgramListing>
+% postmaster -S
+    </ProgramListing>
+    y el <Application>postmaster</Application> entrará en modo
+    'S'ilencioso. Nótese que no se incluye el simbolo '&' en el último
+    ejemplo, ya que el postmaster se ejecutará en segundo plano.
+   </Para>
+
+   <sect2 Id="pg-options-trouble">
+    <Title>pg_options</Title>
+
+    <Para>
+     <Note>
+      <Para>
+       Contribución de
+       <ULink url="mailto:dz@cs.unitn.it">Massimo Dal Zotto</ULink>
+      </Para>
+     </Note>
+    </para>
+    <Para>
+     El fichero opcional <filename>data/pg_options</filename> contiene
+     opciones de ejecución usadas por el backend para controlar mensajes
+     de ejecución y otros parámetros ajustables.
+     Lo que hace interesante a este fichero es el hecho de que es releído
+     por el backend cuando recibe una señal SIGHUP, haciendo así posible
+     cambiar opciones de ejecución sin tener que reiniciar
+     <productname>Postgres</productname>. Las opciones especificadas en
+     este fichero pueden incluir puntos de depuración usados por el
+     paquete trace (<filename>backend/utils/misc/trace.c</filename>) o
+     parámetro numéricos que puede usar el backend para controlar su
+     comportamiento. 
+     Se pueden definir nuevas opciones y parámetros en
+     <filename>backend/utils/misc/trace.c</filename> 
+     y en <filename>backend/include/utils/trace.h</filename>.
+    </para>
+
+   <para>
+    Las opciones de pg_option pueden especificarse con el parámetro
+    <option>-T</option> de <productname>Postgres</productname>:
+
+    <programlisting>
+postgres <replaceable>opciones</replaceable> -T "verbose=2,query,hostlookup-"
+    </programlisting>
+   </para>
+
+   <Para>
+    Las funciones usadas para imprimir errores y mensajes de depuración
+    pueden ahora usar la utilidad <citetitle>syslog(2)</citetitle>. Los
+    mensajes impresos en stdout o stderr son precedidos por una etiqueta
+    informativa que incluye la fecha y hora y el pid del backend:
+    <programlisting>
+#timestamp          #pid    #message
+980127.17:52:14.173 [29271] StartTransactionCommand
+980127.17:52:14.174 [29271] ProcessUtility: drop table t;
+980127.17:52:14.186 [29271] SIIncNumEntries: table is 70% full
+980127.17:52:14.186 [29286] Async_NotifyHandler
+980127.17:52:14.186 [29286] Waking up sleeping backend process
+980127.19:52:14.292 [29286] Async_NotifyFrontEnd
+980127.19:52:14.413 [29286] Async_NotifyFrontEnd done
+980127.19:52:14.466 [29286] Async_NotifyHandler done
+    </programlisting>
+   </para>
+
+   <para>
+    Este formato mejora la legibilidad de los registros, y permite
+    comprender qué «backend» concreto está haciendo qué y en qué momento.
+    También hace más fácil escribir guiones (scripts) en awk o perl que
+    monitoricen el fichero de registro para detectar errores o problemas
+    en la base de datos, o para contabilizar estadísticas temporales de
+    las transacciones.
+   </para>
+
+   <para>
+    Los mensajes impresos por syslog usan la utilidad de registro
+    LOG_LOCAL0. El uso de syslog puede ser controlado por las opciones
+    referentes a él en syslog. Desgraciadamente, muchas funciones llaman
+    directamente a <function>printf()</function> para mostrar sus mensajes
+    en stdout o stderr y esta salida no puede ser redirigida a syslog o
+    incluir información sobre fecha y hora. Sería aconsejable que todas
+    las llamadas a printf pudieran ser reemplazadas por la macro PRINTF y
+    la salida a stderr se cambiaran para que usaran EPRINTF en su lugar,
+    de modo que se pudieran controlar todas las salidas de un modo uniforme. 
+   </Para>
+
+    <para>
+     El formato del fichero <filename>pg_options</filename> es como sigue:
+
+     <programlisting>
+# <replaceable>comentario</replaceable>
+<replaceable>opción</replaceable>=<replaceable class="parameter">valor_entero</replaceable>  # set value for <replaceable>opción</replaceable>
+<replaceable>opción</replaceable>                # set <replaceable>opción</replaceable> = 1
+<replaceable>opción</replaceable>+               # set <replaceable>opción</replaceable> = 1
+<replaceable>opción</replaceable>-               # set <replaceable>opción</replaceable> = 0
+     </programlisting>
+
+     Nótese que <replaceable class="parameter">palabra_clave</replaceable>
+     puede ser también una abreviación del nombre de opción definido en
+     <filename>backend/utils/misc/trace.c</filename>.
+    </Para>
+
+    <Para>
+     Véase <xref linkend="pg-options-title" endterm="pg-options-title">
+     para una lista completa de las opciones y sus posible valores.
+    </para>
+   </sect2>
+  </sect1>
+ </Chapter>
+
+<!-- Keep this comment at the end of the file
+Local variables:
+mode: sgml
+sgml-omittag:nil
+sgml-shorttag:t
+sgml-minimize-attributes:nil
+sgml-always-quote-attributes:t
+sgml-indent-step:1
+sgml-indent-data:t
+sgml-parent-document:nil
+sgml-default-dtd-file:"./reference.ced"
+sgml-exposed-tags:nil
+sgml-local-catalogs:"/usr/lib/sgml/CATALOG"
+sgml-local-ecat-files:nil
+End:
+-->

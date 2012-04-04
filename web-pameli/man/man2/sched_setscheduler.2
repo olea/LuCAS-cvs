@@ -1,0 +1,290 @@
+.\" Hey Emacs! This file is -*- nroff -*- source.
+.\"
+.\" Copyright (C) Tom Bjorkholm, Markus Kuhn & David A. Wheeler 1996-1999
+.\"
+.\" This is free documentation; you can redistribute it and/or
+.\" modify it under the terms of the GNU General Public License as
+.\" published by the Free Software Foundation; either version 2 of
+.\" the License, or (at your option) any later version.
+.\"
+.\" The GNU General Public License's references to "object code"
+.\" and "executables" are to be interpreted as the output of any
+.\" document formatting or typesetting system, including
+.\" intermediate and printed output.
+.\"
+.\" This manual is distributed in the hope that it will be useful,
+.\" but WITHOUT ANY WARRANTY; without even the implied warranty of
+.\" MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+.\" GNU General Public License for more details.
+.\"
+.\" You should have received a copy of the GNU General Public
+.\" License along with this manual; if not, write to the Free
+.\" Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111,
+.\" USA.
+.\"
+.\" 1996-04-01 Tom Bjorkholm <tomb@mydata.se>
+.\"            First version written
+.\" 1996-04-10 Markus Kuhn <mskuhn@cip.informatik.uni-erlangen.de>
+.\"            revision
+.\" 1999-08-18 David A. Wheeler <dwheeler@ida.org> added Note.
+.\" Translated into Spanish Mon Feb 2 1998 by Gerardo Aburruzaga
+.\" García <gerardo.aburruzaga@uca.es>
+.\" Translation revised Mon Jan 17 2000 by Juan Piernas <piernas@ditec.um.es>
+.\"
+.TH SETSCHEDULER 2 "18 agosto 1999" "Linux 2.2.11" "Manual del Programador de Linux"
+.SH NOMBRE
+sched_setscheduler, sched_getscheduler \-
+establecen y obtienen los algoritmos/parámetros de planificación
+.SH SINOPSIS
+.B #include <sched.h>
+.sp
+\fBint sched_setscheduler(pid_t \fIpid\fB, int \fIpolitica\fB, 
+const struct sched_param *\fIp\fB);
+.sp
+\fBint sched_getscheduler(pid_t \fIpid\fB);
+.sp
+.nf
+.ta 4n
+\fBstruct sched_param {
+	...
+	int \fIsched_priority\fB;
+	...
+};
+.ta
+.fi
+.SH DESCRIPCIÓN
+.B sched_setscheduler
+establece tanto la política de planificación como los parámetros
+asociados para el proceso identificado por \fIpid\fP. Si \fIpid\fP es
+igual a cero, se establece el planificador del proceso que hace la
+llamada. La interpretación del parámetro \fIp\fP depende de la
+política seleccionada. Actualmente se admiten en Linux las tres
+siguientes políticas:
+.IR SCHED_FIFO , 
+.IR SCHED_RR ,
+y
+.IR SCHED_OTHER ;
+sus respectivas semánticas se describen abajo.
+
+.B sched_getscheduler
+pregunta por la política de planificación aplicada actualmente al
+proceso identificado por \fIpid\fP. Si \fIpid\fP es igual a cero, se
+obtiene la política del proceso que hace la llamada.
+
+
+.SS Políticas de Planificación
+El planificador es la parte del núcleo que decide qué proceso
+ejecutable será ejecutado por la CPU a continuación. El planificador
+de Linux ofrece tres políticas de planificación diferentes, una para
+los procesos normales y dos para aplicaciones en tiempo real. Se
+asigna a cada proceso un valor de prioridad estática
+\fIsched_priority\fR y este valor sólo puede cambiarse a través de
+llamadas al sistema. Conceptualmente, el planificador mantiene una
+lista de procesos ejecutables para cada posible valor
+\fIsched_priority\fR, y
+\fIsched_priority\fR puede tener un valor en el rango de 0 a 99. Para poder
+determinar qué proceso se debe ejecutar a continuación, el
+planificador de Linux busca en la lista no vacía con la prioridad
+estática más alta y toma el proceso a la cabeza de dicha lista. La
+política de planificación determina para cada proceso, dónde se
+insertará en la lista de procesos con igual prioridad estática y cómo
+se moverá dentro de esta lista.
+
+\fISCHED_OTHER\fR es el planificador de tiempo compartido universal
+predeterminado empleado por la mayoría de los procesos;
+\fISCHED_FIFO\fR y \fISCHED_RR\fR han sido pensados para aplicaciones
+especiales donde el tiempo es crítico y necesitan un control preciso
+sobre la forma en la que se seleccionan para ejecución los procesos
+ejecutables. A los procesos planificados con \fISCHED_OTHER\fR se les
+debe asignar la prioridad estática 0; los procesos planificados bajo
+\fISCHED_FIFO\fR o \fISCHED_RR\fR pueden tener una prioridad estática
+en el rango de 1 a 99. Solamente los procesos con privilegio de
+súper-usuario pueden obtener una prioridad estática mayor que 0 y por
+tanto pueden ser planificados bajo \fISCHED_FIFO\fR o
+\fISCHED_RR\fR. Las llamadas al sistema \fBsched_get_priority_min\fR y
+\fBsched_get_priority_max\fR pueden emplearse para encontrar el rango
+válido de prioridad para una política de planificación de una manera
+transportable en todos los sistemas que cumplan POSIX.1b.
+
+Toda la planificación es apropiativa: si un proceso con una prioridad
+estática más alta está listo para ejecutarse, el proceso actual será
+apropiado y devuelto a su lista de espera. La política de
+planificación solamente determina la clasificación en la lista de
+procesos ejecutables con igual prioridad estática.
+
+.SS SCHED_FIFO: Planificación FIFO (1º en entrar, 1º en salir).
+\fISCHED_FIFO\fR sólo puede emplearse con prioridades estáticas
+mayores que 0, lo que significa que cuando un proceso \fISCHED_FIFO\fR
+se convierte en ejecutable, siempre prevalecerá inmediatamente sobre
+cualquier otro proceso normal \fISCHED_OTHER\fR ejecutándose.
+\fISCHED_FIFO\fR es un simple algoritmo de planificación sin rodajas
+de tiempo. Para procesos planificados bajo la política
+\fISCHED_FIFO\fR, se aplican las siguientes reglas:
+Un proceso \fISCHED_FIFO\fR que ha sido apropiado por otro proceso de
+mayor prioridad permanecerá en la cabeza de la lista para su prioridad
+y reanudará su ejecución tan pronto como todos los procesos de
+prioridad más alta se bloqueen de nuevo. Cuando un proceso
+\fISCHED_FIFO\fR llegue a ser ejecutable, se insertará al final de la
+lista para su prioridad. Una llamada a
+\fBsched_setscheduler\fR o a \fBsched_setparam\fR pondrá el proceso
+\fISCHED_FIFO\fR identificado por \fIpid\fR al final de la lista si
+era ejecutable. Un proceso que llame a \fBsched_yield\fR será colocado
+al final de la lista. Ningún otro suceso moverá un proceso planificado
+bajo la política \fISCHED_FIFO\fR en la lista de espera de procesos
+ejecutables con igual prioridad estática. Un proceso \fISCHED_FIFO\fR
+se ejecuta hasta que es bloqueado por una petición de E/S, hasta que sea
+apropiado por un proceso de más alta prioridad, o hasta que llame a
+\fBsched_yield\fR.
+
+.SS SCHED_RR: Planificación circular (Round Robin).
+\fISCHED_RR\fR es una mejora simple de \fISCHED_FIFO\fR. Todo lo
+descrito arriba para \fISCHED_FIFO\fR se aplica también a
+\fISCHED_RR\fR, excepto que a cada proceso sólo se le permite
+ejecutarse durante un cuanto de tiempo máximo.
+Si un proceso \fISCHED_RR\fR ha estado ejecutándose durante un periodo
+de tiempo igual o mayor que el cuanto de tiempo, será puesto al final
+de la lista para su prioridad. Un proceso \fISCHED_RR\fR que ha sido
+apropiado por un proceso de más alta prioridad y subsecuentemente reanuda
+su ejecución como un proceso en ejecución, completará la porción no
+expirada de su cuanto de tiempo de asignación en rueda. La cantidad
+del cuanto de tiempo puede ser obtenida con \fBsched_rr_get_interval\fR.
+
+.SS SCHED_OTHER: Planificación predeterminada de Linux en t.c.
+\fISCHED_OTHER\fR solamente puede emplearse con la prioridad estática 0.
+\fISCHED_OTHER\fR es el planificador estándar de Linux en tiempo
+compartido, pensado para todos los procesos que no requieren
+mecanismos especiales de prioridad estática en tiempo real. 
+El proceso a ejecutarse se escoge de la lista de prioridad estática 0
+basado en una prioridad dinámica que se determina solamente dentro de
+esta lista. La prioridad dinámica se basa en el nivel de `nice'
+(puesto por la llamada \fBnice\fR o \fBsetpriority\fR) e incrementado 
+para cada cuanto de tiempo para el que el proceso está listo para la ejecución,
+pero denegado para ella por el planificador. Esto asegura un buen
+progreso entre todos los procesos \fISCHED_OTHER\fR.
+
+.SS Tiempo de respuesta
+
+Un proceso de alta prioridad bloqueado esperando E/S tiene un cierto
+tiempo de respuesta antes de que sea planificado otra vez. El escritor
+del controlador del dispositivo puede reducir grandemente este tiempo
+de respuesta empleando un manejador de interrupción de "interrupción
+lenta" como se describe en
+.BR request_irq (9).
+
+.SS Miscelánea
+Los procesos hijos heredan el algoritmo y parámetros de planificación
+a través de un
+.BR fork .
+
+Usualmente se necesita un bloqueo de memoria para que los procesos en
+tiempo real puedan evitar demoras en la paginación; esto puede hacerse
+con
+.B mlock 
+o 
+.BR mlockall .
+
+Como un bucle infinito no bloqueante en un proceso planificado bajo
+\fISCHED_FIFO\fR o \fISCHED_RR\fR, bloqueará para siempre todos los procesos con
+baja prioridad, un desarrollador de software debería siempre mantener
+disponible en la consola un shell planificado bajo una prioridad
+estática mayor que la de la aplicación en pruebas. Esto permitirá un
+`kill' de emergencia en aplicaciones de tiempo real en pruebas que no
+bloqueen o terminen como se espere. Como los procesos 
+\fISCHED_FIFO\fR y \fISCHED_RR\fR pueden apropiar otros procesos para
+siempre, sólo los procesos de root tienen permiso para activar estas
+políticas bajo Linux.
+
+Los sistemas POSIX en los cuales se dispone de
+.B sched_setscheduler
+y
+.B sched_getscheduler
+definen 
+.I _POSIX_PRIORITY_SCHEDULING
+en <unistd.h>.
+
+.SH VALOR DEVUELTO
+En caso de éxito,
+.BR sched_setscheduler
+devuelve cero.  
+En caso de éxito,
+.BR sched_getscheduler
+devuelve la política para el proceso (un entero no negativo).
+En caso de error, se devuelve \-1 y se pone en
+.I errno
+un valor apropiado.
+.SH ERRORES
+.TP
+.B ESRCH
+No se ha podido encontrar el proceso cuya ID es \fIpid\fP.
+.TP
+.B EPERM
+El proceso que hace la llamada no tiene los privilegios
+apropiados. Solamente los procesos de root tienen permiso para activar
+las políticas \fISCHED_FIFO\fR y \fISCHED_RR\fR. El proceso que llame a
+.BR sched_setscheduler
+necesita un UID efectivo igual al EUID o al UID del proceso
+identificado por
+.IR pid ,
+o debe ser un proceso del súper-usuario.
+.TP
+.B EINVAL
+La \fIpolitica\fR de planificación no es una de las políticas
+reconocidas, o el parámetro \fIp\fP no tiene sentido para la
+\fIpolitica\fR. 
+.SH "CONFORME A"
+POSIX.1b (antiguamente POSIX.4)
+.SH FALLOS
+En Linux-1.3.81, \fISCHED_RR\fR no había sido aún probada
+cuidadosamente y pudiera ser que no se comportara exactamente como se
+describe o requiere por POSIX.1b.
+.SH NOTA
+El Linux estándar es un sistema operativo de propósito general que puede
+manejar procesos en segundo plano, aplicaciones interactivas y aplicaciones
+flexibles de tiempo real (aplicaciones que necesitan de forma usual cumplir
+límites temporales). Esta página de manual está dirigida a esos tipos de
+aplicaciones.
+.PP
+El Linux estándar
+.I no
+está diseñado para soportar aplicaciones estrictas de tiempo real, es decir,
+aplicaciones en las se deben garantizar los plazos (a menudo mucho más breves
+que un segundo) o el sistema fracasará catastróficamente.
+Como todos los sistemas operativos de propósito general, Linux está diseñado
+para maximizar el rendimiento del caso medio en lugar del rendimiento del
+peor caso.
+El rendimiento del peor caso de Linux para el manejo de interrupciones es
+mucho más pobre que su caso medio, sus distintos cerrojos del núcleo (como
+los de SMP) producen tiempos de espera de máxima duracción y muchas de sus
+técnicas para mejorar el rendimiento decrementan el tiempo medio
+incrementando el tiempo del peor caso.
+Para la mayoría de situaciones, eso es lo que usted quiere, pero si
+realmente está desarrollando una aplicación estricta de tiempo real
+considere el usar extensiones estrictas de tiempo real para Linux como
+RTLinux (http://www.rtlinux.org) o use un sistema operativo diferentes
+diseñado específicamente para aplicaciones estrictas de tiempo real.
+.SH "VÉASE TAMBIÉN"
+.BR sched_setparam (2), 
+.BR sched_getparam (2), 
+.BR sched_yield (2), 
+.BR sched_get_priority_max (2), 
+.BR sched_get_priority_min (2), 
+.BR nice (2), 
+.BR setpriority (2), 
+.BR getpriority (2), 
+.BR mlockall (2), 
+.BR munlockall (2), 
+.BR mlock (2), 
+.BR munlock (2).
+.PP
+.I Programming for the real world \- POSIX.4
+por Bill O. Gallmeister, O'Reilly & Associates, Inc., ISBN 1-56592-074-0
+.br
+.I IEEE Std 1003.1b-1993
+(estándar POSIX.1b)
+.br
+.I ISO/IEC 9945-1:1996
+\- Ésta es la nueva revisión de 1996 de POSIX.1, que contiene en un
+solo estándar POSIX.1(1990), POSIX.1b(1993), POSIX.1c(1995), y
+POSIX.1i(1995).
+
+\"  LocalWords:  POSIX apropiativa

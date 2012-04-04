@@ -1,0 +1,1435 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<HTML
+><HEAD
+><TITLE
+>PL/pgSQL</TITLE
+><META
+NAME="GENERATOR"
+CONTENT="Modular DocBook HTML Stylesheet Version 1.59"><LINK
+REL="HOME"
+TITLE="Guia del Programador de PostgreSQL"
+HREF="programmer.html"><LINK
+REL="UP"
+TITLE="Lenguajes Procedurales"
+HREF="xplang.html"><LINK
+REL="PREVIOUS"
+TITLE="Lenguajes Procedurales"
+HREF="xplang.html"><LINK
+REL="NEXT"
+TITLE="PL/Tcl"
+HREF="x1773.html"></HEAD
+><BODY
+CLASS="SECT1"
+BGCOLOR="#FFFFFF"
+TEXT="#000000"
+LINK="#0000FF"
+VLINK="#840084"
+ALINK="#0000FF"
+><DIV
+CLASS="NAVHEADER"
+><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TH
+COLSPAN="3"
+ALIGN="center"
+>Guia del Programador de PostgreSQL</TH
+></TR
+><TR
+><TD
+WIDTH="10%"
+ALIGN="left"
+VALIGN="bottom"
+><A
+HREF="xplang.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="80%"
+ALIGN="center"
+VALIGN="bottom"
+>Lenguajes Procedurales</TD
+><TD
+WIDTH="10%"
+ALIGN="right"
+VALIGN="bottom"
+><A
+HREF="x1773.html"
+>Siguiente</A
+></TD
+></TR
+></TABLE
+><HR
+ALIGN="LEFT"
+WIDTH="100%"></DIV
+><DIV
+CLASS="SECT1"
+><H1
+CLASS="SECT1"
+><A
+NAME="AEN1503"
+>PL/pgSQL</A
+></H1
+><P
+>    PL/pgSQL es un lenguaje procedural cargable para el sistema de bases de datos <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+>.</P
+><P
+>    Este paquete fue escrito originalmente por Jan Wieck.</P
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN1508"
+>Panorámica</A
+></H2
+><P
+>    Los objetivos de diseño de PL/pgSQL fueron crear un lenguaje procedural cargable que
+    <P
+></P
+><UL
+><LI
+><P
+>        pueda usarse para crear funciones y procedimientos disparados por eventos,
+	</P
+></LI
+><LI
+><P
+>        añada estructuras de control al lenguaje <SPAN
+CLASS="ACRONYM"
+>SQL</SPAN
+>,
+	</P
+></LI
+><LI
+><P
+>        pueda realizar cálculos complejos,
+	</P
+></LI
+><LI
+><P
+>        herede todos los tipos definidos por el usuario, las funciones y los operadores,
+	</P
+></LI
+><LI
+><P
+>        pueda ser definido para ser fiable para el servidor,
+	</P
+></LI
+><LI
+><P
+>        sea fácil de usar,
+	</P
+></LI
+></UL
+></P
+><P
+>    El gestor de llamadas PL/pgSQL analiza el texto de las funciones y produce un árbol de 
+    instrucciones binarias interno la primera vez que la función es invocada por una aplicación. 
+    El bytecode producido es identificado por el manejador de llamadas mediante el ID de la 
+    función. Esto asegura que el cambio de una función por parte de una secuencia DROP/CREATE 
+    tendrá efecto sin tener que establecer una nueva conexión con la base de datos.</P
+><P
+>    Para todas y las expresiones y sentencias <SPAN
+CLASS="ACRONYM"
+>SQL</SPAN
+> usadas en la función, el 
+    interprete de bytecode de PL/pgSQL crea un plan de ejecución preparado usando los gestores 
+    de SPI, funciones SPI_prepare() y SPI_saveplan(). Esto se hace la primera vez que las 
+    sentencias individuales se procesan en la función PL/pgSQL. Así, una función con código 
+    condicional que contenga varias sentencias que puedan ser ejecutadas, solo preparará y 
+    almacenará las opciones que realmente se usarán durante el ámbito de la conexión con la 
+    base de datos.</P
+><P
+>    Excepto en el caso de funciones de conversión de entrada/salida y de cálculo para tipos 
+    definidos, cualquier cosa que pueda definirse en funciones de lenguaje C puede ser hecho 
+    con PL/pgSQL. Es posible crear funciones complejas de calculo y después usarlas para 
+    definir operadores o usarlas en índices funcionales.</P
+></DIV
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN1529"
+>Descripcion</A
+></H2
+><DIV
+CLASS="SECT3"
+><H3
+CLASS="SECT3"
+><A
+NAME="AEN1531"
+>Estructura de PL/pgSQL</A
+></H3
+><P
+>    El lenguaje PL/pgSQL no es sensible a las mayúsculas. Todas las palabras clave e identificadores 
+    pueden usarse en cualquier mexcla de mayúsculas y minúsculas.</P
+><P
+>    PL/pgSQL es un lenguaje orientado a bloques. Un bloque se define como
+
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    [&#60;&#60;label&#62;&#62;]
+    [DECLARE
+        <TT
+CLASS="REPLACEABLE"
+><I
+>declarations</I
+></TT
+>]
+    BEGIN
+        <TT
+CLASS="REPLACEABLE"
+><I
+>statements</I
+></TT
+>
+    END;</PRE
+></TD
+></TR
+></TABLE
+>
+
+    Puede haber cualquier numero de subbloques en la sección de sentencia de un bloque. Los 
+    subloques pueden usarse para ocultar variables a otros bloques de sentencias. Las variables 
+    declaradas en la sección de declaraciones se inicializan a su valor por defecto cada vez 
+    que se inicia el bloque, no cada vez que se realiza la llamada a la función.</P
+><P
+>    Es importante no confundir el significado de BEGIN/END en la agrupación de sentencias de 
+    OL/pgSQl y las ordenes de la base de datos para control de transacciones. Las funciones y 
+    procedimientos disparadores no pueden iniciar o realizar transacciones y <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> 
+    no soporta transacciones anidadas.</P
+></DIV
+><DIV
+CLASS="SECT3"
+><H3
+CLASS="SECT3"
+><A
+NAME="AEN1540"
+>Comments</A
+></H3
+><P
+>    Hay dos tipos de comentarios en PL/pgSQl. Un par de guiones '--' comienza un comentario que 
+    se extiende hasta el fin de la linea. Los caracteres '/*' comienzan un bloque de comentarios 
+    que se extiende hasta que se encuentre un '*/'. Los bloques de comentarios no pueden anidarse 
+    pero un par de guiones pueden encerrarse en un bloque de comentario, o ocultar los limitadores 
+    de estos bloques.</P
+></DIV
+><DIV
+CLASS="SECT3"
+><H3
+CLASS="SECT3"
+><A
+NAME="AEN1543"
+>Declaraciones</A
+></H3
+><P
+>    Todas las variables, filas y columnas que se usen en un bloque o subloque ha de ser 
+    declarado en la sección de declaraciones del bloque, excepto las variables de control de 
+    bucle en un bucle FOR que se itere en un rango de enteros. Los parámetros dados a una 
+    función PL/pgSQL se declaran automáticamente con los identificadores usuales, $n.
+    Las declaraciones tienen la siguiente sintaxis:</P
+><P
+></P
+><DIV
+CLASS="VARIABLELIST"
+><DL
+><DT
+><TT
+CLASS="REPLACEABLE"
+><I
+>name</I
+></TT
+> [ CONSTANT ]
+<TT
+CLASS="REPLACEABLE"
+><I
+>&#62;typ</I
+></TT
+>&#62; [ NOT NULL ] [ DEFAULT | :=
+	<TT
+CLASS="REPLACEABLE"
+><I
+>value</I
+></TT
+> ];</DT
+><DD
+><P
+>    Esto declara una variable de un tipo base especificado. Si la variable es declarada como 
+    CONSTANT, su valor no podrá ser cambiado. Si se especifica NOT NULL, la asignación de un 
+    NULL producirá un error en timepo de ejecución. Dado que el valor por defecto de todas las 
+    variables es el valor NULL de <SPAN
+CLASS="ACRONYM"
+>SQL</SPAN
+>, todas las variables declaradas como 
+    NOT NULL han de tener un valor por defecto.</P
+><P
+>    El valor por defecto es evaluado cada vez que se invoca la función. Así que asignar 
+    '<TT
+CLASS="REPLACEABLE"
+><I
+>now</I
+></TT
+>' a una variable de tipo <TT
+CLASS="REPLACEABLE"
+><I
+>datetime</I
+></TT
+> 
+    hace que la variable tome el momento de la llamada a la función, no el momento en que la 
+    función fue compilada a bytecode.</P
+></DD
+><DT
+><TT
+CLASS="REPLACEABLE"
+><I
+>name</I
+></TT
+> <TT
+CLASS="REPLACEABLE"
+><I
+>class</I
+></TT
+>%ROWTYPE;</DT
+><DD
+><P
+>    Esto declara una fila con la estructura de la clase indicada. La clase ha de ser una 
+    tabla existente, o la vista de una base de datos. Se accede a los campos de la fila 
+    mediante la notación de punto. Los parámetros de una función pueden ser de tipos compuestos 
+    (filas de una tabla completas). En ese caso, el correspondiente identificador $n será un 
+    tipo de fila, pero ha de ser referido usando la orden ALIAS que se describe más adelante.
+    Solo los atributos de usuario de una fila de tabla son accesibles en la fila, no se puede 
+    acceder a Oid o a los otros atributos de sistema (dado que la fila puede ser de una vista, 
+    y las filas de una vista no tienen atributos de sistema útiles).</P
+><P
+>    Los campos de un tipo de fila heredan los tipos de datos, tamaños y precisiones de las tablas.</P
+></DD
+><DT
+><TT
+CLASS="REPLACEABLE"
+><I
+>name</I
+></TT
+> RECORD;</DT
+><DD
+><P
+>    Los registros son similares a los tipos de fila, pero no tienen una estructura predefinida.
+    Se emplean en selecciones y bucles FOR, para mantener una fila de la actual base de datos 
+    en una operación SELECT. El mismo registro puede ser usado en diferentes selecciones. El 
+    acceso a un campo de registro cuando no hay una fila seleccionada resultará en un error de 
+    ejecución.</P
+><P
+>    Las filas NEW y OLD en un disparador se pasan a los procedimientos como registros. Esto es 
+    necesario porque en <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> un mismo procedimiento desencadenado 
+    puede tener sucesos disparadores en diferentes tablas.</P
+></DD
+><DT
+><TT
+CLASS="REPLACEABLE"
+><I
+>name</I
+></TT
+> ALIAS FOR $n;</DT
+><DD
+><P
+>    Para una mejor legibilidad del código, es posible definir un alias para un parámetro 
+    posicional de una función.</P
+><P
+>    Estos alias son necesarios cuando un tipo compuesto se pasa como argumento a una función.
+    La notación punto $1.salary como en funciones SQL no se permiten en PL/pgSQL</P
+></DD
+><DT
+>RENAME <TT
+CLASS="REPLACEABLE"
+><I
+>oldname</I
+></TT
+> TO <TT
+CLASS="REPLACEABLE"
+><I
+>newname</I
+></TT
+>;</DT
+><DD
+><P
+>    Esto cambia el nombre de una variable, registro o fila. Esto es útil si NEW o OLD ha de 
+    ser referenciado por parte de otro nombre dentro de un procedimiento desencadenado.</P
+></DD
+></DL
+></DIV
+></DIV
+><DIV
+CLASS="SECT3"
+><H3
+CLASS="SECT3"
+><A
+NAME="AEN1584"
+>Tipos de datos</A
+></H3
+><P
+>    Los tipos de una variable pueden ser cualquiera de los tipos básicos existentes en la base 
+    de datos. <TT
+CLASS="REPLACEABLE"
+><I
+>type</I
+></TT
+> en la sección de declaraciones se define como:</P
+><P
+>    <P
+></P
+><UL
+><LI
+><P
+>	<SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+>-basetype
+	</P
+></LI
+><LI
+><P
+>	<TT
+CLASS="REPLACEABLE"
+><I
+>variable</I
+></TT
+>%TYPE
+	</P
+></LI
+><LI
+><P
+>	<TT
+CLASS="REPLACEABLE"
+><I
+>class.field</I
+></TT
+>%TYPE
+	</P
+></LI
+></UL
+></P
+><P
+>    <TT
+CLASS="REPLACEABLE"
+><I
+>variable</I
+></TT
+> es el nombre de una variable, previamente declarada en 
+    la misma función, que es visible en este momento.</P
+><P
+>    <TT
+CLASS="REPLACEABLE"
+><I
+>class</I
+></TT
+> es el nombre de una tabla existente o vista, donde 
+    <TT
+CLASS="REPLACEABLE"
+><I
+>field</I
+></TT
+> es el nombre de un atributo.</P
+><P
+>    El uso de <TT
+CLASS="REPLACEABLE"
+><I
+>class.field</I
+></TT
+>%TYPE hace que PL/pgSQl busque las 
+    definiciones de atributos en la primera llamada a la función, durante toda la vida de 
+    la aplicación final. Supongamos que tenemos una tabla con un atributo char(20) y algunas 
+    funciones PL/pgSQL, que procesan el contenido por medio de variables locales. Ahora, 
+    alguien decide que char(20) no es suficiente, cierra la tabla, y la recrea con el atributo 
+    en cuestión definido como char(40), tras lo que restaura los datos. Pero se ha olvidado de 
+    las funciones. Los cálculos internos de éstas truncarán los valores a 20 caracteres. Pero 
+    si hubieran sido definidos usando las declaraciones <TT
+CLASS="REPLACEABLE"
+><I
+>class.field</I
+></TT
+>%TYPE 
+    automáticamente se adaptarán al cambio de tamaño, o a si el nuevo esquema de la tabla define 
+    el atributo como de tipo texto.</P
+></DIV
+><DIV
+CLASS="SECT3"
+><H3
+CLASS="SECT3"
+><A
+NAME="AEN1607"
+>Expressions</A
+></H3
+><P
+>    Todas las expresiones en las sentencias PL/pgSQL son procesadas usando backends de ejecución.
+    Las expresiones que puedan contener constantes pueden de hecho requerir evaluación en tiempo 
+    de ejecución (por ejemplo, 'now' para el tipo 'datatime'), dado que es imposible para el 
+    analizador de PL/pgSQL identificar los valores constantes distintos de la palabra clave NULL.
+    Todas las expresiones se evalúan internamente ejecutando una consulta
+    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    SELECT <TT
+CLASS="REPLACEABLE"
+><I
+>expression</I
+></TT
+>
+    </PRE
+></TD
+></TR
+></TABLE
+>
+    usando el gestor SPI. En la expresión, las apariciones de los identificadores de variables son 
+    sustituidos por parámetros, y los valores reales de las variables son pasadas al ejecutor en la 
+    matriz de parámetros. Todas las expresiones usadas en una función PL/pgSQL son preparadas de 
+    una sola vez, y guardadas una única vez.</P
+><P
+>    La comprobación de tipos hecha por el analizador principal de <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+>
+    tiene algunos efectos secundarios en la interpretación de los valores constantes. En detalle, 
+    hay una diferencia entre lo que hacen estas dos funciones
+
+    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    CREATE FUNCTION logfunc1 (text) RETURNS datetime AS '
+        DECLARE
+            logtxt ALIAS FOR $1;
+        BEGIN
+            INSERT INTO logtable VALUES (logtxt, ''now'');
+            RETURN ''now'';
+        END;
+    ' LANGUAGE 'plpgsql';
+    </PRE
+></TD
+></TR
+></TABLE
+>
+
+    y
+
+    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    CREATE FUNCTION logfunc2 (text) RETURNS datetime AS '
+        DECLARE
+            logtxt ALIAS FOR $1;
+            curtime datetime;
+        BEGIN
+            curtime := ''now'';
+            INSERT INTO logtable VALUES (logtxt, curtime);
+            RETURN curtime;
+        END;
+    ' LANGUAGE 'plpgsql';
+    </PRE
+></TD
+></TR
+></TABLE
+>
+
+    En el caso de logfunc1(), el analizador principal de <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> sabe 
+    cuando prepara la ejecución de INSERT que la cadena 'now' debe ser interpretada como una 
+    fecha, dado que el campo objeto de 'logtable' tiene ese tipo. Así, hará una constante de ese 
+    tipo, y el valor de esa constante se empleará en todas las llamadas a logfunc1(), durante toda 
+    la vida útil de ese proceso. No hay que decir que eso no era lo que pretendía el programador.</P
+><P
+>    En el caso de logfunc2(), el analizador principal de <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> no 
+    sabe cual es el tipo de 'now', por lo que devuelve un tipo de texto, que contiene la cadena 
+    'now'. Durante la asignación a la variable local 'curtime', el interprete PL/pgSQL asigna a 
+    esta cadena el tipo fecha, llamando a las funciones text_out() y datetime_in() para realizar 
+    la conversión.</P
+><P
+>    esta comprobación de tipos realizada por el analizador principal de <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> 
+    fue implementado antes de que PL/pgSQL estuviera totalmente terminado. Es una diferencia entre 
+    6.3 y 6.4, y afecta a todas las funciones que usan la planificación realizada por el gestor SPI. 
+    El uso de variables locales en la manera descrita anteriormente es actualmente la única forma de 
+    que PL/pgSQL interprete esos valores correctamente.</P
+><P
+>    Si los campos del registro son usados en expresiones o sentencias, los tipos de datos de campos 
+    no deben cambiarse entre llamadas de una misma expresión. Tenga esto en cuenta cuando escriba 
+    procedimientos disparadores que gestionen eventos en más de una tabla.</P
+></DIV
+><DIV
+CLASS="SECT3"
+><H3
+CLASS="SECT3"
+><A
+NAME="AEN1622"
+>Sentencias</A
+></H3
+><P
+>    Cualquier cosa no comprendida por el analizador PL/pgSQL tal como se ha especificado 
+    será enviado al gestor de bases de datos, para su ejecución. La consulta resultante 
+    no devolverá ningún dato.</P
+><P
+></P
+><DIV
+CLASS="VARIABLELIST"
+><DL
+><DT
+>Asignación</DT
+><DD
+><P
+>    Una asignación de un valor a una variable o campo de fila o de registro se escribe:
+    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="90%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    <TT
+CLASS="REPLACEABLE"
+><I
+>identifier</I
+></TT
+> := <TT
+CLASS="REPLACEABLE"
+><I
+>expression</I
+></TT
+>;
+    </PRE
+></TD
+></TR
+></TABLE
+>
+    Si el tipo de dato resultante de la expresión no coincide con el tipo de dato de las 
+    variables, o la variable tienen un tamaño o precisión conocido (como char(29)), el 
+    resultado será amoldado implícitamente por el interprete de bytecode de PL/pgSQL, usando 
+    los tipos de las variables para las funciones de entrada y los tipos resultantes en las 
+    funciones de salida. Nótese que esto puede potencialmente producir errores de ejecución 
+    generados por los tipos de las funciones de entrada.</P
+><P
+>    Una asignación de una selección completa en un registro o fila puede hacerse del siguiente 
+    modo:
+    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="90%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    SELECT <TT
+CLASS="REPLACEABLE"
+><I
+>expressions</I
+></TT
+> INTO <TT
+CLASS="REPLACEABLE"
+><I
+>target</I
+></TT
+> FROM ...;
+    </PRE
+></TD
+></TR
+></TABLE
+>
+    <TT
+CLASS="REPLACEABLE"
+><I
+>target</I
+></TT
+> puede ser un registro, una variable de fila o una lista 
+    separada por comas de variables y campo de de registros o filas.</P
+><P
+>    Si una fila o una lista de variables se usa como objetivo, los valores seleccionados han de 
+    coincidir exactamente con la estructura de los objetivos o se producirá un error de 
+    ejecución. La palabra clave FROM puede preceder a cualquier calificador válido, agrupación, 
+    ordenación, etc. que pueda pasarse a una sentencia SELECT.</P
+><P
+>    Existe una variable especial llamada FOUND de tipo booleano, que puede usarse inmediatamente 
+    después de SELECT INTO para comprobar si una asignación ha tenido éxito.
+
+    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="90%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    SELECT * INTO myrec FROM EMP WHERE empname = myname;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION ''employee % not found'', myname;
+    END IF;
+    </PRE
+></TD
+></TR
+></TABLE
+>
+
+    Si la selección devuelve múltiples filas, solo la primera se mueve a los campos objetivo. 
+    todas las demás se descartan.</P
+></DD
+><DT
+>Llamadas a otra función</DT
+><DD
+><P
+>    Todas las funciones definidas en una base de datos <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> 
+    devuelven un valor. Por lo tanto, la forma normal de llamar a una función es ejecutar una 
+    consulta SELECT o realizar una asignación (que de lugar a un SELECT interno de PL/pgSQL). 
+    Pero hay casos en que no interesa saber los resultados de las funciones.
+    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="90%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    PERFORM <TT
+CLASS="REPLACEABLE"
+><I
+>query</I
+></TT
+>
+    </PRE
+></TD
+></TR
+></TABLE
+>
+    Esto ejecuta 'SELECT <TT
+CLASS="REPLACEABLE"
+><I
+>query</I
+></TT
+>' en el gestor SPI, y descarta el 
+    resultado. Los identificadores como variables locales son de todos modos sustituidos en 
+    los parámetros.</P
+></DD
+><DT
+>Volviendo de la función</DT
+><DD
+><P
+>    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="90%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    RETURN <TT
+CLASS="REPLACEABLE"
+><I
+>expression</I
+></TT
+>
+    </PRE
+></TD
+></TR
+></TABLE
+>
+    La función termina y el valor de <TT
+CLASS="REPLACEABLE"
+><I
+>expression</I
+></TT
+> se devolverá al 
+    ejecutor superior. El valor devuelto por una función no puede quedar son definir. Si el 
+    control alcanza el fin del bloque de mayor nivel de la función sin encontrar una sentencia 
+    RETURN, ocurrirá un error de ejecución.</P
+><P
+>    Las expresiones resultantes serán amoldadas automáticamente en los tipos devueltos por la 
+    función, tal como se ha descrito en el caso de las asignaciones.</P
+></DD
+><DT
+>Abortando la ejecución y mensajes</DT
+><DD
+><P
+>    Como se ha indicado en los ejemplos anteriores, hay una sentencia RAISE que puede enviar 
+    mensajes al sistema de registro de <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+>.
+    ###################### ATENCION WARNING ACHTUNG #####################
+    ¡Aquí puede haber una errata! Comparad con el original
+
+    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="90%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    RAISE <TT
+CLASS="REPLACEABLE"
+><I
+>level</I
+></TT
+>
+	 <TT
+CLASS="REPLACEABLE"
+><I
+>for</I
+></TT
+>'' [,
+	  <TT
+CLASS="REPLACEABLE"
+><I
+>identifier</I
+></TT
+> [...]];
+    </PRE
+></TD
+></TR
+></TABLE
+>
+    #####################################################################
+
+    Dentro del formato, <SPAN
+CLASS="QUOTE"
+>"%"</SPAN
+> se usa como situación para los subsecuentes 
+    identificadores, separados por comas. Los posibles niveles son DEBUG (suprimido en las bases de datos de producción), NOTICE (escribe en el registro de la base de datos y lo envía a la aplicación del cliente) y EXCEPTION (escribe en el registro de la base de datos y aborta la transacción).</P
+></DD
+><DT
+>Condiciones</DT
+><DD
+><P
+>    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="90%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    IF <TT
+CLASS="REPLACEABLE"
+><I
+>expression</I
+></TT
+> THEN
+        <TT
+CLASS="REPLACEABLE"
+><I
+>statements</I
+></TT
+>
+    [ELSE
+        <TT
+CLASS="REPLACEABLE"
+><I
+>statements</I
+></TT
+>]
+    END IF;
+    </PRE
+></TD
+></TR
+></TABLE
+>
+    <TT
+CLASS="REPLACEABLE"
+><I
+>expression</I
+></TT
+> debe devolver un valor que al menos pueda ser adaptado 
+    en un tipo booleano.</P
+></DD
+><DT
+>Bucles</DT
+><DD
+><P
+>    Hay varios tipos de bucles.
+    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="90%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    [&#60;&#60;label&#62;&#62;]
+    LOOP
+        <TT
+CLASS="REPLACEABLE"
+><I
+>statements</I
+></TT
+>
+    END LOOP;
+    </PRE
+></TD
+></TR
+></TABLE
+>
+    Se trata de un bucle no condicional que ha de ser terminado de forma explicita, mediante una 
+    sentencia EXIT. La etiqueta opcional puede ser usado por las sentencias EXIT de otros bucles 
+    anidados, para especificar el nivel del bucle que ha de terminarse.
+    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="90%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    [&#60;&#60;label&#62;&#62;]
+    WHILE <TT
+CLASS="REPLACEABLE"
+><I
+>expression</I
+></TT
+> LOOP
+        <TT
+CLASS="REPLACEABLE"
+><I
+>statements</I
+></TT
+>
+    END LOOP;
+    </PRE
+></TD
+></TR
+></TABLE
+>
+    Se trata de un lazo condicional que se ejecuta mientras la evaluación de <TT
+CLASS="REPLACEABLE"
+><I
+>expression</I
+></TT
+> 
+    sea cierta.
+    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="90%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    [&#60;&#60;label&#62;&#62;]
+    FOR <TT
+CLASS="REPLACEABLE"
+><I
+>name</I
+></TT
+> IN [ REVERSE ]
+<TT
+CLASS="REPLACEABLE"
+><I
+>express</I
+></TT
+> .. <TT
+CLASS="REPLACEABLE"
+><I
+>expression</I
+></TT
+> LOOP
+        <TT
+CLASS="REPLACEABLE"
+><I
+>statements</I
+></TT
+>
+    END LOOP;
+    </PRE
+></TD
+></TR
+></TABLE
+>
+    Se trata de un bucle que se itera sobre un rango de valores enteros. La variable <TT
+CLASS="REPLACEABLE"
+><I
+>name</I
+></TT
+> 
+    se crea automáticamente con el tipo entero, y existe solo dentro del bucle. Las dos 
+    expresiones dan el limite inferior y superior del rango y son evaluados sólo cuando se entra 
+    en el bucle. El paso de la iteración es siempre 1.
+    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="90%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    [&#60;&#60;label&#62;&#62;]
+    FOR <TT
+CLASS="REPLACEABLE"
+><I
+>record | row</I
+></TT
+> IN <TT
+CLASS="REPLACEABLE"
+><I
+>select_clause</I
+></TT
+> LOOP
+        <TT
+CLASS="REPLACEABLE"
+><I
+>statements</I
+></TT
+>
+    END LOOP;
+    </PRE
+></TD
+></TR
+></TABLE
+>
+    EL registro o fila se asigna a todas las filas resultantes de la clausula de selección, y la 
+    sentencia se ejecuta para cada una de ellas. Si el bucle se termina con una sentencia EXIT, 
+    la ultima fila asignada es aún accesible después del bucle.
+    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="90%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    EXIT [ <TT
+CLASS="REPLACEABLE"
+><I
+>label</I
+></TT
+> ] [ WHEN <TT
+CLASS="REPLACEABLE"
+><I
+>expression</I
+></TT
+> ];
+    </PRE
+></TD
+></TR
+></TABLE
+>
+    Si no se incluye <TT
+CLASS="REPLACEABLE"
+><I
+>label</I
+></TT
+>, se termina el lazo más interno, y se 
+    ejecuta la sentencia que sigue a END LOOP. Si se incluye <TT
+CLASS="REPLACEABLE"
+><I
+>label</I
+></TT
+> 
+    ha de ser la etiqueta del bucle actual u de otro de mayor nivel. EL bucle indicado se 
+    termina, y el control se pasa a la sentencia de después del END del bucle o bloque 
+    correspondiente.</P
+></DD
+></DL
+></DIV
+></DIV
+><DIV
+CLASS="SECT3"
+><H3
+CLASS="SECT3"
+><A
+NAME="AEN1701"
+>Procedimientos desencadenados</A
+></H3
+><P
+>    PL/pgSQL puede ser usado para definir procedimientos desencadenados por eventos. Estos se crean con la
+    orden CREATE FUNCTION, igual que una función, pero sin argumentos, y devuelven un tipo OPAQUE.</P
+><P
+>    Hay algunos detalles específicos de <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> cuando se usan 
+    funciones como procedimientos desencadenados.</P
+><P
+>    En primer lugar, disponen de algunas variables especiales que se crean automáticamente en 
+    los bloques de mayor nivel de la sección de declaración. Son:</P
+><P
+></P
+><DIV
+CLASS="VARIABLELIST"
+><DL
+><DT
+>NEW</DT
+><DD
+><P
+>    Tipo de dato RECORD; es una variable que mantienen la fila de la nueva base de datos en 
+    las operaciones INSERT/UPDATE, en los desencadenados ROW.</P
+></DD
+><DT
+>OLD</DT
+><DD
+><P
+>    Tipo de dato RECORD; es una variable que mantiene la fila de la base de datos vieja en 
+    operaciones UPDATE/DELETE, en los desencadenados ROW.</P
+></DD
+><DT
+>TG_NAME</DT
+><DD
+><P
+>    Nombre de tipo de dato; es una variable que contiene el nombre del procedimiento desencadenado que se ha
+    activado.</P
+></DD
+><DT
+>TG_WHEN</DT
+><DD
+><P
+>    Tipo de dato texto; es una cadena de caracteres del tipo 'BEFORE' o 'AFTER', dependiendo 
+    de la definición del procedimiento desencadenado.</P
+></DD
+><DT
+>TG_LEVEL</DT
+><DD
+><P
+>    Tipo de dato texto; una cadena de 'ROW' o 'STATEMENT', dependiendo de la definición del 
+    procedimiento desencadenado.</P
+></DD
+><DT
+>TG_OP</DT
+><DD
+><P
+>    Tipo de dato texto; una cadena de 'INSERT', 'UPDATE' o 'DELETE', que nos dice la operación 
+    para la que se ha disparado el procedimiento desencadenado.</P
+></DD
+><DT
+>TG_RELID</DT
+><DD
+><P
+>    Tipo de dato oid; el ID del objeto de la tabla que ha provocado la invocación del procedimiento 
+    desencadenado.</P
+></DD
+><DT
+>TG_RELNAME</DT
+><DD
+><P
+>    Tipo de dato nombre; el nombre de la tabla que ha provocado la activación del procedimiento desencadenado.</P
+></DD
+><DT
+>TG_NARGS</DT
+><DD
+><P
+>    Tipo de dato entero; el numero de argumentos dado al procedimiento desencadenado en la sentencia 
+    CREATE TRIGGER.</P
+></DD
+><DT
+>TG_ARGV[]</DT
+><DD
+><P
+>    Tipo de dato matriz de texto; los argumentos de la sentencia CREATE TRIGGER. El índice 
+    comienza por cero, y puede ser dado en forma de expresión. Índices no validos dan lugar 
+    a un valor NULL.</P
+></DD
+></DL
+></DIV
+><P
+>    En segundo lugar, han de devolver o NULL o una fila o registro que contenga exactamente 
+    la estructura de la tabla que ha provocado la activación del procedimiento desencadenado. Los 
+    procedimientos desencadenados activados por AFTER deben devolver siempre un valor NULL, sin 
+    producir ningún efecto. Los procedimientos desencadenados activados por BEFORE indican al gestor 
+    de procedimientos desencadenados que no realice la operación sobre la fila actual cuando se devuelva 
+    NULL. En cualquier otro caso, la fila o registro devuelta sustituye a la fila insertada o actualizada. 
+    Es posible reemplazar valores individuales directamente en una sentencia NEW y devolverlos, o construir 
+    una nueva fila o registro y devolverla.</P
+></DIV
+><DIV
+CLASS="SECT3"
+><H3
+CLASS="SECT3"
+><A
+NAME="AEN1749"
+>Excepciones</A
+></H3
+><P
+>    <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> no dispone de un modelo de manejo de excepciones muy 
+    elaborado. Cuando el analizador, el optimizador o el ejecutor deciden que una sentencia 
+    no puede ser procesada, la transacción completa es abortada y el sistema vuelve al lazo 
+    principal para procesar la siguiente consulta de la aplicación cliente.</P
+><P
+>    Es posible introducirse en el mecanismo de errores para detectar cuando sucede esto.
+    Pero lo que no es posible es saber qué ha causado en realidad el aborto (un error de 
+    conversión de entrada/salida, un error de punto flotante, un error de análisis). Y es posible 
+    que la base de datos haya quedado en un estado inconsistente, por lo que volver a un nivel de 
+    ejecución superior o continuar ejecutando comandos puede corromper toda la base de datos.
+    E incluso aunque se pudiera enviar la información a la aplicación cliente, la transacción 
+    ya se abría abortado, por lo que carecería de sentido el intentar reanudar la operación.</P
+><P
+>    Por todo esto, lo único que hace PL/pgSQL cuando se produce un aborto de ejecución durante 
+    la ejecución de una función o procedimiento disparador es enviar mensajes de depuración al 
+    nivel DEBUG, indicando en qué función y donde (numero de línea y tipo de sentencia) ha 
+    sucedido el error.</P
+></DIV
+></DIV
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN1755"
+>Ejemplos</A
+></H2
+><P
+>Se incluyen unas pocas funciones para demostrar lo fácil que es escribir funciones en PL/pgSQL. 
+Para ejemplos más complejos, el programador debería consultar el test de regresión de PL/pgSQL.</P
+><P
+>Un detalle doloroso a la hora de escribir funciones en PL/pgSQL es el manejo de la comilla simple. 
+El texto de las funciones en CREATE FUNCTION ha de ser una cadena de texto. Las comillas simples 
+en el interior de una cadena literal deben de duplicarse o anteponerse de una barra invertida. 
+Aún estamos trabajando en una alternativa más elegante. Mientras tanto, duplique las comillas 
+sencillas como en los ejemplos siguientes. Cualquier solución a este problema en futuras versiones 
+de <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> mantendrán la compatibilidad con esto.</P
+><DIV
+CLASS="SECT3"
+><H3
+CLASS="SECT3"
+><A
+NAME="AEN1760"
+>Algunas funciones sencillas en PL/pgSQL</A
+></H3
+><P
+>    Las dos funciones siguientes son idénticas a sus contrapartidas que se verán cuando estudiemos 
+    el lenguaje C.
+
+    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    CREATE FUNCTION add_one (int4) RETURNS int4 AS '
+        BEGIN
+            RETURN $1 + 1;
+        END;
+    ' LANGUAGE 'plpgsql';
+    </PRE
+></TD
+></TR
+></TABLE
+>
+
+    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    CREATE FUNCTION concat_text (text, text) RETURNS text AS '
+        BEGIN
+            RETURN $1 || $2;
+        END;
+    ' LANGUAGE 'plpgsql';
+    </PRE
+></TD
+></TR
+></TABLE
+></P
+></DIV
+><DIV
+CLASS="SECT3"
+><H3
+CLASS="SECT3"
+><A
+NAME="AEN1765"
+>Funciones PL/pgSQL para tipos compuestos</A
+></H3
+><P
+>    De nuevo, estas funciones PL/pgSQL tendrán su equivalente en lenguaje C.
+
+    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    CREATE FUNCTION c_overpaid (EMP, int4) RETURNS bool AS '
+        DECLARE
+            emprec ALIAS FOR $1;
+            sallim ALIAS FOR $2;
+        BEGIN
+            IF emprec.salary ISNULL THEN
+                RETURN ''f'';
+            END IF;
+            RETURN emprec.salary &#62; sallim;
+        END;
+    ' LANGUAGE 'plpgsql';
+    </PRE
+></TD
+></TR
+></TABLE
+></P
+></DIV
+><DIV
+CLASS="SECT3"
+><H3
+CLASS="SECT3"
+><A
+NAME="AEN1769"
+>Procedimientos desencadenados en PL/pgSQL</A
+></H3
+><P
+>    Estos procedimientos desencadenados aseguran que, cada vez que se inserte o actualice un fila en la 
+    tabla, se incluya el nombre del usuario y la fecha y hora. Y asegura que se proporciona un nombre de 
+    empleado y que el salario tiene un valor positivo.
+
+    <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    CREATE TABLE emp (
+        empname text,
+        salary int4,
+        last_date datetime,
+        last_user name);
+
+    CREATE FUNCTION emp_stamp () RETURNS OPAQUE AS
+        BEGIN
+            -- Check that empname and salary are given
+            IF NEW.empname ISNULL THEN
+                RAISE EXCEPTION ''empname cannot be NULL value'';
+            END IF;
+            IF NEW.salary ISNULL THEN
+                RAISE EXCEPTION ''% cannot have NULL salary'', NEW.empname;
+            END IF;
+
+            -- Who works for us when she must pay for?
+            IF NEW.salary &#60; 0 THEN
+                RAISE EXCEPTION ''% cannot have a negative salary'', NEW.empname;
+            END IF;
+
+            -- Remember who changed the payroll when
+            NEW.last_date := ''now'';
+            NEW.last_user := getpgusername();
+            RETURN NEW;
+        END;
+    ' LANGUAGE 'plpgsql';
+
+    CREATE TRIGGER emp_stamp BEFORE INSERT OR UPDATE ON emp
+        FOR EACH ROW EXECUTE PROCEDURE emp_stamp();
+    </PRE
+></TD
+></TR
+></TABLE
+></P
+></DIV
+></DIV
+></DIV
+><DIV
+CLASS="NAVFOOTER"
+><HR
+ALIGN="LEFT"
+WIDTH="100%"><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+><A
+HREF="xplang.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="programmer.html"
+>Inicio</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+><A
+HREF="x1773.html"
+>Siguiente</A
+></TD
+></TR
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+>Lenguajes Procedurales</TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="xplang.html"
+>Subir</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+>PL/Tcl</TD
+></TR
+></TABLE
+></DIV
+></BODY
+></HTML
+>

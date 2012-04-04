@@ -1,0 +1,270 @@
+  <chapter id="io-redirection">
+    <title>I/O Redirection</title>
+
+      <para><anchor id="ioredirref"></para>
+
+      <para>There are always three default <quote>files</quote>
+	open, <filename>stdin</filename> (the keyboard),
+	<filename>stdout</filename> (the screen), and
+	<filename>stderr</filename> (error messages output to the
+	screen).  These, and any other open files, can be redirected.
+	Redirection simply means capturing output from a file, command,
+	program, script, or even code block within a script (see <xref
+	linkend="ex8"> and <xref linkend="rpmcheck">) and sending it as
+	input to another file, command, program, or script.</para>
+
+      <para><anchor id="fdref">Each open file gets assigned a file descriptor.	
+
+               <footnote><para>A <emphasis>file descriptor</emphasis>
+		 is simply a number that the operating system assigns
+		 to an open file to keep track of it.  Consider it
+		 a simplified version of a file pointer. It is
+		 analogous to a <emphasis>file handle</emphasis> in
+		 C.</para></footnote>
+
+	The file descriptors for <filename>stdin</filename>,
+	<filename>stdout</filename>, and <filename>stderr</filename> are
+	0, 1, and 2, respectively.  For opening additional files, there
+	remain descriptors 3 to 9. It is sometimes useful to assign one of
+	these additional file descriptors to <filename>stdin</filename>,
+	<filename>stdout</filename>, or <filename>stderr</filename>
+	as a temporary duplicate link.
+	       <footnote><para>Using <replaceable>file
+	       descriptor 5</replaceable> might cause problems.
+	       When Bash creates a child process, as with <link
+	       linkend="execref">exec</link>, the child inherits
+	       fd 5 (see Chet Ramey's archived e-mail, <ulink
+	       url="http://www.geocrawler.com/archives/3/342/1996/1/0/1939805/">
+	       SUBJECT: RE:  File descriptor 5 is held open</ulink>).
+	       Best leave this particular fd alone.</para></footnote>
+	This simplifies restoration to normal after complex redirection
+	and reshuffling (see <xref linkend="redir1">).</para>
+
+      <para><anchor id="ioredirectionref"></para>
+
+      <programlisting>   >
+      # Redirect stdout to a file.
+      # Creates the file if not present, otherwise overwrites it.
+
+      ls -lR > dir-tree.list
+      # Creates a file containing a listing of the directory tree.
+
+   : > filename
+      # The > truncates file "filename" to zero length.
+      # The : serves as a dummy placeholder, producing no output.
+
+   >>
+      # Redirect stdout to a file.
+      # Creates the file if not present, otherwise appends to it.
+
+   2>&amp;1
+      # Redirects stderr to stdout.
+      # Error messages get sent to same place as standard output.
+
+   i>&amp;j
+      # Redirects file descriptor <emphasis>i</emphasis> to <emphasis>j</emphasis>.
+      # All output of file pointed to by <emphasis>i</emphasis> gets sent to file pointed to by <emphasis>j</emphasis>.
+
+   >&amp;j
+      # Redirects, by default, file descriptor <emphasis>1</emphasis> (stdout) to <emphasis>j</emphasis>.
+      # All stdout gets sent to file pointed to by <emphasis>j</emphasis>.
+
+   0<
+    <
+      # Accept input from a file.
+      # Companion command to <quote>></quote>, and often used in combination with it.
+      #
+      # grep search-word &lt;filename
+
+
+   [j]&lt;&gt;filename
+      # Open file "filename" for reading and writing, and assign file descriptor "j" to it.
+      # If "filename" does not exist, create it.
+      # If file descriptor "j" is not specified, default to fd 0, stdin.
+      #
+      # An application of this is writing at a specified place in a file. 
+      echo 1234567890 > File    # Write string to "File".
+      exec 3&lt;&gt; File             # Open "File" and assign fd 3 to it.
+      read -n 4 <&3             # Read only 4 characters.
+      echo -n . >&3             # Write a decimal point there.
+      exec 3>&-                 # Close fd 3.
+      cat File                  # ==> 1234.67890
+      # Random access, by golly.
+
+
+
+   |
+      # Pipe.
+      # General purpose process and command chaining tool.
+      # Similar to <quote>></quote>, but more general in effect.
+      # Useful for chaining commands, scripts, files, and programs together.
+      cat *.txt | sort | uniq > result-file
+      # Sorts the output of all the .txt files and deletes duplicate lines,
+      # finally saves results to <quote>result-file</quote>.
+</programlisting>
+
+      <para>Multiple instances of input and output redirection
+        and/or pipes can be combined in a single command
+        line.
+
+       <programlisting>command &lt; input-file &gt; output-file
+
+command1 | command2 | command3 > output-file</programlisting>
+        See <xref linkend="derpm"> and <xref linkend="fifo">.</para>
+
+       
+       <para>Multiple output streams may be redirected to one file.
+
+         <programlisting>ls -yz >> command.log 2>&1
+# Capture result of illegal options "yz" to "ls" in file "command.log".
+# Because stderr redirected to the file, any error messages will also be there.
+</programlisting></para>
+
+
+      <variablelist id="closingfiledescriptors">
+        <title><anchor id="cfd">Closing File Descriptors</title>
+
+	<varlistentry>
+	  <term><token>n<&-</token></term>
+	  <listitem>
+	    <para>Close input file descriptor
+	    <replaceable>n</replaceable>.</para>
+	  </listitem>
+	</varlistentry>
+
+	<varlistentry>
+	  <term><token>0<&-</token></term>
+	  <term><token><&-</token></term>
+	  <listitem>
+	    <para>Close <filename>stdin</filename>.</para>
+	  </listitem>
+	</varlistentry>
+
+	<varlistentry>
+	  <term><token>n>&-</token></term>
+	  <listitem>
+	    <para>Close output file descriptor <replaceable>n</replaceable>.</para>
+	  </listitem>
+	</varlistentry>
+
+	<varlistentry>
+	  <term><token>1>&-</token></term>
+	  <term><token>>&-</token></term>
+	  <listitem>
+	    <para>Close <filename>stdout</filename>.</para>
+	  </listitem>
+	</varlistentry>
+
+      </variablelist>
+
+
+        <para>Child processes inherit open file descriptors. This is why pipes
+	  work. To prevent an fd from being inherited, close it.
+	    <programlisting># Redirecting only stderr to a pipe.
+
+exec 3>&1                              # Save current "value" of stdout.
+ls -l 2>&1 >&3 3>&- | grep bad 3>&-    # Close fd 3 for 'ls' and 'grep'.
+exec 3>&-                              # Now close it for the remainder of the script.
+
+# Thanks, S.C.</programlisting>
+        </para>
+
+	<para>For a more detailed introduction to I/O redirection see
+	  <xref linkend="ioredirintro">.</para>
+
+
+      <sect1><title>Using <command>exec</command></title>
+
+
+        <para>The <command>exec &lt;filename</command> command redirects
+	  <filename>stdin</filename> to a file. From that point on, all
+	  <filename>stdin</filename> comes from that file, rather than
+	  its normal source (usually keyboard input). This provides a
+	  method of reading a file line by line and possibly parsing
+	  each line of input using <link linkend="sedref">sed</link>
+	  and/or <link linkend="awkref">awk</link>.</para>
+
+      <example id="redir1">
+	<title>Redirecting <filename>stdin</filename> using
+	  <command>exec</command></title>
+	<programlisting>&redir1;</programlisting>
+      </example>
+
+       </sect1><!-- Using exec For Redirection -->	
+
+
+
+      <sect1 id="redircb"><title>Redirecting Code Blocks</title>
+
+        <para><anchor id="redirref">Blocks of code, such as <link
+	  linkend="whileloopref">while</link>, <link
+	  linkend="untilloopref">until</link>, and <link
+	  linkend="forloopref1">for</link> loops, even <link
+	  linkend="ifthen">if/then</link> test blocks can also incorporate
+	  redirection of <filename>stdin</filename>.  Even a function may
+	  use this form of redirection (see <xref linkend="realname">).
+	  The <token>&lt;</token> operator at the the end of the code
+	  block accomplishes this.</para>
+
+      <example id="redir2">
+	<title>Redirected <emphasis>while</emphasis> loop</title>
+	<programlisting>&redir2;</programlisting>
+      </example>
+
+      <example id="redir2a">
+	<title>Alternate form of redirected <emphasis>while</emphasis> loop</title>
+	<programlisting>&redir2a;</programlisting>
+      </example>
+
+      <example id="redir3">
+	<title>Redirected <emphasis>until</emphasis> loop</title>
+	<programlisting>&redir3;</programlisting>
+      </example>
+
+      <example id="redir4">
+	<title>Redirected <emphasis>for</emphasis> loop</title>
+	<programlisting>&redir4;</programlisting>
+      </example>
+
+      <para>We can modify the previous example to also redirect the output of
+        the loop.</para>
+
+      <example id="redir4a">
+	<title>Redirected <emphasis>for</emphasis> loop (both
+	  <filename>stdin</filename> and <filename>stdout</filename>
+	  redirected)</title>
+	<programlisting>&redir4a;</programlisting>
+      </example>
+
+      <example id="redir5">
+	<title>Redirected <emphasis>if/then</emphasis> test</title>
+	<programlisting>&redir5;</programlisting>
+      </example>
+
+      <para>Redirecting the <filename>stdout</filename> of a code
+	block has the effect of saving its output to a file. See <xref
+	linkend="rpmcheck">.</para>
+
+      <note><para><link linkend="heredocref">Here documents</link>
+        are a special case of redirected code blocks.</para></note>
+
+      </sect1><!--  Redirecting Code Blocks -->
+
+
+      <sect1 id="redirapps"><title>Applications</title>
+
+      <para>Clever use of I/O redirection permits parsing and stitching
+	together snippets of command output (see <xref
+	linkend="readredir">). This permits
+	 generating report and log files.</para>
+
+      <example id="logevents">
+	<title>Logging events</title>
+	<programlisting>&logevents;</programlisting>
+      </example>
+
+
+       </sect1><!-- Applications -->	
+
+
+  </chapter> <!-- I/O Redirection -->

@@ -1,0 +1,108 @@
+Como construir un controlador de sonido modular
+===============================================
+
+  La siguiente información está actualizada al núcleo linux-2.1.85. 
+  Compruebe los otros ficheros léame, especialmente README.OSS, para 
+  información no específica a la creación modular de sonido.
+
+  Primero, configure el núcleo. Esto es una idea de los que debería 
+  activar en la sección sonido:
+
+<M> Sound card support 
+
+<M> 100% Sound Blaster compatibles (SB16/32/64, ESS, Jazz16) support 
+
+  Tengo una SoundBlaster. Seleccione su tarjeta de la lista.
+
+<M> Generic OPL2/OPL3 FM synthesizer support 
+<M> FM synthesizer (YM3812/OPL-3) support 
+
+  Si no selecciona esto, probablemente encontrará que puede reproducir 
+  ficheros .wav pero no .midi. Tal como dice la ayuda, póngalo a no ser 
+  que sepa que su tarjeta no usa uno de estos chips de soporte FM.
+
+  Una vez configurado haga, make zlilo, modules, modules_install; reinicie.
+Note que no es necesario o posible configurar el sonido en el directorio 
+drivers/sound dir. Ahora simplemente se configura y se crea el núcleo y los
+módulos de la manera corriente.
+
+ Después, añada a su /etc/modules.conf o /etc/conf.modules algo como esto:
+
+alias char-major-14 sb
+post-install sb /sbin/modprobe "-k" "adlib_card"
+options sb io=0x220 irq=7 dma=1 dma16=5 mpu_io=0x330
+options adlib_card io=0x388     # sintetizador FM
+
+ El efecto de esto es que el controlador de sonido y todas las partes
+necesarios se cargan bajo demanda, asumiendo que use kerneld y
+autoclean cuando no los use. También se configuran las opciones para
+los dispositivos. No funcionarán sin configurar. Cambielos de la
+manera adecuada para su tarjeta.
+Si todavía no está usando el magnífico kerneld, deberá hacer
+"modprobe -k sb" por si mismo para que funcione. Puede que estas cosas 
+se mejoren y que no haya que seguir haciendo estas "guarradas"; 
+Aunque por ahora, parecen funcionar bien.
+
+  Reemplace 'sb' por el controlador para su tarjeta, y dele las opciones 
+adecuadas. Para encontrar el nombre de fichero del controlador, mire en
+/lib/modules/<kernel-version>/misc. El mío es este:
+
+adlib_card.o # Este es un controlador genérico OPLx
+opl3.o # El controlador OPL3
+sb.o # <<El controlador SoundBlasterr. El suyo puede cambiar.>>
+sound.o # El controlador de sonido
+uart401.o # Usado por sb, puede que por otras tarjetas
+
+ Para cualquier tarjeta que tenga, intente poner las opciones que quiera
+ tener por defecto si estuviera compilando el controlador en el núcleo,
+ no como módulos. Puede mirar en el código init_module() de la tarjeta
+ para ver que argumentos espera.
+
+  Note que por ahora no hay forma de configurar los parámetros io, irq y 
+otros parámetros para los controladores modulares de la forma que se
+hace para los controladores internos. Se necesita pasar a los módulos
+los parámetros necesarios como argumentos, a través de /etc/modules.conf 
+o con argumentos de línea de comando como modprobe, p.e.
+
+modprobe -k sb io=0x220 irq=7 dma=1 dma16=5 mpu_io=0x330
+modprobe -k adlib_card io=0x388
+
+ recomiendo usar /etc/modules.conf.
+
+Memoria intermedia DMA persistente:
+
+Los módulos de sonido normalmente reservan memoria intermedia DMA durante
+la función open() y la liberan durante la función close(). Linux puede
+tener a menudo porblemas reservando memoria DMA para las tarjeta ISA
+en máquinas con más de 16MB RAM. Esto es así porque las memoria
+intermedia DMA debe existir por debajo del límite de 16MB y es posible
+que no podamos encontrar ningún bloque libre en esta región si la
+máquina ha estado ejecutándose por una determinada cantidad de tiempo.
+La forma de evitar este problema es reservar la memoria intermedia DMA
+durante la carga del módulo y liberarla cuando el módulo es descargado.
+Para que esto sea efectivo necesitamos cargar el módulo nada más
+arrancar el núcleo, de forma manual o con un guión de inicio, y
+mantenerlos cargados hasta que apaguemos la máquina. Esto gasta un poco
+de RAM, pero garantiza que el sonido funcione.
+
+Para hacer que el módulo de sonido use memoria intermedia DMA persistente 
+necesitamos pasar al módulo sound.o el argumento "dmabuf=1". Normalmente 
+esto se hace en /etc/conf.modules (o mejor en /etc/modules.conf) 
+de esta forma:
+
+options sound		dmabuf=1
+
+Si tiene 16MB o menos de RAM o una tarjeta de sonido PCI, esto es un gasto 
+innecesario. Es posible que con una máquina de 16MB o menos de RAM encuentre 
+esta opción útil, pero si su máquina está tan agotada de memoria que no
+puede enontrar un bloque de 64K libres, estará gastando más RAM
+teniendo cargados los módulos de sonido y la memoria intermedia DMA
+reservada cuando no se necesita. La mejor solución es instalar más RAM.
+Pero también le queda la opción comentada aquí. Usela sabiamente.
+
+  Siento no conocer nada más que mi configuración, siendo más que nada un 
+chico modo-texto. Si tiene opciones para otras tarjetas o parches útiles, 
+por favor, mándemelas, Jim Bary, jb@as220.org, http://as220.org/jb.
+
+"Traducido para el proyecto NuLies por
+ Gorka Olaizola Sánchez <olsago@jet.es>"

@@ -1,0 +1,189 @@
+##
+# Código fuente LuCAS V3
+# Copyright (C) 1999 Hispalinux / Juan J. Amor / Ismael Olea
+# Programa bajo la proteccion de GPL 2.0
+##
+# $Id: presentaciones.wml,v 1.9 2004/02/29 22:06:44 olea Exp $
+##
+
+#use wml::std::tags 
+#use wml::fmt::isolatin
+#use wml::fmt::url
+<Symbol DIRECCION_COORDINADOR "lucas-coord@es.tldp.org">
+<Symbol NOMBRE_COORDINADOR "Grupo de coordinación">
+<Symbol RCSID "$Id: presentaciones.wml,v 1.9 2004/02/29 22:06:44 olea Exp $">
+<isolatin>
+#include 'Icabecera.wml' autor="Hispalinux" titulo="Congresos y conferencias" resumen="Catálogo de presentaciones y conferencias relacionadas con Linux y el software libre" htmldir="" icondir="../icons/" keywords="conferencias, presentaciones, transparencias, congresos, charlas"
+#include 'Imenu.wml' htmldir="" icondir="../icons/"
+
+<CENTER><B><FONT COLOR="#EE0000"><FONT SIZE=+2>TLDP-ES - Presentaciones y Conferencias
+</FONT></FONT></B></CENTER>
+<P>
+Aqu&iacute; encontrar&aacute; el catálogo de presentaciones y transparencias recopilados por <b>TLDP-ES</b>/<b>Hispalinux</b> ordenados por eventos. En general se ha procurado ofrecerlos en formatos abiertos. Cuando esto no ha sido posible, se ha procurado el mayor abanico de formatos posible.
+<P>
+Si tienes problemas o dudas en cuanto al manejo y visualización de los formatos de los
+ficheros publicados, consulta la <a href="../FAQ/FAQ-LuCAS/FAQ-LuCAS.html">FAQ de TLDP-ES</a>.
+<P>
+<HR>
+<P>
+
+<:
+#
+# Directorio de las presentaciones
+$DIR_PRESEN="../../Presentaciones";
+# Directorio a efectos de pagina generada
+$DIR_P="../Presentaciones";
+#
+#
+# Funcion: trata_evento(nombre_directorio)
+#
+sub trata_evento()
+{
+my $DIR_EVENTO=shift;
+my $linea;
+my $cont = 0;
+
+my $estado = 3; # estados de lectura: 0 (inicial), 1 (descripcion),
+                # 2 (URLAutor), 3 (nombre del evento)
+
+open (DESC,"$DIR_PRESEN/$DIR_EVENTO/.descripcion") || die("No existe $DIR_PRESEN/$DIR_EVENTO/.descripcion");
+
+LECTURA: while ($linea=<DESC>) {
+
+    # Saltamos las lineas vacias o comentadas
+    if ( ($linea =~ /^#/ ) || ($linea eq "\n") ) {
+	  next LECTURA;
+    }
+
+    # Quitamos el fin de linea que no nos interesa
+    chop($linea);
+
+    # En el estado nombre evento aparecerá el nombre del mismo
+    if ( ($linea =~ /^NOM-EVNT/) && ($estado == 3) ) {
+	$NOMEVT = substr($linea,9);
+
+      # Ahora es el momento de imprimir la cabecera de la tabla
+	  print <<FINCAB;
+
+<P>
+<CENTER><B><FONT COLOR="#EE0000"><FONT SIZE=+2>
+$NOMEVT</FONT></FONT></B></CENTER>
+<P>
+
+<TABLE BORDER="1"  CELLPADDING=5 CELLSPACING=5 WIDTH="100%">
+<TR>
+<TD WIDTH="10%" ALIGN=CENTER><U>Ficheros</U></TD>
+<TD WIDTH="*" ALIGN=CENTER><U>Descripción</U></TD>
+<TD WIDTH="20%"  ALIGN=CENTER><U>Autor</U></TD>
+</TR>
+
+FINCAB
+
+    $estado = 0; # pasamos al estado inicial
+    next LECTURA;
+    }
+
+    # En el estado inicial empieza una conferencia
+    if ( ($linea =~ /^INI-CONF/) && ($estado == 0) ) {
+	$CONFE = substr($linea,9);
+	$estado = 1; # Pasamos al estado de lectura de descripcion
+	next LECTURA;
+    }
+
+    # Al detectar fin de descripcion ... 
+    if ( ($linea =~ /^FIN-PARRAFO/) && ($estado == 1) )
+    {
+	$estado = 2; # Pasamos al estado de lectura de URL de Autor
+	next LECTURA;
+    }
+
+    # Si el estado es URL, la linea siguiente es la URL del autor
+    if ($estado == 2)
+    {
+	$URLAUTOR = $linea;
+
+        # Ahora leemos los ficheros
+	opendir (DIR2, "$DIR_PRESEN/$DIR_EVENTO/$CONFE") ||
+                die("No existe $DIR_PRESEN/$DIR_EVENTO/$CONFE");
+
+	while ($fich = readdir(DIR2))
+	{
+	    if ( $fich ne '..' && $fich ne '.' && $fich ne '.DAV' )
+	    {
+		push @FICHEROS,$fich
+	    }
+	}
+
+        # Procedemos a presentar la fila de la tabla de salida
+
+        # Primero la cabecera de la linea de la tabla
+	print "<TR>\n<TD VALIGN=\"TOP\">\n";
+
+        # Columna 1: URLs a los distintos formatos de la conferencia
+        foreach (@FICHEROS) {
+	    print "<A HREF=\"$DIR_P/$DIR_EVENTO/$CONFE/$_\">$_</A><BR>\n";
+        }
+
+	print "</TD>\n";
+
+        # Columna 2: La descripción
+        print "<TD VALIGN=\"TOP\">\n";
+        foreach (@DESCRIPCION) {
+            print "$_\n";
+        }
+	print "</TD>\n";
+
+        # Columna 3: El autor
+        print "<TD VALIGN=\"TOP\">\n";
+        print "$URLAUTOR\n";
+	print "</TD>\n";
+
+        # Terminamos la fila
+        print "</TR>\n";
+
+	splice(@FICHEROS);
+	splice(@DESCRIPCION); # Vaciamos los arrays usados
+	$estado = 0; # Y volvemos al estado inicial
+	next LECTURA;
+    }
+
+    # Si el estado es de descripcion, acumulamos la linea del parrafo
+    if ($estado == 1)
+    {
+	push @DESCRIPCION,$linea;
+	next LECTURA;
+    }
+
+    # Llegar aqui es un error
+    die ("Error del formato: $DIR_PRESEN/$DIR_EVENTO/.descripcion");
+
+}
+
+close (DESC);
+
+# Cerramos la tabla
+print "</TABLE>\n\n";
+
+}
+
+# Bucle principal:
+# Recorre todos los eventos (cada evento es un directorio)
+#
+
+opendir (DIR, $DIR_PRESEN);
+@dirleido = readdir(DIR);
+closedir (DIR);
+@eventos = sort {$b cmp $a} @dirleido;
+
+foreach(@eventos)
+{
+  if ( $_ ne '..' && $_ ne '.' && $_ ne '.DAV' )
+  {
+    &trata_evento($_);
+  }
+}
+
+:>
+
+#include 'Ipie.wml' htmldir="" icondir="../icons/"
+</isolatin>

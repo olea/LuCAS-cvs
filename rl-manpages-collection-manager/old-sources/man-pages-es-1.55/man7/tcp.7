@@ -1,0 +1,324 @@
+.\" This man page is Copyright (C) 1999 Andi Kleen <ak@muc.de>.
+.\" Permission is granted to distribute possibly modified copies
+.\" of this page provided the header is included verbatim,
+.\" and in case of nontrivial modification author and date
+.\" of the modification is added to the header.
+.\" $Id: tcp.7,v 1.2 2005/02/21 15:12:14 pepin.jimenez Exp $
+.\"
+.\" Translated on Mon Jul 5 1999 by Juan Piernas <piernas@ditec.um.es>
+.\" Translation revised Fri Apr 21 2000 by Juan Piernas <piernas@ditec.um.es>
+.\"
+.TH TCP  7 "25 abril 1999" "Página man de Linux" "Manual del Programador de Linux"
+.SH NOMBRE
+tcp \- Protocolo TCP.
+.SH SINOPSIS
+.B #include <sys/socket.h>
+.br
+.B #include <netinet/in.h>
+.br
+.B tcp_socket = socket(PF_INET, SOCK_STREAM, 0); 
+.SH DESCRIPCIÓN
+Ésta es una implementación del protocolo TCP definido en RFC793, RFC1122 y
+RFC2001 con las extensiones NewReno y SACK.  Proporciona una conexión
+bidireccional, fiable y orientada a conexión entre dos conectores encima de
+.BR ip (7).
+TCP garantiza que los datos llegan en orden y retransmite los paquetes
+perdidos. Genera y comprueba una suma de verificación por paquete para
+detectar errores de transmisión. TCP no conserva los límites entre
+registros.
+
+Un conector TCP recién creado no tiene ni dirección remota ni local y no
+está totalmente especificado. Para crear una conexión TCP de salida use
+.BR connect (2)
+para establecer una conexión con otro conector TCP. Para recibir nuevas
+conexiones de entrada, primero enlace el conector a una dirección local y
+puerto mediante
+.BR bind (2)
+y a continuación llame a
+.BR listen (2)
+para colocar el conector en estado de escucha. Después de esto, se puede
+aceptar un nuevo conector para cada conexión de entrada usando
+.BR accept (2).
+Un conector sobre el que se han ejecutado con éxito
+.B accept
+o 
+.B connect
+está totalmente especificado y puede transmitir datos. No se pueden
+transmitir datos a través de conectores en estado de escucha o no conectados
+todavía.
+
+La versión 2.2 de Linux soporta las extensiones RFC1323 para TCP de alto
+rendimiento. Éstas incluyen grandes ventanas TCP para soportar enlaces con
+una alta latencia o gran ancho de banda.
+Para usarlas, se deben incrementar los tamaños de los buffers de envío y
+recepción. Se pueden configurar globalmente con las sysctls
+.B net.core.wmem_default
+y
+.BR net.core.rmem_default ,
+o para cada conector individual mediante las opciones de conector
+.B SO_SNDBUF 
+y 
+.BR SO_RCVBUF .
+Los tamaños máximos de los buffers de los conectores están limitados por las
+sysctls globales
+.B net.core.rmem_max
+y
+.BR net.core.wmem_max .
+Vea
+.BR socket (7)
+para más información.
+.PP
+TCP soporta datos urgentes. Los datos urgentes se usan para indicar al
+receptor que algún mensaje importante es parte del flujo de datos y que debe
+ser procesado tan pronto como sea posible.
+Para enviar datos urgentes, especifique la opción
+.B MSG_OOB
+en
+.BR send (2).
+Cuando se reciben datos urgentes, el núcleo envía una señal
+.B SIGURG
+al proceso lector o al proceso o grupo de procesos que han sido
+configurados para el conector usando la ioctl
+.B FIOCSPGRP
+o 
+.BR FIOCSETOWN .
+Cuando la opción de conector
+.B SO_OOBINLINE
+está activa, los datos urgentes se colocan en el flujo normal de datos (y se
+pueden examinar mediante la ioctl
+.BR SIOCATMARK ).
+En otro caso, sólo se pueden recibir cuando se ha configurado la opción
+.B MSG_OOB
+en
+.BR sendmsg (2). 
+.SH FORMATO DE LAS DIRECCIONES
+TCP está construido encima de IP (vea
+.BR ip (7)).
+Los formatos de dirección definidos por
+.BR ip (7)
+se aplican a TCP. TCP sólo soporta comunicaciones punto a punto. La difusión
+y el envío multidestino no están soportados.
+.SH SYSCTLS
+Estas sysctls pueden ser accededida mediante los ficheros
+.B /proc/sys/net/ipv4/* 
+o con la interfaz
+.BR sysctl (2).
+Además, las mayoría de las sysctls de IP también se aplican a TCP. Vea
+.BR ip (7). 
+.TP
+.B tcp_window_scaling
+Habilita la adaptación de ventanas TCP RFC1323.
+.TP
+.B tcp_sack
+Habilita los reconocimientos selectivos TCP RFC2018.
+.TP
+.B tcp_timestamps
+Habilita las marcas de tiempo TCP RFC1323.
+.TP
+.B tcp_fin_timeout
+Cantidad de segundos a esperar un paquete FIN final antes de que el conector
+sea cerrado a la fuerza. Esto es estrictamente una violación de la
+especificación TCP pero necesario para evitar ataques de "denegación de
+servicio".
+.TP
+.B tcp_keepalive_probes
+Número máximo de sondeos "sigue vivo" (keep-alive) de TCP
+a enviar antes de darse por vencido.
+Este tipo de sondeos sólo se envía cuando la opción de conector
+.B SO_KEEPALIVE 
+está activa.
+.TP
+.B tcp_keepalive_time
+Cantida de segundos después de que no se haya transmitido ningún dato antes
+de que se envíen sondeos "sigue vivo" a través de una conexión. El valor por
+defecto es de 10800 segundos (3 horas).
+.TP
+.B tcp_max_ka_probes
+Cuántos sondeos "sigue vivo" se envían por cada periodo atrasado del
+cronómetro. Para evitar ráfagas, este valor no debería ser demasiado alto.
+.TP
+.B tcp_stdurg
+Activa la interpretación estricta del RFC793 para el campo "puntero urgente"
+de TCP. Por defecto, se usa la interpretación de "puntero urgente"
+compatible con BSD, apuntando al primer byte después de los datos urgentes.
+La interpretación RFC793 es hacerlo apuntar al último byte de los datos
+urgentes. Activar esta opción puede conducir a problemas de
+interoperatibidad.
+.TP
+.B tcp_syncookies
+Habilita los "syncookies" de TCP. Se debe compilar el núcleo con
+.BR CONFIG_SYN_COOKIES .
+Los "syncookies" protegen a un conector de la sobrecarga cuando intentan
+llegar demasiadas conexiones. Puede ser que las máquinas clientes ya no sean
+capaces de detectar una máquina sobrecargada con un plazo de tiempo pequeño
+cuando se activan los "syncookies".
+.TP
+.B tcp_max_syn_backlog
+Longitud de la cola de acumulación por conector. A partir de la versión 2.2
+de Linux, la acumulación especificada en
+.BR listen (2)
+sólo indica la longitud de la cola de acumulación de los conectores ya
+establecidos. Esta sysctl establece la longitud máxima de la cola de
+conectores todavía no establecidos (en estado
+.BR SYN_RECV )
+para cada conector en escucha. Cuando llegan más solicitudes de conexión, Linux
+comienza a perder paquetes. Cuando se activan los "syncookies" todavía se
+responde a los paquetes y esta valor se ignora.
+.TP
+.B tcp_retries1
+Define cuántas veces se retransmite una respuesta a una solicitud de
+conexión TCP antes de darse por vencido.
+.TP
+.B tcp_retries2
+Define cúantas veces se retransmite un paquete TCP en el estado
+"establecido" antes de dejarlo.
+.TP
+.B tcp_syn_retries
+Define cuántas veces se intenta enviar un paquete SYN inicial a un anfitrión
+remoto antes de abandonar y devolver un error. El valor debe estar por
+debajo de 255. Éste sólo es el plazo de tiempo para las conexiones de
+salida. Para las conexiones de entrada el número de retransmisiones se
+define en
+.BR tcp_retries1 .
+.TP
+.B tcp_retrans_collapse
+Intentar enviar paquetes totalmente formados durante las retransmisiones.
+Esto se usa para solucionar temporalmente los fallos TCP de algunas pilas
+de protocolos.
+.\" tcp_rfc1337 is not documented because it is too obscure and broken.
+.SH OPCIONES DE LOS CONECTORES
+Para establecer u obtener la opción de un conector TCP, llame a
+.BR getsockopt (2)
+para leerla o a
+.BR setsockopt (2)
+para escribirla, asignando
+.BR SOL_TCP .
+al argumento de la familia del conector.
+Además, la mayoría de las opciones de conector
+.B SOL_IP 
+son válidas para conectores TCP. Para más información vea
+.BR ip (7).
+.TP
+.B TCP_NODELAY
+Desactiva el algoritmo de Nagle. Esto significa que los paquetes se envían
+siempre tan pronto como sea posible y no se introduce ningún retraso
+innecesario, a costa de más paquetes en la red. Expera una opción booleana
+entera.
+.TP
+.B TCP_MAXSEG
+Establece o recibe el tamaño máximo de segmento para los paquetes TCP de
+salida. si se configura esta opción antes del establecimiento de la
+conexión, también cambia el valor MSS comunicado al otro extremo en el
+paquete inicial. Los valores mayores que la MTU de la interfaz se ignoran y
+no tienen ningún efecto.
+.TP
+.B TCP_CORK
+No se envían tramas parciales cuando está activa. Todas las tramas parciales
+encoladas se envían cuando esta opción se desactiva de nuevo.
+Esto es útil para ir añadiendo cabeceras antes de llamar a
+.BR sendfile (2)
+o para optimizar el rendimiento. Esta opción no se puede combinar con
+.BR TCP_NODELAY .
+.SH IOCTLS
+Estas ioctls pueden ser accedidas usando
+.BR ioctl (2).
+La sintaxis correcta es:
+.PP
+.RS
+.nf
+.BI int " value";
+.IB error " = ioctl(" tcp_socket ", " ioctl_type ", &" value ");"
+.fi
+.RE
+.TP
+.B FIONREAD
+Devuelve la cantidad de datos encolados sin leer en el buffer de recepción.
+El argumento es un puntero a un entero.
+.TP
+.B SIOCATMARK
+Devuelve cierto cuando el programa de usuario ya ha recibido todos los datos
+urgentes. Esto se usa junto con
+.BR SO_OOBINLINE .
+El argumento es un puntero a un entero para el resultado de la comprobación.
+.TP
+.B TIOCOUTQ
+Devuelve la cantidad de datos sin enviar en la cola de envío del conector
+en el puntero a un valor entero pasado.
+.SH MANEJO DE ERRORES
+Cuando se produce un error de red, TCP intenta reenviar el paquete. Si no
+tiene éxito después de un cierto tiempo, informa o bien de un error
+.B ETIMEDOUT
+o bien del último error recibido sobre esta conexión.
+.PP
+Algunas aplicaciones necesitan una notificación más rápida del error. Esto
+se puede hacer con la opción de conector
+.B IP_RECVERR
+del nivel
+.BR SOL_IP .
+Cuando se activa esta opción, todos los errores de entrada son pasado
+inmediatamente al programa de usuario. Use esta opción con cuidado (hace que
+TCP sea menos tolerante a cambios de enrutamiento y a otras condiciones de
+red normales).
+.SH OBSERVACIONES
+Cuando se produce un error, al configurar una conexión, durante la escritura
+en un conector, sólo se produce una señal
+.B SIGPIPE
+cuando está activa la opción de conector
+.BR SO_KEEPOPEN .
+.PP
+TCP no posee verdaderos datos fuera de orden, posee datos urgentes. En Linux
+esto significa que si el otro extremo envía datos fuera de orden recientes,
+los anteriores datos urgentes se insertarán como datos normales en el flujo
+(incluso cuando
+.B SO_OOBINLINE
+no está activa). Esto difiere de las pilas de protocolo basadas en BSD.
+.PP
+Linux usa por defecto una interpretación del campo puntero urgente
+compatible con BSD. Esto viola el RFC1122 pero se necesita por
+interoperatividad con otras pilas. Se puede cambiar con la sysctl
+.BR tcp_stdurg .
+.SH ERRORES
+.TP
+.B EPIPE
+El otro extremo ha cerrado el conector inesperadamente o se ha intentado
+leer de un conector desconectado.
+.TP
+.B ETIMEDOUT
+El otro extremo no ha reconocido los datos retransmitidos después de cierto
+tiempo.
+.TP
+.B EAFNOTSUPPORT
+El tipo de dirección de conector pasado en
+.I sin_family 
+no es 
+.BR AF_INET .
+.PP
+TCP también puede devolver cualquier error definido por
+.BR ip (7)
+o la capa de conectores genéricos.
+.PP
+
+.SH FALLOS
+No se han documentado todos los errores.
+.PP
+No se ha descrito IPv6.
+.PP
+No se han descrito las opciones de proxy transparente.
+.SH VERSIONES
+Las sysctls son nuevas en la versión 2.2 de Linux.
+.B IP_RECVERR
+es una característica nueva de la versión 2.2 de Linux.
+.B TCP_CORK
+es nueva en la versión 2.2.
+.SH VÉASE TAMBIÉN
+.BR socket (7),
+.BR socket (2),
+.BR ip (7),
+.BR sendmsg (2),
+.BR recvmsg (2).
+.br
+RFC793 para la especificación de TCP.
+.br
+RFC1122 para los requisitos de TCP y una descripción del algoritmo Nagle.
+.br
+RFC2001 para algunos algoritmos de TCP.

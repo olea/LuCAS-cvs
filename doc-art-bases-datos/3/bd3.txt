@@ -1,0 +1,852 @@
+  Artculo para la revista Linux Actual nmero 15:
+  Javier Fernndez-Sanguino Pea  <jfs@computer.org>
+  24 julio 2000
+
+  En sta entrega del desarrollo de bases de datos en Internet con
+  GNU/Linux se van a ver los aspectos especficos del desarrollo de la
+  aplicacin que ya se describi en los anteriores.
+
+  11..  IInnttrroodduucccciinn
+
+  Como ya se introdujo en el nmero anterior, la aplicacin concreta que
+  se va a abordar es la creacin de una Asociacin de Antiguos Alumnos en
+  Internet, para que sea posible, a dichas personas, acceder a travs de
+  un cliente universal (un navegador de WWW) a una base de datos con la
+  informacin relativa a los dems antiguos alumnos.
+
+  De esta forma esta base de datos puede servir para que los distintos
+  exalumnos puedan comunicarse entre s, saber dnde se encuentra
+  trabajando cada uno y as estrechar los lazos que ya en su da se
+  generaron en el Instituto, Escuela o Universidad donde se conocieron.
+
+  La aplicacin en concreto se dividir en:
+
+
+  +o  una parte de introduccin de informacin que sirva como alta de los
+     nuevos usuarios.
+
+  +o  una seccin de autenticacin que permita acceder a los usuarios
+     reconocidos al rea privada del servidor.
+
+  +o  una seccin de consultas, slo accesible por los usuarios
+     reconocidos, que permitir obtener informacin de la base de datos
+
+  En este artculo se van a ver todos estos aspectos de la aplicacin,
+  acompandolos del listado de cdigo necesario para llevarlos a cabo.
+  Como ya se introdujo en los anteriores artculos, para implementar esta
+  aplicacin se va a utilizar WWW-SQL (en su versin para PostgreSQL).
+
+
+  ******************** FIGURA 1 *************************
+
+
+
+  22..  WWWWWW--SSQQLL
+
+  Ya se vio en el artculo anterior una breve introduccin al lenguaje de
+  programacin de scripts WWW-SQL en comparacin con otras tcnicas para
+  programar el acceso a servidores de web desde pginas HTML. Aqu se har
+  ms hincapi en la estructura del lenguaje y en sus posibilidades.
+
+  WWW-SQL es un programa CGI diseado para crear pginas de web desde
+  bases de datos PostgreSQL o MySQL, implementado por James Henstridge.
+  El programa viene acompaado de un completo manual con algunos
+  ejemplos, pero aqu se resumen algunas de sus capacidades.
+
+
+  La funcin de WWW-SQL es procesar una pgina HTML e interpretar
+  determinadas rdenes contenidas en sta, calcular los resultados de
+  ejecucin de estas rdenes y devolver la pgina modificada. Como el
+  lector puede adivinar, las rdenes que va a ofrecer el lenguaje van a
+  estar, fundamentalmente, relacionadas con el acceso a bases de datos.
+
+  La sintaxis de las marcas reconocidas por WWW-SQL es la siguiente:
+
+  <! SQL orden argumento1 argumento2 ... >
+
+  La orden es cualesquiera de los comandos reconocidos por el lenguaje,
+  mientras que argumento1 y argumento2 (aunque puede haber ms
+  argumentos) son los datos que se le dan a dicho comando para variar su
+  comportamiento.
+
+  Algunas de los comandos ms importantes en WWW-SQL  son:
+
+  +o  ccoonnnneecctt: permite conectarse a un servidor de base de datos
+     indicando el nombre del servidor y el del usuario (y contrasea)
+     utilizados para acceder a sta. Si no se da nombre de usuario se
+     utilizar uno por defecto.
+
+  +o  ddaattaabbaassee: indica la base de datos del sistema de base de datos a
+     utilizar, y es absolutamente necesario para llegar a conectar a una
+     base de datos.
+
+  +o  cclloossee: cierra la conexin a la base de datos, debe ser el ltimo
+     comando a ejecutar.
+
+  +o  qquueerryy: permite hacer una consulta SQL cualquiera a la base de datos
+     y devolver los resultados a travs de un elemento que podr
+     utilizarse para extraerlos.
+
+  +o  sseett,sseettddeeffaauulltt y sseetteexxpprr: permite trabajar con variables dentro de
+     WWW-SQL, asignndolas valores. Se pueden modificar las variables y
+     comparar a travs de un conjunto de operandos que incluyen, incluso,
+     expresiones regulares.
+
+  +o  ffrreeee,ffeettcchh y sseeeekk: permite hacer operaciones sobre los elementos
+     devueltos del resultado de las consultas.
+
+  Adems, el lenguaje tiene soporte para dos tipos de estructuras de
+  control (if.. then...elseif..endif, y while..done), posibilidad de
+  gestionar las variables recibidas a travs del CGI script (rellenadas,
+  por ejemplo, desde un formulario), capacidad de gestionar Cookies y
+  algunas estructuras ya implementadas para poder gestionar fcilmente
+  tablas y algunos elementos de formularios (como listas desplegables).
+
+  La estructura normal de una pgina con SQL embebido con este lenguaje
+  tendr, tpicamente, esta estructura:
+
+
+       <!-- Cabeceras HTML -->
+       <!sql connect>
+       <!sql database dbname>
+       <!-- cdigo HTML y rdenes www-sql -->
+       <!sql close>
+       <!-- Pie HTML -->
+
+
+
+  Un programador experimentado podr echar en falta muchas capacidades
+  como: estructuras de control ms potentes, la posibilidad de
+  modularizar el cdigo a travs de funciones, etc.. pero WWW-SQL es en
+  realidad la alternativa menos compleja para abordar el desarrollo de
+  los sistemas que aqu se estn tratando. Si uno desea un lenguaje ms
+  expresivo puede probar con PHP/FI o con PERL embebido.
+
+  En cualquier caso, WWW-SQL es la alternativa ms interesante cuando se
+  quiere hacer el desarrollo de un prototipo, lo que se llama comnmente
+  "prueba de concepto".
+
+
+
+  33..  DDeessaarrrroolllloo ddeell sseerrvviiddoorr..
+
+  El esquema general del servidor se muestra en la figura 2. Como se
+  puede ver en sta el servidor se va a dividir, fundamentalmente en dos
+  partes, una parte de contenidos pblicos, en los que no se va a
+  restringir el acceso al usuario y una parte de contenidos privados en
+  los que se va a solicitar una autenticacin previa.
+
+  Por otro lado, es necesario tener alguna forma de que los usuarios
+  nuevos del servidor introduzcan sus datos para darse de alta por
+  primera vez.
+
+  ***************** FIGURA 2 ***************************
+
+  Adems, en este tipo de sistemas en los que se va a almacenar
+  informacin personal, ser necesario cuidarse de que los usuarios que se
+  dan de alta son reales. sta sera la funcin de un "certificador" (o
+  notario), que diera fe de que los datos introducidos corresponden a
+  una persona real y que puede pertenecer por pleno derecho a la
+  asociacin. sta figura y la forma de introducirla no se va a ver en
+  este artculo pues se sale del esquema propuesto de desarrollo. En
+  cualquier caso en esta serie se pretende hacer una exposicin del
+  problema tcnico existente no del problema tambin en sus aspectos
+  sociolgicos (pero que en cualquier caso no se deben olvidar).
+
+  Evidentemente, para que el servidor tenga una cierta uniformidad en
+  cuanto a aspecto, las pginas tendrn que facilitar al desarrollador que
+  "obvie" los aspectos correspondientes a la parte esttica y se pueda
+  centrar en el desarrollo de la aplicacin. Esto puede hacerse fcilmente
+  haciendo uso de WML (Website Meta Language), este tema es muy
+  interesante pero se sale del mbito de este artculo.
+
+  Como el lector puede suponer, la parte del desarrollo del servidor en
+  la que se va a hacer hincapi es la parte de la programacin en el
+  interfaz del acceso a la base de datos, as como la parte de
+  autentificacin. Se va a empezar con la entrada de nuevos usuarios, es
+  decir el alta de los mismos, y se podrn empezar a ver algunas de las
+  potencias (y debilidades) de WWW-SQL.
+
+
+  33..11..  AAllttaa ddee uussuuaarriiooss..
+
+  El alta de usuarios se har, como es habitual a travs de un formulario
+  de entrada HTML en el que el usuario rellenar los datos y enviar stos
+  al servidor al pulsar el botn de "Envo".
+
+  La funcin del servidor una vez llevada a cabo esta tarea sera:
+
+  +o  comprobar que los datos tienen el formato adecuado.
+
+  +o  introducir estos datos en la base de datos y detectar los problemas
+     que puedan surgir.
+
+  +o  decidir si seguir adelante solicitando ms datos y proceder si es
+     necesario.
+
+  El ltimo paso es necesario para que se haga la entrada de los datos en
+  dos partes. Como ya se vio en el esquema entidad relacin, en principio
+  todos los usuarios registrados tienen que tener un conjunto de datos,
+  pero hay otros, como telfono o direccin de correo electrnico, que no
+  tienen por qu estar presentes y finalmente, una tabla (la de empresas
+  y trabajadores en ella) en la que slo se han de introducir datos si el
+  usuario est trabajando.
+
+  Gracias a esto el alta de los usuarios es sencilla, como se muestra en
+  el listado 1. Si el usuario ha introducido el DNI, elemento que se
+  considera imprescindible, se insertarn los datos dados en la base de
+  datos. Si adems se han introducido otra serie de datos (como son el
+  nmero de telfono y la direccin de correo) se introducirn estos en las
+  tablas correspondientes.  Finalmente, si el usuario ha indicado que
+  est trabajando se le dirigir a la segunda parte de la entrada de
+  datos.
+
+  *************** LISTADO 1 ***********************
+
+  Como se ve la entrada de los datos bsicos no tienen gran complicacin,
+  se podra hacer ms compleja aadiendo comprobaciones de tipos de datos
+  antes de introducirlos, pero otras funciones, como la deteccin de
+  problemas de insercin no pueden "interceptarse" en WWW-SQL. Es aqu
+  donde vemos los primeros problemas y debilidades de ste. Todo funciona
+  bien si los datos de entrada son correctos y no se encuentra con casos
+  "extraos". Pero si se da cualquier problema, el error se le mostrar
+  directamente al usuario en la pgina HTML devuelta, ya que no es
+  posible "interceptarlo". En cualquier caso esta implementacin nos
+  sirve como prototipo. Este tipo de errores slo se pueden mejorar si se
+  reimplementa el interfaz en un lenguaje ms verstil que soporte ms
+  posibilidades.
+
+
+  La entrada de datos de empresas resulta algo ms compleja. Cuando un
+  usuario se da de alta como trabajador y quiere indicar la empresa en
+  la que est trabajando y su puesto, pueden darse dos casos, el caso de
+  que la empresa no exista ya en la base de datos y sea el usuario el
+  encargado de introducir los datos de sta, o el caso de que la empresa
+  ya exista y el usuario pueda sencillamente seleccionarla.
+
+  El interfaz que permite dar de alta estos datos tiene que contemplar
+  ambos casos. Se puede considerar que es el usuario el que tiene que
+  introducir siempre los datos de la empresa en la que trabaja.  Pero
+  entonces no podr "ver" las empresas que ya estn en la base de datos, y
+  se dar el caso de que existan mltiples personas que trabajan en la
+  misma empresa pero que no sea "la misma" a efectos de la base de
+  datos. Si sucede esto se est duplicando de forma innecesaria
+  informacin. Tambin puede suceder que slo se le deje al usuario
+  seleccionar una empresa de las ya existentes, con lo que se limita la
+  versatilidad del interfaz dado que tiene solicitar a alguien (quizs al
+  administrador) que d de alta nuevas empresas para que pueda l indicar
+  en el interfaz que est trabajando en ella.
+
+  Por ello la opcin elegida es la mostrada en el listado 2, en el que la
+  diferencia fundamental con respecto al formulario de entrada de datos
+  personales, es que parte del formulario se construye en base a la
+  informacin de la base de datos.
+
+  As, por un lado el usuario introduce siempre informacin de su cargo y
+  departamento. Tiene que haber dos opciones:
+
+  +o  seleccionar la empresa en la que est trabajando de una lista de
+     empresas en la base de datos, para ello genera la lista en tiempo
+     de ejecucin de las que ya existen.
+
+  +o  introducir los datos de una nueva empresa que no est en la lista
+     mostrada.
+
+
+  ************** LISTADO 2 *************************
+
+  Tras esto, como se muestra en el listado 3, se proceder a enviar los
+  datos a un programa encargado de tratarlos. Si el usuario ha
+  introducido una nueva empresa, sta ser introducida junto con sus datos
+  en la tabla correspondiente. Y, en cualquier caso, se introducir la
+  informacin relativa del puesto y cargo que desempea la persona dentro
+  de la empresa en la tabla que identifica las relaciones laborales
+  entre personas y empresas.
+
+  ***************** LISTADO 3 **************************
+
+  Una mejora a estos formularios sera ofrecer la posibilidad de realizar
+  entre la lista de las empresas, por ejemplo, bsquedas de cadenas o ser
+  capaz de comprobar que una empresa que se va a introducir se parece
+  "sospechosamente" a otra ya introducida (por ejemplo, porque sea el
+  mismo nombre pero sin acentos). Pero en principio el prototipo es
+  suficientemente funcional. En realidad se puedan hacer muchas mejoras
+  para que luego, en el uso diario, se evite que los usuarios
+  introduzcan empresas distintas que luego, realmente, son la misma.
+
+
+  33..22..  AAuutteennttiiccaacciinn..
+
+  Para lograr limitar el acceso a la informacin contenida en la base de
+  datos, con el fin de mantener el propsito de la asociacin, es
+  necesario que los usuarios sean autenticados antes de acceder a la
+  parte privada del servidor. No interesa que cualquiera pueda acceder a
+  los datos generados de todos los miembros.
+
+  Cmo se puede saber si quin accede tiene derecho, o no, de consultar
+  los datos? Muy sencillo, slo aquel que ya ha sido registrado puede
+  hacerlo por lo que se necesita realizar algn tipo de pregunta con la
+  que se puede saber que la persona que est accediendo ha sido
+  registrado previamente. Para hacer la pregunta se puede escoger parte
+  de la informacin utilizada en el registro, pero ha de ser de tal
+  manera que el que accede, al darla, est demostrando de forma
+  fehaciente su identidad.
+
+  sta no es la nica posibilidad para solventar este tipo de situacin.
+  Habitualmente, en los servidores con algn tipo de autenticacin de
+  usuarios, se le da la posibilidad a stos para elegir un nombre de
+  usuario y una clave que se introducen al registrarse. El problema
+  surge, sin embargo, cuando pasa mucho tiempo desde que  el usuario se
+  registr y vuelve a acceder. Dndose el caso, frecuente, de que se haya
+  olvidado la contrasea elegida y se tiene que solicitar su envo. Por
+  las condiciones del servicio que se va a implementar es ms que posible
+  que se de ste tipo de situacin, ya que en principio no tiene mucho
+  sentido realizar consultas diarias.
+
+  Para evitar este problema en el diseo planteado, se ha optado por
+  preguntar al usuario informacin que slo ste conoce y no vaya a olvidar
+  con facilidad.
+
+  Si se estudia la informacin almacenada en la base de datos sobre cada
+  persona, se puede ver que hay slo son algunos los campos que slo vaya
+  a ser conocidos por el que acceder y no puedan estar sujetos a un
+  ataque por "fuerza bruta" (probar todas las combinaciones posibles
+  hasta encontrar una respuestas vlida).
+
+  Sin embargo s que se pueden escoger parejas de campos que sea ms
+  improbable que puedan ser conocidas al mismo tiempo. Por ello se ha
+  elegido dentro del desarrollo que el usuario tenga que responder con
+  dos datos que va a conocer siempre y no olvidar fcilmente y que, por
+  otro lado, es difcil que otra persona pueda conseguir reunir.
+
+  Los datos escogidos han sido el DNI y la fecha de nacimiento. La
+  funcin del interfaz a la hora de autenticar ser, por tanto, solicitar
+  stos al usuario y comprobar si son correctos. Esto es, si hay algn
+  usuario en el que concuerden ambos valores, de forma que se podr saber
+  quin ha sido el usuario registrado. Evidentemente, ningn sistema de
+  autenticacin es perfecto y ste, tambin, ser susceptible de fallos.
+
+  En cualquier caso, queda an pendiente establecer algn mecanismo para
+  que el servidor "sepa" que el usuario ha sido autenticado y no le
+  pregunte esta informacin cada vez que quiera acceder al rea privada.
+
+  Hay por lo menos dos mecanismos para hacer stos, y los dos derivan de
+  el hecho de que las transacciones a travs del protocolo HTTP carecen,
+  en principio, del concepto de "estado":
+
+  +o  Autenticacin basada en el servidor, en el que ser ste el encargado
+     de gestionar las sesiones y autenticar debidamente a los usuarios.
+     Este tipo de autenticacin se puede activar en Apache a travs de
+     ficheros _._h_t_a_c_c_e_s_s con el mdulo _m_o_d___a_u_t_h.
+
+  +o  Autenticacin basada en el cliente, en el que ser ste el encargado
+     de enviar al servidor una "prueba" de que es un cliente registrado.
+
+  Para facilitar el desarrollo se ha elegido ste ltimo ya que es un
+  mecanismos que se integra muy bien con el esquema de base de datos
+  propuesto. De esta forma se puede encargar la base de datos de guardar
+  tambin la informacin relacionada con las sesiones si se desea.
+
+  Hay que destacar, sin embargo, que se podra llegar a utilizar
+  autenticacin basada en el servidor si se utilizar un mdulo de
+  autenticacin que funcionara contra una base de datos relacional (SQL).
+  Existe una implementacin de un mdulo de este tipo que se ha dejado de
+  distribuir con Apache, ya que slo ofreca la posibilidad de comunicarse
+  con la base de datos Msql. Se est trabajando, sin embargo, en una
+  implementacin genrica (mdulo _m_o_d___a_u_t_h___s_q_l) para poder utilizar
+  cualquier base de datos en el primer caso.
+
+
+
+  33..22..11..  UUssoo ddee ccooookkiieess ..
+
+  La forma de establecer el mecanismo de autenticacin en base a una
+  "prueba" que entrega el cliente es haciendo uso del concepto de
+  _c_o_o_k_i_e_s.
+
+  Las _c_o_o_k_i_e_s fueron una propuesta, inicialmente de Nestcape
+  Communications, para ser capaz de gestionar transacciones con estado
+  en el entorno WWW. El problema fundamental es que no se puede
+  implementar aplicaciones del estilo de "carrito de la compra" porque
+  en ningn lado se poda, en principio, almacenar informacin de lo que ha
+  hecho el usuario. Este tipo de sesiones deberan soportar, adems, que
+  el cliente se desconectara y volviera un tiempo ms adelante y siguiera
+  teniendo las mismas cosas seleccionadas "en el carrito".  Este
+  mecanismo se especifica con detalle en el estndar de Internet RFC 2109
+  del 27 de agosto de 1999.
+
+  Cada cliente puede guardar un nmero ilimitado de _c_o_o_k_i_e_s que no son ms
+  que pares de atributo-valor asignado a un dominio concreto y que el
+  cliente almacena, pudiendo guardar ms informacin como comentario,
+  tiempo de vida, etc... El cliente, si tiene el soporte de _c_o_o_k_i_e_s
+  activado, puede recibir stas y, posteriormente, deber darlas cada vez
+  que accede a un servidor dentro del dominio indicado.
+
+  Es evidente, sin embargo que existe la posibilidad de ataques a este
+  sistema por parte de elementos que estn "escuchando" la comunicacin
+  entre cliente servidor. Si pueden recoger la cookie podran hacerse
+  "pasar" por otro usuario. Para esto hay dos soluciones:
+
+  +o  Utilizar un protocolo seguro (un servidor https) de forma que el
+     intercambio de informacin entre cliente y servidor vaya cifrado y
+     sea difcil de interceptar.
+
+
+  +o  cifrar la _c_o_o_k_i_e e incluir informacin en sta relacionada con el
+     ordenador que est accediendo (su direccin IP por ejemplo). De forma
+     que otro cliente no pueda interceptarla y usarla con xito.
+
+  En cualquier caso, an a pesar de los problemas de autenticacin, en
+  este prototipo se ha optado por  utilizar un esquema ms sencillo en el
+  que el servidor va a entregar una _c_o_o_k_i_e con un valor determinado (en
+  este caso el DNI) y va a "confiar" en el cliente que tenga una _c_o_o_k_i_e
+  para el dominio donde est ubicado el servidor de la base de datos con
+  un contenido vlido en este campo.
+
+  Como se puede ver en el listado 4, se hace una consulta a la base de
+  datos con los valores dados en el formulario (_d_n_i y _f_e_c_h_a) que son
+  contrastados con la base de datos. Si existe un usuario con estos
+  mismos datos se le entrega entonces una _c_o_o_k_i_e a travs de la pgina
+  HTML (tag META: Set-Cookie y Set-Cookie2, se utilizan ambos por
+  compatibilidad).
+
+  ********************* LISTADO 4 *************************
+
+  Una vez hecho esto se puede incluir una comprobacin en cada pgina.
+  sta se asegura de que el usuario ha sido autenticado utilizando el
+  cdigo mostrado en el listado 5.
+
+  ********************* LISTADO 5 ************************
+
+
+
+  33..33..  CCoonnssuullttaass
+
+  Finalmente, es necesario implementar herramientas para que los
+  usuarios registrados puedan hacer uso de la informacin almacenada en
+  la base de datos. En realidad aqu hay muchas aplicaciones posibles,
+  pero las que primero se pueden pensar son:
+
+
+  +o  Generar una listas de personas registradas por ao de promocin.
+
+  +o  Generar un listn de las personas registradas con su telfono y
+     direccin de correo electrnico.
+
+  +o  Buscar una persona determinada en la base de datos.
+
+  +o  Generar una lista de personas y empresas en las que trabajan.
+
+  +o  Buscar informacin de las personas que estn trabajando en una
+     determinada empresa.
+
+  No se van a explicar en detalle todas estas consultas, ya que el hecho
+  de implementarlas en general no es ms que el realizar una consulta SQL
+  y mostrar los datos en una tabla.
+
+  Por ello se va a mostrar slo la segunda consulta, el "listn telefnico"
+  generado en base a los datos de la base de datos. Como se puede ver en
+  el listado 6 se hace un _s_e_l_e_c_t cruzando tres de las tablas de la base
+  de datos para al final sacar un vector con la informacin personal
+  (nombre y apellidos) y de contacto (nmero de telfono y correo
+  electrnico) de la base de datos.
+
+  ********************* LISTADO 6 ************************
+
+  Como se puede ver en el listado lo que se hace es recoger un nmero
+  limitado de resultados (definido en la variable _s_t_e_p) de la consulta
+  realizado y llamar a la funcin _p_r_i_n_t___r_o_w_s para que todos estos se
+  impriman en una tabla HTML. El programa, adems, es capaz de llamarse a
+  s mismo incrementando la cuenta (offset, variable _o_f_s) para poder ir
+  recuperando pginas sucesivas de informacin de la consulta y as no
+  tener que mostrar toda la consulta de golpe.
+
+  Como se puede ver en el listado 7 esta misma filosofa de ensear los
+  resultados de una consulta se puede aplicar a consultas cada vez ms
+  complicadas, como puede ser el caso de buscar qu personas estn
+  trabajando en una empresa determinada.
+
+
+  ****************** LISTADO 7 ******************************
+
+
+
+  44..  CCoonncclluussiioonneess
+
+  Con este artculo se concluye la implementacin de un acceso a una base
+  de datos a travs de un interfaz WWW habiendo visto todos los aspectos,
+  al menos superficialmente (con las restricciones que pueda tener una
+  publicacin como sta), de diseo y desarrollo, as como las alternativas
+  posibles de implementacin.
+
+  Este prototipo es, por supuesto, muy mejorable. Se han visto algunas
+  de las deficiencias de www-psql para tratar situaciones complejas,
+  como poda ser la entrada de datos. Este tipo de situaciones podra
+  evitarse aadiendo programacin a los interfaces tambin en Javascript,
+  pero, en cualquier caso, siempre es necesario que el servidor
+  compruebe que los datos recibidos son correctos (no se puede "fiar" de
+  lo que le llega). Una alternativa ms verstil y que podr enfrentarse
+  mejor a este problema sera reimplementar el interfaz para utilizar
+  PERL embedido o PHP/FI. Ambos van a permitir tener un acceso ms
+  transparente a la base de datos, al mismo tiempo que posibilitaran la
+  intercepcin de errores y la comprobacin de los datos recibidos de una
+  manera mucho ms elegante.
+
+  En cualquier caso estos temas quedan pendientes para sucesivos
+  artculos. Baste decir que el desarrollo realizado del prototipo ha
+  sido un desarrollo real, que se encuentra en fase de pruebas, para
+  llevar a cabo este tipo de asociacin de antiguos alumnos en una
+  Escuela de la Universidad Politcnica de Madrid. El cdigo del
+  desarrollo est a disposicin de las personas interesadas, contacte con
+  el autor si lo desea.
+
+  Tambin quedara pendiente la posibilidad de mejorar este servicio,
+  ligndolo a una lista de correo. Esta lista puede servir de medio para
+  comunicar a los distintos usuarios registrados. Puede ser util, por
+  tanto, suscribir o desuscribirles en funcin de altas y bajas de la
+  base datos. Asismismo, sera posible enviar un resumen peridico de
+  altas y bajas de forma automtica a dicha lista.
+
+
+  55..  SSuummaarriiooss
+
+
+  El servicio sirve como punto de encuentro.
+
+  WWW-SQL es un CGI que interpreta pginas web.
+
+  Un programador puede echar en falta estructuras complejas en WWW-SQL.
+
+  El servidor se divide en dos partes.
+
+  Se hace hincapi en el acceso a la base de datos.
+
+  La entrada de datos se hace a travs de un formulario.
+
+
+  Se pueden implementar mltiples consultas tiles.
+
+  Aqu se completa la implementacin del prototipo.
+
+  Se puede mejorar utilizando ePERL o PHP/FI.
+
+
+
+  66..  LLiissttaaddooss
+
+
+  LISTADO 1-
+
+
+       <HTML>
+       <HEAD>
+       <TITLE>Alta de usuario</TITLE>
+       <! sql if "$dni" == "">
+       <! sql print "Error: Debe dar un DNI">
+       <! sql setexpr alta 0>
+       <! sql else>
+       <! sql connect localhost jfs>
+       <! sql database exalumnos>
+       <! sql query "begin">
+       <! sql query "insert into persona (dni, nombre_persona, apellidos_persona , calle_persona, ciudad_persona, pais_persona, codigo_postal, graduacion, ingreso, fecha_nacimiento) values ( $dni, '$nombre', '$apellidos','$calle', '$ciudad', '$pais', '$codigo_postal', $fecha_grad, $fecha_ingreso, '?fecha_nac')">
+       <! sql query "end">
+       <! sql print "<META http-equiv=\"Set-Cookie\" content=\"dni="$dni;" path=/\">" >
+       <! sql print "<META http-equiv=\"Set-Cookie2\" content=\"dni="$dni;" path=/\">" >
+       <! sql if "$email" != "">
+       <! sql query "begin">
+       <! sql query "insert into usa_mail (dni, e_mail) values ( $dni, '$email')">
+       <! sql query "end">
+       <! sql endif>
+       <! sql if "$telefono" != "">
+       <! sql query "begin">
+       <! sql query "insert into usa_tfo (dni, telefono, prefijo) values ( $dni, '$telefono', '$prefijo')">
+       <! sql query "end">
+       <! sql endif>
+       <! sql setexpr alta 1>
+       <! sql if "$trabajo" == "y">
+       <! sql print "<META http-equiv=\"refresh\" content=\"1;URL=alta_empresa.html\">" >
+       <! sql endif>
+       <BODY>
+       <! sql if $alta == 1>
+       <! sql print "Su solicitud ha sido aceptada.">
+       <! sql if "$trabajo" == "y">
+       <! sql print "<A HREF=\"alta_empresa.html\">D de alta a su empresa</A>." >
+       <! sql endif>
+       <! sql close>
+       <! sql endif>
+       <! sql endif>
+       </BODY>
+       </HTML>
+
+
+
+  PIE LISTADO 1: Cdigo para dar de alta a un usuario
+
+  LISTADO 2-
+
+
+
+  #use wml::exalumnos::plantilla title="D de alta su empresa" minititle="Alta empresa"
+  <H1>D de alta su empresa en la Base de Datos:</H1>
+  <BR>
+  <FORM METHOD="GET" ACTION="alta_empresa.pgsql">
+  Su puesto dentro de la empresa: <INPUT TYPE="TEXT" NAME="puesto"><BR>
+  Su departamento dentro de la empresa: <INPUT TYPE="TEXT" NAME="departamento"><BR>
+  <HR>
+
+  <protect>
+  <! sql connect localhost nobody >
+  <! sql database exalumnos >
+  <! sql query "begin" >
+  <! sql query "declare tmp cursor for select nombre_empresa from empresa" >
+  <! sql if $NUM_ROWS != 0 >
+  <! sql query "fetch all in tmp" q1 >
+  Busque su empresa: <SELECT NAME="empresa">
+  <OPTION VALUE="" DEFAULT>
+  <! sql print_rows q1 "<OPTION VALUE=\"@q1.0\">@q1.0">
+  </SELECT><BR>
+  <! sql endif >
+  <! sql free q1 >
+  <! sql query "end">
+  </protect>
+  <STRONG>Slo si su empresa no est en la lista previa introduzca los datos de sta:</STRONG><BR>
+
+  Nombre de la empresa: <INPUT TYPE="TEXT" NAME="nombre"><BR>
+  Direccin:
+  Calle: <INPUT TYPE="TEXT" NAME="calle"><BR>
+  Ciudad: <INPUT TYPE="TEXT" NAME="ciudad"><BR>
+  Pas: <INPUT TYPE="TEXT" NAME="pais"><BR>
+  Cdigo postal: <INPUT TYPE="TEXT" NAME="codigo_postal"><BR>
+  Actividad: <INPUT TYPE="TEXT" NAME="actividad"><BR>
+  Nmero aproximado de empleados: <INPUT TYPE="TEXT" NAME="empleados"><BR>
+
+  <INPUT TYPE="SUBMIT" VALUE="Dar de Alta">
+  </FORM>
+  </BODY>
+  </HTML>
+
+
+
+  PIE LISTADO 2: Formulario para darse de alta en una empresa
+
+  LISTADO 3-
+
+
+
+  #use wml::exalumnos::plantilla title="Alta de su empresa" autorizacion
+  # aqu se usa la cookie que se ha puesto antes para poner el valor a
+  # trabaja_en empresa
+  <protect>
+  <! sql connect localhost  jfs >
+  <! sql database exalumnos >
+  <! sql query "begin" >
+  <! sql if $empresa = "" >
+  <! sql query "insert into empresa (nombre_empresa,
+  calle_empresa, ciudad_empresa, pais_empresa, codigo_postal,actividad, num_empleados)
+  values ( '$nombre', '$calle', '$ciudad', '$pais',
+  <! sql else >
+  <! sql set nombre "$empresa" >
+  <! sql endif >
+  <! sql query "insert into trabaja_en (dni, nombre_empresa, puesto ,departamento)
+  values ( '$dni', '$nombre', '$puesto', '$departamento')" >
+  <! sql query "end" >
+  <! sql print "<H1>Solicitud aceptada</H1>">
+  <! sql print "<P>Se han registrados sus datos asi como los de la empresa en los que trabaja. "</P>>
+  <! sql print "<P>Gracias por darse de alta</P>.">
+  <! sql close>
+  </protect>
+
+
+
+  PIE LISTADO 3: Alta de una empresa
+
+  LISTADO 4-
+
+
+
+  <HTML>
+  <HEAD>
+  <TITLE>Acceso de usuario</TITLE>
+
+  <! sql setdefault dni 0 >
+  <! sql if $dni == 0 >
+  <! sql print "<META http-equiv=\"refresh\" content=\"1;URL=respuesta/rechazado.html\">" >
+  <! sql setexpr aceptado 0 >
+  <! sql else >
+  <! sql connect localhost nobody >
+  <! sql database exalumnos >
+  <! sql query "begin" >
+  <! sql query "declare tmp cursor for select * from persona where dni=$dni and fecha_nacimiento='?fecha'" >
+  <! sql query "fetch 10 in tmp" q1 >
+  <! sql query "end" >
+  <! sql free q1 >
+  <! sql if $NUM_ROWS != 0 >
+  <! sql print "<META http-equiv=\"refresh\"content=\"1;URL=respuesta/aceptado.html\">" >
+  <! sql print "<META http-equiv=\"Set-Cookie\" content=\"dni=$dni;path=/\">" >
+  <! sql print "<META http-equiv=\"Set-Cookie2\" content=\"dni=$dni;path=/\">" >
+  <! sql setexpr aceptado 1 >
+  <! sql else >
+  <! sql print "<META http-equiv=\"refresh\" content=\"1;URL=respuesta/rechazado.html\">" >
+  <! sql setexpr aceptado 0 >
+  <! sql close>
+  <! sql endif >
+  <! sql endif >
+
+  </HEAD>
+  <BODY>
+
+  <! sql if $aceptado == 0 >
+  <! sql print "Lo siento su peticin ha sido <A HREF=\"respuesta/rechazado.html\">rechazada</A>." >
+  <! sql else >
+  <! sql print "Su peticin ha sido <A HREF=\"respuesta/aceptado.html\">aceptada</A>." >
+  <! sql endif >
+
+  </BODY>
+  </HTML>
+
+
+
+  PIE LISTADO 4:  Autenticacin de un usuario
+
+
+  LISTADO 5-
+
+
+       <! sql setdefault dni 0 >
+       <! sql if \$dni == 0 >
+       <H1>Error</H1>
+       <P>No conozco su DNI. Vaya a la <A HREF=\"$(USER)/alta.html\">pgina de altas</A> si an no se ha dado de alta o a la <A HREF=\"$(USER)/acceso.html\">pgina de acceso</A> si no ha sido autentificado por el servidor.</P>
+       <protect>
+       <! sql else >
+       </protect>
+
+
+
+  PIE LISTADO 5: Autenticacin del usuario en base a la cookie recibida.
+
+  LISTADO 6
+
+
+  #use wml::exalumnos::plantilla title="Listin de antiguos alumnos" autorizacion
+  <H1>Listn de antiguos alumnos</H1>
+  <protect>
+  <! sql connect localhost nobody >
+  <! sql database exalumnos >
+  <! sql setdefault ofs 0 >
+  <! sql setdefault step 10 >
+  <! sql query "begin" >
+  <! sql query "declare tmp cursor for select nombre_persona, apellidos_persona, telefono, e_mail  from persona, usa_tfo, usa_mail where persona.dni=usa_tfo.dni and persona.dni=usa_mail.dni order by apellidos_persona" >
+  <! sql if $ofs != 0 >
+  <! sql query "move $ofs in tmp" >
+  <! sql endif >
+  <! sql query "fetch $step in tmp" q1 >
+  <! sql if $NUM_ROWS != 0 >
+  <table>
+  <tr> <th>Nombre</th> <th>Apellidos</th> <th>Nmero de telfono</th> <th>Correo electrnico</th></tr>
+  <! sql print_rows q1 "<tr> <td>@q1.0</td> <td>@q1.1</td> <td><CENTER>@q1.2<CENTER></td> <td>@q1.3</td></tr>\n" >
+  </table>
+  <! sql if $step-1 < $ofs >
+  <! sql print "<a href=\"listin.pgsql\?ofs=" >
+  <! sql eval $ofs - $step >
+  <! sql print "\">">Anterior</a>
+  <! sql else >
+  Anterior
+  <! sql endif >
+  <! sql if $NUM_ROWS = $step >
+  <! sql print "<a href=\"listin.pgsql\?ofs=" >
+  <! sql eval $ofs + $step >
+  <! sql print "\">">Siguiente</a>
+  <! sql else >
+  Siguiente
+  <! sql endif >
+  </center>
+  <! sql endif >
+  <! sql free q1 >
+  <! sql query "end" >
+  <! sql close >
+  </protect>
+
+
+
+  PIE LISTADO 6: Listn de los usuarios de la base de datos.
+
+  LISTADO 7-
+
+
+
+  #use wml::exalumnos::plantilla title="Bsqueda de antiguos alumnos en empresas" autorizacion
+  <H1>Bsqueda de antiguos alumnos en la empresa
+  <! sql print "$empresa">
+  </H1>
+  <protect>
+  <! sql connect localhost nobody >
+  <! sql database exalumnos >
+  <! sql setdefault ofs 0 >
+  <! sql query "begin" >
+  <! sql query "declare tmp cursor for select nombre_persona, apellidos_persona from persona, trabaja_en where persona.dni=trabaja_en.dni and strpos(upper(trabaja_en.nombre_empresa),upper('$empresa')) >0 order by apellidos_persona" >
+
+  <! sql if $ofs != 0 >
+  <! sql query "move $ofs in tmp" >
+  <! sql endif >
+  <! sql query "fetch 10 in tmp" q1 >
+  <! sql if $NUM_ROWS != 0 >
+  <table>
+  <tr> <th>Nombre</th> <th>Apellidos</th></tr>
+  <! sql print_rows q1 "<tr> <td>@q1.0</td> <td>@q1.1</td>\n" >
+  </table>
+  <br>
+  <! sql if 9 < $ofs >
+  <! sql print "<a href=\"busca_trabajadores.pgsql\?empresa=$empresa&ofs=" >
+  <! sql eval $ofs - 10 >
+  <! sql print "\">">Anterior</a>
+  <! sql else >
+  Anterior
+  <! sql endif >
+  <! sql if $NUM_ROWS = 10 >
+  <! sql print "<a href=\"busca_trabajadores.pgsql\?empresa=$empresa&ofs=" >
+  <! sql eval $ofs + 10 ><! sql print "\">">Siguiente</a>
+  <! sql else >
+  Siguiente
+  <! sql endif >
+  <! sql else >
+  <P>No se ha encontrado ningn trabajador de esa empresa</P>.
+  <! sql endif >
+  <! sql free q1 >
+  <! sql query "end" >
+  <! sql close >
+  </protect>
+
+
+
+  PIE LISTADO 7: Bsqueda de personas en empresas
+
+
+
+  77..  CCaappttuurraass
+
+
+
+  +o  Figura 1 - entidadrel.png  Pie: Esquema entidad relacin del
+     proyecto-
+
+
+  +o  Figura 2 - esq-servidor.png. Pie: Esquema simplificado del servidor
+     a disear.
+
+
+  +o  Figura 3 - cap-servidor.png. Pie: Pgina de alta de un usuario en el
+     servidor.
+
+
+  88..  NNoottaass ddee mmaaqquueettaacciinn
+
+
+  Por favor, el esquema entidad relacin hhaa ddee vveerrssee, en el nmero 14 no
+  se lea nada de ste, por esto (y porque me han llegado varios mails de
+  queja al respecto) la vuelvo a incluir en este artculo.
+
+
+  99..  NNoottaass ddee ccoooorrddiinnaacciinn
+
+
+

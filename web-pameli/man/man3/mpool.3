@@ -1,0 +1,222 @@
+.\" Copyright (c) 1990, 1993
+.\"	The Regents of the University of California.  All rights reserved.
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions
+.\" are met:
+.\" 1. Redistributions of source code must retain the above copyright
+.\"    notice, this list of conditions and the following disclaimer.
+.\" 2. Redistributions in binary form must reproduce the above copyright
+.\"    notice, this list of conditions and the following disclaimer in the
+.\"    documentation and/or other materials provided with the distribution.
+.\" 3. All advertising materials mentioning features or use of this software
+.\"    must display the following acknowledgement:
+.\"	This product includes software developed by the University of
+.\"	California, Berkeley and its contributors.
+.\" 4. Neither the name of the University nor the names of its contributors
+.\"    may be used to endorse or promote products derived from this software
+.\"    without specific prior written permission.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+.\" ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+.\" ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+.\" FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+.\" DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+.\" OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+.\" HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+.\" LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+.\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+.\" SUCH DAMAGE.
+.\"
+.\"	@(#)mpool.3	8.1 (Berkeley) 6/4/93
+.\"
+.\" Translated into Spanish on Tue Apr 12 1999 by
+.\"	Juan Piernas Cánovas <piernas@ditec.um.es>
+.\"
+.TH MPOOL 3 "4 Junio 1993"
+.UC 7
+.SH NOMBRE
+mpool \- depósito de buffers de memoria compartida
+.SH SINOPSIS
+.nf
+.ft B
+#include <db.h>
+#include <mpool.h>
+
+MPOOL *
+mpool_open (DBT *key, int fd, pgno_t pagesize, pgno_t maxcache);
+
+void
+mpool_filter (MPOOL *mp, void (*pgin)(void *, pgno_t, void *),
+.ti +5
+void (*pgout)(void *, pgno_t, void *), void *pgcookie);
+
+void *
+mpool_new (MPOOL *mp, pgno_t *pgnoaddr);
+
+void *
+mpool_get (MPOOL *mp, pgno_t pgno, u_int flags);
+
+int
+mpool_put (MPOOL *mp, void *pgaddr, u_int flags);
+
+int
+mpool_sync (MPOOL *mp);
+
+int
+mpool_close (MPOOL *mp);
+.ft R
+.fi
+.SH DESCRIPCIÓN
+.IR Mpool
+es la interfaz de biblioteca destinada a proporcionar un manejo de buffers
+de fichero orientado a páginas.
+Los buffers pueden ser compartidos entre procesos.
+.PP
+La función
+.I mpool_open
+inicializa un depósito de memoria.
+El argumento
+.I key
+es la cadena de bytes usada para negociar entre varios procesos que desean
+compartir buffers.
+Si los buffers de fichero se asocian a memoria compartida, todos los
+procesos que usen la misma clave compartirán los buffers.
+Si
+.I key
+es NULL, los buffers se asocian a una memoria privada.
+El argumento
+.I fd
+es un descriptor de fichero para el fichero subyacente, que debe soportar el
+posicionamiento del puntero de lectura/escritura (es decir, las búsquedas).
+Si
+.I key
+no es NULL y coincide con un fichero que ya está asociado, el argumento
+.I fd
+se ignorará.
+.PP
+El argumento
+.I pagesize
+es el tamaño, en bytes, de las páginas en las que se descompone el fichero.
+El argumento
+.I maxcache
+es el número máximo de páginas del fichero subyacente a colocar en cache en
+todo momento.
+Esta valor no es relativo al número de procesos que comparten los buffers de
+un fichero, pero será el mayor valor especificado por cualquiera de los
+procesos que compartan el fichero.
+.PP
+La función
+.I mpool_filter
+está destinada a hacer transparente el procesamiento de la entrada y la
+salida de las posibles páginas.
+Si se especifica la función
+.IR pgin ,
+se llamará cada vez que se lea un buffer al depósito de memoria procedente del
+fichero de respaldo.
+Si se especifica la función
+.IR pgout ,
+se llamará cada vez que un buffer se escriba en el fichero de respaldo.
+Ambas funciones se llaman con el puntero
+.IR pgcookie ,
+el número de página y un puntero a la página a leer o escribir.
+.PP
+La función
+.I mpool_new
+toma un puntero MPOOL y una dirección como argumentos.
+Si se puede asignar una nueva página, se devolverá un puntero a la página y
+el número de página se almacenará en la dirección
+.IR pgnoaddr .
+En caso contrario, se devolverá NULL y se asignará un valor a errno.
+.PP
+La función
+.I mpool_get
+toma un puntero MPOOL y un número de página como argumentos.
+Si la página existe, devolverá un puntero a la página.
+En caso contrario, devolverá NULL y se asignará un valor a errno.
+El parámetro de opción no se usa actualmente.
+.PP
+La función
+.I mpool_put
+desprende la página referenciada por
+.IR pgaddr .
+.I Pgaddr
+debe ser una dirección devuelta previamente por
+.I mpool_get
+o
+.IR mpool_new .
+El valor de opción se especifica haciendo una operación
+.IR O -lógica
+con cualquiera de los siguientes valores:
+.TP
+MPOOL_DIRTY
+La página ha sido modificada y necesita ser escrita en el fichero de
+respaldo.
+.PP
+.I Mpool_put
+devuelve 0 en caso de éxito y -1 si se produce un error.
+.PP
+La función
+.I mpool_sync
+escribe en el fichero de respaldo todas las páginas modificadas asociadas
+con el puntero MPOOL.
+.I Mpool_sync
+devuelve 0 en caso de éxito y -1 si se produce un error.
+.PP
+La función
+.I mpool_close
+libera cualquier memoria reservada asociada con el depósito de
+memoria.
+Las páginas modificadas
+.B no
+se escribirán en el fichero de respaldo.
+.I Mpool_close
+devuelve 0 en caso de éxito y -1 si se produce un error.
+.SH ERRORES
+La función
+.I mpool_open
+puede fallar y asignar a
+.I errno
+cualquiera de los errores especificados para la rutina de biblioteca
+.IR malloc (3).
+.PP
+La función
+.I mpool_get
+puede fallar y asignar a
+.I errno
+uno de los siguiente valores:
+.TP 15
+[EINVAL]
+El registro solicitado no exite.
+.PP
+Las funciones
+.I mpool_new
+y
+.I mpool_get
+pueden fallar y asignar a
+.I errno
+cualquiera de los errores especificados para las rutinas de biblioteca
+.IR read (2) ,
+.IR write (2)
+y
+.IR malloc (3).
+.PP
+La función
+.I mpool_sync
+puede fallar y asignar a
+.I errno
+cualquiera de los errores especificados para la rutina de biblioteca
+.IR write (2).
+.PP
+La función
+.I mpool_close
+puede fallar y asignar a
+.I errno
+cualquiera de los errores especificados para la rutina de biblioteca
+.IR free (3).
+.SH "VÉASE TAMBIÉN"
+.IR dbopen (3),
+.IR btree (3),
+.IR hash (3),
+.IR recno (3)

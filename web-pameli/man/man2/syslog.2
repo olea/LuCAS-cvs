@@ -1,0 +1,169 @@
+.\" Copyright (C) 1995 Andries Brouwer (aeb@cwi.nl)
+.\"
+.\" Permission is granted to make and distribute verbatim copies of this
+.\" manual provided the copyright notice and this permission notice are
+.\" preserved on all copies.
+.\"
+.\" Permission is granted to copy and distribute modified versions of this
+.\" manual under the conditions for verbatim copying, provided that the
+.\" entire resulting derived work is distributed under the terms of a
+.\" permission notice identical to this one
+.\" 
+.\" Since the Linux kernel and libraries are constantly changing, this
+.\" manual page may be incorrect or out-of-date.  The author(s) assume no
+.\" responsibility for errors or omissions, or for damages resulting from
+.\" the use of the information contained herein.  The author(s) may not
+.\" have taken the same level of care in the production of this manual,
+.\" which is licensed free of charge, as they might when working
+.\" professionally.
+.\" 
+.\" Formatted or processed versions of this manual, if unaccompanied by
+.\" the source, must acknowledge the copyright and authors of this work.
+.\"
+.\" Written 11 June 1995 by Andries Brouwer <aeb@cwi.nl>
+.\"
+.\" Translated into Spanish Fri Feb 6 1998 by Gerardo Aburruzaga
+.\" García <gerardo.aburruzaga@uca.es>
+.\" Translation revised Wed Dec 30 1998 by Juan Piernas <piernas@ditec.um.es>
+.\"
+.TH SYSLOG 2  "8 febrero 1998" "Linux 1.2.9" "Manual del Programador de Linux"
+.SH NOMBRE
+syslog \- lee o limpia el búfer del anillo de mensajes del núcleo;
+establece el nivel de registro de la consola
+.SH SINOPSIS
+.nf
+.B #include <unistd.h>
+.sp
+.B #include <linux/unistd.h>
+.sp
+.B _syscall3(int, syslog, int, tipo, char *, buf, int, lon);
+.sp
+.BI "int syslog(int " tipo ", char *" buf ", int " lon );
+.fi
+.SH DESCRIPCIÓN
+Probablemente no es ésta la función que le interesa. Mire
+.BR syslog (3)
+para la interfaz de la biblioteca de C. Esta página documenta sólo la
+interfaz de la llamada al sistema desnuda.
+
+El argumento \fItipo\fP determina la acción tomada por
+.BR syslog .
+
+Extraído (y traducido) de
+.IR kernel/printk.c :
+.nf
+/*
+ * Órdenes a sys_syslog:
+ *
+ *      0 -- Cierra el registro. Actualmente no hace nada.
+ *      1 -- Abre el registro. Actualmente no hace nada.
+ *      2 -- Lee del registro.
+ *      3 -- Lee hasta los últimos 4kB de mensajes en el búfer del anillo
+ *      4 -- Lee y limpia hasta los últimos 4kB de mensajes en el búfer del anillo
+ *      5 -- Limpia el búfer del anillo
+ *      6 -- Desactiva los printk's a consola
+ *      7 -- Activa los printk's a consola
+ *      8 -- Establece el nivel de mensajes mostrados en la consola
+ */
+.fi
+
+Solamente se permite la función 3 para procesos no de root.
+
+.B El búfer de registro del núcleo
+.br
+El núcleo tiene un búfer cíclico de longitud LOG_BUF_LEN
+(4096, desde la versión 1.3.54: 8192, desde la versión 2.1.113: 16384) en
+el que se guardan (sin importar su nivel de registro) los mensajes
+pasados como argumento a la función del núcleo \fIprintk\fP().
+
+La llamada
+.B syslog
+.RI (2, buf , lon )
+espera hasta que este búfer de registro del núcleo no esté vacío, y
+entonces lee como mucho \fIlon\fP bytes en el búffer
+\fIbuf\fP. Devuelve el número de bytes leídos. Los bytes leídos del
+registro desaparecen del búfer de registro; la información sólo puede
+leerse una vez.
+Esta es la función ejecutada por el núcleo cuando un programa de
+usuario lee
+.IR /proc/kmsg .
+
+La llamada
+.B syslog
+.RI (3, buf , lon )
+leerá los últimos \fIlon\fP bytes del búfer de registro (de forma no
+destructiva), pero no leerá más de lo que se haya escrito en el búfer
+desde la última orden 'limpiar el búfer del anillo' (que no limpia el
+búfer en absoluto). Devuelve el número de bytes leídos.
+
+La llamada
+.B syslog
+.RI (4, buf , lon )
+hace precisamente lo mismo, pero también ejecuta la orden 'limpiar el
+búfer del anillo'.
+
+La llamada
+.B syslog
+.RI (5, dummy , idummy )
+sólo ejecuta la orden 'limpiar el búfer del anillo'.
+
+.B EL nivel de registro
+.br
+La rutina del núcleo \fIprintk\fP() solamente mostrará un mensaje en
+la consola, si tiene un nivel de registro menor que el valor de la variable
+.I console_loglevel
+(inicialmente DEFAULT_CONSOLE_LOGLEVEL (7), pero puesto a 10 si la
+línea de órdenes del núcleo contiene la palabra `debug', y a 15 en
+caso de un fallo del núcleo - los 10 y 15 son una tontería, y
+equivalen a 8).
+Esta variable es establecida (a un valor en el rango de	1 a 8) por la
+llamada 
+.B syslog
+.RI (8, dummy , value ).
+Las llamadas
+.B syslog
+.RI ( tipo , dummy , idummy )
+con \fItipo\fP igual a 6 ó 7, lo ponen a 1 (sólo pánicos del núcleo)
+o a 7 (todos los mensajes salvo los de depuración), respectivamente.
+
+Cada línea de texto en un mensaje tiene su propio nivel de
+registro. Este nivel es
+DEFAULT_MESSAGE_LOGLEVEL - 1 (6) a menos que la línea comience con <d>,
+donde \fId\fP es un dígito en el rango de 1 a 7, en cuyo caso el nivel
+es \fId\fP. El significado convencional del nivel de registro se
+define en
+.I <linux/kernel.h>
+así:
+
+.nf
+#define KERN_EMERG    "<0>"  /* el sistema no es utilizable         */
+#define KERN_ALERT    "<1>"  /* debe tomarse una acción inmediata   */
+#define KERN_CRIT     "<2>"  /* condiciones críticas                */
+#define KERN_ERR      "<3>"  /* condiciones de error                */
+#define KERN_WARNING  "<4>"  /* condiciones de advertencia          */
+#define KERN_NOTICE   "<5>"  /* condición normal pero significativa */
+#define KERN_INFO     "<6>"  /* información                         */
+#define KERN_DEBUG    "<7>"  /* mensajes del nivel de depuración    */
+.fi
+
+.SH "VALOR DEVUELTO"
+En caso de error, se devuelve \-1 y se pone un valor en
+\fIerrno\fP. Si no, para \fItipo\fP igual a 2, 3 ó 4, \fBsyslog\fP()
+devuelve el número de bytes leídos, y de otro modo 0.
+.SH "ERRORES"
+.TP
+.B EPERM
+Se ha intentado cambiar console_loglevel o limpiar el búfer de anillo
+de mensajes del núcleo, pero el proceso no tenía permisos de root.
+.TP
+.B EINVAL
+Malos parámetros.
+.TP
+.B ERESTARTSYS
+La llamada al sistema ha sido interrumpida por una señal; no se ha
+leído nada.
+.SH "CONFORME A"
+Esta llamada al sistema es específica de Linux y no debería emplearse
+en programas que se pretendan transportables.
+.SH "VÉASE TAMBIÉN"
+.BR syslog (3)

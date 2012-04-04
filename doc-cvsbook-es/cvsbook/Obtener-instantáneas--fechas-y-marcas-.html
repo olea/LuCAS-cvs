@@ -1,0 +1,230 @@
+<html><head><title>Obtener instantáneas (fechas y marcas)</title><link rel=next href="Formatos-de-fecha-permitidos.html">
+<link rel=previous href="Evitar-la-fatiga-de-las-opciones.html">
+<link rel=up href="Otros-comandos-útiles-de-CVS.html">
+</head>
+<body>
+<p>
+Node:<a name="Obtener-instantáneas--fechas-y-marcas-.html">Obtener instantáneas (fechas y marcas)</a>,
+Next:<a rel=next href="Formatos-de-fecha-permitidos.html">Formatos de fecha permitidos</a>,
+Previous:<a rel=previous href="Evitar-la-fatiga-de-las-opciones.html">Evitar la fatiga de las opciones</a>,
+Up:<a rel=up href="Otros-comandos-útiles-de-CVS.html">Otros comandos útiles de CVS</a>
+<hr><br>
+
+<h3>Obtener instantáneas (fechas y marcas)</h3>
+
+<p>Volvamos al ejemplo del programa que está en un estado inoperativo en
+el momento en el que recibimos un informe de fallo de un usuario. El
+desarrollador necesita de repente acceder al proyecto entero en el
+estado en el que se encontraba al hacer la última distribución pública,
+aunque muchos ficheros posiblemente habrán cambiado desde entonces, y
+el número de revisión de cada fichero seguramente será distinto en este
+momento. Llevaría demasiado tiempo revisar los informes de cambios,
+adivinar cuál era el número de revisión de cada fichero en el momento
+de la distribución, y después ejecutar una actualización (especificando
+el número de revisión con -r) para cada uno de ellos. En proyectos de
+mediano o gran tamaño (de decenas a cientos de ficheros), sería casi
+imposible acometer tamaña empresa.
+
+<p>Por todo lo cual, CVS proporciona una forma de obtener de una sola vez
+revisiones antiguas de los ficheros que forman un proyecto. De hecho,
+ofrece dos mecanismos: por fecha -que selecciona las revisiones basándose
+en la fecha en que fueron enviadas al repositorio-, y por marca, que
+obtiene una "instantánea" del proyecto marcada previamente.
+
+<p>Cuál de los métodos deberá utilizar es algo que depende de la situación
+concreta. El método basado basado en fechas funciona pasando la opción
+-D al comando "update", que es similar a -r pero en este caso tomando
+como argumento fechas en lugar de números de revisión:
+
+<pre>floss$ cvs -q update -D "1999-04-19"
+U hello.c
+U a-subdir/subsubdir/fish.c
+U b-subdir/random.c
+floss$
+</pre>
+
+<p>Con la opción -D, "update" recupera la revisión más reciente de cada
+fichero existente en la fecha dada, devolviendo si es necesario los
+ficheros de la copia de trabajo al estado en el que encontes se
+encontraban.
+
+<p>Cuando se da una fecha, puede -y generalmente, debería hacerlo- incluir
+la hora exacta. Por ejemplo, el comando anterior terminó tomando del
+repositorio la revisión 1.1 de todo (sólo tres ficheros cambiaron,
+porque los demás están aún en la revisión 1.1). Éste es el estado de
+hello.c para demostrarlo:
+
+<pre>floss$ cvs -Q status hello.c
+===================================================================
+File: hello.c                 Status: Up-to-date
+   Working revision:          1.1.1.1 Sat Apr 24 22:45:03 1999
+   Repository revision:       1.1.1.1 /usr/local/cvs/miproyecto/hello.c,v
+   Sticky Date:               99.04.19.05.00.00
+floss$
+</pre>
+
+<p>Pero un vistazo atrás a los informes de cambios presentados anteriormente
+en este capítulo indica que la revisión 1.2 de hello.c se envió sin duda
+alguna al repositorio el 19 de Abril de 1999. Así que, ¿por qué hemos
+recibido ahora la revisión 1.1 en lugar de la 1.2?
+
+<p>El problema está en que la fecha "1999-04-19" fue interpretada como "la
+medianoche en la que comenzó el día 1999-04-19", esto es, el primer
+instante de ese día. Esto seguramente no es lo que quiere. El envío
+de la revisión 1.2 tuvo lugar en un momento posterior de ese día. 
+Indicando la fecha con mayor exactitud, podemos obtener la revisión 1.2:
+
+<pre>floss$ cvs -q update -D "1999-04-19 23:59:59"
+U hello.c
+U a-subdir/subsubdir/fish.c
+U b-subdir/random.c
+floss$ cvs status hello.c
+===================================================================
+File: hello.c                 Status: Locally Modified
+   Working revision:  1.2     Sat Apr 24 22:45:22 1999
+   Repository revision:       1.2     /usr/local/cvs/miproyecto/hello.c,v
+   Sticky Tag:                (none)
+   Sticky Date:               99.04.20.04.59.59
+   Sticky Options:    (none)
+floss$
+</pre>
+
+<p>Casi hemos terminado. Si observa atentamente la fecha y hora de la línea
+"Sticky Date", parece indicar las 4:59:59 AM, no las 11:59 como se
+indicó en el comando (más adelante veremos lo que significa "sticky").
+
+<p>Como habrá adivinado, la discrepancia se debe a la diferencia entre la
+hora local y la hora Universal Coordinada (también conocida como la hora
+del meridiano de Greenwich). El repositorio guarda siempre las fechas en
+Tiempo Universal, pero en su lado cliente CVS suele asumir la hora local
+del sistema. En el caso de -D, esto es un poco desafortunado, porque
+posiblemente le interese más comparar respecto a la hora recogida en el
+repositorio que preocuparse por lo que el sistema local opina de qué
+hora es. Puede evitar este problema especificando la zona GMT en el
+comando:
+
+<pre>floss$ cvs -q update -D "1999-04-19 23:59:59 GMT"
+U hello.c
+floss$ cvs -q status hello.c
+===================================================================
+File: hello.c                 Status: Up-to-date
+   Working revision:  1.2     Sun Apr 25 22:38:53 1999
+   Repository revision:       1.2     /usr/local/cvs/miproyecto/hello.c,v
+   Sticky Tag:                (none)
+   Sticky Date:               99.04.19.23.59.59
+   Sticky Options:    (none)
+floss$
+</pre>
+
+<p>¡Ajá! Esto ha hecho que la copia de trabajo quede registrada como uno
+de los últimos envíos realizados el 19 de Abril (a menos que hubiera
+algún envío en el último segundo del día, que no es el caso).
+
+<p>¿Qué sucede ahora si ejecuta "update"?
+
+<pre>floss$ cvs update
+cvs update: Updating .
+cvs update: Updating a-subdir
+cvs update: Updating a-subdir/subsubdir
+cvs update: Updating b-subdir
+floss$
+</pre>
+
+<p>No pasa nada. Pero usted sabe que hay versiones más recientes de por
+lo menos tres ficheros, luego, ¿por qué no se incorporan estos ficheros
+en su copia de trabajo?
+
+<p>Aquí es donde "sticky" entra en juego. Actualizar (¿"desactualizar"?) 
+con la opción -D hace que la copia de trabajo quede fijada de forma
+permanente a esa fecha o a una anterior: en terminología de CVS, la
+copia de trabajo tiene "pegada" una fecha. Una vez que una copia de
+trabajo ha adquirido una propiedad pegadiza, se mantiene así hasta
+que se le diga lo contrario. Así pues, posteriores actualizaciones
+no permitirán obtener automáticamente la revisión más reciente, sino
+que estarán restringidas a la fecha pegada. El si hay algo pegado o
+no a un fichero es algo que puede averiguarse ejecutando cvs status,
+o bien examinando directamente el fichero CVS/Entries:
+
+<pre>floss$ cvs -q update -D "1999-04-19 23:59:59 GMT"
+U hello.c
+floss$ cat CVS/Entries
+D/a-subdir////
+D/b-subdir////
+D/c-subdir////
+/README.txt/1.1.1.1/Sun Apr 18 18:18:22 1999//D99.04.19.23.59.59
+/hello.c/1.2/Sun Apr 25 23:07:29 1999//D99.04.19.23.59.59
+floss$
+</pre>
+
+<p>Si ahora usted modificase su copia de hello.c e intentase después
+enviarla al repositorio,
+
+<pre>floss$ cvs update
+M hello.c
+floss$ cvs ci -m "intentando cambiar el pasado"
+cvs commit: cannot commit with sticky date for file 'hello.c'
+cvs [commit aborted]: correct above errors first!
+floss$
+</pre>
+
+<p>CVS no permitiría la enviar ese fichero al repositorio, puesto que
+sería como permitirle volver atrás y cambiar el pasado. Lo de CVS
+es gestionar historiales, así que bajo ningún concepto le permitirá
+realizar semejante operación.
+
+<p>Esto no significa, sin embargo, que CVS no sea consciente de todas las
+revisiones que se hayan enviado desde aquella fecha. Usted sigue
+pudiendo comparar la fecha pegada a la copia de trabajo con otras
+revisiones, incluso las futuras:
+
+<pre>floss$ cvs -q diff -c -r 1.5 hello.c
+Index: hello.c
+===================================================================
+RCS file: /usr/local/cvs/miproyecto/hello.c,v
+retrieving revision 1.5
+diff -c -r1.5 hello.c
+*** hello.c   1999/04/24 22:09:27     1.5
+--- hello.c   1999/04/25 00:08:44
+***************
+*** 3,9 ****
+  void
+  main ()
+  {
+    printf ("¡Hola, mundo!\n");
+-   printf ("entre hola y adiós\n");
+    printf ("¡Adiós, mundo!\n");
+  }
+--- 3,9 --
+  void
+  main ()
+  {
++   /* esta línea fue añadida a una copia de trabajo "desactualizada" */
+    printf ("¡Hola, mundo!\n");
+    printf ("¡Adiós, mundo!\n");
+  }
+</pre>
+
+<p>El diff revela que, a 19 de abril de 1999, la línea "entre hola y adiós"
+no había sido añadida todavía. También muestra la modificación que hicimos
+a la copia de trabajo (añadir el comentario que aparece arriba).
+
+<p>Puede eliminar la fecha pegadiza (o cualquier otra propiedad pegadiza)
+haciendo una actualización con la opción -A ("-A" significa "reiniciar",
+no me pregunte por qué), lo que pone la copia de trabajo de nuevo en
+sincronía con las revisiones más recientes:
+
+<pre>floss$ cvs -q update -A
+U hello.c
+floss$ cvs status hello.c
+===================================================================
+File: hello.c                 Status: Up-to-date
+   Working revision:  1.5     Sun Apr 25 22:50:27 1999
+   Repository revision:       1.5     /usr/local/cvs/miproyecto/hello.c,v
+   Sticky Tag:                (none)
+   Sticky Date:               (none)
+   Sticky Options:    (none)
+floss$
+</pre>
+
+</body></html>
+

@@ -1,0 +1,120 @@
+#!/bin/bash
+# Script para crear los parches que serán los nuevos "paquetes" de NuLies.
+#
+# Ender <ender@rediris.es> para el proyecto NuLies.
+# Última actualización: 16 de agosto de 2004
+#
+# Forma de utilización: "haz_parche árbol [src_linux]"
+#  donde src_linux es el directorio donde estan albergadas las fuentes
+#  del núcleo de Linux, por defecto /usr/src/linux.
+#
+# Por hacer:
+# - Quizás que el parche sea bzip2.
+#
+# Cambios:
+# haz_parche (1.5)
+#
+# - Borramos unos antiestéticos «Sólo en [...]» que pone el grep al
+#   encontrar ficheros en uno solo de los árboles.
+#
+#   -- Ender <ender@debian.org> lun ago 16 16:13:50 CEST 2004
+#
+# haz_parche (1.4)
+#
+# - Debido a la traducción de los ficheros config.in de cada una de
+#   las correspondientes arquitecturas, hay que ampliar el área de
+#   visión del diff y decirle que ignore los directorios CVS.
+#
+#   -- Ender <ender@rediris.es> jue mar 29 02:19:34 CEST 2001
+# 
+# haz_parche (1.3)
+#
+# - La ruta que aparece en el diff es, por ser breve, insana. Antes de
+#   generar el diff, hacemos cd dentro del directorio del árbol correspondiente.
+# - He simplificado un poco la parte de controlar la versión del paquete que
+#   se va a generar.
+# 
+#   -- Ender <ender@rediris.es> lun ene 15 02:03:04 CET 2001
+#
+# haz_parche (1.2)
+#
+# - Chequeos de sanidad (revisa que exista DIR_DOC)
+# - El script coloca automáticamente la versión del parche.
+# - Averigüamos automágicamente la versión del núcleo. ;-)
+# 
+#   -- Ender <ender@rediris.es> sáb ene 13 03:27:19 CET 2001
+#
+# haz_parche (1.1)
+#
+# - Creación.
+# 
+#   -- Ender <ender@rediris.es> sáb ene 13 01:48:54 CET 2001
+
+# Sitio donde están los árboles de documentación.
+DIR_DOC="`dirname $0`/../web"
+
+# Sitio donde está el árbol del núcleo.
+DIR_KERNEL="${2-/usr/src/linux}"
+
+# Sitio donde están los paquetes del núcleo.
+DIR_PAQUETES="`dirname $0`/../web/paquetes"
+
+if [ "$#" -eq 0 -o "$#" -ge 3 ]
+then
+	echo "Forma de uso: `basename $0` arbol [src_linux]" >&2
+	echo " donde src_linux es donde se encuentran las fuentes" >&2
+	echo " de Linux, por defecto /usr/src/linux/" >&2
+	exit 1
+fi
+
+if [ ! -d $DIR_DOC/$1 ]
+then
+	# No existe tal directorio.
+	echo "El directorio $DIR_DOC/$1 no existe." >&2
+	exit 1
+fi
+
+# Código robado de linux/scripts/patch-kernel
+# ---
+
+# set current VERSION, PATCHLEVEL, SUBLEVEL
+eval `sed -n 's/^\([A-Z]*\) = \([0-9]*\)$/\1=\2/p' $DIR_KERNEL/Makefile`
+if [ -z "$VERSION" -o -z "$PATCHLEVEL" -o -z "$SUBLEVEL" ]
+then
+	echo "Soy incapaz de determinar la versión actual del núcleo." >&2
+	exit 1
+fi
+	 
+echo "Versión del núcleo del paquete: $VERSION.$PATCHLEVEL.$SUBLEVEL"
+
+FULLVERSION="$VERSION.$PATCHLEVEL.$SUBLEVEL"
+# ---
+# Nos aseguramos que este es el árbol correcto:
+if [ "$1" != "$VERSION.$PATCHLEVEL" ]
+then
+	echo "La versión del árbol de documentación utilizada ($1)" >&2
+	echo " no coincide con la del árbol del núcleo ($VERSION.$PATCHLEVEL)." >&2
+	exit 1
+fi
+
+# Nos enteramos de cuál es la última versión del paquete en el repositorio.
+if [ ! -f $DIR_PAQUETES/NuLies-${FULLVERSION}-1.gz ]
+then
+	# Significa que no hay ninguna versión.
+	ULTIMA_VERSION=0
+else
+	# La expresión regular ha sido un inmenso dolor... :-(
+	ULTIMA_VERSION=`ls $DIR_PAQUETES/NuLies-$FULLVERSION*.gz \
+		| sed -n 's/\(.*NuLies-[1-9].*-\)\(.*\)\(\.gz\)/\2/p' \
+		| sort -n -r | head -1`
+fi
+
+PARCHE="paquetes/NuLies-${FULLVERSION}-`expr $ULTIMA_VERSION + 1`.gz"
+
+# Vemos si lo hemos hecho bien. :-)
+echo $PARCHE
+
+cd $DIR_DOC
+
+diff -u --recursive --exclude=CVS $DIR_KERNEL/ $1/ \
+  | egrep -v '(^Sólo|^Only)' | gzip -c -9 > $PARCHE

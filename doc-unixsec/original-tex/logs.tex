@@ -1,0 +1,859 @@
+\chapter{Auditor\'{\i}a del sistema}
+\section{Introducci\'on}
+Casi todas las actividades realizadas en un sistema Unix son susceptibles de
+ser, en mayor o menor medida, monitorizadas: desde las horas de acceso de cada
+usuario al sistema hasta las p\'aginas {\it web} m\'as frecuentemente visitadas,
+pasando por los intentos fallidos de conexi\'on, los programas ejecutados
+o incluso el tiempo de CPU que cada usuario consume. Obviamente esta facilidad
+de Unix para recoger informaci\'on tiene unas ventajas inmediatas para la 
+seguridad: es posible detectar un intento de ataque nada m\'as producirse el 
+mismo, as\'{\i} como tambi\'en detectar usos indebidos de los recursos o 
+actividades `sospechosas'; sin embargo, existen tambi\'en desventajas, ya que
+la gran cantidad de informaci\'on que potencialmente se registra puede ser 
+aprovechada para crear negaciones de servicio o, m\'as habitualmente, esa 
+cantidad de informaci\'on puede hacer dif\'{\i}cil detectar problemas por el
+volumen de datos a analizar.\\
+\\Algo muy interesante de los archivos de {\it log} en Unix es que la 
+mayor\'{\i}a de ellos son simples ficheros de texto, que se pueden visualizar
+con un simple {\tt cat}. Por una 
+parte esto es bastante c\'omodo para el administrador del sistema, ya que no
+necesita de herramientas especiales para poder revisar los {\it logs} (aunque
+existen algunas utilidades para hacerlo, como {\tt swatch}) e incluso 
+puede programar {\it shellscripts} para comprobar los informes generados de 
+forma autom\'atica, con \'ordenes como {\tt awk}, {\tt grep} o {\tt sed}. No
+obstante, el hecho de que estos ficheros sean texto plano hace que un atacante 
+lo tenga muy f\'acil para ocultar ciertos registros modificando los archivos con
+cualquier editor de textos; esto implica una cosa muy importante para un 
+administrador: {\bf nunca} ha de confiar al 100\% en lo que los informes de
+auditor\'{\i}a del sistema le digan. Para minimizar estos riesgos se pueden 
+tomar diversas medidas, desde algunas quiz\'as demasiado complejas para 
+entornos habituales (\cite{kn:sch98}) hasta otras m\'as sencillas pero 
+igualmente efectivas, como utilizar una m\'aquina fiable para registrar 
+informaci\'on del sistema o incluso enviar los registros m\'as importantes a 
+una impresora; m\'as adelante hablaremos de ellas.
+\section{El sistema de {\it log} en Unix}
+Una desventaja a\~nadida al sistema de auditor\'{\i}a en Unix puede ser la 
+complejidad que puede alcanzar una correcta configuraci\'on; por si la 
+dificultad del sistema no fuera suficiente, en cada Unix el sistema de {\it 
+logs} tiene peculiaridades que pueden propiciar la p\'erdida de informaci\'on
+interesante de cara al mantenimiento de sistemas seguros. Aunque muchos de los 
+ficheros de {\it log} de los que hablaremos a continuaci\'on son comunes en
+cualquier sistema, su localizaci\'on, o incluso su formato, pueden variar entre
+diferentes Unices.\\
+\\Dentro de Unix hay dos grandes familias de sistemas: se trata de {\it System
+V} y {\sc bsd}; la localizaci\'on de ficheros y ciertas \'ordenes relativas
+a la auditor\'{\i}a de la m\'aquina van a ser diferentes en ellas, por lo que
+es muy recomendable consultar las p\'aginas del manual antes de ponerse a
+configurar el sistema de auditor\'{\i}a en un equipo concreto. La principal 
+diferencia entre ellos es el denominado {\it process accounting} o simplemente
+{\it accounting}, consistente en registrar todos los programas ejecutados por 
+cada usuario; evidentemente, los informes generados en este proceso pueden
+llegar a ocupar much\'{\i}simo espacio en disco (dependiendo del n\'umero de
+usuarios en nuestro sistema) por lo que s\'olo es recomendable en situaciones
+muy concretas, por ejemplo para detectar actividades sospechosas en una 
+m\'aquina o para cobrar por el tiempo de CPU consumido. En los sistemas {\it
+System V} el {\it process accounting} est\'a desactivado por defecto; se
+puede iniciar mediante {\tt /usr/lib/acct/startup}, y para visualizar los 
+informes se utiliza la orden {\tt acctcom}. En la familia {\sc bsd} los
+equivalentes a estas \'ordenes son {\tt accton} y {\tt lastcomm}; en este
+caso el {\it process accounting} est\'a inicializado por defecto.\\
+\\Un mundo aparte a la hora de generar (y analizar) informes acerca de las 
+actividades realizadas sobre una m\'aquina Unix son los sistemas con el
+modelo de auditor\'{\i}a C2 (\cite{kn:ora}); mientras que con el modelo 
+cl\'asico se genera un registro tras la ejecuci\'on de cada proceso, en Unix 
+C2 se proporciona una pista de auditor\'{\i}a donde se registran los accesos
+y los intentos de acceso de una entidad a un objeto, as\'{\i} como cada cambio
+en el estado del objeto, la entidad o el sistema global. Esto se consigue 
+asignando un identificador denominado {\it Audit ID} a cada grupo de procesos
+ejecutados (desde el propio {\it login}), identificador que se registra junto
+a la mayor\'{\i}a de llamadas al sistema que un proceso realiza, incluyendo 
+algunas tan comunes como {\tt write()}, {\tt open()}, {\tt close()} o {\tt
+read()}. A nadie se le puede escapar la cantidad de espacio y de CPU necesarios 
+para mantener los registros a un nivel tan preciso, por lo que en la 
+mayor\'{\i}a de sistemas (especialmente en entornos habituales, como los 
+estudiados aqu\'{\i}) el modelo de 
+auditor\'{\i}a C2 es innecesario; y no s\'olo esto, sino que en muchas 
+ocasiones tambi\'en se convierte en una monitorizaci\'on in\'util 
+(\cite{kn:axe98}) si no se dispone de mecanismos
+para interpretar o reducir la gran cantidad de datos registrados: el 
+administrador guarda tanta informaci\'on que es casi imposible analizarla en
+busca de actividades sospechosas.
+\section{El demonio {\tt syslogd}}
+El demonio {\tt syslogd} ({\it Syslog Daemon}) se lanza autom\'aticamente al
+arrancar un sistema Unix, y es el encargado de guardar
+informes sobre el funcionamiento de la m\'aquina. Recibe mensajes de las
+diferentes partes del sistema (n\'ucleo, programas\ldots ) y los env\'{\i}a
+y/o almacena en diferentes localizaciones, tanto locales como remotas, siguiendo
+un criterio definido en el fichero de configuraci\'on {\tt /etc/syslog.conf}, 
+donde especificamos las reglas a seguir para gestionar el almacenamiento de 
+mensajes del sistema. Las l\'{\i}neas de este archivo que comienzan por {\tt 
+`\#'} son comentarios, con lo cual son ignoradas de la misma forma que las 
+l\'{\i}neas en blanco; si ocurriera un error al interpretar una de las 
+l\'{\i}neas del fichero, se ignorar\'{\i}a la l\'{\i}nea completa. Un ejemplo
+de fichero {\tt /etc/syslog.conf} es el siguiente:
+\begin{quote}
+\begin{verbatim}
+anita:~# cat /etc/syslog.conf
+#ident	"@(#)syslog.conf	1.4	96/10/11 SMI"	/* SunOS 5.0 */
+#
+# Copyright (c) 1991-1993, by Sun Microsystems, Inc.
+#
+# syslog configuration file.
+#
+# This file is processed by m4 so be careful to quote (`') names
+# that match m4 reserved words.  Also, within ifdef's, arguments
+# containing commas must be quoted.
+#
+*.err;kern.notice;auth.notice			/dev/console
+*.err;kern.debug;daemon.notice;mail.crit	/var/adm/messages
+
+*.alert;kern.err;daemon.err			operator
+*.alert						root
+
+*.emerg						*
+
+# if a non-loghost machine chooses to have authentication messages
+# sent to the loghost machine, un-comment out the following line:
+#auth.notice			ifdef(`LOGHOST', /var/log/authlog, @loghost)
+
+mail.debug			ifdef(`LOGHOST', /var/log/syslog, @loghost)
+
+#
+# non-loghost machines will use the following lines to cause "user"
+# log messages to be logged locally.
+#
+ifdef(`LOGHOST', ,
+user.err					/dev/console
+user.err					/var/adm/messages
+user.alert					`root, operator'
+user.emerg					*
+)
+anita:~#
+\end{verbatim}
+\end{quote}
+Podemos ver que cada regla del archivo tiene dos campos: un campo de 
+selecci\'on y un campo de acci\'on, separados ambos por espacios o tabuladores. 
+El {\bf campo de selecci\'on} est\'a compuesto a su vez de dos partes 
+separadas por un punto: una que indica el servicio que env\'{\i}a el mensaje y 
+otra que marca su prioridad, separadas por un punto ({\bf `.'}); ambas son 
+indiferentes a may\'usculas y min\'usculas. La parte del servicio contiene una 
+de las siguientes palabras clave: {\tt 
+auth}, {\tt auth-priv}, {\tt cron}, {\tt daemon}, {\tt kern}, {\tt lpr}, {\tt 
+mail}, {\tt mark}, {\tt news}, {\tt security} (equivalente a {\tt auth}), {\tt 
+syslog}, {\tt user}, {\tt uucp} y {\tt local0} hasta {\tt local7}; esta parte 
+especifica el `subsistema' que ha generado ese mensaje (por ejemplo, todos los 
+programas relacionados con el correo generar\'an mensajes ligados al servicio 
+{\tt mail}). En segundo lugar, la prioridad est\'a compuesta de uno de los 
+siguientes t\'erminos, en orden
+ascendente: {\tt debug}, {\tt info}, {\tt notice}, {\tt warning}, {\tt warn} 
+(equivalente a {\tt warning}), {\tt err}, {\tt error} (equivalente a {\tt 
+err}), {\tt crit}, {\tt alert}, {\tt emerg}, y {\tt panic} (equivalente a {\tt 
+emerg}). La prioridad define la gravedad o importancia del mensaje almacenado. 
+Todos los mensajes de la prioridad especificada y superiores son almacenados de 
+acuerdo con la acci\'on requerida.\\
+\\Adem\'as de los t\'erminos mencionados hasta ahora, el demonio {\tt syslogd}
+emplea en su fichero de configuraci\'on los siguientes caracteres especiales:
+\begin{itemize}
+\item{} `$\ast$' (asterisco)\\
+Empleado como comod\'{\i}n para todas las prioridades y servicios anteriores, 
+dependiendo de d\'onde son usados (si antes o despu\'es del car\'acter de 
+separaci\'on `.'):
+\begin{quote}
+\begin{verbatim}
+# Guardar todos los mensajes del servicio mail en /var/adm/mail
+#
+mail.*                                        /var/adm/mail
+\end{verbatim}
+\end{quote}
+\item{} ` ' (blanco, espacio, nulo)\\
+Indica que no hay prioridad definida para el servicio de la l\'{\i}nea
+almacenada.
+\item{} `,' (coma) \\
+Con este car\'acter es posible especificar m\'ultiples servicios con el mismo
+patr\'on de prioridad en una misma l\'{\i}nea. Es posible enumerar cuantos
+servicios se quieran:
+\begin{quote}
+\begin{verbatim}
+# Guardar todos los mensajes mail.info y news.info en 
+# /var/adm/info
+mail,news.=info                               /var/adm/info
+\end{verbatim}
+\end{quote}
+\item{} `;' (punto y coma)\\
+Es posible dirigir los mensajes de varios servicios y prioridades a un mismo
+destino, separ\'andolos por este car\'acter:
+\begin{quote}
+\begin{verbatim}
+# Guardamos los mensajes de prioridad "info" y "notice"
+# en el archivo /var/log/messages
+*.=info;*.=notice                             /var/log/messages
+\end{verbatim}
+\end{quote}
+\rm
+\item{} `=' (igual)\\
+De este modo solo se almacenan los mensajes con la prioridad exacta 
+especificada y no incluyendo las superiores:
+\begin{quote}
+\begin{verbatim}
+# Guardar todos los mensajes criticos en /var/adm/critical
+#
+*.=crit                                       /var/adm/critical
+\end{verbatim}
+\end{quote}
+\rm
+\item{} `!' (exclamaci\'on)\\
+Preceder el campo de prioridad con un signo de exclamaci\'on sirve para ignorar
+todas las prioridades, teniendo la posibilidad de escoger entre la
+especificada ({\tt !=prioridad}) y la especificada m\'as todas las superiores
+({\tt !prioridad}). Cuando se usan conjuntamente los caracteres {\tt `='} y
+{\tt `!'}, el signo de exclamaci\'on {\tt `!'} debe preceder obligatoriamente
+al signo igual {\tt `='}, de esta forma: {\tt !=}.
+\begin{quote}
+\begin{verbatim}
+# Guardar mensajes del kernel de prioridad info, pero no de
+# prioridad err y superiores
+# Guardar mensajes de mail excepto los de prioridad info
+kern.info;kern.!err                           /var/adm/kernel-info
+mail.*;mail.!=info                       /var/adm/mail
+\end{verbatim}
+\end{quote}
+\end{itemize}
+La segunda parte de cada l\'{\i}nea del archivo de configuraci\'on de {\tt 
+syslogd} es el {\bf campo de acci\'on}, y describe el destino de los mensajes 
+(d\'onde se van a guardar o qu\'e programa los va a procesar); este destino
+puede ser uno de los siguientes:
+\begin{itemize}
+\item{}Un fichero plano\\
+Normalmente los mensajes del sistema son almacenados en ficheros
+planos. Dichos ficheros han de estar especificados con la ruta de acceso
+completa (comenzando con {\tt `/'}).\\
+Podemos preceder cada entrada con el signo menos, {\it `-'}, para omitir la
+sincronizaci\'on del archivo (vaciado del {\it buffer} de memoria a disco).
+Aunque puede ocurrir que se pierda informaci\'on si el sistema cae justo 
+despu\'es de un intento de escritura en el archivo, utilizando este signo 
+se puede conseguir una mejora importante en la velocidad, especialmente si 
+estamos ejecutando programas que mandan muchos mensajes al demonio {\tt 
+syslogd}.
+\begin{quote}
+\begin{verbatim}
+# Guardamos todos los mensajes de prioridad critica en "critical"
+#
+*.=crit                                  /var/adm/critical
+\end{verbatim}
+\end{quote}
+\item{}Un dispositivo f\'{\i}sico\\
+Tambi\'en tenemos la posibilidad de enviar los registros del sistema a un 
+dispositivo f\'{\i}sico del mismo, t\'{\i}picamente un terminal o una impresora.
+As\'{\i} conseguimos, entre otras cosas, que esas entradas permanezcan relativa
+o totalmente inalteradas (en funci\'on de qu\'e dispositivo las reciban). Por
+ejemplo, podemos tener uno de los terminales virtuales que muchos sistemas Unix
+ofrecen en su consola `dedicado' a listar los mensajes del sistema, que podr\'an
+ser consultados con solo cambiar a ese terminal mediante la combinaci\'on de
+teclas correspondiente:
+\begin{quote}
+\begin{verbatim}
+# Enviamos todos los mensajes a tty12 (ALT+F12 en Linux) y todos
+# los mensajes criticos del nucleo a consola
+#
+*.*                                       /dev/tty12
+kern.crit                                 /dev/console
+\end{verbatim}
+\end{quote}
+\item Una tuber\'{\i}a con nombre\\
+Algunas versiones de {\tt syslogd} permiten enviar registros a ficheros de tipo
+{\tt pipe} simplemente anteponiendo el s\'{\i}mbolo {\tt `$\mid$'} al nombre
+del archivo; dicho fichero ha de ser creado antes de iniciar el demonio {\tt
+syslogd}, mediante \'ordenes como {\tt mkfifo} o {\tt mknod}. Esto es \'util
+para {\it debug} y tambi\'en para procesar los registros utilizando cualquier
+aplicaci\'on de Unix, tal y como veremos al hablar de {\it logs} remotos 
+cifrados.\\
+Por ejemplo, la siguiente l\'{\i}nea de {\tt /etc/syslog.conf} enviar\'{\i}a
+todos los mensajes de cualquier prioridad a uno de estos ficheros denominado
+{\tt /var/log/mififo}:
+\begin{quote}
+\begin{verbatim}
+# Enviamos todos los mensajes a la tuberia con nombre
+# /var/log/mififo
+#
+*.*                                       |/var/log/mififo
+\end{verbatim}
+\end{quote}
+\item{}Una m\'aquina remota\\
+Se pueden enviar los mensajes del sistema a otra m\'aquina, de manera a que
+sean almacenados remotamente, sin m\'as que indicar en el campo de acci\'on el
+nombre o direcci\'on de dicho sistema precedido por el signo {\tt `@'}. Esto es 
+\'util si tenemos una m\'aquina segura, en la que podemos confiar, conectada a 
+la red, ya que de esta manera se guardar\'{\i}a all\'{\i} una copia de los 
+mensajes de nuestro sistema, copia que no podr\'{\i}a ser modificada en caso de 
+que alguien entrase en la m\'aquina que los est\'a generando. Esto es
+especialmente interesante para detectar usuarios `ocultos' en nuestro sistema
+(usuarios maliciosos que han conseguido los suficientes privilegios para ocultar
+sus procesos o su conexi\'on), ya que una de las principales cosas que har\'a
+este tipo de atacantes es eliminar cualquier registro que denote su presencia
+en la m\'aquina (por ejemplo, sus entradas en {\tt wtmp}).\\
+En el siguiente ejemplo utilizamos un sistema {\it a priori} confiable para
+enviarle algunos de nuestros registros:
+\begin{quote}
+\begin{verbatim}
+# Enviamos los mensajes de prioridad warning y superiores al 
+# fichero "syslog" y todos los mensajes (incluidos los 
+# anteriores) a la maquina "secure.upv.es"
+#
+*.warn                                    /usr/adm/syslog
+*.*                                       @secure.upv.es
+\end{verbatim}
+\end{quote}
+\item{}Unos usuarios del sistema (si est\'an conectados)\\
+Se especifica la lista de usuarios que deben recibir un tipo de mensajes
+simplemente escribiendo sus {\it login}, separados por comas:
+\begin{quote}
+\begin{verbatim}
+# Enviamos los mensajes con la prioridad "alert" a root y toni
+#
+*.alert                                   root, toni
+\end{verbatim}
+\end{quote}
+\item{}Todos los usuarios que est\'en conectados\\
+Los errores con una prioridad de emergencia se suelen enviar a todos los
+usuarios que est\'en conectados al sistema, de manera que se den cuenta de que
+algo va mal; para ello utilizamos un asterisco en el campo de acci\'on:
+\begin{quote}
+\begin{verbatim}
+# Mostramos los mensajes urgentes a todos los usuarios 
+# conectados, mediante wall
+*.=emerg                                  *
+\end{verbatim}
+\end{quote}
+\end{itemize}
+Cuando un programa quiere enviar un mensaje al demonio {\tt syslogd} utiliza
+la llamada {\tt syslog(3)}; al hacerlo, se ha de indicar tanto el servicio como
+la prioridad del mismo. Evidentemente, esto es v\'alido para el c\'odigo en C:
+si queremos enviar registros al demonio para que sean procesados desde un {\it
+shellscript} podemos utilizar la orden {\tt logger}, en la que tambi\'en podemos
+indicar ambos par\'ametros:
+\begin{quote}
+\begin{verbatim}
+luisa:~# logger -p local0.info "Esto es una prueba"
+luisa:~# tail -1 /var/adm/messages 
+May 14 03:53:14 luisa root: Esto es una prueba
+luisa:~# 
+\end{verbatim}
+\end{quote}
+\section{Algunos archivos de {\it log}}
+En funci\'on de la configuraci\'on del sistema de auditor\'{\i}a de cada equipo
+Unix los eventos que sucedan en la m\'aquina se registrar\'an en determinados
+ficheros; aunque podemos {\it loggear} en cualquier fichero (incluso a trav\'es
+de la red o en dispositivos, como ya hemos comentado y luego veremos con mayor
+detalle), existen ciertos archivos de
+registro `habituales' en los que se almacena informaci\'on. A continuaci\'on 
+vamos a comentar los m\'as comunes y la informaci\'on que registra cada uno de
+ellos. 
+\subsection{{\tt syslog}}
+El archivo {\tt syslog} (guardado en {\tt /var/adm/} o {\tt /var/log/}) es
+quiz\'as el fichero de {\it log} m\'as importante del sistema; en \'el se 
+guardan, en texto claro, mensajes relativos a la seguridad de la 
+m\'aquina, como los accesos o los intentos de acceso a ciertos servicios. No
+obstante, este fichero es escrito por {\tt syslogd}, por lo que dependiendo de
+nuestro fichero de configuraci\'on encontraremos en el archivo una u otra
+informaci\'on. Al estar guardado en formato texto, podemos visualizar su 
+contenido con un simple {\tt cat}:
+\begin{quote}
+\begin{verbatim}
+anita:/# cat /var/log/syslog
+Mar  5 04:15:23 anita in.telnetd[11632]: connect from localhost
+Mar  5 06:16:52 anita rpcbind: connect from 127.0.0.1 to getport(R )
+Mar  5 06:16:53 anita last message repeated 3 times
+Mar  5 06:35:08 anita rpcbind: connect from 127.0.0.1 to getport(R )
+Mar  5 18:26:56 anita rpcbind: connect from 127.0.0.1 to getport(R )
+Mar  5 18:28:47 anita last message repeated 1 time
+Mar  5 18:32:43 anita rpcbind: connect from 127.0.0.1 to getport(R )
+Mar  6 02:30:26 anita rpcbind: connect from 127.0.0.1 to getport(R )
+Mar  6 03:31:37 anita rpcbind: connect from 127.0.0.1 to getport(R )
+Mar  6 11:07:04 anita in.telnetd[14847]: connect from rosita
+Mar  6 11:40:43 anita in.telnetd[14964]: connect from localhost
+anita:/# 
+\end{verbatim}
+\end{quote}
+\subsection{{\tt messages}}
+En este archivo de texto se almacenan datos `informativos' de ciertos programas,
+mensajes de baja o media prioridad destinados m\'as a informar que a avisar de
+sucesos importantes, como informaci\'on relativa al arranque de la m\'aquina; 
+no obstante, como suced\'{\i}a con el fichero {\tt syslog}, en funci\'on de 
+{\tt /etc/syslog.conf} podremos guardar todo tipo de datos.
+Para visualizar su contenido es suficiente una orden como {\tt cat} o similares:
+\begin{quote}
+\begin{verbatim}
+anita:/# head -70 /var/adm/messages
+Jan 24 18:09:54 anita unix: SunOS Release 5.7 Version Generic 
+[UNIX(R) System V Release 4.0]
+Jan 24 18:09:54 anita unix: Copyright (c) 1983-1998, Sun Microsystems, Inc.
+Jan 24 18:09:54 anita unix: mem = 65152K (0x3fa0000)
+Jan 24 18:09:54 anita unix: avail mem = 51167232
+Jan 24 18:09:54 anita unix: root nexus = i86pc
+Jan 24 18:09:54 anita unix: isa0 at root
+Jan 24 18:09:54 anita unix: pci0 at root: space 0 offset 0
+Jan 24 18:09:54 anita unix:     IDE device at targ 0, lun 0 lastlun 0x0
+Jan 24 18:09:54 anita unix:     model WDC WD84AA, stat 50, err 0
+Jan 24 18:09:54 anita unix:       cfg 0x427a, cyl 16383, hd 16, sec/trk 63
+Jan 24 18:09:54 anita unix:       mult1 0x8010, mult2 0x110, dwcap 0x0, 
+cap 0x2f00
+Jan 24 18:09:54 anita unix:       piomode 0x280, dmamode 0x0, advpiomode 
+0x3
+Jan 24 18:09:54 anita unix:       minpio 120, minpioflow 120
+Jan 24 18:09:54 anita unix:       valid 0x7, dwdma 0x7, majver 0x1e
+Jan 24 18:09:54 anita unix: ata_set_feature: (0x66,0x0) failed
+Jan 24 18:09:54 anita unix:     ATAPI device at targ 1, lun 0 lastlun 0x0
+Jan 24 18:09:54 anita unix:     model CD-ROM 50X, stat 50, err 0
+Jan 24 18:09:54 anita unix:       cfg 0x85a0, cyl 0, hd 0, sec/trk 0
+Jan 24 18:09:54 anita unix:       mult1 0x0, mult2 0x0, dwcap 0x0, cap 0xf00
+Jan 24 18:09:54 anita unix:       piomode 0x400, dmamode 0x200, advpiomode 
+0x3
+Jan 24 18:09:54 anita unix:       minpio 227, minpioflow 120
+Jan 24 18:09:54 anita unix:       valid 0x6, dwdma 0x107, majver 0x0
+Jan 24 18:09:54 anita unix: PCI-device: ata@0, ata0
+Jan 24 18:09:54 anita unix: ata0 is /pci@0,0/pci-ide@7,1/ata@0
+Jan 24 18:09:54 anita unix: Disk0:  <Vendor 'Gen-ATA ' Product 'WDC WD84AA '>
+Jan 24 18:09:54 anita unix: cmdk0 at ata0 target 0 lun 0
+Jan 24 18:09:54 anita unix: cmdk0 is /pci@0,0/pci-ide@7,1/ata@0/cmdk@0,0
+Jan 24 18:09:54 anita unix: root on /pci@0,0/pci-ide@7,1/ide@0/cmdk@0,0:a 
+fstype ufs
+Jan 24 18:09:54 anita unix: ISA-device: asy0
+Jan 24 18:09:54 anita unix: asy0 is /isa/asy@1,3f8
+Jan 24 18:09:54 anita unix: ISA-device: asy1
+Jan 24 18:09:54 anita unix: asy1 is /isa/asy@1,2f8
+Jan 24 18:09:54 anita unix: ISA-device: asy2
+Jan 24 18:09:54 anita unix: asy2 is /isa/pnpSUP,1670@pnpSUP,1670,7ec2
+Jan 24 18:09:54 anita unix: Number of console virtual screens = 13
+Jan 24 18:09:54 anita unix: cpu 0 initialization complete - online
+Jan 24 18:09:54 anita unix: dump on /dev/dsk/c0d0s1 size 86 MB
+Jan 24 18:09:55 anita unix: pseudo-device: pm0
+Jan 24 18:09:55 anita unix: pm0 is /pseudo/pm@0
+Jan 24 18:09:56 anita unix: pseudo-device: vol0
+Jan 24 18:09:56 anita unix: vol0 is /pseudo/vol@0
+Jan 24 18:09:57 anita icmpinfo: started, PID=213.
+Jan 24 18:09:57 anita unix: sd1 at ata0:
+Jan 24 18:09:57 anita unix:  target 1 lun 0
+Jan 24 18:09:57 anita unix: sd1 is /pci@0,0/pci-ide@7,1/ata@0/sd@1,0
+Jan 24 18:10:03 anita icmpinfo: ICMP_Dest_Unreachable[Port] < 127.0.0.1 
+[localhost] > 127.0.0.1 [localhost] sp=1664 dp=3200 seq=0x002e0000 sz=74(+20)
+Jan 24 18:10:03 anita unix: ISA-device: fdc0
+Jan 24 18:10:03 anita unix: fd0 at fdc0
+Jan 24 18:10:03 anita unix: fd0 is /isa/fdc@1,3f0/fd@0,0
+Jan 24 18:10:04 anita icmpinfo: ICMP_Dest_Unreachable[Port] < 127.0.0.1 
+[localhost] > 127.0.0.1 [localhost] sp=2944 dp=161 seq=0x00420000 sz=92(+20)
+Jan 24 18:10:05 anita unix: ISA-device: asy0
+Jan 24 18:10:05 anita unix: asy0 is /isa/asy@1,3f8
+Jan 24 18:10:05 anita unix: ISA-device: asy1
+Jan 24 18:10:05 anita unix: asy1 is /isa/asy@1,2f8
+Jan 24 18:10:05 anita unix: ISA-device: asy2
+Jan 24 18:10:05 anita unix: asy2 is /isa/pnpSUP,1670@pnpSUP,1670,7ec2
+an 24 18:10:08 anita icmpinfo: ICMP_Dest_Unreachable[Port] < 127.0.0.1 
+[localhost] > 127.0.0.1 [localhost] sp=32780 dp=162 seq=0x00370000 sz=83(+20)
+Jan 24 18:10:35 anita unix: pseudo-device: xsvc0
+Jan 24 18:10:35 anita unix: xsvc0 is /pseudo/xsvc@0
+anita:/#
+\end{verbatim}
+\end{quote}
+\subsection{{\tt wtmp}}
+Este archivo es un fichero binario (no se puede leer su contenido directamente
+volc\'andolo con {\tt cat} o similares) que almacena informaci\'on relativa a
+cada conexi\'on y desconexi\'on al sistema. Podemos ver su contenido con 
+\'ordenes como {\tt last}:
+\begin{quote}
+\begin{verbatim}
+anita:/# last -10
+toni      pts/11       localhost        Mon Mar  6 11:07 - 11:07  (00:00)
+toni      pts/11       rosita           Sun Mar  5 04:22 - 04:25  (00:03)
+ftp       ftp          andercheran.aiin Sun Mar  5 02:30   still logged in
+ftp       ftp          andercheran.aiin Sun Mar  5 00:28 - 02:30  (02:01)
+ftp       ftp          anita            Thu Mar  2 03:02 - 00:28 (2+21:25)
+ftp       ftp          anita            Thu Mar  2 03:01 - 03:02  (00:00)
+ftp       ftp          localhost        Thu Mar  2 02:35 - 03:01  (00:26)
+root      console                       Thu Mar  2 00:13   still logged in
+reboot    system boot                   Thu Mar  2 00:12 
+root      console                       Wed Mar  1 06:18 - down   (17:54)
+anita:/# 
+\end{verbatim}
+\end{quote}
+Los registros guardados en este archivo (y tambi\'en en el fichero {\tt utmp}) 
+tienen el
+formato de la estructura {\tt utmp}, que contiene informaci\'on como el
+nombre de usuario, la l\'{\i}nea por la que accede, el lugar desde donde lo
+hace y la hora de acceso; se puede consultar la p\'agina de manual de funciones
+como {\tt getutent()} para ver la estructura concreta en el clon de Unix en el
+que trabajemos. Algunas variantes de Unix (como Solaris o IRIX) utilizan un 
+fichero {\tt wtmp} extendido denominado {\tt wtmpx}, con campos adicionales
+que proporcionan m\'as informaci\'on sobre cada conexi\'on.
+\subsection{{\tt utmp}}
+El archivo {\tt utmp} es un fichero binario con informaci\'on de cada usuario
+que est\'a conectado en un momento dado; el programa {\tt /bin/login} genera
+un registro en este fichero cuando un usuario conecta, mientras que {\tt init}
+lo elimina cuando desconecta. Aunque habitualmente este archivo est\'a 
+situado en {\tt /var/adm/}, junto a otros ficheros de {\it log}, es posible
+encontrar algunos Unices -- los m\'as antiguos -- que lo situan en {\tt /etc/}.
+Para visualizar el contenido de este archivo podemos utilizar \'ordenes como
+{\tt last} (indicando el nombre de fichero mediante la opci\'on {\tt -f}), {\tt
+w} o {\tt who}:
+\begin{quote}
+\begin{verbatim}
+anita:/# who
+root       console      Mar  2 00:13
+root       pts/2        Mar  3 00:47  (unix)
+root       pts/3        Mar  2 00:18  (unix)
+root       pts/5        Mar  2 00:56  (unix)
+root       pts/6        Mar  2 02:23  (unix:0.0)
+root       pts/8        Mar  3 00:02  (unix:0.0)
+root       pts/7        Mar  2 23:43  (unix:0.0)
+root       pts/9        Mar  3 00:51  (unix)
+root       pts/10       Mar  6 00:23  (unix)
+anita:/# 
+\end{verbatim}
+\end{quote}
+Como suced\'{\i}a con {\tt wtmp}, algunos Unices utilizan tambi\'en una 
+versi\'on extendida de {\tt utmp} ({\tt utmpx}) con campos adicionales.
+\subsection{{\tt lastlog}}
+El archivo {\tt lastlog} es un fichero binario guardado generalmente en 
+{\tt /var/adm/}, y que contiene un registro para cada usuario con la fecha y
+hora de su \'ultima conexi\'on; podemos visualizar estos datos para un usuario
+dado mediante \'ordenes como {\tt who} o {\tt finger}:
+\begin{quote}
+\begin{verbatim}
+anita:/# finger toni
+Login name: toni                In real life: Toni at ANITA
+Directory: /export/home/toni          Shell: /bin/sh
+Last login Mon Mar  6 11:07 on pts/11 from localhost
+No unread mail
+No Plan.
+anita:/#
+\end{verbatim}
+\end{quote}
+\subsection{{\tt faillog}}
+Este fichero es equivalente al anterior, pero en lugar de guardar informaci\'on
+sobre la fecha y hora del \'ultimo acceso al sistema lo hace del \'ultimo
+intento de acceso de cada usuario; una conexi\'on es fallida si el usuario
+(o alguien en su lugar) teclea incorrectamente su contrase\~na. Esta 
+informaci\'on se muestra la siguiente vez que dicho usuario entra correctamente
+a la m\'aquina:
+\begin{quote}
+\begin{verbatim}
+andercheran login: toni
+Password:
+Linux 2.0.33.
+1 failure since last login.  Last was 14:39:41 on ttyp9.
+Last login: Wed May 13 14:37:46 on ttyp9 from pleione.cc.upv.es.
+
+andercheran:~$
+\end{verbatim}
+\end{quote}
+\subsection{{\tt loginlog}}
+Si en algunas versiones de Unix (como Solaris) creamos el archivo 
+{\tt /var/adm/loginlog} (que originalmente no existe), se registrar\'an en \'el 
+los intentos fallidos de {\it login}, siempre y cuando se produzcan cinco o 
+m\'as de ellos seguidos:
+\begin{quote}
+\begin{verbatim}
+anita:/# cat /var/adm/loginlog 
+toni:/dev/pts/6:Thu Jan  6 07:02:53 2000
+toni:/dev/pts/6:Thu Jan  6 07:03:00 2000
+toni:/dev/pts/6:Thu Jan  6 07:03:08 2000
+toni:/dev/pts/6:Thu Jan  6 07:03:37 2000
+toni:/dev/pts/6:Thu Jan  6 07:03:44 2000
+anita:/# 
+\end{verbatim}
+\end{quote}
+\subsection{{\tt btmp}}
+En algunos clones de Unix, como Linux o HP-UX, el fichero {\tt btmp} se 
+utiliza para
+registrar las conexiones fallidas al sistema, con un formato similar al que
+{\tt wtmp} utiliza para las conexiones que han tenido \'exito:
+\begin{quote}
+\begin{verbatim}
+andercheran:~# last -f /var/adm/btmp |head -7
+pnvarro   ttyq1        term104.aiind.up Wed Feb  9 16:27 - 15:38  (23:11)
+jomonra   ttyq2        deportes.etsii.u Fri Feb  4 14:27 - 09:37 (9+19:09)
+PNAVARRO  ttyq4        term69.aiind.upv Wed Feb  2 12:56 - 13:09 (20+00:12)
+panavarr  ttyq2        term180.aiind.up Fri Jan 28 12:45 - 14:27 (7+01:42)
+vbarbera  ttyp0        daind03.etsii.up Thu Jan 27 20:17   still logged in
+pangel    ttyq1        agarcia2.ter.upv Thu Jan 27 18:51 - 16:27 (12+21:36)
+abarra    ttyp0        dtra-51.ter.upv. Thu Jan 27 18:42 - 20:17  (01:34)
+andercheran:~#
+\end{verbatim}
+\end{quote}
+\subsection{{\tt sulog}}
+Este es un fichero de texto donde se registran las ejecuciones de la orden
+{\tt su}, indicando fecha, hora, usuario que lanza el programa y usuario cuya
+identidad adopta, terminal asociada y \'exito ({\tt `+'}) o fracaso ({\tt `-'}) 
+de la operaci\'on:
+\begin{quote}
+\begin{verbatim}
+anita:/# head -4 /var/adm/sulog
+SU 12/27 07:41 + console root-toni
+SU 12/28 23:42 - vt01 toni-root
+SU 12/28 23:43 + vt01 toni-root
+SU 12/29 01:09 + vt04 toni-root
+anita:/#
+\end{verbatim}
+\end{quote}
+El registro de las invocaciones a la orden {\tt su} puede estar deshabilitado
+por defecto en algunos sistemas Unix: por ejemplo, en Solaris es necesario crear
+manualmente el fichero {\tt /var/adm/sulog}, mientras que en algunas 
+distribuciones de Linux es necesario modificar el archivo {\tt /etc/login.defs}
+para habilitar el registro de la actividad, tal y como veremos en el 
+cap\'{\i}tulo dedicado a este clon de Unix. De esta forma, al instalar el 
+sistema, y antes de pasarlo a un entorno de producci\'on, quiz\'as nos 
+interese asegurarnos de que estamos guardando todos los cambios de identidad 
+que se producen en la m\'aquina a trav\'es de {\tt su}.
+\subsection{{\tt debug}}
+En este archivo de texto se registra informaci\'on de depuraci\'on (de {\it
+debug}) de los programas que se ejecutan en la m\'aquina; esta informaci\'on
+puede ser enviada por las propias aplicaciones o por el n\'ucleo del sistema
+operativo:
+\begin{quote}
+\begin{verbatim}
+luisa:~# tail -8 /var/adm/debug
+Dec 17 18:51:50 luisa kernel: ISO9660 Extensions: RRIP_1991A
+Dec 18 08:15:32 luisa sshd[3951]: debug: sshd version 1.2.21 
+[i486-unknown-linux]
+Dec 18 08:15:32 luisa sshd[3951]: debug: Initializing random number 
+generator; seed file /etc/ssh_random_seed
+Dec 18 08:15:32 luisa sshd[3951]: debug: inetd sockets after dupping: 7, 8
+Dec 18 08:15:34 luisa sshd[3951]: debug: Client protocol version 1.5; client 
+software version 1.2.21
+Dec 18 08:15:34 luisa sshd[3951]: debug: Calling cleanup 0x800cf90(0x0)
+Dec 18 16:33:59 luisa kernel: VFS: Disk change detected on device 02:00
+Dec 18 23:41:12 luisa identd[2268]: Successful lookup: 1593 , 22 : toni.users
+luisa:~#
+\end{verbatim}
+\end{quote}
+\section{{\it Logs} remotos}
+El demonio {\tt syslog} permite f\'acilmente guardar registros en m\'aquinas
+remotas; de esta forma se pretende que, aunque la seguridad de un sistema se
+vea comprometida y sus {\it logs} sean modificados se puedan seguir registrando
+las actividades sospechosas en una m\'aquina {\it a priori} segura. Esto se
+consigue definiendo un {\tt `LOGHOST'} en lugar de un archivo normal en el 
+fichero {\tt /etc/syslogd.conf} de la m\'aquina de la que nos interesa guardar 
+informaci\'on; por ejemplo, si queremos registrar toda la informaci\'on de
+prioridad {\tt info} y {\tt notice} en la m\'aquina remota {\tt rosita}, lo
+indicaremos de la siguiente forma:
+\begin{quote}
+\begin{verbatim}
+*.=info;*.=notice                        @rosita
+\end{verbatim}
+\end{quote}
+Tras modificar {\tt /etc/syslogd.conf} hacemos que el demonio relea su fichero
+de configuraci\'on envi\'andole la se\~nal {\sc sighup} (por ejemplo, con 
+{\tt kill}).\\
+\\Por su parte, en el {\it host} donde deseemos almacenar los {\it logs}, 
+tenemos
+que tener definido el puerto {\tt syslog} en {\tt /etc/services} y ejecutar
+{\tt syslogd} con el par\'ametro {\tt `-r'} para que acepte conexiones a 
+trav\'es de la red:
+\begin{quote}
+\begin{verbatim}
+rosita:~# grep syslog /etc/services 
+syslog          514/udp
+rosita:~# ps xua|grep syslogd
+root   41  0.0  0.4   852  304 ?        S    Mar21   0:01 /usr/sbin/syslogd
+rosita:~# kill -TERM 41
+rosita:~# syslogd -r 
+rosita:~#
+\end{verbatim}
+\end{quote}
+A partir de ese momento todos los mensajes generados en la m\'aquina origen
+se enviar\'an a la destino y se registrar\'an seg\'un las reglas de esta,
+en un fichero (lo habitual), en un dispositivo\ldots o incluso se reenviar\'an
+a otra m\'aquina (en este caso hemos de tener cuidado con los bucles); si
+suponemos que estas reglas, en nuestro caso, registran los mensajes de la
+prioridad especificada antes en {\tt /var/adm/messages}, en este archivo
+aparecer\'an entradas de la m\'aquina que ha enviado la informaci\'on:
+\begin{quote}
+\begin{verbatim}
+rosita:~# tail -3 /var/adm/messages
+Mar 23 07:43:37 luisa syslogd 1.3-3: restart. 
+Mar 23 07:43:46 luisa in.telnetd[7509]: connect from amparo
+Mar 23 07:57:44 luisa -- MARK -- 
+rosita:~# 
+\end{verbatim}
+\end{quote}
+Esto, que en muchas situaciones es muy recomendable, si no se realiza 
+correctamente puede incluso comprometer la seguridad de la m\'aquina que guarda
+registros en otro equipo: por defecto, el tr\'afico se realiza en texto claro,
+por lo que cualquier atacante con un {\it sniffer} entre las dos m\'aquinas 
+puede tener acceso a informaci\'on importante que habr\'{\i}a que mantener en
+secreto; imaginemos una situaci\'on muy habitual: un usuario que teclea su 
+{\it password} cuando el sistema le pide el {\it login}. Evidentemente, esto
+generar\'a un mensaje de error que {\tt syslogd} registrar\'a; este mensaje
+ser\'a similar a este (Linux Slackware 4):
+\begin{quote}
+\begin{verbatim}
+Mar 23 05:56:56 luisa login[6997]: invalid password for `UNKNOWN'\
+on `ttyp5' from `amparo'
+\end{verbatim}
+\end{quote}
+Pero, >qu\'e suceder\'{\i}a si en lugar de {\tt `UNKNOWN'} el sistema almacenara
+el nombre de usuario que se ha introducido, algo que hacen muchos
+clones de Unix? En esta situaci\'on el mensaje ser\'{\i}a muy parecido al
+siguiente (Linux Red Hat 6.1):
+\begin{quote}
+\begin{verbatim}
+Mar 23 05:59:15 rosita login[3582]: FAILED LOGIN 1 FROM amparo FOR\
+5k4@b&-, User not known to the underlying authentication module
+\end{verbatim}
+\end{quote}
+Como podemos ver se registrar\'{\i}a una contrase\~na de usuario, 
+contrase\~na que estamos enviando a la m\'aquina remota en
+texto claro a trav\'es de la red; evidentemente, es un riesgo que no podemos
+correr. Quiz\'as alguien pueda pensar que una clave por s\'{\i} sola no
+representa mucho peligro, ya que el atacante no conoce el nombre de usuario en 
+el sistema. De ninguna forma: el pirata s\'olo tiene que esperar unos 
+instantes, 
+porque cuando el usuario teclee su {\it login} y su {\it password} correctamente
+(en principio, esto suceder\'a poco despu\'es de equivocarse, recordemos que
+el usuario trata de acceder a su cuenta) el sistema generar\'a un mensaje 
+indicando que ese usuario (con su nombre) ha entrado al sistema\footnote{Este
+comportamiento es configurable desde {\tt /etc/login.defs}, como vemos en el
+cap\'{\i}tulo dedicado a la seguridad en Linux.}.\\
+\\Para evitar este problema existen dos aproximaciones: o bien registramos {\it 
+logs} en un equipo directamente conectado al nuestro, sin emitir tr\'afico al 
+resto de la red, o bien utilizamos comunicaciones cifradas (por ejemplo con
+{\sc ssh}) para enviar los registros a otro ordenador. En el primer caso s\'olo
+necesitamos un equipo con dos tarjetas de red, una por donde enviar el tr\'afico
+hacia la red local y la otra para conectar con la m\'aquina donde almacenamos 
+los {\it logs}, que s\'olo ser\'a accesible desde nuestro equipo y que no ha
+de tener usuarios ni ofrecer servicios; no es necesaria una gran potencia de 
+c\'alculo: podemos aprovechar un viejo 386 o 486 con Linux o FreeBSD para 
+esta tarea.\\
+\\El segundo caso, utilizar comunicaciones cifradas para guardar registros en
+otro equipo de la red, requiere algo m\'as de trabajo; aqu\'{\i} no es 
+estrictamente necesario que la m\'aquina est\'e aislada del resto de la red, ya 
+que la
+transferencia de informaci\'on se va a realizar de forma cifrada, consiguiendo
+que un potencial atacante no obtenga ning\'un dato comprometedor analizando el
+tr\'afico; evidentemente, aunque no est\'e aislado, es fundamental que el
+sistema donde almacenamos los {\it logs} sea seguro. Para enviar un {\it log}
+cifrado a una m\'aquina remota podemos utilizar, como hemos dicho antes, {\sc
+ssh} unido a las facilidades que ofrece {\tt syslogd}; si lo hacemos as\'{\i},
+lo \'unico que necesitamos es el servidor {\tt sshd} en la m\'aquina destino
+y el cliente {\tt ssh} en la origen. Por ejemplo, imaginemos
+que queremos utilizar a {\tt rosita} para almacenar una copia de los registros
+generados en {\tt luisa} conforme se vayan produciendo; en este caso vamos a
+enviar {\it logs} a un {\it fifo} con nombre, desde donde los cifraremos con 
+{\sc ssh} y los enviaremos al sistema remoto a trav\'es de la red. Lo
+primero que necesitamos hacer es crear un fichero de tipo tuber\'{\i}a en la
+m\'aquina origen, por ejemplo con {\tt mknod} o {\tt mkfifo}:
+\begin{quote}
+\begin{verbatim}
+luisa:~# mknod /var/run/cifra p
+luisa:~# chmod 0 /var/run/cifra
+luisa:~# ls -l /var/run/cifra
+p---------   1 root     root            0 May  4 05:18 /var/run/cifra|
+luisa:~# 
+\end{verbatim}
+\end{quote}
+Este es el archivo al que enviaremos desde {\tt syslogd} los registros que nos
+interesen, por ejemplo los de prioridad {\tt warn}; hemos de modificar {\tt
+/etc/syslog.conf} para a\~nadirle una l\'{\i}nea como la siguiente:
+\begin{quote}
+\begin{verbatim}
+luisa:~# tail -1 /etc/syslog.conf 
+*.warn                                             |/var/run/cifra
+luisa:~# 
+\end{verbatim}
+\end{quote}
+A continuaci\'on haremos que {\tt syslog} relea su nueva configuraci\'on 
+mediante la se\~nal {\sc sighup}:
+\begin{quote}
+\begin{verbatim}
+luisa:~# ps xua|grep syslog |grep -v grep
+root      7978  0.0  0.2  1372  156 ?        S    03:01   0:00 syslogd -m 0
+luisa:~# kill -HUP 7978
+luisa:~#
+\end{verbatim}
+\end{quote}
+Una vez realizados estos pasos ya conseguimos que se registren los eventos
+que nos interesan en el fichero {\tt /var/run/cifra}; este archivo es una 
+tuber\'{\i}a con nombre, de forma que los datos que le enviamos no se graban en 
+el disco realmente, sino que s\'olo esperan a que un proceso lector los
+recoja. Ese proceso lector ser\'a justamente el cliente {\tt ssh}, encargado
+de cifrarlos y enviarlos al sistema remoto; para ello debemos lanzar una orden
+como:
+\begin{quote}
+\begin{verbatim}
+luisa:~# cat /var/run/cifra | ssh -x rosita 'cat >>/var/log/luisa'
+\end{verbatim}
+\end{quote}
+Si tenemos configurado {\sc ssh} para que autentique sin clave podemos lanzar
+el proceso directamente en {\it background}; si tenemos que introducir la
+clave del {\tt root}, una vez tecleada podemos parar el proceso y relanzarlo 
+tambi\'en en segundo plano (esto es simplemente por comodidad, realmente no
+es necesario). Lo \'unico que estamos haciendo con este mecanismo es cifrar lo 
+que llega al {\it 
+fifo} y enviarlo de esta forma al sistema remoto, en el que se descifrar\'a y
+se guardar\'a en el fichero {\tt /var/log/luisa}.\\
+\\Quiz\'as nos interese a\~nadir unas l\'{\i}neas en los {\it scripts} de 
+arranque de nuestra m\'aquina para que este proceso se lance autom\'aticamente
+al iniciar el sistema; si lo hacemos as\'{\i} hemos de tener cuidado con la
+autenticaci\'on, ya que si {\tt ssh} requiere una clave para conectar con el
+sistema remoto es probable que la m\'aquina tarde m\'as de lo normal en arrancar
+si un operador no est\'a en la consola: justamente el tiempo necesario
+hasta que {\tt ssh} produzca un {\it timeout} por no teclear el {\it password}
+de {\tt root} en el sistema remoto. Si al producirse el {\it timeout} el
+programa {\tt ssh} no devuelve el control al {\it shell}, el sistema ni siquiera
+arrancar\'a; de cualquier forma, si ese {\it timeout} se produce {\bf no}
+estaremos registrando ning\'un evento en la otra m\'aquina. Por supuesto,
+tambi\'en debemos prestar atenci\'on a otros problemas con la m\'aquina destino
+que eviten que la conexi\'on se produzca, con un n\'umero m\'aximo de usuarios
+sobrepasado o simplemente que ese sistema est\'e apagado.
+\section{Registros f\'{\i}sicos}
+Para asegurarnos m\'as de que la informaci\'on que se registra de las 
+actividades en nuestro sistema es fiable acabamos de explicar c\'omo 
+almacenarla, a la
+vez que en un fichero de la propia m\'aquina, en un equipo remoto a trav\'es de
+la red; la idea es poder comparar los registros de ambos sistemas para detectar
+posibles modificaciones en una de ellas. Pero, >qu\'e sucede si el atacante
+consigue tambi\'en control sobre el segundo equipo, y modifica tambi\'en 
+ah\'{\i} los ficheros de {\it log}? Aunque {\it a priori} este sea un sistema
+seguro, sabemos que nadie nos puede garantizar la seguridad al 100\%; en algunos
+casos (por ejemplo si sospechamos que el intruso ha conseguido el control de 
+ambos equipos) es conveniente recurrir a registros f\'{\i}sicos, mucho m\'as 
+dif\'{\i}ciles de alterar que los l\'ogicos.\\
+\\No siempre se guarda informaci\'on en un fichero plano, ya sea local o 
+remoto.
+Unix permite almacenar mensajes en ficheros especiales -- dispositivos --, como
+terminales o impresoras; son estas \'ultimas las m\'as habituales por la 
+seguridad que ofrecen, ya que mientras que un intruso con el privilegio 
+suficiente puede modificar un fichero de {\it log} local, o acceder a un sistema
+donde se almacenen registros remotos, no puede eliminar una informaci\'on
+extra\'{\i}da por impresora sin tener acceso f\'{\i}sico a la misma. El demonio
+{\tt syslog} de cualquier sistema Unix permite especificar uno de estos
+ficheros especiales como destinatario de ciertos registros de una forma muy
+simple: no tenemos m\'as que a\~nadir una entrada en {\tt /etc/syslog.conf}
+indicando el dispositivo y la clase de eventos a registrar en \'el; por ejemplo,
+para enviar todos los mensajes de prioridad {\tt warn} a una impresora (como
+{\tt /dev/lp1}) no tenemos m\'as que a\~nadir en el archivo la l\'{\i}nea 
+siguiente:
+\begin{quote}
+\begin{verbatim}
+*.warn                         /dev/lp1
+\end{verbatim}
+\end{quote}
+Como siempre, tras modificar el fichero de configuraci\'on hemos de hacer que
+el demonio lo relea, bien envi\'andole la se\~nal {\sc sighup} o bien 
+deteni\'endolo y volvi\'endolo a lanzar; por \'ultimo, si decidimos utilizar una
+impresora para generar registros f\'{\i}sicos hemos de intentar que se trate
+de un modelo de agujas, ya que dispositivos m\'as modernos utilizan {\it 
+buffers} que no se llegan a imprimir hasta que est\'an llenos, por lo que 
+ser\'{\i}a posible para un atacante hacer que se pierda cierta informaci\'on.
+Hemos de evitar especialmente algunos modelos nuevos de impresoras que tienen
+incluso sistema de red y direcci\'on {\sc ip} para control remoto, ya que
+en este caso puede suceder que un pirata llegue a controlar el dispositivo 
+igual que controla la m\'aquina que env\'{\i}a los registros.\\
+\\Otro tipo de registro f\'{\i}sico, m\'as b\'asico e incluso m\'as fiable que
+el anterior, pero que por desgracia no se suele utilizar mucho, son las propias
+anotaciones sobre la marcha del sistema que todo administrador deber\'{\i}a
+realizar en una especie de `cuaderno de bit\'acora' de cada equipo. 
+Evidentemente la \'unica persona con acceso a dicho cuaderno deber\'{\i}a ser
+el administrador, y deber\'{\i}a guardarse en un lugar seguro, aplicando las
+mismas pol\'{\i}ticas que por ejemplo aplicamos a las cintas de {\it backup}
+(alejadas del entorno de operaciones para prevenir la p\'erdida ante un
+desastre f\'{\i}sico, almacenadas bajo llave\ldots).

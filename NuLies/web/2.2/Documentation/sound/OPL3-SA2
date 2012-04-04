@@ -1,0 +1,144 @@
+Documentación del controlador para OPL3-SA2, SA3, y SAx (opl3sa2.o)
+-------------------------------------------------------------------
+
+Scott Murray, scottm@interlog.com
+Enero 5, 1999
+
+NOTA: Todos los términos sostenidos a marcas comerciales mencionados en este
+documento pertenecen a sus respectivos dueños. 
+
+
+Este controlador es para tarjetas PnP basadas en los siguientes chips
+controladores de sonido de Yamaha:
+
+YMF711 conocido como OPL3-SA2
+YMF715 conocido como OPL3-SA3
+YMF719 conocido como OPL3-SAx (?)
+
+Estoy un poco desconcertado sobre que es exáctamente un SAx. Por lo que he
+visto, a veces se refiere a la familia 7xx al completo y otras como un
+identificador especial para el 719 en mi tarjeta de sonido "sin nombre".
+Para hacer las cosas peor, parece que hay diferente revisiones del chip 715.
+
+De todas formas, todos los chips implementan los siguientes dispositivos:
+
+Sintetizador OPL3 FM
+Soundblaster Pro
+Sistema de Sonido Microsoft/Windows
+Interfaz MIDI MPU401
+
+Note que este controlador usa el dispositivo MSS, y por lo que sé estos chips
+fuerzan la compatibilidad del dispositivo MSS con la Sounblaster Pro. Puesto
+que el MSS tiene mejores características, he implementado un controlador que lo
+usa.
+
+Siendo tarjetas PnP, requieren alguna inicialización.  Hay dos formas de
+hacerlo. La más común es usar el paquete isapnptools para analizar la tarjeta,
+y usar los módulos del subsistema de sonido del núcleo. Alternativamente
+algunas BIOS permiten la configuración manual de los dispositivos PnP instalados
+desde un menú en la BIOS, el cual debe permitir el uso de controladores de
+sonido no-modulares., p.e. compilados dentro del núcleo.
+
+Personalmente uso isapnp y módulos, ya que no tengo acceso a una máquina con
+BIOS PnP para probar. Si tiene semejante bestia, intente compilar ambos, el
+controlador MSS y este controlador en el kernel(configurado apropiadamente, por
+supuesto).  He recibido información de que funciona, por lo que debe ser
+posible para la mayoría de gente con BIOS PnP. Si no le funciona, envíeme un
+correo electrónico si está deseando experimentar para que funcione.
+
+************************************************************************
+* Tengo, bueno, tuve dos de esas máquinas,y finalmente he conseguido que
+* funcionen correctamente cuando compilo el controlador dentro del núcleo.
+* La serie Toshiba Libretto, o por lo menos los modelos 70CT y 110CT que tuve,
+* usan el chip Yamaha OPL3-SAx (OPL3-SA3 de acuerdo a la documentación)
+* IRQ 5, dirección de E/S 220/530/388/330/370 y DMA 1,0 (_no_ 0,1). 
+* Toda esta información de la configuración puede ser recogida cambiando a otro
+* SO que reconozca la tarjeta.
+*
+* He conseguido que las cosas 'funcionen' para el caso no-modular 
+* en estas máquinas cuando lo configuré adecuadamente.
+*
+* David Luyer <luyer@ucs.uwa.edu.au>
+************************************************************************
+
+Si está usando isapnp, siga las intrucciones de su documentación para producir
+un fichero de configuración. Aquí está el trozo relevante de mi isapnp.conf 
+que uso para mi tarjeta SAx:
+
+(CONFIGURE YMH0800/-1 (LD 0
+
+# En vez de (IO 0 (BASE 0x0220)), desactivar SB:
+(IO 0 (BASE 0x0000))
+(IO 1 (BASE 0x0530))
+(IO 2 (BASE 0x0388))
+(IO 3 (BASE 0x0330))
+(IO 4 (BASE 0x0370))
+(INT 0 (IRQ 7 (MODE +E)))
+(DMA 0 (CHANNEL 0))
+(DMA 1 (CHANNEL 3))
+
+Aquí, note que:
+
+Puerto Rango aceptable   Purpose
+------ ----------------  -------
+IO 0   0x0220 - 0x0280   dirección E/S de la SB, Lo he puesto a 0 para estar
+			 					      seguro
+IO 1   0x0530 - 0x0F48   dirección base del MSS
+IO 2   0x0388 - 0x03F8   dirección base del OPL3
+IO 3   0x0300 - 0x0334   dirección base del MPU
+IO 4   0x0100 - 0x0FFE   dirección base de la tarjeta para control de sus
+			 				      puertos E/S
+
+Los valores de IRQ y DMA pueden ser considerados aceptables para MSS.
+Asumiendo que tiene a su isapnp feliz, debe ser capaz de hacer algo como lo
+siguiente (que tiene que cuadrar con la configuración de isapnp):
+
+insmod mpu401
+insmod ad1848
+insmod opl3sa2 io=0x370 mss_io=0x530 mpu_io=0x330 irq=7 dma=0 dma2=3
+insmod opl3 io=0x388
+
+Recuerde que el argumento io del módulo opl3sa2 es para el propio control de la
+tarjeta, que maneja el mezclador maestro para el volumen (en todas las
+tarjetas) y los graves  y agudos ( en tarjetas SA3 y SAx).
+
+Si todo va bien y no ve mensajes de error, debería ser capaz de empezar a usar
+las capacidades sonoras de su sistema. Si obtiene un mensaje de error
+intentando insertar el módulo opl3sa2, compruebe los valores de los varios
+argumentos que especificó en su fichero de configuración isapnp, y que no hay
+conflictos con otros dispositivos para un determinado puerto E/S o
+interrupción. Comprobar el contenido de /proc/ioports y /proc/interrupts puede
+ser útil para ver si está creando conflictos con otro dispositivo.
+
+Si todavía no consigue que funcione el módulo, mire el contenido del fichero de
+registro del sistema, normalmente /var/log/message. Si ve el mensaje 
+"Unknown Yamaha audio controller version", tiene un conjunto de chips diferente
+a los encontrados hasta a ahora. Busque una línea en el fichero que diga 
+"opl3sa2.c: chipset version = <algún número>". Si quiere que incluya soporte
+para su tarjeta, mándeme el número de esta línea y cualquier información que
+tenga sobre el conjunto de chips de su tarjeta de sonido. Con estos datos yo
+Debería ser capaz de hacer un arreglo. 
+
+Si no ve el mensaje de versión del chip, y ninguno de los otros mensajes del
+fichero de registro son útiles, envíeme un correo electrónico con algunos
+detalles, e intentaré hacer lo posible para ayudar.
+
+Finalmente, si está usando módulos y quiere usar la carga automática de los
+módulos con kmod, el cargador de módulos del núcleo, aquí tiene la sección que
+uso en mi fichero conf.modules:
+
+# Sonido
+alias char-major-14 opl3sa2
+pre-install opl3sa2 modprobe "-k" "ad1848"
+post-install opl3sa2 modprobe "-k" "opl3"
+options opl3sa2 io=0x370 mss_io=0x530 mpu_io=0x330 irq=7 dma=0 dma2=3
+options opl3 io=0x388
+
+Esto es todo lo que hace falta para conseguir que una tarjeta OPL3-SAx
+funcione en mi sistema. De nuevo, si encuentra otros problemas, mándeme un
+correo electrónico a la dirección del comienzo del documento.
+
+Scott
+
+"Traducido para el proyecto NuLies por
+ Gorka Olaizola Sánchez <olsago@jet.es>"

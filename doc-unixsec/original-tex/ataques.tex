@@ -1,0 +1,1077 @@
+\chapter{Ataques remotos}
+\section{Escaneos de puertos}
+Una de las primeras actividades que un potencial (o no tan potencial) atacante 
+realizar\'a contra su objetivo ser\'a sin duda un escaneo de puertos, un {\it 
+portscan}; esto le permitir\'a obtener en primer lugar informaci\'on b\'asica 
+acerca de qu\'e servicios estamos ofreciendo en nuestras m\'aquinas y, 
+adicionalmente, otros detalles de nuestro entorno como qu\'e sistema operativo 
+tenemos instalados en cada {\it host} o ciertas caracter\'{\i}sticas de la
+arquitectura de nuestra red. Analizando qu\'e puertos est\'an abiertos en un
+sistema, el atacante puede buscar agujeros en cada uno de los servicios 
+ofrecidos: cada puerto abierto en una m\'aquina es una potencial puerta de 
+entrada a la misma.\\
+\\Comprobar el estado de un determinado puerto es {\it a priori} una tarea muy
+sencilla; incluso es posible llevarla a cabo desde la l\'{\i}nea de \'ordenes,
+usando una herramienta tan gen\'erica como {\tt telnet}. Por ejemplo, imaginemos
+que queremos conocer el estado del puerto 5000 en la m\'aquina cuya direcci\'on
+IP es 192.168.0.10; si el {\tt telnet} a dicho puerto ofrece una respuesta, 
+entonces est\'a abierto y escuchando peticiones:
+\begin{quote}
+\begin{verbatim}
+anita:~$ telnet 192.168.0.10 5000 
+Trying 192.168.0.10...
+Connected to 192.168.0.10.
+Escape character is '^]'.
+^D
+Connection closed by foreign host.
+anita:~$ 
+\end{verbatim}
+\end{quote}
+Si por el contrario el puerto est\'a abierto pero en \'el no hay ning\'un 
+demonio atendiendo peticiones, la respuesta ser\'a similar a la siguiente:
+\begin{quote}
+\begin{verbatim}
+anita:~$ telnet 192.168.0.10 5000
+Trying 192.168.0.10...
+telnet: Unable to connect to remote host: Connection refused
+anita:~$ 
+\end{verbatim}
+\end{quote}
+Por \'ultimo, si el puerto est\'a protegido por un cortafuegos, lo m\'as 
+probable\footnote{Es posible, dependiendo de la configuraci\'on y del tipo de 
+nuestro cortafuegos, que obtengamos otro tipo de respuesta, generalmente un
+{\it `Connection refused'}.} es que no obtengamos respuesta alguna; el {\tt 
+telnet} lanzado se 
+quedar\'a intentando la conexi\'on hasta que se produzca un {\it timeout} o 
+hasta que lo paremos manualmente:
+\begin{quote}
+\begin{verbatim}
+anita:~$ telnet 192.168.0.10 5000
+Trying 192.168.0.10...
+^D
+anita:~$ 
+\end{verbatim}
+\end{quote}
+Por lo general, nadie en su sano juicio usar\'{\i}a {\tt telnet} para realizar
+un escaneo de puertos masivo contra un sistema o contra toda una red; existen
+herramientas como {\tt strobe} o {\tt nmap} (la m\'as conocida) que pueden 
+realizar esta tarea de una forma m\'as o menos c\'omoda y automatizable.
+Evidentemente, ninguno de estos programas se dedica a lanzar {\it telnets} 
+contra los puertos de un sistema: los escaneadores de puertos actuales 
+implementan diferentes t\'ecnicas que permiten desde detectar desde la versi\'on
+del sistema operativo usado en la m\'aquina atacada hasta pasar inadvertidos 
+ante diferentes sistemas de detecci\'on de intrusos.\\
+\\Existen diferentes aproximaciones para clasificar los escaneos de puertos,
+tanto en funci\'on de las t\'ecnicas seguidas en el ataque como en funci\'on de
+a qu\'e sistemas o puertos concretos va dirigido. Por ejemplo, se habla de un 
+escaneo {\bf horizontal} cuando el atacante busca la disponibilidad de 
+determinado servicio en diferentes 
+m\'aquinas de una red; por ejemplo, si el pirata dispone de un {\it exploit} 
+que aprovecha un fallo en la implementaci\'on de {\tt sendmail}, es normal que
+trate de averiguar qu\'e m\'aquinas aceptan peticiones {\sc smtp} en un
+determinado segmento para posteriormente atacar a dichos sistemas. Si por 
+contra el pirata s\'olo escanea puertos de una m\'aquina, se denomina al ataque 
+escaneo {\bf vertical}, y suele denotar el inter\'es del atacante en ese {\it
+host} concreto; si comprueba todos los puertos del sistema al escaneo se le 
+denomina {\it vanilla}, mientras que si s\'olo lo hace contra determinados 
+puertos o rangos, se le denomina {\it strobe} (en referencia al programa del 
+mismo nombre). Si nos basamos en las t\'ecnicas utilizadas, podemos dividir los
+escaneos en tres grandes familias: {\it open}, {\it half--open} y {\it stealth};
+vamos a hablar con m\'as detalle de cada una de ellas y de los diferentes 
+tipos escaneos que las forman.\\
+\\Los escaneos {\bf open} se basan en el establecimiento de una conexi\'on {\sc 
+tcp} completa mediante el conocido como protocolo de acuerdo de tres v\'{\i}as 
+o {\it three--way handshake} (\cite{kn:tom75}), por lo que son muy sencillos de 
+detectar y detener. Utilizan la llamada {\tt connect()}, siendo lo m\'as similar
+-- guardado las distancias -- al ejemplo del {\tt telnet} que hemos visto antes:
+el escaneador intenta establecer una conexi\'on con un puerto concreto del {\it 
+host} atacado, y en funci\'on de la respuesta obtenida conoce su estado: una
+t\'ecnica r\'apida, sencilla, fiable y que no necesita de ning\'un privilegio 
+especial en la m\'aquina atacante.\\
+\\La segunda t\'ecnica que hemos comentado es la de los escaneos {\bf 
+half--open}; en este caso, el pirata finaliza la conexi\'on antes de que se 
+complete el protocolo de acuerdo de tres v\'{\i}as, lo que de entrada dificulta 
+-- aunque no mucho --
+la detecci\'on del ataque por parte de algunos detectores de intrusos muy 
+simples (casi todos los actuales son capaces de detectarlos). Dentro de esta
+t\'ecncia se encuentra el {\it SYN Scanning}: cuando el origen -- atacante --
+recibe del destino -- m\'aquina escaneada -- los {\it bits} {\sc syn+ack}, 
+env\'{\i}a un {\it bit} {\sc rst} (no es necesaria una nueva trama, ya que este
+{\it bit} se env\'{\i}a autom\'aticamente a nivel de n\'ucleo) en lugar del
+{\sc ack} correspondiente a un {\it three--way handshake} completo. Los escaneos
+{\sc syn} son f\'acilmente detectables y pueden ser bloqueados en cualquier 
+cortafuegos; existe una variable de esta t\'ecnica denominada {\it dumb 
+scanning} (\cite{kn:det01}) en la que entra en juego una tercera m\'aquina 
+denominada `tonta' (por el poco tr\'afico que emite y recibe), algo que puede 
+ayudar al pirata a camuflar su origen real. Sin embargo, el {\it dumb scanning} 
+es m\'as complicado que el {\it SYN scanning}, por lo que se utiliza mucho 
+menos en la vida real.\\
+\\Finalmente, existe otra modelo de escaneo denominado {\bf stealth 
+scanning}. En diciembre de 1995 Christopher Klaus proporcion\'o las pautas de 
+ciertas t\'ecnicas de escaneo que
+permit\'{\i}an al atacante eludir la acci\'on de los sistemas de detecci\'on
+de intrusos de la \'epoca (\cite{kn:kla95}) y a las que bautiz\'o como {\it 
+stealth scanning}; actualmente el significado del t\'ermino ha cambiado, ya que
+lo que Klaus present\'o se denomina hoy en d\'{\i}a {\it half--open scanning}, y
+por {\it stealth scanning} se conoce a una familia de t\'ecnicas de escaneo que 
+cumplen alguna de las siguientes condiciones\footnote{Tambi\'en se utiliza el
+t\'ermino {\it stealth} para referirse \'unicamente a los escaneos {\sc null}, 
+que como veremos despu\'es son aquellos con todos los {\it flags} de la trama 
+reseteados.}:
+\begin{itemize}
+\item Eludir cortafuegos o listas de control de acceso.
+\item No ser registradas por sistemas de detecci\'on de intrusos, ni orientados
+a red ni en el propio {\it host} escaneado.
+\item Simular tr\'afico normal y real para no levantar sospechas ante un 
+analizador de red.
+\end{itemize}
+Una de las t\'ecnicas que encontramos dentro de la familia de los escaneos {\it 
+stealth} es la conocida como {\sc syn+ack}. La idea es muy simple, y consiste en
+una violaci\'on del {\it three--way handshake}: el atacante, en lugar de enviar 
+en primer lugar una trama {\sc syn}, env\'{\i}a {\sc syn+ack}. Si el puerto 
+est\'a abierto simplemente se ignora, y si est\'a cerrado sabe que no ha 
+recibido previamente un paquete {\sc syn}, por lo que lo considera un error y
+env\'{\i}a una trama {\sc rst} para finalizar la conexi\'on.\\
+\\Los escaneos basados en este m\'etodo se usan poco en la actualidad, debido
+al elevado n\'umero de falsos positivos que pueden generar: s\'olo debemos 
+pensar en los m\'ultiples motivos -- aparte de un puerto abierto -- que pueden
+existir para que un sistema no responda ante una petici\'on {\sc syn+ack}: 
+desde listas de control de accesos en los {\it routers} o cortafuegos hasta 
+simples {\it timeouts}.\\
+\\Otra t\'ecnica dentro de los escaneos {\it stealth} es el {\sc fin} {\it
+scanning} (\cite{kn:mai96}): en este caso, el atacante env\'{\i}a a su objetivo 
+una trama con el {\it bit} {\sc fin} activo, ante lo que este responde con un
+{\sc rst} si el puerto est\'a cerrado, o simplemente no responde en caso de
+estar abierto; como en el caso de los escaneos {\sc syn+ack} este m\'etodo puede
+proporcionar muchos falsos positivos, por lo que tampoco se utiliza mucho hoy
+en d\'{\i}a.\\
+\\Tambi\'en en \cite{kn:mai96}, se propone un m\'etodo de escaneo algo m\'as
+complejo: el {\sc ack}. El atacante env\'{\i}a una trama con este {\it bit}
+activo, y si el puerto destino est\'a abierto es muy posible que o bien el 
+campo {\sc ttl} del paquete de vuelta sea menor que el del resto de las tramas 
+{\sc rst} recibidas, o que el tama\~no de ventana sea mayor que cero: como 
+podemos ver, en este caso no basta con analizar el bit {\sc rst} sino tambi\'en
+la cabecera {\sc ip} del paquete respuesta. Este m\'etodo es dif\'{\i}cil de 
+registrar por parte de los detectores de intrusos, pero se basa en el c\'odigo
+de red de {\sc bsd}, por lo que es dependiente del operativo escaneado.\\
+\\Para finalizar con la familia de {\it stealth scanning} vamos a hablar de dos
+m\'etodos opuestos entre s\'{\i} pero que se basan en una misma idea y 
+proporcionan resultados similares: se trata de {\sc xmas} y {\sc null}. Los 
+primeros, tambi\'en denominados escaneos `\'arbol de navidad', se basan en 
+enviar al objetivo
+tramas con todos los {\it bits} {\sc tcp} ({\sc urg, ack, pst, rst, syn} y {\sc
+fin}) activos; si el puerto est\'a abierto el n\'ucleo del sistema operativo
+eliminar\'a la trama, ya que evidentemente la considera una violaci\'on del
+{\it three--way handshake}, pero si est\'a cerrado devolver\'a un {\sc rst} al
+atacante. Como antes, este m\'etodo puede generar demasiados falsos positivos,
+y adem\'as s\'olo es aplicable contra m\'aquinas Unix debido a que est\'a
+basado en el c\'odigo de red de {\sc bsd}.\\
+\\Por contra, el m\'etodo opuesto al {\sc xmas} se denomina {\sc null} {\it 
+scanning}, y
+evidentemente consiste en enviar tramas con todos los {\it bits} {\sc tcp} 
+reseteados; el resultado es similar: no se devolver\'a ning\'un resultado si
+el puerto est\'a abierto, y se enviar\'a un {\sc rst} si est\'a cerrado. Aunque
+en principio este m\'etodo ser\'{\i}a aplicable a cualquier pila {\sc tcp/ip}
+(\cite{kn:ark99}), la implementaci\'on -- incorrecta -- que de la misma hacen 
+algunos operativos (entre ellos HP/UX o IRIX) hace que en ocasiones se 
+envien {\it bits} {\sc rst} tambi\'en desde los puertos abiertos, lo que 
+puede proporcionar demasiados falsos positivos.\\
+\\Antes de acabar el punto, vamos a hablar de otra t\'ecnica de escaneo de 
+puertos que no se puede englobar en las tres clases de las que hemos hablado:
+se trata de los escaneos {\sc udp}, que al contrario de todos los comentados
+hasta el momento utiliza este protocolo, y no {\sc tcp}, para determinar el
+estado de los puertos de una m\'aquina. Al enviar un datagrama {\sc udp} a un
+puerto abierto este no ofrece res\-pues\-ta alguna, pero si est\'a cerrado 
+devuelve
+un mensaje de error {\sc icmp}: {\sc icmp$\_$port$\_$unreachable}. 
+Evidentemente, estos ataques son muy sencillos de detectar y evitar tanto en
+un sistema de detecci\'on de intrusos como en los n\'ucleos de algunos Unices, 
+y por si esto fuera poco debemos recordar que {\sc udp} no es un protocolo 
+orientado a conexi\'on (como lo es {\sc tcp}), por lo que la p\'erdida de
+datagramas puede dar lugar a un elevado n\'umero de falsos positivos.\\
+\\Hemos repasado las t\'ecnicas m\'as habituales -- no todas -- que un atacante 
+puede utilizar para averiguar el estado de los puertos de nuestras m\'aquinas;
+muchas de ellas son sencillas de detectar y evitar utilizando cortafuegos 
+sencillos y gratuitos como {\tt iptables} o {\it IPFilter}, por lo que tenemos
+una raz\'on m\'as para utilizar un {\it firewall} que proteja nuestra red. Los
+puertos abiertos de un sistema proporcionan a un pirata una valiosa 
+informaci\'on sobre el mismo, en muchos casos suficiente para iniciar un ataque 
+m\'as serio contra la m\'aquina, as\'{\i} que mucho mejor para nosotros cuanto
+m\'as dif\'{\i}cil le pongamos esta tarea.
+\section{\it Spoofing}
+Por {\it spoofing} se conoce a la creaci\'on de tramas {\sc tcp/ip} utilizando
+una direcci\'on IP falseada; la idea de este ataque -- al menos la idea -- es 
+muy sencilla: desde su equipo, un pirata simula la identidad de otra m\'aquina 
+de la red para conseguir acceso a recursos de un tercer sistema que ha 
+establecido alg\'un tipo de confianza basada en el nombre o la direcci\'on IP 
+del {\it host} suplantado. Y como los anillos de confianza basados en estas 
+caracter\'{\i}sticas tan f\'acilmente falsificables son a\'un demasiado 
+abundantes (no tenemos m\'as que pensar en los comandos {\tt r-$\ast$}, los 
+accesos {\sc nfs}, o la protecci\'on de servicios de red mediante {\it TCP 
+Wrapper}), el {\it spoofing} sigue siendo en la actualidad un ataque no trivial,
+pero factible contra cualquier tipo de organizaci\'on.\\
+\\Como hemos visto, en el {\it spoofing} entran en juego tres m\'aquinas: un
+atacante, un atacado, y un sistema suplantado que tiene cierta relaci\'on con
+el atacado; para que el pirata pueda conseguir su objetivo necesita por un lado 
+establecer una comunicaci\'on falseada con su objetivo, y por otro evitar que 
+el equipo suplantado interfiera en el ataque (\cite{kn:tod96}). Probablemente 
+esto \'ultimo no le sea muy dif\'{\i}cil de conseguir: a pesar de que existen
+m\'ultiples formas de dejar fuera de juego al sistema suplantado -- al menos a
+los ojos del atacado -- que no son triviales (modificar rutas de red, ubicar un
+filtrado de paquetes entre ambos sistemas\ldots), lo m\'as f\'acil en la 
+mayor\'{\i}a de ocasiones es simplemente lanzar una negaci\'on de servicio 
+contra el sistema en cuesti\'on. Aunque en el punto siguiente hablaremos con 
+m\'as detalle de estos ataques, no suele ser dif\'{\i}cil `tumbar', o al menos
+bloquear parcialmente, un sistema medio; si a pesar de todo el atacante no lo
+consigue, simplemente puede esperar a que desconecten de la red a la m\'aquina a
+la que desea suplantar (por ejemplo, por cuestiones de puro mantenimiento).\\
+\\El otro punto importante del ataque, la comunicaci\'on falseada entre dos
+equipos, no es tan inmediato como el anterior y es donde reside la principal
+dificultad del {\it spoofing}. En un escenario t\'{\i}pico del ataque, un
+pirata env\'{\i}a una trama {\sc syn} a su objetivo indicando como direcci\'on 
+origen la de esa tercera m\'aquina que est\'a fuera de servicio y que mantiene 
+alg\'un tipo de relaci\'on de confianza con la atacada. El {\it host} objetivo 
+responde con un {\sc syn+ack} a la tercera m\'aquina, que simplemente lo 
+ignorar\'a por estar fuera de servicio (si no lo hiciera, la 
+conexi\'on se resetear\'{\i}a y el ataque no ser\'{\i}a posible), y el atacante 
+enviar\'a ahora una trama {\sc ack} a su objetivo, tambi\'en con la direcci\'on
+origen de la tercera m\'aquina. Para que la conexi\'on llegue a establecerse, 
+esta \'ultima trama deber\'a enviarse con el n\'umero de secuencia adecuado; el
+pirata ha de predecir correctamente este n\'umero: si no lo hace, la trama 
+ser\'a descartada), y si lo consigue la conexi\'on se establecer\'a y podr\'a 
+comenzar a enviar datos a su objetivo, generalmente para tratar de insertar una 
+puerta trasera que permita una conexi\'on normal entre las dos m\'aquinas.\\
+\\Podemos comprobar que el {\it spoofing} no es inmediato; de entrada, el 
+atacante ha 
+de hacerse una idea de c\'omo son generados e incrementados los n\'umeros 
+de secuencia TCP, y una vez que lo sepa ha de conseguir `enga\~nar' a su 
+objetivo utilizando estos n\'umeros para establecer la comunicaci\'on; cuanto 
+m\'as robusta sea esta generaci\'on por parte del objetivo, m\'as dif\'{\i}cil 
+lo tendr\'a el pirata para realizar el ataque con \'exito. Adem\'as, es 
+necesario recordar que el {\it spoofing} es un ataque ciego: el atacante no ve 
+en ning\'un momento las respuestas que emite su objetivo, ya que estas van 
+dirigidas a la m\'aquina que previamente ha sido deshabilitada, por lo que debe 
+presuponer qu\'e est\'a sucediendo en cada momento y responder de forma 
+adecuada en base a esas suposiciones. Ser\'{\i}a imposible tratar con el 
+detenimiento que merecen todos los detalles relativos al {\it spoofing} por lo 
+que para obtener informaci\'on adicional es necesario dirigirse a excelentes 
+art\'{\i}culos que estudian todos los pormenores del ataque, como 
+\cite{kn:dae96b} o \cite{kn:tod96}; de la misma forma, para conocer con detalle 
+el funcionamiento del protocolo {\sc tcp/ip} y sus problemas podemos consultar 
+\cite{kn:ste94}, \cite{kn:tan96}, \cite{kn:bel89} y \cite{kn:mor85}.\\
+\\Para evitar ataques de {\it spoofing} exitosos contra nuestros sistemas 
+podemos tomar diferentes medidas preventivas; en primer lugar, parece evidente
+que una gran ayuda es reforzar la secuencia de predicci\'on de n\'umeros de
+secuencia {\sc tcp}: un esquema de generaci\'on robusto puede ser el basado en
+\cite{kn:rfc1498}, que la mayor\'{\i}a de Unices son capaces de implantar 
+(aunque muchos de ellos no lo hagan por defecto). Otra medida sencilla es
+eliminar las relaciones de confianza basadas en la direcci\'on {\sc ip} o el
+nombre de las m\'aquinas, sustituy\'endolas por relaciones basadas en claves
+criptogr\'aficas; el cifrado y el filtrado de las conexiones que pueden aceptar 
+nuestras m\'aquinas tambi\'en son unas medidas de seguridad importantes de cara 
+a evitar el {\it spoofing}.\\
+\\Hasta ahora hemos hablado del ataque gen\'erico contra un {\it host} 
+denominado {\it spoofing} o, para ser m\'as exactos, {\it IP Spoofing}; existen
+otros ataques de falseamiento relacionados en mayor o menor medida con este, 
+entre los que destacan el {\it DNS Spoofing}, el {\it ARP Spoofing} y el {\it
+Web Spoofing} (\cite{kn:ris01}). Para finalizar este punto, vamos a comentarlos
+brevemente e indicar algunas lecturas donde se puede ampliar informaci\'on 
+sobre los mismos:
+\begin{itemize}
+\item{\it DNS Spoofing}\\
+Este ataque hace referencia al falseamiento de una direcci\'on IP ante una 
+consulta de resoluci\'on de nombre (esto es, resolver con una direcci\'on falsa 
+un cierto nombre DNS), o viceversa (resolver con un nombre falso una cierta
+direcci\'on IP). Esto se puede conseguir de diferentes formas, desde modificando
+las entradas del servidor encargado de resolver una cierta petici\'on para 
+falsear las relaciones direcci\'on--nombre, hasta comprometiendo un servidor 
+que infecte la cach\'e de otro (lo que se conoce como {\it DNS Poisoning});
+incluso sin acceso a un servidor DNS real, un atacante puede enviar datos 
+falseados como respuesta a una petici\'on de su v\'{\i}ctima sin m\'as que 
+averiguar los n\'umeros de secuencia correctos.
+\item{\it ARP Spoofing}\\
+El ataque denominado {\it ARP Spoofing} hace referencia a la construcci\'on de 
+tramas de solicitud y respuesta {\sc arp} falseadas, de forma que en una red
+local se puede forzar a una determinada m\'aquina a que env\'{\i}e los paquetes
+a un {\it host} atacante en lugar de hacerlo a su destino leg\'{\i}timo. La idea
+es sencilla, y los efectos del ataque pueden ser muy negativos: desde negaciones
+de servicio hasta interceptaci\'on de datos, incluyendo algunos {\it Man in 
+the Middle} contra ciertos protocolos cifrados. En \cite{kn:vol97} podemos
+obtener m\'as informaci\'on acerca de este ataque, as\'{\i} como c\'odigo 
+fuente para enviar tramas falseadas y comprobar los efectos del {\it ARP 
+Spoofing} en nuestra red.
+\item{\it Web Spoofing}\\
+Este ataque permite a un pirata visualizar y modificar cualquier p\'agina {\it
+web} que su v\'{\i}ctima solicite a trav\'es de un navegador, incluyendo las
+conexiones seguras v\'{\i}a {\sc ssl}. Para ello, mediante c\'odigo malicioso 
+un atacante crea una ventana del navegador correspondiente, de apariencia 
+inofensiva, en la m\'aquina de su v\'{\i}ctima; a partir de ah\'{\i}, enruta 
+todas las p\'aginas dirigidas al equipo atacado -- incluyendo las cargadas en
+nuevas ventanas del navegador -- a trav\'es de su propia 
+m\'aquina, donde son modificadas para que cualquier evento generado por el 
+cliente sea registrado (esto implica registrar cualquier dato introducido en un
+formulario, cualquier {\it click} en un enlace, etc.). Para obtener m\'as 
+informaci\'on acerca del {\it Web Spoofing} podemos consultar \cite{kn:fel96}.
+\end{itemize}
+\section{Negaciones de servicio}
+Las negaciones de servicio (conocidas como DoS, {\it Denial of Service}) son
+ataques dirigidos contra un recurso inform\'atico (generalmente una m\'aquina o
+una red, pero tambi\'en podr\'{\i}a tratarse de una simple impresora o una
+terminal) con el objetivo de degradar total o parcialmente los servicios 
+prestados por ese recurso a sus usuarios leg\'{\i}timos; constituyen en muchos 
+casos uno de los ataques m\'as sencillos y contundentes contra todo tipo de 
+servicios, y en entornos donde la disponibilidad es valorada por encima de otros
+par\'ametros de la seguridad global puede convertirse en un serio problema, ya
+que un pirata puede interrumpir constantemente un servicio sin necesidad de 
+grandes conocimientos o recursos, utilizando simplemente sencillos programas y 
+un m\'odem y un PC caseros.\\
+\\Las negaciones de servicio m\'as habituales suelen consistir en la
+inhabilitaci\'on total de un determinado servicio o de un sistema completo, bien
+porque ha sido realmente bloqueado por el atacante o bien porque est\'a tan 
+degradado que es incapaz de ofrecer un servicio a sus usuarios. En la mayor
+parte de sistemas, un usuario con acceso {\it shell} no tendr\'{\i}a muchas
+dificultades en causar una negaci\'on de servicio que tirara abajo la m\'aquina 
+o la ralentizara enormemente; esto no tiene porqu\'e ser -- y de hecho en muchos
+casos no lo es -- un ataque intencionado, sino que puede deberse a un simple
+error de programaci\'on. Por ejemplo, pensemos en el siguiente {\it 
+shellscript} (funciona en Linux):
+\begin{quote}
+\begin{verbatim}
+luisa:~# cat /usr/local/bin/lanzador
+#!/bin/sh
+ps -ef|grep calcula|grep -v grep 2>&1 >/dev/null
+if [ $? -eq 1 ]; then
+        /usr/local/bin/calcula &
+fi
+luisa:~# 
+\end{verbatim}
+\end{quote}
+Como podemos ver, este {\it script} comprueba si un determinado programa
+est\'a lanzado en la m\'aquina, y si no lo est\'a lo lanza \'el; algo 
+completamente inofensivo a primera vista, y planificado habitualmente en muchos 
+sistemas para que se ejecute -- por ejemplo, cada cinco minutos -- desde {\tt
+crond}. Sin embargo, nos podemos parar a pensar qu\'e suceder\'{\i}a bajo 
+algunas circunstancias anormales: >y si en el arranque de la m\'aquina, por el 
+motivo que sea, no se ha montado correctamente el directorio {\tt /proc/}? Si 
+esto sucede, la orden {\tt `ps'} generar\'a un error, la condici\'on se 
+cumplir\'a siempre, y cada cinco minutos se lanzar\'a una copia de {\tt 
+calcula}; si este programa consume mucha CPU, al poco tiempo tendremos un 
+elevado n\'umero de copias que cargar\'an enormemente el sistema hasta hacerlo 
+inutilizable. Un ejemplo perfecto de negaci\'on de servicio.\\
+\\Por fortuna, como ya hemos visto en cap\'{\i}tulos anteriores, todos los 
+sistemas Unix ofrecen mecanismos para evitar que un usuario normal pueda tirar
+abajo una m\'aquina de esta forma; incluso si no los ofrecieran, en la mayor
+parte de los casos el responsable podr\'{\i}a {\it ser disciplinado fuera del
+sistema operativo, por otros medios}, como dijo Dennis Ritchie. El problema 
+real no es que usuarios leg\'{\i}timos de un entorno causen, intencionada o
+inintencionadamente, negaciones de servicio: el mayor problema es que esas
+negaciones sean causadas de forma remota por piratas ajenos por completo a 
+nuestra organizaci\'on, capaces de tumbar un servidor de millones de pesetas 
+con sencillos programas, sin dejar ning\'un rastro y lo peor, sin ser muchas
+veces conscientes del da\~no que est\'an haciendo.\\
+\\Estos ataques remotos de negaci\'on de servicio son considerados negativos
+incluso por muchos de los propios piratas -- especialmente los m\'as 
+experimentados --, ya que realmente no suelen demostrar nada positivo de quien
+los lanza (si es que alg\'un ataque demuestra algo positivo de alguien, lo cual
+ser\'{\i}a muy discutible\ldots): generalmente se trata de un {\it 
+script--kiddie} ejecutando un programa que ni ha hecho, ni entiende, ni ser\'a
+capaz de entender. En la mayor parte de los casos la negaci\'on de servicio 
+tiene \'exito porque el objetivo utiliza versiones no actualizadas de demonios
+(si se para un servicio concreto) o del propio n\'ucleo del sistema operativo, 
+si se detiene o degrada por completo la m\'aquina. Para evitar esto, la norma a
+seguir es evidente: mantener siempre actualizados nuestros sistemas, tanto en
+lo referente al nivel de parcheado o versiones del n\'ucleo, como en lo 
+referente a programas cr\'{\i}ticos encargados de ofrecer un determinado 
+servicio (demonios, por norma general: {\tt sendmail}, {\tt httpd}, {\tt 
+pop3d}\ldots).\\
+\\De un tiempo a esta parte -- en concreto, desde 1999 -- se ha popularizado 
+mucho el t\'ermino `negaci\'on de servicio distribuida' ({\it Distributed 
+Denial of Service}, DDoS): en este ataque un pirata compromete en primer lugar 
+un determinado n\'umero de m\'aquinas y, en un determinado momento, hace que 
+todas ellas ataquen masiva y simultaneamente al objetivo u objetivos reales 
+envi\'andoles diferentes tipos de
+paquetes; por muy grandes que sean los recursos de la v\'{\i}ctima, el gran
+n\'umero de tramas que reciben har\'a que tarde o temprano dichos recursos sean
+incapaces de ofrecer un servicio, con lo que el ataque habr\'a sido exitoso.
+Si en lugar de cientos o miles de equipos atacando a la vez lo hiciera uno 
+s\'olo las posibilidades de \'exito ser\'{\i}an casi inexistentes, pero es 
+justamente el elevado n\'umero de `peque\~nos' atacantes lo que hace muy
+dif\'{\i}cil evitar este tipo de negaciones de servicio.\\
+\\Seg\'un el CERT (\cite{kn:hou01}) los ataques de negaci\'on de servicio 
+distribuidos m\'as habituales consisten en el env\'{\i}o de un gran n\'umero de 
+paquetes a un determinado objetivo por parte de m\'ultiples {\it hosts}, lo que 
+se conoce como {\it packet flooding} (en funci\'on del tipo de paquetes 
+utilizados se habla de {\it ping flood}, de {\sc syn} {\it flood}\ldots). 
+Defenderse de este tipo de ataques es dif\'{\i}cil: en primer lugar, uno piensa
+en bloquear de alguna forma (probablemente en un cortafuegos o en un {\it 
+router}) todo el tr\'afico proveniente de los atacantes; pero >qu\'e sucede 
+cuando tenemos miles de ordenadores atacando desde un gran n\'umero de redes 
+diferentes? >Los bloqueamos uno a uno? Esto supondr\'{\i}a un gran esfuerzo que
+dif\'{\i}cilmente ayudar\'{\i}a, ya que lo m\'as probable es que en el tiempo
+que nos cueste bloquear el tr\'afico de una determinada m\'aquina, dos o tres
+nuevas nos comiencen a atacar. Entonces, >bloqueamos todo el tr\'afico dirigido
+hacia el objetivo? Si hacemos esto, estamos justamente ayudando al atacante, ya
+que somos nosotros mismos los que causamos una negaci\'on en el servicio a los 
+usuarios leg\'{\i}timos de nuestro sistema\ldots\\
+\\Como vemos, la defensa ante una negaci\'on de servicio distribuida no es 
+inmediata; en cualquier caso, podemos tomar ciertas medidas preventivas que nos 
+ayudar\'an a limitar el alcance de uno de estos ataques (y en general de las
+negaciones de servicio remotas, distribuidas o no). De entrada, un correcto
+filtrado del tr\'afico dirigido a nuestras m\'aquinas es vital para garantizar 
+nuestra seguridad: no hay que responder a {\it pings} externos a nuestra red, es
+necesario activar el {\it antispoofing} en nuestros cortafuegos y en los 
+elementos de electr\'onica de red que lo permitan, etc. Establecer 
+correctamente l\'{\i}mites a la utilizaci\'on de nuestros recursos, como ya 
+hemos visto, es tambi\'en una importante medida preventiva; es posible limitar
+el ancho de banda dedicado a una determinada aplicaci\'on o a un protocolo, de
+forma que las utilizaciones por encima del margen son negadas. Tambi\'en 
+podemos limitar los recursos del sistema (CPU, memoria, disco\ldots) que puede
+consumir en global una determinada aplicaci\'on servidora (por ejemplo, un
+demonio sirviendo p\'aginas {\it web}), adem\'as de restringir sus recursos por
+cliente simult\'aneo (en base, por ejemplo, a la direcci\'on origen de ese
+cliente).\\
+\\A pesar de las dificultades con las que nos podemos encontrar a la hora de
+prevenir ataques de negaci\'on de servicio, una serie de medidas sencillas 
+pueden ayudarnos de forma relativa en esa tarea; las negaciones de servicio son
+por desgracia cada d\'{\i}a m\'as frecuentes, y ninguna organizaci\'on est\'a
+a salvo de las mismas. Especialmente en los ataques distribuidos, la seguridad
+de cualquier usuario conectado a Internet (aunque sea con un sencillo PC y un
+m\'odem) es un eslab\'on importante en la seguridad global de la red, ya que 
+esos usuarios se convierten muchas veces sin saberlo en sat\'elites que 
+colaboran en un ataque masivo contra organizaciones de cualquier tipo. Cuanto
+m\'as dif\'{\i}cil se lo pongamos cada uno de nosotros a los piratas, mucho
+mejor para todos.
+\section{Interceptaci\'on}
+En la secci\'on \ref{eavesdropping} ya comentamos algunos aspectos relacionados
+con la interceptaci\'on de datos en tr\'ansito o en proceso por parte de
+usuarios no autorizados; all\'{\i} hablamos de los ataques y defensas desde un 
+punto de vista casi exclusivamente f\'{\i}sico, por lo que vamos a entrar
+ahora en algunos puntos m\'as relacionados con la interceptaci\'on l\'ogica. Y
+sin duda, la interceptaci\'on l\'ogica de datos m\'as conocida y extendida es 
+el {\bf sniffing}: en esa misma secci\'on ya introdujimos este t\'ermino y 
+hablamos de dispositivos {\it hardware} como los {\it sniffers} de alta 
+impedancia; sin embargo, en entornos de trabajo de seguridad media es mucho 
+m\'as com\'un que el {\it sniffing} se produzca utilizando programas ({\it
+sniffers}) y no elementos {\it hardware}.\\
+\\En las redes de difusi\'on, cuando una m\'aquina env\'{\i}a una trama a otra
+indica en un campo reservado la direcci\'on del {\it host} destino\footnote{No 
+vamos a entrar en detalles sobre el funcionamiento de {\sc tcp/ip} ni sobre 
+qu\'e direcci\'on se env\'{\i}a: a nosotros s\'olo nos interesa saber que en el 
+paquete se identifica de alguna forma al destino.}; todas las m\'aquinas del
+dominio de colisi\'on ven esa trama, pero s\'olo su receptora leg\'{\i}tima la
+captura y elimina de la red. Este es el funcionamiento normal de {\sc tcp/ip}; 
+sin embargo, es necesario insistir en un aspecto: todas las m\'aquinas {\bf 
+ven} la trama, y si no leen todos sus campos es porque no `quieren'. Existe un 
+modo de funcionamiento de las interfaces de red denominado modo {\bf 
+promiscuo}, en el cual la tarjeta lee todas las tramas que circulan por la red, 
+tanto dirigidas a ella como a otras m\'aquinas; el leerlas no implica el 
+eliminarlas de la red, por lo que el {\it host} destino leg\'{\i}timo la
+recibir\'a y eliminar\'a sin notar nada extra\~no.\\
+\\Para hacer funcionar un interfaz de red en modo promiscuo es necesario tener 
+un control total del sistema o, dicho de otra forma, ser {\tt root} en la 
+m\'aquina; esto ayuda un poco en la defensa, pero ni de lejos soluciona el 
+problema que estamos planteado: no podemos permitir que cualquiera que sea 
+superusuario de un sistema pueda capturar todo el tr\'afico que pasa por el
+mismo (incluyendo claves, correo electr\'onico, y cientos de datos privados). 
+Por si esto fuera poco, en los sistemas donde todos los usuarios tienen un 
+control total de la m\'aquina (por ejemplo, en toda la familia Windows 9x) ni 
+siquiera hace falta ese privilegio: cualquiera que se siente en un PC puede
+ejecutar un {\it sniffer} y capturar todo el tr\'afico de la red.\\
+\\Programas para `esnifar' tr\'afico hay para todos los gustos y colores: desde
+{\tt dsniff} y su familia, capaces hasta de capturar los correos electr\'onicos
+directamente en formato {\sc smtp} o cargar de forma autom\'atica en un 
+navegador las mismas p\'aginas que visita
+la v\'{\i}ctima del ataque, hasta el arcaico {\tt snoop} de Solaris, que vuelca
+paquetes en un formato por defecto casi ilegible, pasando por los cl\'asicos
+{\tt tcpdump} o {\tt sniffit} (que en algunas de sus versiones inclu\'{\i}a el
+{\it Touch of Dead}, capaz de cortar conexiones establecidas entre dos 
+m\'aquinas sin m\'as que pulsar {\it F5}). Para evitar que programas de este
+tipo capturen nuestra informaci\'on existen diferentes aproximaciones m\'as o
+menos efectivas, como sustituir los HUBs de nuestra red por {\it switches} que
+aislan dominios de colisi\'on (<ojo, esto dificulta el ataque pero {\bf no} lo
+imposibilita!) o implantar redes privadas virtuales. Pero sin ninguna duda la 
+m\'as barata y sencilla es el uso de protocolos cifrados siempre que nos sea
+posible (que lo suele ser casi siempre); repetimos una vez m\'as lo que hemos
+dicho ya en muchas ocasiones: sustituir {\it telnet} y {\tt rlogin} por {\sc
+ssh} y {\sc ftp} por {\tt scp} o {\tt sftp} es muy sencillo, y nos proporciona 
+un incremento de seguridad abismal en nuestro entorno. Implantar {\it SSL} o
+t\'uneles seguros quiz\'as es algo m\'as costoso -- en tiempo solamente --, 
+pero tambi\'en en la mayor\'{\i}a de ocasiones es algo que vale la pena hacer:
+en todo momento hemos de tener presente que el {\it sniffing} es un peligro 
+real, que no necesita de grandes medios y, lo que es peor, indetectable en 
+la mayor parte de casos; a pesar de que existen m\'etodos para tratar de 
+detectar sistemas con un interfaz en modo promiscuo, no suelen ser todo lo 
+efectivos que uno podr\'{\i}a esperar, ya que detectar una m\'aquina en este
+estado no es ni de lejos inmediato.\\
+\\Como hemos dicho, el {\it sniffing} es el ataque de interceptaci\'on m\'as
+conocido y utilizado, pero no es el \'unico que se puede poner en pr\'actica
+contra un sistema determinado, Unix o no. En algunas versiones de Linux 
+existe un programa denominado {\tt ttysnoop} (por {\it snooping} -- fisgoneo -- 
+se conoce a los ataques gen\'ericos de interceptaci\'on de datos) capaz de 
+registrar en tiempo real todo lo que un usuario teclea en una terminal, tanto
+f\'{\i}sica como virtual. Aunque el resultado es en muchos aspectos similar al
+{\it sniffing}, t\'ecnicamente poco tiene que ver con este: en ning\'un momento
+se capturan datos que circulan por la red, la tarjeta no trabaja en modo 
+promiscuo (es mas, ni siquiera es necesario un interfaz de red), etc; 
+simplemente, la informaci\'on que un usuario introduce en una terminal es 
+clonada en otra, permitiendo tanto la entrada como la salida de datos a trav\'es
+de ambas. Aunque Linux sea el sistema Unix nativo de {\tt ttysnoop} existen
+versiones tambi\'en para otros entornos, y por supuesto esta no es la \'unica 
+herramienta para `fisgonear' en las terminales de usuarios (otro ejemplo 
+podr\'{\i}a ser {\it TTY Watcher}, disponible para SunOS y Solaris).\\
+\\Otro ataque de interceptaci\'on, menos utilizado que los anteriores pero 
+igual de peligroso, es el {\it keylogging}, el registro de las teclas pulsadas
+por un usuario en una sesi\'on. Aunque es m\'as habitual el uso de {\it 
+keyloggers} en entornos Windows, en Unix tambi\'en disponemos de ellos:
+podr\'{\i}amos incluso considerar a {\tt ttysnoop} como un {\it keylogger}
+avanzado, que no se limita \'unicamente a registrar lo tecleado sino que 
+permite interacci\'on en tiempo real; otro ejemplo de un programa que capture 
+esta informaci\'on puede ser una mula de troya cl\'asica, de las que ya hemos 
+hablado. Incluso en cualquier Unix viene de serie un {\it keylogger}: el 
+programa {\tt script}, que guarda en un archivo lo que el usuario que lo invoca 
+lee o escribe en la pantalla; bastar\'{\i}a una llamada a este programa en el 
+inicio de sesi\'on de cada usuario para conseguir un registro -- muy arcaico y 
+f\'acilmente falseable -- de lo que cada usuario teclea en su terminal, algo 
+parecido a lo siguiente:
+\begin{quote}
+\begin{verbatim}
+luisa:~# grep script /etc/profile
+exec /usr/bin/script -a /tmp/comandos-$USER
+luisa:~#
+\end{verbatim}
+\end{quote}
+Podemos ver que al invocar a {\tt script} especificamos el archivo donde 
+deseamos que se replique la informaci\'on; si en lugar de un fichero plano
+indicamos una terminal, tenemos un clonador de sesiones perfecto, aunque no
+interactivo.\\
+\\Para finalizar este punto podemos reflexionar brevemente sobre la peligrosidad
+de los ataques de interceptaci\'on; muchos de ellos necesitan privilegios de
+superusuario en al menos una m\'aquina, pero por lo dem\'as son realmente
+sencillos. Sencillos y peligrosos: aunque se trate de ataques pasivos, y aunque
+alguien pueda pensar que si el pirata ya es {\tt root} no se puede atacar m\'as
+al sistema, permiten capturar datos relativos no s\'olo al sistema comprometido,
+sino a otras m\'aquinas que quiz\'as a\'un no han sido atacadas y que 
+posiblemente representan el objetivo real del pirata. Evitar estos ataques pasa
+en primera instancia por no permitir que un pirata consiga privilegios en un
+sistema -- mejor si no consigue nada, pero esto no siempre es posible --, y en
+segunda por lo que ya sabemos: cifrar cuanto m\'as tr\'afico mejor.
+\section{Ataques a aplicaciones}
+\subsection{Correo electr\'onico}
+Desde hace muchos a\~nos los sistemas de correo electr\'onico de una 
+organizaci\'on han sido para los piratas una fuente inagotable de puntos de 
+entrada a la misma; lo m\'as probable es que si le preguntamos a cualquier 
+administrador de m\'aquinas Unix con algo de experiencia cu\'al ha sido el {\it 
+software} que m\'as problemas de seguridad le ha causado nos responda sin 
+dudarlo: {\tt sendmail}, por supuesto. Y ya no s\'olo {\tt sendmail} y el 
+protocolo {\sc smtp}, sino que tambi\'en, con la popularizaci\'on de {\sc 
+pop3}, los servidores de este protocolo son un peligro potencial a tener en
+cuenta en cualquier entorno inform\'atico donde se utilice el correo 
+electr\'onico: es decir, en todos.\\
+\\De entrada, un programa como {\tt sendmail} -- lo ponemos como ejemplo por 
+ser el m\'as popular, pero podr\'{\i}amos hablar en los mismos t\'erminos de
+casi cualquier servidor {\sc smtp} -- proporciona demasiada informaci\'on a un
+atacante que simplemente conecte a \'el:
+\begin{quote}
+\begin{verbatim}
+luisa:~$ telnet 0 25
+Trying 0.0.0.0...
+Connected to 0.
+Escape character is '^]'.
+220 luisa ESMTP Sendmail 8.9.3/8.9.3; Mon, 29 Oct 2001 03:58:56 +0200
+quit
+221 luisa closing connection
+Connection closed by foreign host.
+luisa:~$ 
+\end{verbatim}
+\end{quote}
+Y no s\'olo se proporcionan datos \'utiles para un pirata como la versi\'on del 
+programa utilizada o la fecha del sistema, sino que se llega incluso m\'as 
+lejos: tal y como se instalan por defecto, muchos servidores {\sc smtp} (aparte
+de {\tt sendmail}, algunos tan populares como {\it Netscape Messaging Server})
+informan incluso de la existencia o inexistencia de nombres de usuario y de 
+datos sobre los mismos:
+\begin{quote}
+\begin{verbatim}
+luisa:~$ telnet 0 25
+Trying 0.0.0.0...
+Connected to 0.
+Escape character is '^]'.
+220 luisa ESMTP Sendmail 8.9.3/8.9.3; Mon, 29 Oct 2001 04:03:22 +0200
+vrfy root
+250 El Spiritu Santo <root@luisa>
+expn root
+250 El Spiritu Santo <root@luisa>
+quit
+221 luisa closing connection
+Connection closed by foreign host.
+luisa:~$ 
+\end{verbatim}
+\end{quote}
+Parece evidente que de entrada estamos d\'andole a cualquier pirata demasiada
+informaci\'on sobre nuestro entorno de trabajo; una de las primeras cosas que
+deber\'{\i}amos hacer en todos nuestros servidores de correo es deshabilitar 
+este tipo de opciones. En concreto, para deshabilitar las \'ordenes {\tt vrfy} y
+{\tt expn}, en {\tt sendmail.cf} debemos modificar la 
+l\'{\i}nea
+\begin{quote}
+\begin{verbatim}
+O PrivacyOptions=authwarnings
+\end{verbatim}
+\end{quote}
+para que no se proporcione informaci\'on, de la forma siguiente:
+\begin{quote}
+\begin{verbatim}
+O PrivacyOptions=goaway
+\end{verbatim}
+\end{quote}
+Para conseguir que que {\tt sendmail} adem\'as tampoco informe de su versi\'on 
+y la fecha del sistema -- algo recomendable, evidentemente -- la entrada a
+modificar es {\tt SmtpGreetingMessage}. Si lo hacemos, y adem\'as hemos 
+deshabilitado las {\tt PrivacyOptions}, cuando alguien conecte a nuestro 
+servidor ver\'a algo similar a:
+\begin{quote}
+\begin{verbatim}
+luisa:/# egrep "Privacy|Greeting" /etc/sendmail.cf 
+O PrivacyOptions=goaway
+O SmtpGreetingMessage=Servidor
+luisa:/# telnet 0 25
+Trying 0.0.0.0...
+Connected to 0.
+Escape character is '^]'.
+220 Servidor ESMTP
+vrfy root
+252 Cannot VRFY user; try RCPT to attempt delivery (or try finger)
+quit
+221 luisa closing connection
+Connection closed by foreign host.
+luisa:/# 
+\end{verbatim}
+\end{quote}
+En realidad, si un atacante quiere conocer la versi\'on del servidor que 
+estamos utilizando a\'un no lo tiene dif\'{\i}cil, ya que simplemente ha de 
+teclear una orden como {\tt `help'}:
+\begin{quote}
+\begin{verbatim}
+luisa:~$ telnet 0 25
+Trying 0.0.0.0...
+Connected to 0.
+Escape character is '^]'.
+220 Servidor ESMTP
+help
+214-This is Sendmail version 8.9.3
+214-Topics:
+214-    HELO    EHLO    MAIL    RCPT    DATA
+214-    RSET    NOOP    QUIT    HELP    VRFY
+214-    EXPN    VERB    ETRN    DSN
+214-For more info use "HELP <topic>".
+214-To report bugs in the implementation send email to
+214-    sendmail-bugs@sendmail.org.
+214-For local information send email to Postmaster at your site.
+214 End of HELP info
+quit
+221 luisa closing connection
+Connection closed by foreign host.
+luisa:~$ 
+\end{verbatim}
+\end{quote}
+Para evitar esto debemos modificar convenientemente el fichero {\tt 
+sendmail.hf} (en funci\'on del Unix utilizado su ubicaci\'on en la estructura de
+directorios cambiar\'a) de forma que se restrinjan m\'as los mensajes que
+proporciona el demonio en una sesi\'on interactiva; para obtener informaci\'on
+sobre este fichero, as\'{\i} como del resto de configuraciones de {\tt sendmail}
+podemos consultar \cite{kn:cos97a}. Debemos tener presente que conocer ciertos
+datos que el programa proporciona puede facilitarle mucho la tarea a un pirata;
+ocultar esta informaci\'on no es ni mucho menos una garant\'{\i}a de seguridad,
+ni por supuesto ha de suponer uno de los pilares de nuestra pol\'{\i}tica, pero 
+si con un par de peque\~nas modificaciones conseguimos quitarnos de encima 
+aunque s\'olo sea a un atacante casual, bienvenidas sean -- aunque muchos 
+consideren esto una apolog\'{\i}a del {\it security through obscurity} --.\\
+\\Independientemente del programa que utilicemos como servidor de correo y su 
+versi\'on concreta, con vulnerabilidades conocidas o no, otro gran problema de 
+los sistemas de correo {\sc smtp} es el {\it relay}: la posibilidad de que un
+atacante interno utilice nuestros servidores para enviar correo electr\'onico a
+terceros, no relacionados con nuestra organizaci\'on. Aunque en principio esto
+a muchos les pueda parecer un mal menor, no lo es; de entrada, si nuestros 
+servidores permiten el {\it relay} estamos favoreciendo el {\sc spam} en la red,
+el env\'{\i}o de {\it e-mail} no deseado con fines casi siempre publicitarios,
+algo que evidentemente a nadie le hace gracia recibir. Adem\'as, el {\it relay}
+causa una negaci\'on de servicio contra nuestros usuarios leg\'{\i}timos, tanto
+desde un punto de vista estrictamente te\'orico -- alguien consume nuestros
+recursos de forma no autorizada, degradando as\'{\i} el servicio ofrecido a
+nuestros usuarios leg\'{\i}timos -- como en la pr\'actica: cuando un robot
+encuentra un servidor {\sc smtp} en el que se permite el {\it relay} lo utiliza
+masivamente mientras puede, cargando enormemente la m\'aquina y entorpeciendo el
+funcionamiento normal de nuestros sistemas. Por si esto fuera poco, si se
+incluye a nuestra organizaci\'on en alguna `lista negra' de servidores que 
+facilitan el {\sc spam} se causa un importante da\~no a nuestra imagen, e 
+incluso ciertos dominios pueden llegar a negar todo el correo proveniente de
+nuestros servidores.\\
+\\S\'olo existe una manera de evitar el {\it relay}: configurando correctamente
+todos nuestros servidores de correo. Por supuesto, esto es completamente
+dependiente de los programas ({\tt sendmail}, {\it iPlanet}\ldots) utilizados en
+nuestro entorno, por lo que es necesario consultar en la documentaci\'on 
+correspondiente la forma de habilitar filtros que eviten el {\it relay}; por
+Internet exiten incluso filtros gen\'ericos para los servidores m\'as 
+extendidos, por lo que nuestro trabajo no ser\'a excesivo ni complicado. Si
+queremos verificar que nuestros servidores no permiten el {\it relay} podemos
+ejecutar, desde una direcci\'on externa a nuestra organizaci\'on, el siguiente
+programa: 
+\begin{quote}
+\begin{verbatim}
+luisa:~$ cat security/prog/testrelay.sh
+#!/bin/sh
+# Este script comprueba que un servidor de correo no permite el relay.
+# Basado en los test disponibles en 
+# http://133.30.50.200/~takawata/d/resource/relaytest.html
+# Necesitamos netcat (nc) instalado en el sistema.
+# Toni Villalon <toni@aiind.upv.es>, 03 Enero 2000
+# NOTA: Es necesario personalizar la variable DSTADDR
+#
+
+# Argumentos erroneos?
+if (test $# -lt 1); then
+        echo "Uso: $0 mail.dominio.com"
+        exit
+fi
+# Especificamos una direccion origen (no es necesario que sea real)
+SRCADDR=prova@prova.com 
+SRCUSR=`echo $SRCADDR|awk -F@ '{print $1}'`
+SRCDOM=`echo $SRCADDR|awk -F@ '{print $2}'`
+# Direccion destino, para comprobar si realmente llega el mail
+# SUSTITUIR POR UNA QUE PODAMOS COMPROBAR!!!
+DSTADDR=toni@aiind.upv.es
+DSTUSR=`echo $DSTADDR|awk -F@ '{print $1}'`
+DSTDOM=`echo $DSTADDR|awk -F@ '{print $2}'`
+# Direccion IP del host a testear
+TESTIP=`host $1|grep address|tail -1|awk '{print $4}'`
+if [ $? -ne 0 ]; then
+       TESTIP=`/usr/bin/nslookup $1|grep ^Address|awk -F: 'NR==2 {print $2}'`
+fi
+# Ejecutable NetCat
+NC=/usr/local/bin/nc
+# Conectamos al servidor y lanzamos los test
+# No ponemos todo en un 'cat <<EOF' porque si se generan errores, el servidor
+# de correo nos tirara y quedaran test sin realizarse
+#
+cat <<EOF | $NC $1 25
+RSET
+HELO $SRCDOM
+MAIL FROM: <$SRCADDR>
+RCPT TO: <$DSTADDR>
+DATA
+Relay test no. 1
+.
+QUIT
+EOF
+cat <<EOF | $NC $1 25
+RSET 
+HELO $SRCDOM
+MAIL FROM: <$SRCUSR>
+RCPT TO: <$DSTADDR>
+DATA
+Relay test no. 2
+.
+QUIT
+EOF
+cat <<EOF | $NC $1 25
+RSET
+HELO $SRCDOM
+MAIL FROM: < >
+RCPT TO: <$DSTADDR>
+DATA
+Relay test no. 3
+.
+QUIT
+EOF
+cat <<EOF | $NC $1 25
+RSET
+HELO $SRCDOM
+MAIL FROM: <$SRCUSR@$1>
+RCPT TO: <$DSTADDR>
+DATA
+Relay test no. 4
+.
+QUIT
+EOF
+cat <<EOF | $NC $1 25
+RSET
+HELO $SRCDOM
+MAIL FROM: <$SRCUSR@[$TESTIP]>
+RCPT TO: <$DSTADDR>
+DATA
+Relay test no. 5
+.
+QUIT
+EOF
+cat <<EOF | $NC $1 25
+RSET
+HELO $SRCDOM
+MAIL FROM: <$SRCUSR@$1>
+RCPT TO: <$DSTUSR%$DSTDOM@$1>
+DATA
+Relay test no. 6
+.
+QUIT
+EOF
+cat <<EOF | $NC $1 25
+RSET
+HELO $SRCDOM
+MAIL FROM: <$SRCUSR@$1>
+RCPT TO: <$DSTUSR%$DSTDOM@[$TESTIP]>
+DATA
+Relay test no. 7
+.
+QUIT
+EOF
+cat <<EOF | $NC $1 25
+RSET
+HELO $SRCDOM
+MAIL FROM: <$SRCUSR@$1>
+RCPT TO: <"$DSTADDR">
+DATA
+Relay test no. 8
+.
+QUIT
+EOF
+cat <<EOF | $NC $1 25
+RSET
+HELO $SRCDOM
+MAIL FROM: <$SRCUSR@$1>
+RCPT TO: <"$DSTUSR%$DSTDOM">
+DATA
+Relay test no. 9
+.
+QUIT
+EOF
+cat <<EOF | $NC $1 25
+RSET
+HELO $SRCDOM
+MAIL FROM: <$SRCUSR@$1>
+RCPT TO: <$DSTADDR@$1>
+DATA
+Relay test no. 10
+.
+QUIT
+EOF
+cat <<EOF | $NC $1 25
+RSET
+HELO $SRCDOM
+MAIL FROM: <$SRCUSR@$1>
+RCPT TO: <"$DSTADDR"@$1>
+DATA
+Relay test no. 11
+.
+QUIT
+EOF
+cat <<EOF | $NC $1 25
+RSET
+HELO $SRCDOM
+MAIL FROM: <$SRCUSR@$1>
+RCPT TO: <$DSTADDR@[$TESTIP]>
+DATA
+Relay test no. 12
+.
+QUIT
+EOF
+cat <<EOF | $NC $1 25
+RSET
+HELO $SRCDOM
+MAIL FROM: <$SRCUSR@$1>
+RCPT TO: <@$1:$DSTADDR>
+DATA
+Relay test no. 13
+.
+QUIT
+EOF
+cat <<EOF | $NC $1 25
+RSET
+HELO $SRCDOM
+MAIL FROM: <$SRCUSR@$1>
+RCPT TO: <@[$TESTIP]:$DSTADDR>
+DATA
+Relay test no. 14
+.
+QUIT
+EOF
+cat <<EOF | $NC $1 25
+RSET
+HELO $SRCDOM
+MAIL FROM: <$SRCUSR@$1>
+RCPT TO: <$DSTDOM!$DSTUSR>
+DATA
+Relay test no. 15
+.
+QUIT
+EOF
+cat <<EOF | $NC $1 25
+RSET
+HELO $SRCDOM
+MAIL FROM: <$SRCUSR@$1>
+RCPT TO: <$DSTDOM!$DSTUSR@$1>
+DATA
+Relay test no. 16
+.
+QUIT
+EOF
+cat <<EOF | $NC $1 25
+RSET
+HELO $SRCDOM
+MAIL FROM: <$SRCUSR@$1>
+RCPT TO: <$DSTDOM!$DSTUSR@[$TESTIP]>
+DATA
+Relay test no. 17
+.
+QUIT
+EOF
+cat <<EOF | $NC $1 25
+RSET
+HELO $SRCDOM
+MAIL FROM: <$SRCADDR>
+RCPT TO: <$1!$DSTADDR>
+DATA
+Relay test no. 18
+.
+QUIT
+EOF
+luisa:~$
+\end{verbatim}
+\end{quote}
+Es muy importante para nosotros cuidar cualquier aspecto de la seguridad 
+relativo a nuestros sistemas de correo, ya que en la actualidad el correo
+electr\'onico constituye uno de los servicios b\'asicos de cualquier empresa;
+simplemente hemos de contar el n\'umero de {\it e-mails} que solemos recibir al
+d\'{\i}a para hacernos una idea del desastre que supondr\'{\i}a un fallo en
+los sistemas encargados de procesarlo.
+\subsection{Ataques v\'{\i}a {\it web}}
+Durante los \'ultimos a\~nos los servidores {\it web} se han convertido en una
+excelente fuente de diversi\'on para piratas: cualquier empresa que se precie,
+desde las m\'as peque\~nas a las grandes multinacionales, tiene una p\'agina 
+{\it web} en las que al menos trata de vender su imagen corporativa. Si hace 
+unos a\~nos un pirata que quisiera atacar a una empresa (y no a todas, ya que
+muy pocas ten\'{\i}an representaci\'on en la red) ten\'{\i}a que agenciarselas
+para obtener primero informaci\'on de la misma y despu\'es buscar errores de
+configuraci\'on m\'as o menos comunes de sus sistemas (o esperar al pr\'oximo
+{\it bug} de {\tt sendmail}), hoy en d\'{\i}a le basta con teclear el nombre
+de su objetivo en un navegador y a\~nadir la coletilla {\tt `.com'} detr\'as 
+del mismo para contactar con al menos una de sus m\'aquinas: su servidor {\it
+web}.\\
+\\Los ataques a las p\'aginas {\it web} de una organizaci\'on son casi siempre
+los m\'as `vistosos' que la misma puede sufrir: en cuesti\'on de minutos piratas
+de todo el mundo se enteran de cualquier problema en la p\'agina {\it web}
+principal de una empresa m\'as o menos grande pueda estar sufriendo, y si se
+trata de una modificaci\'on de la misma incluso existen recopilatorios de 
+p\'aginas {\it `hackeadas'}. Por supuesto, la noticia de la modificaci\'on 
+salta inmediatamente a los medios, que gracias a ella pueden rellenar alguna
+cabecera sensacionalista sobre `los piratas de la red', y as\'{\i} se consigue
+que la imagen de la empresa atacada caiga notablemente y la del grupo de piratas
+suba entre la comunidad {\it 'underground'} nacional o internacional.\\
+\\La mayor parte de estos ataques tiene \'exito gracias a una configuraci\'on
+incorrecta del servidor o a errores de dise\~no del mismo: si se trata de
+grandes empresas, los servidores {\it web} suelen ser bastante complejos (alta
+disponiblidad, balanceo de carga, sistemas propietarios de actualizaci\'on de
+contenidos\ldots) y dif\'{\i}ciles de administrar correctamente, mientras que
+si la empresa es peque\~na es muy posible que haya elegido un servidor {\it 
+web} simple en su instalaci\'on y administraci\'on pero en el cual es casi 
+(>casi?) imposible garantizar una m\'{\i}nima seguridad: s\'{\i}, hablamos de 
+{\it Microsoft Internet Information Server}, un sistema que reconocidos expertos
+en seguridad han recomendado p\'ublicamente {\bf no utilizar} en entornos 
+serios. Sea por el motivo que sea, la cuesti\'on es que cada d\'{\i}a es m\'as 
+sencillo para un pirata ejecutar \'ordenes de forma remota en una m\'aquina, o 
+al menos modificar contenidos de forma no autorizada, gracias a los servidores 
+{\it web} que un sistema pueda albergar.\\
+\\Cualquier analizador de vulnerabilidades que podamos ejecutar contra nuestros
+sistemas ({\sc nessus}, {\it ISS Security Scanner}, {\it NAI CyberCop 
+Scanner}\ldots) es capaz de revelar informaci\'on que nos va a resultar \'util
+a la hora de reforzar la seguridad de nuestros servidores {\it web}; incluso
+existen analizadores que est\'an dise\~nados para auditar \'unicamente este
+servicio, como {\tt whisker}. Ejecutando este \'ultimo contra una m\'aquina
+podemos obtener resultados similares a los siguientes:
+\begin{quote}
+\begin{verbatim}
+anita:~/security/whisker$ ./whisker.pl -h luisa
+-- whisker / v1.4.0 / rain forest puppy / www.wiretrip.net --
+
+= - = - = - = - = - =
+= Host: luisa
+= Server: Apache/1.3.19 (Unix) PHP/4.0.4pl1 mod_ssl/2.8.2 OpenSSL/0.9.5a
+
++ 200 OK: HEAD /docs/
++ 200 OK: HEAD /cgi-bin/Count.cgi
++ 200 OK: HEAD /cgi-bin/textcounter.pl
++ 200 OK: HEAD /ftp/
++ 200 OK: HEAD /guestbook/
++ 200 OK: HEAD /usage/
+
+anita:~/security/whisker$ 
+\end{verbatim}
+\end{quote}
+Podemos ver que el servidor nos proporciona excesiva informaci\'on sobre su
+configuraci\'on (versi\'on, m\'odulos, soporte SSL\ldots), y que la herramienta
+ha obtenido algunos archivos y directorios que pueden resultar interesantes
+para un atacante: en el caso de los {\it CGI} no tiene m\'as que acercarse a 
+alguna base de datos de vulnerabilidades (especialmente recomendables son {\tt\\
+http://www.securityfocus.com/} o {\tt http://icat.nist.gov/}) e introducir en
+el buscador correspondiente el nombre del archivo para obtener informaci\'on
+sobre los posibles problemas de seguridad que pueda presentar. El caso de los
+directorios es algo diferente, pero t\'{\i}picamente se suele tratar de nombres
+habituales en los servidores que contienen informaci\'on que tambi\'en puede
+resultarle \'util a un potencial atacante.\\
+\\>C\'omo evitar estos problemas de seguridad de los que estamos hablando? Una
+medida elemental es eliminar del servidor cualquier directorio o {\it CGI} de
+ejemplo que se instale por defecto; aunque generalmente los directorios 
+(documentaci\'on, ejemplos\ldots) no son especialmente cr\'{\i}ticos, el caso 
+de los {\it CGIs} es bastante alarmante: muchos servidores incorporan programas
+que no son ni siquiera necesarios para el correcto funcionamiento del {\it 
+software}, y que en ciertos casos -- demasiados -- abren enormes agujeros de
+seguridad, como el acceso al c\'odigo fuente de algunos archivos, la lectura de
+ficheros fuera del {\tt DocumentRoot}, o incluso la ejecuci\'on remota de
+comandos bajo la identidad del usuario con que se ejecuta el demonio servidor.\\
+\\Otra medida de seguridad b\'asica es deshabilitar el {\it Directory Indexing}
+que por defecto muchos servidores incorporan: la capacidad de obtener el
+listado de un directorio cuando no existe un fichero {\tt index.html} o similar 
+en el mismo; se trata de una medida extremadamente \'util y sobre todo sencilla
+de implantar, ya que en muchos casos un simple {\tt `chmod -r'} sobre el 
+directorio en cuesti\'on es suficiente para evitar este problema. A primera 
+vista esta medida de protecci\'on nos puede resultar curiosa: a fin de cuentas,
+{\it a priori} todo lo que haya bajo el {\it Document Root} del servidor ha de
+ser p\'ublico, ya que para eso se ubica ah\'{\i}. Evidentemente la teor\'{\i}a
+es una cosa y la pr\'actica otra muy diferente: entre los ficheros de cualquier
+servidor no es extra\~no encontrar desde archivos de {\it log} -- por ejemplo,
+del cliente {\sc ftp} que los usuarios suelen usar para actualizar remotamente
+sus p\'aginas, como {\sc ws$\_$ftp.log} -- hasta paquetes {\sc tar} con el
+contenido de subdirectorios completos. Por supuesto, la mejor defensa contra
+estos ataques es evitar de alguna forma la presencia de estos archivos bajo el 
+{\it Document Root}, pero en cualquier caso esto no es siempre posible, y si un 
+atacante sabe de su existencia 
+puede descargarlos, obteniendo en muchos casos informaci\'on realmente \'util
+para atacar al servidor (como el c\'odigo de ficheros {\sc jsp}, {\sc php}, {\sc
+asp}\ldots o simplemente rutas absolutas en la m\'aquina), y una excelente
+forma de saber que uno de estos ficheros est\'a ah\'{\i} es justamente el {\it
+Directory Indexing}; por si esto no queda del todo claro, no tenemos m\'as que
+ir a un buscador cualquiera y buscar la cadena {\tt `Index of /admin'}, por 
+poner un ejemplo sencillo, para hacernos una idea de la peligrosidad de este 
+error de configuraci\'on.\\
+\\Adem\'as, en cualquier servidor {\it web} es muy importante el usuario bajo
+cuya identidad se ejecuta el demonio {\tt httpd}: ese usuario no debe ser {\bf
+nunca} el {\tt root} del sistema (evidente), pero tampoco un usuario gen\'erico
+como {\tt nobody}; se ha de tratar siempre de un usuario dedicado y sin acceso
+real al sistema. Por supuesto, las p\'aginas {\sc html} (los ficheros planos,
+para entendernos) {\bf nunca} deben ser de su propiedad, y mucho menos ese 
+usuario ha de tener permiso de escritura sobre los mismos: con un acceso de 
+lectura (y ejecuci\'on, en caso de {\it CGIs}) es m\'as que suficiente en la
+mayor\'{\i}a de los casos. Hemos de tener en cuenta que si el usuario que 
+ejecuta el servidor puede escribir en las p\'aginas {\it web}, y un pirata
+consigue -- a trav\'es de cualquier tipo de error (configuraci\'on, dise\~no del
+demonio\ldots) -- ejecutar \'ordenes bajo la identidad de dicho usuario, podr\'a
+modificar las p\'aginas {\it web} sin ning\'un problema (que no olvidemos, es
+lo que perseguir\'a la mayor\'{\i}a de atacantes de nuestro servidor {\it 
+web}).\\
+\\Igual de importante que evitar estos problemas es detectar cuando alguien
+trata de aprovecharlos intentando romper la seguridad de nuestros servidores; 
+para conseguirlo no tenemos m\'as que aplicar las t\'ecnicas de detecci\'on de 
+intrusos que veremos en el cap\'{\i}tulo siguiente. Una caracter\'{\i}stica
+importante de los patrones de detecci\'on de ataques v\'{\i}a {\it web} es que
+no suelen generar muchos falsos positivos, por lo que la configuraci\'on de la
+base de datos inicial es r\'apida y sencilla, al menos en comparaci\'on con la
+detecci\'on de escaneos de puertos o la de tramas con alguna caracter\'{\i}stica
+especial en su cabecera.

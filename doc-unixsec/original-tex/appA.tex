@@ -1,0 +1,915 @@
+%\documentclass{article}
+%\oddsidemargin 0in
+%\evensidemargin 0in
+%\textheight 685pt
+%\textwidth 430pt
+%\topmargin 0in 
+%\headsep 9pt
+%\parindent 9pt
+%\makeindex
+%\begin{document}
+%\title{Mecanismos b\'asicos de seguridad para administradores de m\'aquinas 
+%Unix}
+%\author{Antonio Villal\'on Huerta {\tt $<$toni@aiind.upv.es$>$}}
+%\date{Noviembre, 1999}
+%\maketitle
+\chapter{Seguridad b\'asica para administradores}
+\section{Introducci\'on}
+Lamentablemente, muchos administradores de equipos Unix no disponen de los
+conocimientos, del tiempo, o simplemente del inter\'es necesario para 
+conseguir sistemas m\'{\i}nimamente fiables. A ra\'{\i}z de esto, las 
+m\'aquinas Unix se convierten en una puerta abierta a cualquier ataque, poniendo
+en peligro no s\'olo la integridad del equipo, sino de toda su subred y a la 
+larga de toda Internet.\\
+\\Aunque esta situaci\'on se da en cualquier tipo de organizaci\'on, es en las
+dedicadas a I+D donde se encuentran los casos m\'as extremos; se trata de redes 
+y equipos Unix muy abiertos y con un elevado n\'umero de usuarios (incluidos 
+externos al per\'{\i}metro f\'{\i}sico de la organizaci\'on) que precisan de 
+una gran disponibilidad de los datos, primando este aspecto de la informaci\'on 
+ante otros como la integridad o la privacidad. Esto convierte a los sistemas 
+Unix de centros de I+D, especialmente de universidades, en un objetivo 
+demasiado f\'acil incluso para los piratas menos experimentados.\\
+\\Con el objetivo de subsanar esta situaci\'on, aqu\'{\i} se van a intentar 
+marcar unas pautas para conseguir un nivel {\bf m\'{\i}nimo} de fiabilidad en 
+los equipos Unix. No se va a entrar en detalles muy t\'ecnicos o en desarrollos 
+te\'oricos sobre seguridad que muy pocos van a leer (para eso est\'a el resto
+de este proyecto), sino que la idea es 
+\'unicamente explicar los pasos b\'asicos para que incluso los administradores 
+menos preocupados por la seguridad puedan aplicarlos en sus sistemas. A modo de
+ilustraci\'on, hay peque\~nos ejemplos que han sido realizados sobre una 
+plataforma Solaris 7 (SunOS 5.7); en otros clones de Unix quiz\'as sea 
+necesario modificar las opciones de alg\'un comando o la localizaci\'on de 
+ciertos ficheros.\\
+\\Hay que recalcar que se trata de mecanismos {\bf b\'asicos} de seguridad, que
+pueden evitar la acci\'on de algunos piratas casuales (si nuestra m\'aquina
+ofrece una m\'{\i}nima protecci\'on abandonar\'an el ataque para dedicarse a
+equipos menos protegidos) pero no de un atacante con cierta experiencia.
+Lo ideal ser\'{\i}a que las pautas marcadas aqu\'{\i} se complementaran con 
+todas las medidas de seguridad posibles, y que entre los libros habituales de 
+un administrador se encontraran t\'{\i}tulos sobre seguridad en Unix; uno 
+especialmente recomendado es {\it Practical Unix \& Internet Security}, de
+Simson Garfinkel y Gene Spafford (Ed. O\'{}Reilly and Associates, 1996). 
+Tambi\'en es muy recomendable que la persona encargada de la seguridad de cada
+equipo permanezca atenta a los nuevos problemas que cada d\'{\i}a surgen; una
+buena forma de conseguirlo es mediante listas de correo como {\sc bugtraq}.
+\section{Prevenci\'on}
+Los mecanismos de prevenci\'on han de ser los m\'as importantes para cualquier
+administrador, ya que obviamente es mucho mejor evitar un ataque que detectar
+ese mismo problema o tener que recuperar al sistema tras detectarlo.
+\begin{itemize}
+\item Cierre de servicios ofrecidos por {\tt inetd}\\
+Cada servicio ofrecido en nuestro sistema se convierte en una potencial puerta
+de acceso al mismo, por lo que hemos de minimizar su n\'umero: se recomienda 
+cerrar cualquier servicio que no se vaya a utilizar, y todos aquellos de los 
+que no conozcamos su utilidad (si m\'as tarde son necesarios, los podemos 
+volver a abrir).\\ 
+Para cerrar un servicio ofrecido desde {\tt inetd}, en el fichero {\tt 
+/etc/inetd.conf} debemos comentar la l\'{\i}nea correspondiente a ese servicio,
+de forma que una entrada como 
+\tt
+\begin{quote}
+\begin{verbatim}
+telnet  stream  tcp     nowait  root    /usr/sbin/in.telnetd
+\end{verbatim}
+\end{quote}
+\rm
+se convierta en una como 
+\tt
+\begin{quote}
+\begin{verbatim}
+#telnet  stream  tcp     nowait  root    /usr/sbin/in.telnetd
+\end{verbatim}
+\end{quote}
+\rm
+Tras efectuar esta operaci\'on, debemos reiniciar el demonio {\tt inetd} para
+que relea su configuraci\'on; esto lo conseguimos, por ejemplo, con la orden
+\tt
+\begin{quote}
+\begin{verbatim}
+anita:/# pkill -HUP inetd
+\end{verbatim}
+\end{quote}
+\rm
+o, si no disponemos de un comando para enviar se\~nales a procesos a partir de
+su nombre, con la orden
+\tt
+\begin{quote}
+\begin{verbatim}
+anita:/# kill -HUP `ps -ef|grep -w inetd|awk '{print $2}'`
+\end{verbatim}
+\end{quote}
+\rm
+\item Cierre de servicios ofrecidos en el arranque de m\'aquina\\
+Existen una serie de demonios que ofrecen ciertos servicios, como {\tt 
+sendmail}, que no se procesan a trav\'es de {\tt inetd} sino que se lanzan
+como procesos independientes al arrancar la m\'aquina. Para detener este tipo
+de demonios hemos de comentar las l\'{\i}neas de nuestros ficheros de arranque
+encargadas de lanzarlos (generalmente en directorios como {\tt /etc/rc?.d/} o
+{\tt /etc/rc.d/}): de esta forma conseguimos que la pr\'oxima vez que el sistema
+se inicie, los demonios no se ejecuten. Aparte de esto, hemos de detener los
+demonios en la sesi\'on actual, ya que en estos momentos seguramente est\'an
+funcionando; para ello les enviamos la se\~nal {\sc sigkill} mediante el 
+comando {\tt kill}.\\
+Por ejemplo, en el caso de Solaris, {\tt sendmail} se lanza desde el archivo\\
+{\tt /etc/rc2.d/S88sendmail}; en este fichero tendremos unas l\'{\i}neas 
+similares a estas:
+\tt
+\begin{quote}
+\begin{verbatim}
+if [ -f /usr/lib/sendmail -a -f /etc/mail/sendmail.cf ]; then
+   if [ ! -d /var/spool/mqueue ]; then
+      /usr/bin/mkdir -m 0750 /var/spool/mqueue
+      /usr/bin/chown root:bin /var/spool/mqueue
+   fi
+   /usr/lib/sendmail -bd -q15m &
+fi
+\end{verbatim}
+\end{quote}
+\rm
+Podemos renombrar este archivo como {\tt disabled.S88sendmail} o comentar estas
+l\'{\i}neas de la forma siguiente:
+\tt
+\begin{quote}
+\begin{verbatim}
+#if [ -f /usr/lib/sendmail -a -f /etc/mail/sendmail.cf ]; then
+#   if [ ! -d /var/spool/mqueue ]; then
+#      /usr/bin/mkdir -m 0750 /var/spool/mqueue
+#      /usr/bin/chown root:bin /var/spool/mqueue
+#   fi
+#   /usr/lib/sendmail -bd -q15m &
+#fi
+\end{verbatim}
+\end{quote}
+\rm
+Y a continuaci\'on eliminaremos el proceso {\tt sendmail} envi\'andole la 
+se\~nal {\sc sigkill}:
+\tt
+\begin{quote}
+\begin{verbatim}
+anita:/# ps -ef |grep sendmail
+root   215     1  0 01:00:38 ?        0:00 /usr/lib/sendmail -bd -q15m
+anita:/# kill -9 215
+\end{verbatim}
+\end{quote}
+\rm
+\item Instalaci\'on de {\it wrappers}\\
+A pesar de haber cerrado muchos servicios siguiendo los puntos anteriores, 
+existen algunos que no podremos dejar de ofrecer, como {\tt telnet} o {\tt
+ftp}, ya que los usuarios van a necesitar conectar al sistema de forma remota o
+transferir ficheros. En estos casos es muy conveniente instalar {\it wrappers} 
+para los demonios que sigan recibiendo conexiones; mediante el uso de estos
+programas vamos a poder restringir los lugares desde los que nuestro equipo
+va a aceptar peticiones de servicio. {\bf Especialmente recomendable} es el 
+programa {\it TCP-Wrapper} para controlar las conexiones servidas por {\tt 
+inetd} (incluso {\tt sendmail} se puede controlar por {\tt inetd}, lo cual es 
+muy \'util si queremos restringir los lugares desde los que nos pueda llegar 
+correo).\\
+Por ejemplo, si no utilizamos {\it wrappers} para controlar el servicio de {\tt
+telnet}, cualquier m\'aquina de Internet puede intentar el acceso a nuestro
+sistema:
+\tt
+\begin{quote}
+\begin{verbatim}
+luisa:~$ telnet anita
+Trying 192.168.0.3...
+Connected to anita.
+Escape character is '^]'.
+
+SunOS 5.7
+
+login:
+\end{verbatim}
+\end{quote}
+\rm
+Sin embargo, configurando {\it TCP-Wrapper} para que no admita conexiones desde 
+fuera de la universidad, si alguien intenta lo mismo obtendr\'a un resultado
+similar al siguiente:
+\tt
+\begin{quote}
+\begin{verbatim}
+luisa:~$ telnet anita
+Trying 192.168.0.3...
+Connected to anita.
+Escape character is '^]'.
+Connection closed by foreign host.
+luisa:~$
+\end{verbatim}
+\end{quote}
+\rm
+De esta forma, incluso si el atacante conociera un nombre de usuario y su clave
+le ser\'{\i}a m\'as dif\'{\i}cil acceder a nuestro equipo por {\it telnet}.
+\item Ficheros setuidados y setgidados\\
+En un sistema Unix reci\'en instalado podemos tener incluso m\'as de cincuenta
+ficheros con los modos {\it setuid} o {\it setgid} activados; cualquiera de
+estos programas representa un potencial agujero a la seguridad de nuestro 
+sistema, y aunque muchos son necesarios (como {\tt /bin/passwd} en la 
+mayor\'{\i}a de situaciones), de otros se puede prescindir. Para localizar los
+ficheros setuidados podemos utilizar la orden
+\tt
+\begin{quote}
+\begin{verbatim}
+anita:/# find / -perm -4000 -type f -print
+\end{verbatim}
+\end{quote}
+\rm
+mientras que para localizar los setgidados podemos utilizar 
+\tt
+\begin{quote}
+\begin{verbatim}
+anita:/# find / -perm -2000 -type f -print
+\end{verbatim}
+\end{quote}
+\rm
+Es conveniente que reduzcamos al m\'{\i}nimo el n\'umero de estos archivos, pero
+tampoco se recomienda borrarlos del sistema de ficheros; es mucho m\'as habitual
+resetear el bit de {\it setuid} o {\it setgid}, y en caso de que sea necesario
+volverlo a activar. Para desactivar estos bits podemos usar la orden {\tt
+chmod -s}, mientras que para activarlos utilizaremos {\tt chmod u+s} o {\tt 
+chmod g+s}.\\
+Por ejemplo, si el fichero {\tt /usr/lib/fs/ufs/ufsdump} est\'a {\it setuidado},
+un listado largo del mismo nos mostrar\'a una {\tt s} en el campo de ejecuci\'on
+para propietario, mientras que si est\'a {\it setgidado} aparecer\'a una {\tt
+s} en el campo de ejecuci\'on para grupo; podemos resetear los dos bits con
+la orden vista anteriormente:
+\tt
+\begin{quote}
+\begin{verbatim}
+anita:/# ls -l /usr/lib/fs/ufs/ufsdump
+-r-sr-sr-x  1 root  tty   144608 Oct 6 1998 /usr/lib/fs/ufs/ufsdump
+anita:/# chmod -s /usr/lib/fs/ufs/ufsdump
+anita:/# ls -l /usr/lib/fs/ufs/ufsdump
+-r-xr-xr-x  1 root  tty   144608 Oct 6 1998 /usr/lib/fs/ufs/ufsdump
+\end{verbatim}
+\end{quote}
+\rm
+\item Cifrado de datos\\
+El principal problema de las claves viajando en texto claro por la red es que
+cualquier atacante puede leerlas: si usamos {\tt telnet}, {\tt rlogin} o {\tt
+ftp}, cualquier persona situada entre nuestra estaci\'on de trabajo y el 
+servidor al que conectamos puede `esnifar' los paquetes que circulan por la 
+red y obtener as\'{\i} nuestro nombre de usuario y nuestro {\it password}.
+Para evitar este problema es conveniente utilizar {\it software} que implemente
+protocolos cifrados para conectar; el m\'as habitual hoy en d\'{\i}a es {\sc
+ssh} ({\it Secure Shell}). Por una parte, tenemos el programa servidor {\tt 
+sshd}, que se ha de instalar en el equipo al que conectamos, y por otra 
+programas clientes ({\tt ssh} para sustituir a {\tt rsh/rlogin} y {\tt scp} 
+para sustituir a {\tt rcp}).\\
+Una vez instalado, este software es transparente al usuario: simplemente 
+ha de recordar su clave, igual que si conectara por {\tt telnet} o {\tt rlogin}.
+\item Relaciones de confianza\\
+En el fichero {\tt /etc/hosts.equiv} se indican, una en cada l\'{\i}nea, las 
+m\'aquinas confiables.
+>Qu\'e significa {\it confiables}? B\'asicamente que confiamos en su seguridad
+tanto como en la nuestra, por lo que para facilitar la compartici\'on de
+recursos, no se van a pedir contrase\~nas a los usuarios que quieran conectar
+desde estas m\'aquinas con el mismo {\it login}, utilizando las \'ordenes
+{\sc bsd} {\tt r$\ast$} ({\tt rlogin, rsh, rcp}\ldots). Por ejemplo, si en el
+fichero {\tt /etc/hosts.equiv} del servidor {\tt anita} hay una entrada
+para el nombre
+de {\it host} {\tt luisa}, cualquier usuario\footnote{Excepto el {\it
+root}.} de este sistema puede ejecutar una orden como la siguiente para
+conectar a {\tt anita} {\bf <sin necesidad de ninguna clave!}:
+\tt
+\begin{quote}
+\begin{verbatim}
+luisa:~$ rlogin anita
+Last login: Sun Oct 31 08:27:54 from localhost
+Sun Microsystems Inc.   SunOS 5.7       Generic October 1998
+anita:~$
+\end{verbatim}
+\end{quote}
+\rm
+Obviamente, esto supone un gran problema de seguridad, por lo que lo m\'as
+recomendable es que el fichero {\tt /etc/hosts.equiv} est\'e vac\'{\i}o o no
+exista. De la misma forma, los usuarios pueden crear ficheros {\tt
+\$HOME/.rhosts} para establecer un mecanismo de confiabilidad bastante similar
+al de {\tt /etc/hosts.equiv}; es importante para la seguridad de nuestro
+sistema el controlar la existencia y el contenido de estos archivos {\tt
+.rhosts}. Por ejemplo, podemos aprovechar las facilidades de planificaci\'on de
+tareas de Unix para, cada cierto tiempo, chequear los directorios {\tt \$HOME}
+de los usuarios en busca de estos ficheros, elimin\'andolos si los
+encontramos. Un {\it shellscript} que hace esto puede ser el siguiente:
+\tt
+\begin{quote}
+\begin{verbatim}
+#!/bin/sh
+for i in `cat /etc/passwd |awk -F: '{print $6}'`; do
+    cd $i
+    if [ -f .rhosts ]; then
+        echo "$i/.rhosts detectado"|mail -s "rhosts" root
+        rm -f $i/.rhosts
+    fi
+done
+\end{verbatim}
+\end{quote}
+\rm
+Este programa env\'{\i}a un correo al {\it root} en caso de encontrar un
+fichero {\tt .rhosts}, y lo elimina; podemos planificarlo mediante {\tt cron}
+para que se ejecute, por ejemplo, cada cinco minutos. La forma de planificarlo
+depende del clon de Unix en el que trabajemos, por lo que se recomienda
+consultar la p\'agina del manual de {\tt cron} o {\tt crond}; en el caso de
+Solaris, para que se ejecute cada vez que {\tt cron} despierte, y suponiendo
+que el {\it script} se llame {\tt /usr/local/sbin/busca}, pondr\'{\i}amos
+en nuestro {\it crontab} (con {\tt crontab -e}) una l\'{\i}nea como
+\tt
+\begin{quote}
+\begin{verbatim}
+* * * * *      /usr/local/sbin/busca 2>&1 >/dev/null
+\end{verbatim}
+\end{quote}
+\rm
+Hemos de estar atentos a la carga que este tipo de actividades peri\'odicas 
+puede introducir en el sistema; la orden anterior se va a ejecutar cada vez
+que {\tt cron} despierta, generalmente una vez por minuto, lo que implica que
+en m\'aquinas con un gran n\'umero de usuarios puede introducir un factor 
+importante de operaciones de I/O. Una soluci\'on m\'as adecuada en estas 
+situaciones ser\'{\i}a planificar el programa para que se ejecute cada cinco o
+diez minutos, o el tiempo que estimemos necesario en nuestro equipo. 
+\item Pol\'{\i}tica de cuentas\\
+Muchos clones de Unix se instalan con cuentas consideradas `del sistema', es
+decir, que no corresponden a ning\'un usuario concreto sino que existen por
+cuestiones de compatibilidad o para la correcta ejecuci\'on de algunos 
+programas. Algunas de estas cuentas no tienen contrase\~na, o tienen una
+conocida por todo el mundo, por lo que representan una grave amenaza a la 
+seguridad: hemos de deshabilitarlas para evitar que alguien pueda conectar
+a nuestro equipo mediante ellas. Algunos ejemplos de este tipo de cuentas
+son {\tt guest}, {\tt demo}, {\tt uucp}, {\tt games}, {\tt 4DGifts} o {\tt 
+lp}.\\
+Para deshabilitar una cuenta, en Unix no tenemos m\'as que insertar un asterisco
+en el campo {\it passwd} en la l\'{\i}nea correspondiente del fichero de claves 
+(generalmente {\tt /etc/passwd} o\\ {\tt /etc/shadow}). De esta forma, una 
+entrada como 
+\tt
+\begin{quote}
+\begin{verbatim}
+toni:7atzxSJlPVVaQ:1001:10:Toni Villalon:/export/home/toni:/bin/sh
+\end{verbatim}
+\end{quote}
+\rm
+pasar\'{\i}a a convertirse en 
+\tt
+\begin{quote}
+\begin{verbatim}
+toni:*7atzxSJlPVVaQ:1001:10:Toni Villalon:/export/home/toni:/bin/sh
+\end{verbatim}
+\end{quote}
+\rm
+Aparte de este tipo de cuentas, hemos de tener un especial cuidado con las 
+cuentas de usuario que no tienen contrase\~na o que tienen una clave d\'ebil;
+para detectar este \'ultimo problema podemos utilizar programas adivinadores 
+como {\it Crack}, mientras que para evitarlo podemos utilizar {\it NPasswd} o
+{\it Passwd+}, adem\'as de sistemas {\it Shadow Password} para que los usuarios
+no puedan leer las claves cifradas. Para detectar cuentas sin contrase\~na 
+(aunque tambi\'en {\it Crack} nos
+las indicar\'a), podemos utilizar la siguiente orden, obviamente sustituyendo
+{\tt /etc/passwd} por el fichero de claves de nuestro sistema:
+\tt
+\begin{quote}
+\begin{verbatim}
+anita:~# awk -F: '$2=="" {print $1}' /etc/passwd
+\end{verbatim}
+\end{quote}
+\rm
+Por \'ultimo, hay que decir que una correcta pol\'{\i}tica de cuentas pasa por
+deshabilitar la entrada de usuarios que no utilicen el sistema en un tiempo
+prudencial; por ejemplo, podemos cancelar las cuentas de usuarios que no 
+hayan conectado a la m\'aquina en los \'ultimos dos meses, ya que son firmes
+candidatas a que un pirata las aproveche para atacarnos; la orden {\tt finger}
+nos puede ayudar a detectar este tipo de usuarios.
+\item Negaciones de servicio\\
+Un tipo de ataque que ni siquiera suele necesitar de un acceso al sistema es el
+conocido como la negaci\'on de servicio ({\it Denial of Service}). Consiste 
+b\'asicamente en perjudicar total o parcialmente la disponibilidad de un 
+recurso, por ejemplo utilizando grandes cantidades de CPU, ocupando toda la 
+memoria del sistema o incluso deteniendo una m\'aquina. Obviamente las 
+negaciones de servicio m\'as peligrosas son las que detienen el sistema o 
+alguno de sus servicios de forma remota:\\
+Las paradas de m\'aquina
+son, por norma general, fruto de un fallo en la implementaci\'on de red del 
+n\'ucleo: por ejemplo, la llegada de un paquete con una cabecera extra\~na, de
+una longitud determinada, o con una cierta prioridad, puede llegar a detener la
+m\'aquina si ese paquete no se trata correctamente en la implementaci\'on del
+sistema de red. La mejor forma de prevenir estos ataques (que no suelen dejar
+ning\'un rastro en los ficheros de {\it log}) es actualizar el n\'ucleo de 
+nuestro Unix peri\'odicamente, manteniendo siempre la \'ultima versi\'on 
+estable.\\
+En el caso de la detenci\'on de servicios determinados, habitualmente los 
+ofrecidos desde {\tt inetd}, la negaci\'on de servicio suele ser fruto de un 
+excesivo n\'umero de peticiones `falsas' al demonio correspondiente; por 
+ejemplo, un atacante enmascara su direcci\'on IP para sobrecargar de peticiones
+un demonio como {\tt in.telnetd} hasta detenerlo. Para evitar estos ataques 
+podemos incrementar el n\'umero de peticiones simult\'aneas que un demonio 
+acepta (en la opci\'on {\tt wait} de la l\'{\i}nea correspondiente en el 
+fichero {\tt /etc/inetd.conf}), aunque esto tambi\'en implica peligros de 
+negaci\'on de servicio (puede aumentar demasiado el tiempo de respuesta del
+equipo); una forma mucho m\'as recomendable de actuar no es prevenir estos 
+ataques sino minimizar sus efectos: si enviamos una se\~nal {\sc sighup} al
+demonio {\tt inetd} \'este relee su configuraci\'on, por lo que el servicio
+bloqueado vuelve a funcionar\footnote{Obviamente, las conexiones ya 
+establecidas no se pierden.}. Por tanto, es recomendable enviar una de estas
+se\~nales de forma autom\'atica cada cierto tiempo; podemos planificar esta
+acci\'on para que {\tt cron} la ejecute cada vez que despierte, incluyendo en
+nuestro archivo {\it crontab} una l\'{\i}nea como la siguiente:
+\tt
+\begin{quote}
+\begin{verbatim}
+* * * * *        /usr/bin/pkill -HUP inetd 2>&1 >/dev/null
+\end{verbatim}
+\end{quote}
+\rm
+\end{itemize}
+\section{Detecci\'on}
+La mayor\'{\i}a de problemas de seguridad en sistemas de I+D implican accesos
+no autorizados, bien por usuarios externos a la m\'aquina o bien por usuarios
+internos que consiguen un privilegio mayor del que tienen asignado.
+>C\'omo detectar estos problemas? Hacer esto puede ser algo muy complicado si 
+el atacante es un pirata con cierta experiencia y no hemos tomado algunas 
+medidas en nuestro sistema antes de que el ataque se produzca. Aqu\'{\i} se 
+presentan unos mecanismos que pueden indicar que alguien ha accedido 
+ilegalmente a nuestro equipo.
+\begin{itemize}
+\item Logs\\
+Casi cualquier actividad dentro del sistema es susceptible de ser monitorizada
+en mayor o menor medida. Unix ofrece un estupendo sistema de {\it logs} que
+guarda informaci\'on en ficheros contenidos generalmente en {\tt /var/adm/}, 
+{\tt /var/log/} o {\tt /usr/adm/}; esta informaci\'on var\'{\i}a desde los 
+usuarios que han conectado al sistema \'ultimamente hasta los mensajes de error
+del n\'ucleo, y puede ser consultada con \'ordenes como {\tt who} o {\tt last},
+o con un simple editor de textos.\\
+Aunque un atacante que consiga privilegios de {\tt root} en el equipo puede
+modificar (<o borrar!) estos archivos\footnote{O cualquier usuario con permiso 
+de escritura en ellos; los usuarios ni siquiera han de tener permiso de lectura 
+en la 
+mayor\'{\i}a de los ficheros de {\it log}.}, los {\it logs} son con frecuencia 
+el primer indicador de un acceso no autorizado o de un intento del mismo. 
+Dependiendo de nuestra configuraci\'on ({\tt /etc/syslog.conf}), pero 
+generalmente en los archivos {\tt messages} o {\tt syslog}, podemos ver mensajes
+que pueden indicar un ataque al sistema; a continuaci\'on se presentan algunos
+de ellos:
+\begin{itemize}
+\item \tt
+\small{Nov 12 05:35:42 anita in.telnetd[516]: refused connect from bg.microsoft.com}\\
+\rm
+\normalsize
+Este mensaje (conexi\'on rehusada a un servicio) en sistemas con {\it 
+TCP-Wrappers} instalado indica que alguien ha intentado conectar a nuestro 
+equipo desde una m\'aquina no autorizada a hacerlo.
+\item \tt
+\small{Nov  7 23:06:22 anita in.telnetd[2557]: connect from localhost}\\
+\rm
+\normalsize
+Alguien ha conectado con \'exito a nuestro equipo desde una determinada 
+m\'aquina; no implica que haya accedido con una nombre de usuario y su 
+contrase\~na, simplemente que ha tenido posibilidad de hacerlo.
+\item \tt
+\small{SU 11/17 03:12 - pts/3 toni-root}\\
+\rm
+\normalsize
+El usuario {\tt toni} ha intentado conseguir privilegios de administrador 
+mediante la orden {\tt su}; si lo hubiera conseguido, en lugar de un signo 
+{\tt `-'} aparecer\'{\i}a un {\tt `+'}. En Solaris, esto se registra en el
+fichero {\tt sulog}, aunque en el fichero {\tt messages} se notifica si el 
+{\tt su} ha fallado.   
+\end{itemize}
+\item Procesos\\
+Si un atacante ha conseguido acceso a nuestro equipo, y dependiendo de sus
+intenciones, es probable que ejecute programas en el sistema que permanecen
+en la tabla de procesos durante un largo periodo de tiempo; t\'{\i}picos 
+ejemplos son {\it sniffers} (programas para capturar tr\'afico de red) o {\it 
+bouncers} (programas para ocultar una direcci\'on en {\sc irc}). Debemos 
+desconfiar de procesos que presenten un tiempo de ejecuci\'on elevado, 
+especialmente si no es lo habitual en nuestro sistema. Incluso si el nombre
+del proceso no es nada extra\~no (obviamente un pirata no va a llamar a su
+analizador de tr\'afico {\tt sniffer}, sino que le dar\'a un nombre que no 
+levante sospechas, como {\tt xzip} o {\tt ltelnet}) es muy conveniente que
+nos preocupemos de comprobar cu\'al es el programa que se est\'a ejecutando.\\
+Algo que nos puede ayudar mucho en esta tarea es la herramienta de seguridad
+{\tt lsof}, que nos indica los ficheros abiertos por cada proceso de nuestro
+sistema, ya que programas como los {\it sniffers} o los {\it crackers} de claves
+suelen mantener archivos abiertos para almacenar la informaci\'on generada.
+\item Sistemas de ficheros\\
+Otro punto que puede denotar actividades sospechosas en la m\'aquina es su
+sistema de ficheros:\\ 
+Por un lado, hemos de estar atentos al n\'umero de archivos
+setuidados en el sistema: es frecuente que un pirata que ha conseguido 
+privilegios de {\it root} guarde archivos con este bit activo para volver a
+conseguir esos privilegios de una forma m\'as sencilla (por ejemplo, una copia
+de un {\it shell} setuidado como {\tt root} dar\'a privilegios de administrador
+a cualquiera que lo ejecute).\\
+Adem\'as, los intrusos suelen crear directorios `dif\'{\i}ciles' de localizar,
+donde poder guardar herramientas de ataque: por ejemplo, si alguien es capaz
+de crear el directorio {\tt /dev/.../}, seguramente cuando el administrador
+haga un listado de {\tt /dev/} ni se dar\'a cuenta de la existencia de un
+directorio con un nombre tan poco com\'un como {\tt `...'}.\\
+Otra actividad relacionada con el sistema de ficheros es la sustituci\'on de
+ciertos programas que puedan delatar una presencia extra\~na, como {\tt ps},
+{\tt who} o {\tt last}, o programas cr\'{\i}ticos como {\tt /bin/login} por
+versiones `troyanizadas' que no muestren nada relacionado con el atacante; por
+ejemplo, alguien podr\'{\i}a sustituir el programa {\tt /bin/login} por otro
+que aparentemente se comporte igual, pero que al recibir un nombre de usuario
+concreto otorgue acceso al sistema sin necesidad de clave. Un ejemplo muy 
+simple de este tipo de troyanos es el siguiente: alguien mueve el archivo 
+{\tt /bin/ps} a {\tt /bin/OLDps} y a continuaci\'on ejecuta
+\tt
+\begin{quote}
+\begin{verbatim}
+anita:~# cat >/bin/ps
+#!/bin/sh
+/bin/OLDps $1|grep -v '^    toni'|grep -v grep|grep -v OLD
+^D
+anita:~#
+\end{verbatim}
+\end{quote}
+\rm
+A partir de ahora, cuando alguien teclee {\tt ps -ef} no ver\'a los procesos
+del usuario {\tt toni}. Se puede seguir un mecanismo similar\footnote{Realmente
+el mecanismo suele ser m\'as elaborado; aqu\'{\i} se ha utilizado una forma 
+muy simple de ocultaci\'on \'unicamente a modo de ejemplo.} con programas como 
+{\tt w}, {\tt finger}, {\tt last}, {\tt who} o {\tt ls} para conseguir ocultar
+a un usuario conectado, sus procesos, sus ficheros\ldots\\ 
+Otro s\'{\i}ntoma que denota la presencia de un problema de seguridad puede
+ser la modificaci\'on de ciertos ficheros importantes del sistema; por ejemplo,
+un atacante puede modificar {\tt /etc/syslog.conf} para que no se registren
+ciertos mensajes en los archivos de {\it log}, o {\tt /etc/exports} para 
+exportar directorios de nuestro equipo. El problema de este estilo m\'as 
+frecuente es la generaci\'on de nuevas entradas en el fichero de claves con 
+{\sc uid} 0 (lo que implica un total privilegio); para detectar este tipo de
+entradas, se puede utilizar la siguiente orden: 
+\tt
+\begin{quote}
+\begin{verbatim}
+anita:~# awk -F: '$3=="0" {print $1}' /etc/passwd
+root
+anita:~#
+\end{verbatim}
+\end{quote}
+\rm
+Obviamente, si como salida de la orden anterior obtenemos alg\'un otro nombre
+de usuario, aparte del {\it root}, ser\'{\i}a conveniente cancelar la cuenta
+de ese usuario e investigar por qu\'e aparece con {\sc uid} 0.\\
+Detectar este tipo de problemas con el sistema de ficheros de nuestro equipo 
+puede ser una tarea complicada; la soluci\'on m\'as r\'apida pasa por instalar
+{\it Tripwire}, comentado en este mismo punto.
+\item Directorios de usuarios\label{userdir}\\
+Dentro del sistema de ficheros existen unos directorios especialmente 
+conflictivos: se trata de los {\tt \$HOME} de los usuarios. La conflictividad
+de estos directorios radica principalmente en que es la zona m\'as importante 
+del sistema de archivos donde los usuarios van a tener permiso de escritura,
+por lo que su control (por ejemplo, utilizando {\it Tripwire}) es a priori 
+m\'as dif\'{\i}cil que el de directorios cuyo contenido no cambie tan 
+frecuentemente. Algunos elementos dentro de estos directorios que pueden 
+denotar una intrusi\'on son los siguientes:
+\begin{itemize}
+\item Hemos de chequear el grupo y propietario de cada archivo para comprobar
+que no pertenecen a usuarios privilegiados en lugar de a usuarios normales, o a 
+grupos especiales en lugar de a grupos gen\'ericos ({\tt users}, {\tt 
+staff}\ldots).  Por ejemplo, si el padre de los directorios de usuario es {\tt 
+/export/home/}, podemos buscar dentro de \'el ficheros que pertenezcan al 
+administrador con la orden
+\tt
+\begin{quote}
+\begin{verbatim}
+anita:~# find /export/home/ -user root -type f -print
+\end{verbatim}
+\end{quote}
+\rm
+\item >Hay archivos setuidados o setgidados en los directorios de usuario? No
+deber\'{\i}a, por lo que su existencia es algo bastante sospechoso\ldots
+\item La existencia de c\'odigo fuente, generalmente C, de {\it exploits}
+(programas que aprovechan un fallo de seguridad en el {\it software} para
+utilizarlo en beneficio del atacante) puede ser
+indicativo de una contrase\~na robada, o de un usuario intentando conseguir
+un privilegio mayor en el sistema. >C\'omo saber si un c\'odigo es un {\it
+exploit} o una pr\'actica de un alumno? La respuesta es obvia: ley\'endolo.
+>Y si se trata de ficheros ejecutables en lugar de c\'odigo fuente? {\tt man
+strings}.
+\end{itemize}
+\item El sistema de red\\
+Estar atentos al sistema de red de nuestro equipo tambi\'en nos puede 
+proporcionar indicios de accesos no autorizados o de otro tipo de ataques contra
+el sistema. Por ejemplo, si utilizamos {\tt netstat} para comprobar las 
+conexiones activas, y detectamos una entrada similar a
+\tt\small
+\begin{quote}
+\begin{verbatim}
+anita.telnet         luisa.2039           16060      0 10136      0 ESTABLISHED
+\end{verbatim}
+\end{quote}
+\rm\normalsize
+esto indica que desde el {\it host} {\it luisa} alguien est\'a conectado a
+nuestro sistema mediante {\it telnet}; puede haber accedido o no (si ha tecleado
+un nombre de usuario y la contrase\~na correcta), pero el hecho es que la
+conexi\'on est\'a establecida.\\
+Otro m\'etodo muy seguido por los piratas es asegurar la reentrada al sistema
+en caso de ser descubiertos, por ejemplo instalando un programa que espere 
+conexiones en un cierto puerto y que proporcione un {\it shell} sin necesidad 
+de {\it login} y {\it password} (o con los mismos predeterminados); por 
+ejemplo, si el programa espera peticiones
+en el puerto 99, el atacante puede acceder al sistema con un simple {\it 
+telnet}:
+\tt
+\begin{quote}
+\begin{verbatim}
+luisa:~# telnet anita 99
+Trying 192.168.0.3...
+Connected to anita.
+Escape character is '^]'.
+Sun Microsystems Inc.   SunOS 5.7       Generic October 1998
+anita:~#
+\end{verbatim}
+\end{quote}
+\rm
+Podemos detectar los puertos que esperan una conexi\'on en nuestro sistema
+tambi\'en con la orden {\tt netstat}:
+\tt
+\small
+\begin{quote}
+\begin{verbatim}
+anita:~# netstat -P tcp -f inet -a|grep LISTEN
+      *.sunrpc             *.*                0      0     0      0 LISTEN
+      *.32771              *.*                0      0     0      0 LISTEN
+      *.ftp                *.*                0      0     0      0 LISTEN
+      *.telnet             *.*                0      0     0      0 LISTEN
+      *.finger             *.*                0      0     0      0 LISTEN
+      *.dtspc              *.*                0      0     0      0 LISTEN
+      *.lockd              *.*                0      0     0      0 LISTEN
+      *.smtp               *.*                0      0     0      0 LISTEN
+      *.8888               *.*                0      0     0      0 LISTEN
+      *.32772              *.*                0      0     0      0 LISTEN
+      *.32773              *.*                0      0     0      0 LISTEN
+      *.32774              *.*                0      0     0      0 LISTEN
+      *.printer            *.*                0      0     0      0 LISTEN
+      *.listen             *.*                0      0     0      0 LISTEN
+      *.6000               *.*                0      0     0      0 LISTEN
+      *.32775              *.*                0      0     0      0 LISTEN
+anita:~#
+\end{verbatim}
+\end{quote}
+\rm
+\normalsize
+\item Tripwire\\
+Quiz\'as una de las formas m\'as efectivas de detectar accesos no autorizados 
+es mediante el programa {\it Tripwire}. La idea es sencilla: en un sistema 
+`limpio' (por ejemplo, reci\'en instalado, antes de ser conectado a red) se 
+aplica una funci\'on de resumen ({\it message digest}) sobre los ficheros 
+importantes del equipo, (por ejemplo, ficheros en {\tt /etc/}, {\tt /bin/} o 
+{\tt /sbin/}). Los resultados de este proceso se almacenan en un medio que a 
+partir de ese momento ser\'a de s\'olo lectura, como un disco flexible 
+protegido contra escritura o un CD-ROM, y peri\'odicamente volvemos a aplicar 
+el resumen sobre los ficheros de nuestro equipo; si se detecta un cambio (por
+ejemplo, una variaci\'on en el tama\~no, un cambio de propietario, la
+desaparici\'on de un archivo\ldots), {\it Tripwire} nos lo va a indicar. Si no 
+lo hemos realizado nosotros, como administradores, es posible (muy posible) que 
+ese fichero haya sido modificado en beneficio propio por un intruso.
+\end{itemize}
+\section{Recuperaci\'on}
+>Qu\'e hacer cuando se detecta una intrusi\'on en la m\'aquina? Muchos 
+administradores se hacen esta pregunta cuando se dan cuenta de que su seguridad
+ha sido quebrada. Por supuesto, en esta situaci\'on se pueden hacer muchas 
+cosas, desde ignorar el hecho y dejar que el pirata haga lo que quiera en 
+nuestro sistema (obviamente, esto no es recomendable) hasta intentar localizar
+al intruso mediante denuncia y orden judicial para tracear la llamada; esto
+tampoco es habitual, ya que es muy dif\'{\i}cil demostrar ante un juez que un 
+atacante ha violado nuestra seguridad, por lo que s\'olo vamos a perder tiempo
+y dinero. Lo habitual en entornos universitarios es intentar detectar si el
+atacante pertenece a la comunidad universitaria (en cuyo caso se le puede 
+sancionar), restaurar la integridad del equipo de forma que un ataque similar 
+no vuelva a tener \'exito, y poner de nuevo la m\'aquina a trabajar (recordemos
+que la disponibilidad suele ser lo m\'as importante en organizaciones de I+D). 
+Pero, hagamos lo que hagamos, hay que cumplir una norma b\'asica: {\bf no 
+ponernos nerviosos}; si no logramos mantener la calma podemos ser incluso m\'as
+perjudiciales para el sistema que el propio intruso o podemos poner a \'este
+nervioso, lo que puede convertir un simple fisgoneo en una p\'erdida 
+irrecuperable de datos.\\
+\\Desde el punto de vista de Unix, es posible que nos interese localizar el 
+fallo de seguridad a\-pro\-ve\-cha\-do por el pirata para cerrarlo y que el problema
+no vuelva a ocurrir; sin entrar en temas complejos como el {\it jailing} o la
+simulaci\'on, una de las formas que tenemos para realizar esta tarea es 
+mo\-ni\-to\-ri\-zar las actividades del intruso, incluso arriesgando la integridad del
+sistema (podemos hacer una copia de seguridad por lo que pueda pasar). Para 
+realizar esto, hemos de ser conscientes de que si alguien ha conseguido 
+privilegios de administrador en la m\'aquina, puede haber modificado desde los
+programas del sistema hasta las librer\'{\i}as din\'amicas, pasando incluso por
+el subsistema de {\it accounting} de procesos. Por tanto, hemos de desconfiar
+de los resultados que cualquier orden nos proporcione, ya que el intruso puede
+haberlos modificado para ocultar sus actividades. Si queremos auditar las
+actividades del atacante hemos de utilizar programas `nuevos', a ser posible
+compilados est\'aticamente (sin dependencia de librer\'{\i}as din\'amicas): 
+podemos utilizar versiones de c\'odigo fuente disponible para adecuarlas a 
+nuestro sistema, compilarlas est\'aticamente en un sistema similar al atacado\footnote{El pirata tambi\'en puede haber modificado el compilador.},
+y utilizarlas en la m\'aquina donde est\'a el intruso.\\
+\\El proceso de modificar librer\'{\i}as din\'amicas habitualmente excede los 
+conocimientos del atacante medio de entornos I+D; como adem\'as conseguir
+programas est\'aticos para nuestro equipo suele
+ser complejo y lento en la mayor\'{\i}a de situaciones, y un objetivo b\'asico
+es devolver el sistema a su funcionamiento normal cuanto antes, lo habitual no
+es utilizar programas compilados de forma est\'atica sino confiar en que el
+intruso no haya modificado librer\'{\i}as din\'amicas y utilizar versiones
+`limpias' de programas din\'amicos; por ejemplo, podemos utilizar los programas
+originales del sistema operativo que se encuentran en el CD-ROM de instalaci\'on
+del mismo.\\
+\\Si en lugar de intentar monitorizar las actividades del intruso en el sistema
+lo \'unico que queremos es echarlo de nuestra m\'aquina (esto tiene su parte
+positiva, pero tambi\'en su parte negativa), hemos de tener siempre presente
+que desconocemos lo que ha hecho; la forma m\'as efectiva de tirarlo de nuestro
+equipo es desconectando el cable de red (mucho mejor que utilizar {\tt ifconfig}
+para detener la tarjeta o {\tt shutdown} para parar el sistema, ya que el
+atacante puede haber contaminado estos programas para que realicen una actividad
+diferente a la que en teor\'{\i}a est\'an destinados). Pero no nos podemos 
+limitar \'unicamente a desconectar el cable de red: el atacante puede tener
+procesos activos en el sistema, bombas l\'ogicas, o simplemente tareas 
+destructivas planificadas con {\tt at} o {\tt cron}; hemos de chequear todo
+el sistema en busca de este tipo de amenazas. Un lugar interesante donde
+el intruso nos puede causar un problema grave es en los ficheros de 
+inicializaci\'on de la m\'aquina, situados generalmente en {\tt /etc/rc?.d/}
+o {\tt /etc/rc.d/}.\\ 
+\\Una vez detectado y solucionado el problema de seguridad hemos de restaurar
+un estado fiable de la m\'aquina, esto es, un estado similar al que ten\'{\i}a
+antes de ser atacada. Aunque en muchos lugares se indica restaurar una copia de
+seguridad anterior al ataque, esto presenta graves problemas: realmente no
+sabemos con certeza cuando se produjo el ataque al sistema, sino que en todo
+caso sabemos cu\'ando se detect\'o el mismo, por lo que corremos el peligro de
+utilizar una copia de seguridad que ya est\'e contaminada por el atacante. Es
+mucho m\'as seguro reinstalar el sistema completo y actualizarlo para solucionar
+los fallos que posibilitaron la entrada del intruso, por ejemplo aplicando 
+{\it patches} sobre la versi\'on que hemos instalado.\\
+\\Restaurar y actualizar el sistema operativo y sus programas puede ser una
+tarea pesada, pero no implica ninguna complicaci\'on: con toda probabilidad 
+tenemos a nuestra disposici\'on los CD-ROMs con el {\it software} que hemos
+de instalar; los problemas reales 
+surgen con los archivos de los usuarios: evidentemente, no podemos decirles que
+para evitar posibles conflictos de seguridad se les han borrado sus archivos, 
+sino que lo habitual va a ser mantener el estado de sus ficheros justo como
+estaban durante el ataque o, en caso de que este haya eliminado o corrompido
+informaci\'on, tal y como estaban exactamente antes del ataque. Por tanto, 
+especialmente si mantenemos el estado de los ficheros de usuario, hay que
+estar atentos a posibles problemas que estos puedan introducir en el sistema,
+comentados en el apartado \ref{userdir}.\\
+\section{Recomendaciones de seguridad para los usuarios}
+Con frecuencia la parte m\'as complicada de una pol\'{\i}tica de seguridad es
+concienciar a los usuarios de la necesidad de medidas b\'asicas de prevenci\'on
+contra ataques. Demasiados usuarios opinan que las historias de {\it crackers}
+que atacan ordenadores s\'olo suceden en las pel\'{\i}culas o en organizaciones
+militares de alta seguridad; nada m\'as lejos de la realidad: en cualquier
+universidad ocurren a diario incidentes de seguridad, de los que s\'olo una
+peque\~na parte se detecta (y muchos menos se solucionan). Ser\'{\i}a pues
+muy recomendable para el administrador imprimir una hoja con las medidas de 
+seguridad b\'asicas o la pol\'{\i}tica del sistema, y entregar una copia a 
+cada usuario al crear su cuenta.
+\begin{itemize}
+\item Contrase\~nas aceptables\\
+Es conveniente que los usuarios elijan claves medianamente resistentes a ataques
+de diccionario; una contrase\~na como {\tt patata} o {\tt valencia} es un 
+gran agujero de seguridad para la m\'aquina, aunque el usuario que la usa no 
+tenga ning\'un privilegio especial. Hemos de ver la seguridad como una cadena
+cuya fuerza depende principalmente del eslab\'on m\'as d\'ebil: si falla \'este,
+falla toda la cadena. Sin embargo, el problema de estas claves es que pueden
+llegar a ser dif\'{\i}ciles de recordar, de forma que mucha gente opta por 
+apuntarlas en el monitor de su estaci\'on o en la parte inferior de sus 
+teclados; obviamente, esto es casi peor que el problema inicial, ya que como
+administradores no podemos controlar estas situaciones la mayor parte de las
+veces. Podemos (y ser\'{\i}a lo recomendable) recomendar a los usuarios que
+utilicen combinaciones de may\'usculas, min\'usculas, n\'umeros y s\'{\i}mbolos
+para generar sus claves, pero de forma que la combinaci\'on les pueda resultar
+familiar: por ejemplo, combinar n\'umeros y letras de la matr\'{\i}cula del
+coche con algunos s\'{\i}mbolos de separaci\'on; claves de este estilo
+podr\'{\i}an ser {\tt V\#GF\&121}, {\tt @3289?DH} o {\tt JKnB0322}. Obviamente
+estas claves son m\'as resistentes a un ataque que {\tt beatles}, pero tampoco
+son seguras: las acabamos de escribir.
+\item Confidencialidad de las claves\\
+Hemos de concienciar a nuestros usuarios de que {\bf las contrase\~nas no se
+comparten}: no es recomendable `prestar' su clave a otras personas, ajenas o
+no al sistema, ni por supuesto utilizar la misma clave para diferentes 
+m\'aquinas. Este \'ultimo punto muchas veces se olvida en sistemas de I+D, donde
+el usuario se ve obligado a utilizar {\it passwords} para muchas actividades y
+tiende invariablemente a usar la misma contrase\~na; incluso se utiliza la 
+clave de acceso a un equipo Unix para autenticarse en juegos de red (MUDs o
+IRC) o, lo que es igual de grave, para acceder a equipos Windows, de forma que
+las vulnerabilidades de seguridad de estos sistemas se trasladan a Unix.
+\item Conexiones cifradas\\
+Hay que potenciar entre los usuarios el uso de programas como {\tt ssh/scp} o\\ 
+{\tt ssl-telnet/ssl-ftp} para conectar al equipo. La parte cliente de estos
+programas es muy simple de utilizar, y nos puede ahorrar muchos dolores de 
+cabeza como administradores. Incluso existen clientes para Windows y MacOS, por
+lo que nadie tiene excusa para no usar sistemas cifrados (se puede conseguir 
+que su uso sea completamente {\bf transparente} al usuario); casi la mejor 
+forma de que los usuarios los utilicen es dejando de ofrecer ciertos servicios
+sin cifra, como {\tt telnet}, {\tt ftp}, {\tt rlogin} o {\tt rsh}.
+\item Ejecuci\'on de programas\\
+Nunca, bajo ning\'un concepto, instalar o ejecutar {\it software} que no
+provenga de fuentes fiables; hay que prestar atenci\'on especial a programas
+que nos env\'{\i}en por correo o por {\sc irc}, ya que se puede tratar de 
+programas trampa que, desde borrar todos nuestros ficheros, a enviar por correo
+una copia del archivo de contrase\~nas, pueden hacer cualquier cosa: imaginemos
+que un `amigo' nos env\'{\i}a un juego a trav\'es de cualquier medio -- 
+especialmente {\sc irc} -- y nosotros lo ejecutamos; incluso disponer del
+c\'odigo fuente no es ninguna garant\'{\i}a (>qu\'e usuario medio lee un 
+c\'odigo en C de, quiz\'as, miles de l\'{\i}neas?). Ese programa puede hacer
+algo tan simple como {\tt rm -rf \$HOME/*} sin que nosotros nos demos cuenta,
+con las consecuencias que esta orden implica.
+\item Desconfianza\\
+Hemos de desconfiar de cualquier correo electr\'onico, llamada telef\'onica o
+mensaje de otro tipo que nos indique realizar una determinada actividad en el
+sistema, especialmente cambiar la clave o ejecutar cierta orden; con 
+frecuencia, un usuario se convierte en c\'omplice involuntario de un atacante:
+imaginemos que recibimos una llamada de alguien que dice ser el administrador
+del sistema y que nos recomienda cambiar nuestra clave por otra que \'el nos
+facilita, con la excusa de comprobar el funcionamiento del nuevo {\it software} 
+de correo. Si hacemos esto, esa persona ya tiene nuestra contrase\~na para 
+acceder ilegalmente a la m\'aquina y hacer all\'{\i} lo que quiera; hemos de 
+recordar siempre que el administrador no necesita nuestra ayuda para comprobar 
+nada, y si necesita cambiar nuestra clave, lo puede hacer \'el mismo.
+\item Un \'ultimo consejo\ldots\\
+Cualquier actividad sospechosa que detectemos, aunque no nos implique 
+directamente a nosotros, ha de ser notificada al administrador o responsable de
+seguridad del equipo. Esta notificaci\'on, a ser posible, no se ha de realizar
+por correo electr\'onico (un atacante puede eliminar ese {\it mail}), sino en
+persona o por tel\'efono.\\
+En muchas ocasiones, cuando un usuario nota un comportamiento extra\~no en el
+sistema, no notifica nada pensando que el administrador ya se ha enterado del
+suceso, o por miedo a quedar en rid\'{\i}culo (quiz\'as que lo que nosotros 
+consideramos `extra\~no' resulta ser algo completamente normal); esta 
+situaci\'on es err\'onea: si se trata de una falsa alarma, mucho mejor, 
+pero\ldots >y si no lo es?
+\end{itemize}
+\section{Referencias r\'apidas}
+\subsection{Prevenci\'on}
+\begin{itemize}
+\item Cerrar los servicios de {\tt inetd} que no sean estrictamente necesarios.
+\item No lanzar demonios en el arranque de m\'aquina que no sean estrictamente
+necesarios.
+\item Minimizar el n\'umero de ficheros setuidados o setgidados en la m\'aquina.
+\item Instalar {\it TCP Wrappers} y utilizar una pol\'{\i}tica restrictiva:
+{\tt echo ALL:ALL >/etc/hosts.deny}. 
+\item Utilizar {\it TCP Wrappers} para controlar el acceso a nuestro {\tt 
+sendmail}, o utilizar un {\it wrapper} propio para este demonio.
+\item Sustituir {\tt telnet}, {\tt ftp} o similares por {\tt ssh} y {\tt scp}.
+\item No permitir ficheros {\tt \$HOME/.rhosts} en los directorios de usuarios,
+y no establecer relaciones de confianza en {\tt /etc/hosts.equiv}.
+\item Deshabilitar las cuentas del sistema que no corresponden a usuarios 
+reales ({\tt uucp}, {\tt lp}\ldots).
+\item Instalar un sistema {\it Shadow Password} para que los usuarios no 
+puedan leer las claves cifradas. 
+\item Deshabilitar las cuentas de usuarios que no conecten al sistema.
+\item Utilizar versiones actualizadas del n\'ucleo del sistema operativo.
+\item Evitar sobrecargas de servicio planificando {\tt pkill -HUP inetd} en
+nuestro fichero {\it crontab}.
+\end{itemize}
+\subsection{Detecci\'on}
+\begin{itemize}
+\item Configurar {\it Tripwire} nada m\'as instalar el sistema y guardar sus
+resultados en un medio fiable; cada cierto tiempo, ejecutar {\it Tripwire} para
+comparar sus resultados con los iniciales.
+\item Chequear peri\'odicamente los {\it logs} en busca de actividades 
+sospechosas.
+\item Utilizar \'ordenes como {\tt ps}, {\tt netstat} o {\tt last} para 
+detectar cualquier evento fuera de lo normal en el sistema, pero no confiar 
+ciegamente en los resultados que se nos muestran en pantalla: seamos paranoicos.
+\item Comprobar peri\'odicamente la integridad de ficheros importantes de 
+nuestro sistema, como {\tt /etc/passwd}, {\tt /etc/exports}, {\tt 
+/etc/syslog.conf}, {\tt /etc/aliases} o ficheros de arranque.
+\item Comprobar tambi\'en elementos como los permisos o el propietario de los
+ficheros que se encuentran en los directorios de usuarios. 
+\end{itemize}
+\subsection{Recuperaci\'on}
+\begin{itemize}
+\item Nunca hay que ponerse nervioso: nuestra m\'aquina ni ha sido la primera
+ni lamentablemente ser\'a la \'ultima en sufrir un ataque. No es el fin del
+mundo.
+\item Desconfiar de cualquier programa que se encuentre en el sistema; utilizar
+programas del CD-ROM del sistema operativo, o versiones est\'aticas de los
+mismos, para tracear las actividades del intruso.
+\item Si es posible, reinstalar el sistema operativo completo y aplicarle los
+parches de seguridad que el fabricante pone a nuestra disposici\'on\footnote{O 
+que se distribuyen por Internet.}; permanecer 
+atentos a los directorios de usuarios y a los programas que \'estos contienen.
+\item Si pensamos que la integridad del sistema peligra mucho, desconectar 
+directamente el cable de red: utilizar {\tt ifconfig down} o detener el sistema
+con {\tt shutdown} puede incluso acarrearnos problemas.
+\item Obviamente, antes de poner el sistema de nuevo a funcionar en red, estar
+completamente seguro que los problemas de seguridad que el atacante aprovech\'o
+est\'an solucionados.
+\end{itemize}
+\subsection{Usuarios}
+\begin{itemize}
+\item No elegir claves de menos de seis caracteres, y combinar may\'usculas,
+min\'usculas, n\'umeros, signos de puntuaci\'on\ldots cualquier cosa que nos 
+permita el teclado.
+\item No apuntar nuestras claves ni compartirlas con otras personas.
+\item No utilizar nuestra contrase\~na de acceso en otros sistemas, 
+especialmente juegos en red o equipos Windows.
+\item Sustituir {\tt telnet} y {\tt ftp} por {\tt ssh} y {\tt scp} o similares.
+\item Nunca ejecutar programas que nos envien por correo o que consigamos a 
+partir de fuentes poco fiables (como un `amigo' que nos pasa un programa por
+{\sc irc}). Tampoco ejecutar \'ordenes cuyo funcionamiento desconocemos, 
+especialmente si alguien desconocido nos indica teclear `algo' para ver el
+resultado.
+\item Desconfiar de llamadas telef\'onicas o correo electr\'onico que nos incita
+a realizar cualquier actividad dentro del sistema, especialmente cambiar nuestra
+clave; si estas situaciones se producen, indicarlo inmediatamente al responsable
+de seguridad del equipo, mediante tel\'efono o en persona.
+\item Ante cualquier actividad sospechosa que se detecte es recomendable 
+ponerse en contacto con el responsable de seguridad o el administrador, a ser 
+posible por tel\'efono o en persona.
+\end{itemize}
+%\end{document}

@@ -1,0 +1,331 @@
+.\"if n .pl +(135i-\n(.pu)
+.\" Traducida por Pedro Pablo Fábrega, Junio 99
+.de Id
+.ds Rv \\$3
+.ds Dt \\$4
+..
+.Id $Id: procmailsc.5,v 1.1.1.1 2001/11/25 17:34:18 carlos Exp $
+.TH PROCMAILSC 5 \*(Dt BuGless
+.rn SH Sh
+.de SH
+.br
+.ne 11
+.Sh "\\$1"
+..
+.rn SS Ss
+.de SS
+.br
+.ne 10
+.Ss "\\$1"
+..
+.rn TP Tp
+.de TP
+.br
+.ne 9
+.Tp \\$1
+..
+.rn RS Rs
+.de RS
+.na
+.nf
+.Rs
+..
+.rn RE Re
+.de RE
+.Re
+.fi
+.ad
+..
+.de Sx
+.PP
+.ne \\$1
+.RS
+..
+.de Ex
+.RE
+.PP
+..
+.na
+.SH NOMBRE
+procmailsc \- técnica puntuación de peso de procmail
+.SH SINOPSIS
+.RB [ * ]
+.B "w^x condición"
+.ad
+.SH DESCRIPCIÓN
+Además de las condiciones tradicionales verdadero o falso que puede
+especificar en una receta, puede usar técnicas de puntuación de peso para
+decidir si una cierta receta concuerda o no. Cuando se usa la puntuación de
+peso en una receta, la puntuación final de esa receta debe ser positiva
+para que concuerde.
+
+Una cierta condición puede contribuir a la puntuación si le sitúa un `peso'
+.RB ( w )
+y un `exponente'
+.RB ( x ).
+Esto lo hace precediendo la condición (en la misma línea) con:
+.RS
+.B w^x
+.RE
+Considerando que
+.B w
+y
+.B x
+son números reales entre  \-2147483647.0 y 2147483647.0.
+
+.SH "Condiciones de expresión regular sopesadas"
+La primera vez que se encuentra la expresión regular, se añadirá
+.I w
+a la puntuación. La segunda vez que la encuentre añadirá
+.I w*x
+La tercera vez que la encuentre añadirá
+.I w*x*x
+La cuarta vez añadirá
+.I w*x*x*x
+y así sucesivamente.
+
+Esto se puede describir con la siguiente fórmula concisa:
+.Sx 4
+                     n
+     n   k\-1        x \- 1
+w * Sum x    = w * \-\-\-\-\-\-\-
+    k=1             x \- 1
+.Ex
+Representa la puntuación total añadida para esta condición si se
+encuentran
+.B n
+concordancias.
+
+Observe que se pueden hacer las siguientes distinciones de casos:
+.TP 8
+x=0
+Sólo la primera concordancia contribuirá w a la puntuación. Se ignoran
+cualquier concordancia posterior.
+.TP
+x=1
+Cada concordancia contribuirá el mismo w a la puntuación. La puntuación crece
+linealmente con el número de concordancias encontradas.
+.TP
+0<x<1
+Cada concordancia contribuye menos a la puntuación que la previa. La puntuación
+se aproxima asintóticamente a cierto valor (véase la sección notas
+.B NOTAS
+abajo).
+.TP
+1<x
+Cada concordancia contribuirá más a la puntuación que la previa. La puntuación crece
+exponencialmente.
+.TP
+x<0
+Se puede utilizar para favorecer números pares o impares de concordancias.
+.PP
+Si la expresión regular está negada (i.e. concuerda si no se encuentra),
+entonces
+.B n
+obviamente puede ser cero o uno.
+.SH "Condiciones de programa sopesadas"
+Si el programa devuelve un código de salida EXIT_SUCCESS (=0), entonces
+la puntuación total añadida será
+.BR w .
+Si devuelve cualquier otro código de salida (indicando fallo), la
+puntuación total añadida será
+.BR x .
+.PP
+Si el código de salida del programa está negado, el código de
+salida se considerará como si fuera un número virtual de concordancias.
+El cálculo de la puntuación añadida prosigue como si tuviera una
+expresión regular normal con
+.B n=`exitcode'
+concordancias.
+.SH "Condiciones de longitud sopesadas"
+Si la longitud del correo actual es
+.B M
+entonces:
+.Sx 1
+* w^x  > L
+.Ex
+generará una puntuación adicional de:
+.Sx 4
+           x
+    /  M  \e
+w * | \-\-\- |
+    \e  L  /
+.Ex
+Y:
+.Sx 1
+* w^x  < L
+.Ex
+generará una puntuación adicional de:
+.Sx 4
+           x
+    /  L  \e
+w * | \-\-\- |
+    \e  M  /
+.Ex
+.PP
+En ambos casos, si L=M, esto añadirá w a la puntuación. En el primer caso,
+sin embargo, se favorecen los correos grandes, en el último se favorecen
+los pequeños. Aunque x se puede variar para un mejor ajuste el decrecimiento
+de la función, el uso típico fija x=1.
+.SH MISCELÁNEA
+Puede consultar la puntuación total de todas las condiciones de una receta
+de la variable de entorno
+.BR $= .
+Esta variable se fija
+.I cada vez
+cuando procmail ha analizado todas las condiciones de una receta (incluso
+si la receta no está siendo ejecutada).
+.SH EJEMPLOS
+La siguiente receta separa tdos los correos que tienen más de 150 líneas
+en el cuerpo.
+La primera condición contiene una expresión regular vacía que, debido a
+que siempre se verifica, se usa para dar a nuestra puntuación un
+desplazamiento negativo. La segunda condición concuerda con cada línea
+del correo y consume el desplazamiento negativo previo que le dimos
+(un punto por línea). Al final, la puntuación será sólo positiva si el
+correo contiene más de 150 líneas.
+.Sx 5
+:0 Bh
+* \-150^0
+*    1^1  ^.*$
+/dev/null
+.Ex
+Supongamos que tiene una carpeta prioritaria que siempre lee primero. La
+siguiente receta toma la prioridad del correo y lo almacena en carpetas
+especiales. La primera condición es regular, i.e. no contribuye a la
+puntuación, simplemente tiene que satisfacerse. Las otras condiciones
+describen cosas como: john and claire normalmente tienen cosas
+importantes que decir, las reuniones son normalmente importantes, las
+respuestas se favorecen un poco, los mail respecto a Elvis (esto es sólo
+un ejemplo :-\) se favorecen (cuando más se mencione, más se favorece el
+correo , pero la máxima puntuación extra debida a Elvis será 4000, no importa
+con qué frecuencia sea mencionado), muchas líneas marcadas como de respuesta
+no no gustan, los "smileys" son apreciados (la puntuación de ellos alcanza
+un máximo de 3500, esas tres personas  normalmente no envían correos
+interesantes, lo correos serían preferentemente pequeños (v.g. mails con 2000
+octetos de largos puntuarán \-100, 4000 bytes de largos \-800).
+Como puede ver, si alguien de esas personas poco interesantes envía correo,
+el coreo todavía tiene una oportunidad de aterrizar en la carpeta prioritaria,
+v.g. si es sobre una reunión (meeting), o si contiene al menos dos "smileys".
+.Sx 11
+:0 HB
+*         !^Precedence:.*(junk|bulk)
+* 2000^0   ^From:.*(john@home|claire@work)
+* 2000^0   ^Subject:.*meeting
+*  300^0   ^Subject:.*Re:
+* 1000^.75 elvis|presley
+* \-100^1   ^>
+*  350^.9  :\-\e)
+* \-500^0   ^From:.*(boss|jane|henry)@work
+* \-100^3   > 2000
+carpeta_prioritaria
+.Ex
+Si está suscrito a una lista de correo y le gustaría leer los
+mensajes de calidad, entonces las siguientes recetas podrían
+ realizar el truco. Primero estamos seguros que el correo proviene de
+la lista de correo, Entonces comprobamos si es de ciertas personas
+de las que valoramos su opinión, o sobre un motivo sobre el que queremos
+saber absolutamente todo. Si es así, lo guardamos. En otro caso verificamos
+si la razón de líneas citadas del original es al menos 1:2. Si lo excede
+separamos el correo. Todo lo que sobreviva a la verificación previa
+se almacena.
+.Sx 15
+:0
+^From mailinglist-request@some.where
+{
+  :0:
+  * ^(From:.*(paula|bill)|Subject:.*skiing)
+  mailinglist
+
+  :0 Bh
+  *  20^1 ^>
+  * \-10^1 ^[^>]
+  /dev/null
+
+  :0:
+  mailinglist
+}
+.Ex
+Para más ejemplos debería mirar en la página de manual
+.BR procmailex (5).
+.SH ADVERTENCIAS
+Debido a que esto incrementa la búsqueda por un orden de magnitud,
+el egrep interno de procmail siempre buscará la concordancia
+.I más corta
+por la izquierda salvo que esté determinado qué asignar a
+.BR MATCH ,
+en cuyo caso busca la concordancia
+.I más larga
+por la izquierda.
+V.g. la concordancia
+.I más corta
+por la izquierda, por él mismo, la expresión regular:
+.TP
+.B .*
+siempre concuerda con una cadena de longitud cero en el mismo sitio.
+.TP
+.B .+
+siempre concordará con un carácter (salvo nueva línea, por supuesto).
+.SH "VÉASE TAMBIÉN"
+.na
+.nh
+.BR procmail (1),
+.BR procmailrc (5),
+.BR procmailex (5),
+.BR sh (1),
+.BR csh (1),
+.BR egrep (1),
+.BR grep (1),
+.hy
+.ad
+.SH "FALLOS (BUGS)"
+Si, en una condición de longitud especifica un
+.B x
+que causa un desbordamiento, procmail está a la meced de
+la función
+.BR pow (3)
+de su librería matemática.
+.PP
+No se aceptan número en coma flotante en formato exponencial (v.g. 12e5).
+.SH MISCELÁNEA
+Tan pronto como se alcanza `mas infinito' (2147483647), cualquier
+condición de
+.I peso
+simplemente se salta.
+.PP
+Tan pronto como se alcanza `menos infinito' (\-2147483647), la condición
+se considerará como `sin concordancia' y la receta termina antes.
+.SH NOTAS
+Si en una expresión regular fórmula sopesada
+.BR 0<x<1 ,
+la puntuación total añadida para esta condición se aproximará
+asintóticamente:
+.Sx 3
+   w
+\-\-\-\-\-\-\-
+ 1 \- x
+.Ex
+Para alcanzar la mitad del valor máximo necesita
+.Sx 3
+     \- ln 2
+n = \-\-\-\-\-\-\-\-
+       ln x
+.Ex
+concordancias.
+.SH AUTOR
+Stephen R. van den Berg
+.RS
+<srb@cuci.nl>
+.\" @MY_ALT_MAIL_ADDR@
+.RE
+.\".if n .pl -(\n(.tu-1i)
+.rm SH
+.rn Sh SH
+.rm SS
+.rn Ss SS
+.rm TP
+.rn Tp TP
+.rm RS
+.rn Rs RS
+.rm RE
+.rn Re RE

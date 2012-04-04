@@ -1,0 +1,161 @@
+<?xml version="1.0"?>
+<clause number="10.9" title="Automatic memory management">
+  <paragraph>C# utiliza gestión automática de memoria, lo cual libera al
+  programador de tener que alojar y liberar memoria manualmente. El
+  comportamiento de la gestión automática de memoria viene implementada por un
+  recolector de basura. El ciclo de gestión de la memoria usada por un objeto es
+  el siguiente:   </paragraph>
+  <paragraph>1 Cuando se crea el objecto, se aloja memoria para éste, se
+  ejecuta el constructor, y el objeto se considera &quot;vivo&quot; . </paragraph>
+  <paragraph>2 Si el objeto, o cualquier parte de éste, no puede se accedido por
+  ninguna ejecución posterior más que la ejecución de destructores, entonces se
+  considera que el objeto no está ya en uso, y se convierte en elegible para el
+  destructor. <note>[Nota: Las implementaciones pueden escoger el analizar
+  código con vistas a determinar qué referencias al objeto pueden ser utilizadas
+  en el futuro. Por ejemplo, si una variable local que está en el ámbito es la
+  única referencia que existe al objeto, pero esa variable local nunca hace
+  referencia a ninguna continuación posible de la ejecución desde la ejecución
+  presente en el proceso, una implementación puede (pero no es requerido que lo
+  haga así) tratar al objeto como sí no estuviera en uso. fin nota]</note> </paragraph>
+  <paragraph>3 Una vez que el objeto se vuelve elegible para el destructor, en
+  un tiepo posterior no especificado el destructor (<hyperlink>17.12</hyperlink>) (si existe) 
+  para el objeto es ejecutado. Salvo sobreescrito por llamadas explícitas, el
+  destructor para el objeto solo es llamado una única vez. </paragraph>
+  <paragraph>4 Una vez que es ejecutado el destructor de un objeto, si ese
+  objeto, o cualquier parte de éste, no puede ser accedido por ninguna posible
+  continuación de la ejecución, incluyendo la ejecución de destructores, el
+  objeto se considera inaccesible y el objeto se vuelve elegible para recogida. </paragraph>
+  <paragraph>5 Finalmente, en algún tiempo después de que el objeto se vuelva
+  elegible para recogida, el recolector de basura libera la memoria asociada a
+  ese objeto.  </paragraph>
+  <paragraph> El recolector de basura mantiene información sobre el uso de
+  objetos, y usa esta información para hacer decisiones de gestión de memoria,
+  tales como dónde almacenar en memoria un objeto recién creado, donde realojar
+  un objeto, y cuándo un objeto ya no está en uso o es inaccesible. </paragraph>
+  <paragraph> Al igual que otros lenguajes que asumen la existencia de un
+  recolector de basura, C# está diseñado de forma que el recolector de basura puede implementar un gran rango de 
+  comportamientos de gestión de memoria. Por ejemplo, C# no requiere que los
+  destructores sean ejecutados o que los objetos sean recogidos tan pronto como
+  son elegibles, o que los destructores sean ejecutados en un orden particular,
+  o en un hilo (thread) particular. </paragraph>
+  
+  <paragraph>El comportamiento del recolector de basura puede ser controlado
+  hasta cierto punto via los métodos estáticos de la clase System.GC. Esta clase
+  puede ser usada para pedir que se produzca una recolección, que se ejecuten
+  los destructores ( o que no se ejecuten), etc. </paragraph>
+  
+  <paragraph>
+    <example>[Ejemplo. Puesto que el recolector de basura tiene un amplio margen
+    de decisión sobre cuándo recolectar objetos y ejecutar destructores, una
+    implementación conforme puede producir salidas distintas de las que se
+    muestran en el siguiente código. El programa <code_example><![CDATA[
+using System;  
+class A  
+{  
+   ~A() {  
+      Console.WriteLine("Destruir instancia de A");  
+   }  
+}  
+class B  
+{  
+   object Ref;  
+   public B(object o) {  
+      Ref = o;  
+   }  
+   ~B() {  
+      Console.WriteLine("Destruir instancia de B");  
+   }  
+}  
+class Test  
+{  
+   static void Main() {  
+      B b = new B(new A());  
+      b = null;  
+      GC.Collect();  
+      GC.WaitForPendingFinalizers();  
+   }  
+}  
+]]></code_example>crea una instancia de la clase A y una instancia de la clase
+B. Estos objetos se vuelven elegibles para el recolector de basura cuando a la
+variable b se le asigna el valor null, pues a partir de ese momento es imposible
+para cualquier código escrito por el usuario acceder a éste. La salida podría
+ser bien <code_example><![CDATA[
+Destruir instancia de A  
+Destruir instancia de B  
+]]></code_example>o bien<code_example><![CDATA[
+Destruir instancia de B  
+Destruir instancia de A  
+]]></code_example>porque el lenguaje no impone condiciones sobre el ordene en el
+que los objetos son recogidos por el recolector. </example>
+  </paragraph>
+  <paragraph>
+    <example> En algunso casos, la distinción entre &quot; elegible para
+    destrucción&quot; y &quot;elegible para recolección&quot; puede ser
+    importante. Por ejemplo, <code_example><![CDATA[
+using System;  
+class A  
+{  
+   ~A() {  
+      Console.WriteLine("Destruir instancia de A");  
+   }  
+   public void F() {  
+      Console.WriteLine("A.F");  
+      Test.RefA = this;  
+   }  
+}  
+class B  
+{  
+   public A Ref;  
+   ~B() {  
+      Console.WriteLine("Destruir instancia de B");  
+      Ref.F();  
+   }  
+}  
+class Test  
+{  
+   public static A RefA;  
+   public static B RefB;  
+   static void Main() {  
+      RefB = new B();  
+      RefA = new A();  
+      RefB.Ref = RefA;  
+      RefB = null;  
+      RefA = null;  
+      // A y B son ahora elegible para destrucción  
+      GC.Collect();  
+      GC.WaitForPendingFinalizers();  
+      // B es ahora elegible para colección, pero A no  
+      if (RefA != null)  
+      	Console.WriteLine("RefA is not null");  
+   }  
+}  
+]]></code_example></example>
+  </paragraph>
+  <paragraph>
+    <example> En el programa anterior, si el recolector de basura elege ejecutar
+    el destructor de A antes del destructor de B, entonces la salida de este
+    programa podría ser: <code_example><![CDATA[
+Destruir instancia de A  
+Destruir instancia de B  
+A.F  
+RefA is not null  
+]]></code_example></example>
+  </paragraph>
+  <paragraph>
+    <example>Nótese que a pesar de que la instancia de A no estaba siendo usada
+    y que se había ejecutado el destructor de A, es todavía posible para métodos
+    en A (en este caso, F) ser llamados desde otro destructor. También nótese
+    que ejecutar un destructor puede provocar que un objeto se vuelva usable de
+    nuevo. En este caso, la ejecución del destructor de B causó que una
+    instancia de A que que no estaba siendo usada anteriormente se tornara
+    accesible desde la referencia viva RefA. Después de la llamada a
+    WaitForPendingFinalizers, la instancia de B se torna elegible para
+    colección, pero la instancia de A no, por causa de la referencia RefA. </example>
+  </paragraph>
+  <paragraph>
+    <example> Para evitar confusiones y comportamientos no deseados, es
+    generalmente una buena idea para los destructores el ejecutar la limpieza en
+    datos almacenados en los campos del propio objeto, y no realizar ningunas
+    acciones en objetos referenciados o campos estáticos. fin ejemplo]</example>
+  </paragraph>
+</clause>

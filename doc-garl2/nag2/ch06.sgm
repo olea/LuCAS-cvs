@@ -1,0 +1,2482 @@
+<!-- $Id: ch06.sgm,v 1.13 2002/11/03 10:17:42 jjamor Exp $ -->
+<!--
+Nota legal:
+
+   Linux Network Administration Guide, por Olaf Kirch et al.
+
+   La traducción al español se publica bajo la licencia GFDL,
+siendo texto de portada el siguiente:
+
+Linux Network Administrator's Guide
+by Olaf Kirch and Terry Dawson
+Copyright  (c) 1993 Olaf Kirch
+Copyright  (c) 2000 Terry Dawson
+Copyright on O'Reilly printed version (c) 2000 O'Reilly & Associates
+
+y siendo secciones invariantes, la sección de Agradecimientos,
+la sección titulada «La traducción al español», el apéndice C; así
+como esta nota.
+
+Capítulo traducido por:
+
+  Juan José Amor, jjamor@hispalinux.es
+Revisión1 por Fco. javier Fernández Serrador serrador@arrakis.es
+-->
+<chapter id="X-087-2-resolv"><title>El servicio de nombres <?lb>y su configuración</title>
+<indexterm id="idx-configuringhostnameres" class=startofrange><primary>configuración</primary><secondary>resolución</secondary><tertiary>de nombres</tertiary></indexterm>
+<indexterm id="chdn.hostname.resolution" class=startofrange><primary>nombre del host</primary><secondary>resolución</secondary></indexterm>
+<indexterm id="chdn.sve.config" class=startofrange><primary>configuración del servicio de nombres</primary></indexterm> 
+
+<para>
+Como se comentó en <xref linkend="X-087-2-issues">, la red TCP/IP puede
+utilizar diferentes métodos para convertir nombres en direcciones
+IP. El mecanismo más simple consiste en almacenar los nombres en una
+tabla de máquinas en el fichero <filename>/etc/hosts</filename>. Esto es únicamente
+interesante en el caso de pequeñas redes de área local que sólo
+requieran la administración de una persona, y que no tengan tráfico IP
+con el mundo exterior. Recordamos que el formato del fichero <filename>hosts</filename>
+fue descrito en <xref
+linkend="X-087-2-iface">.
+</para>
+
+<para>
+<indexterm><primary>BIND (Berkeley Internet Name
+Domain)</primary></indexterm> <indexterm><primary>
+programa named</primary></indexterm>
+Alternativamente, puede utilizarse BIND el <emphasis>servicio de nombres
+Internet de Berkeley</emphasis> o ``Berkeley Internet Name Domain'', para
+traducir nombres de máquinas a direcciones IP (cosa que también se
+conoce como <emphasis>resolución</emphasis>). Configurar BIND puede ser una laboriosa
+tarea pero, una vez hecho, los cambios en la topología de la red serán
+mucho más fáciles de hacer. En GNU/Linux, como en muchos otros sistemas
+Unix, el servicio de nombres se realiza mediante un programa llamado
+<command>named</command>. Al iniciarse, carga un conjunto de ficheros maestros en
+su <emphasis>caché</emphasis> y espera peticiones de procesos locales o remotos.
+Existen distintas maneras de preparar BIND, y no es necesario ejecutar un
+servidor de nombres en cada máquina: generalmente, uno para toda la red es
+suficiente.
+</para>
+
+<para>
+<indexterm><primary>grupos de noticias</primary><secondary>comp.protocols.tcp-ip.domains</secondary></indexterm>
+Este capítulo le dará ideas generales acerca de cómo configurar y
+ejecutar un servidor de nombres. Para un uso normal deberá bastarle
+esto, junto a la documentación contenida en las fuentes de BIND,
+páginas de manual y la guía <emphasis>BIND Operator's Guide</emphasis> (BOG).
+Si pretende usar BIND en un entorno más complejo que una pequeña red local 
+(tal vez con conexión a Internet)  debería echar un vistazo a un buen libro 
+sobre BIND, como <emphasis>DNS y BIND</emphasis> de Paul Albitz y Cricket Liu 
+(O'Reilly). También existe un grupo de <emphasis>noticias</emphasis> para 
+cuestiones sobre DNS: el grupo <systemitem role="newsgroup">comp.protocols.tcp-ip.domains</systemitem>. 
+Para abundar más en los detalles técnicos, vea las RFCs 1033, 1034, y 1035.
+</para>
+
+<sect1 id="X-087-2-resolv.library"><title>La biblioteca de resolución</title>
+<indexterm><primary>resolución</primary><secondary>librería</secondary></indexterm>
+<indexterm><primary>gethostbyname(&thinsp;)</primary></indexterm> 
+<indexterm><primary>gethostbyaddr(&thinsp;)</primary></indexterm> 
+<para>
+Cuando hablamos del <emphasis>sistema de resolución</emphasis>, no nos referiremos a
+una aplicación en particular, sino a la <emphasis>biblioteca de resolución</emphasis>:
+un conjunto de funciones que pueden encontrarse en las bibliotecas
+estándar del lenguaje C. Las rutinas principales son <function>gethostbyname(2)</function>
+y <function>gethostbyaddr(2)</function>, que buscan la dirección IP de una máquina a
+partir del nombre y viceversa. Es posible configurarlas para que simplemente miren en el 
+fichero <filename>hosts</filename> local (o remoto, si se usa NIS).
+</para>
+
+<para>
+Las funciones del sistema de resolución leen ficheros de configuración
+cuando son llamadas. Desde estos ficheros, determinan qué bases de
+datos hay que interrogar, en qué orden y otros detalles relevantes. En
+la antigua biblioteca libc de GNU/Linux, se utilizaba el fichero
+<filename>/etc/host.conf</filename> como fichero maestro, pero en la
+versión 2 de las bibliotecas, la glibc, se utiliza el fichero
+<filename>/etc/nsswitch.conf</filename>. Vamos a describir ambas
+formas, puesto que son muy usuales.
+</para>
+
+<sect2 id="X-087-2-resolv.host-conf"><title>El fichero host.conf</title>
+<indexterm><primary>resolución</primary><secondary>uso de NIS</secondary></indexterm>
+<indexterm><primary>resolución</primary><secondary>uso de un servidor de nombres</secondary></indexterm>
+<indexterm id="idx-resolverconfiguring-1" class=startofrange><primary>resolución</primary><secondary>configuración</secondary></indexterm>
+<indexterm><primary>fichero host.conf</primary></indexterm>
+
+<para>
+El fichero <filename>host.conf</filename> se encuentra en
+el directorio <filename>/etc</filename> e indica al sistema de resolución qué
+servicios debe usar y en qué orden.
+</para>
+
+<para>
+Las opciones del fichero <filename>host.conf</filename> deben estar en líneas
+distintas. Los campos deben separarse por blancos (espacios o tabuladores). 
+Un símbolo almohadillado (<systemitem role="keyword">#</systemitem>) supone desde
+ese punto hasta el final de la línea un comentario del fichero. Las opciones 
+disponibles son las siguientes:
+
+<variablelist>
+<varlistentry><term><systemitem role="keyword">order</systemitem></term> 
+<listitem><para>
+<indexterm><primary>NIS</primary><secondary>y resolución</secondary></indexterm>
+Determina el orden en el que los servicios de resolución se usan. Opciones válidas
+son <systemitem role="keyword">bind</systemitem> para usar el servidor de nombres, 
+<filename>/etc/hosts</filename> para buscar en <filename>/etc/hosts</filename> y 
+<systemitem role="keyword">nis</systemitem> para buscar con NIS. Puede especificarse
+cualquiera de las anteriores, y el orden de aparición determina qué servicio se 
+prueba en primer lugar para intentar resolver el nombre.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><systemitem role="keyword">multi</systemitem></term>
+<listitem><para>
+Va con las opciones <systemitem role="keyword">on</systemitem> u
+<systemitem role="keyword">off</systemitem>. Determina si
+una máquina del fichero <filename>/etc/hosts</filename> puede tener distintas
+direcciones IP o no. Esta opción no tiene efecto en peticiones via NIS
+o DNS.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><systemitem role="keyword">nospoof</systemitem></term>
+<listitem><para>
+<indexterm><primary>seguridad</primary><secondary>nombres de máquina falsos</secondary></indexterm>
+<indexterm><primary>seguridad</primary><secondary>spoofing</secondary></indexterm>
+<indexterm><primary>spoofing</primary><secondary>evitar</secondary></indexterm>
+
+Como se explicó en la sección <xref linkend="X-087-2-resolv.dns.in-addr">, &rdquo; DNS
+le permite encontrar un nombre de máquina perteneciente a una dirección IP utilizando el dominio <systemitem
+role="sitename">in-addr.arpa</systemitem>. Los intentos de los
+servidores de nombres de proporcionar un nombre falso se conocen en
+inglés como <emphasis>spoofing</emphasis><footnote>
+<para>N. del T.: literalmente, burla</para>
+</footnote>. Para evitar esto, el sistema puede configurarse para comprobar
+si las direcciones IP originales están de hecho asociadas con el
+nombre obtenido. Si no, el nombre será rechazado y se retornará un
+error. Esta opción se activa poniendo <systemitem role="keyword">nospoof on</systemitem>.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><systemitem role="keyword">alert</systemitem></term>
+<listitem>
+<para>
+Esta opción puede tomar el valor <systemitem role="keyword">on</systemitem> u 
+<systemitem role="keyword">off</systemitem> como argumentos. Si se
+activa, cualquier intento de <emphasis>spoof</emphasis> será anotado
+con un mensaje enviado al sistema de registros
+<command>syslog</command>.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><systemitem role="keyword">trim</systemitem></term>
+<listitem>
+<para>
+Esta opción lleva un nombre de dominio como argumento, que se quitará a los 
+nombres antes de buscar su dirección. Es útil para las entradas del fichero 
+<filename>hosts</filename>, que podrán así ir solos los nombres de máquinas, 
+sin el dominio. Cuando se busque una máquina con el nombre de dominio local 
+éste será eliminado, haciendo que la búsqueda en el fichero 
+<filename>/etc/hosts</filename> tenga éxito. El dominio que añada debe 
+terminar en un punto (.) (por ejemplo, <literal>linux.org.au.</literal>).
+</para>
+
+<para>
+Las opciones de <systemitem role="keyword">trim</systemitem> se van
+acumulando; podemos considerar nuestra máquina como local de
+diversos dominios.
+</para></listitem>
+</varlistentry>
+</variablelist>
+</para>
+
+<para>
+Veamos un fichero de ejemplo para <systemitem role="sitename">vlager</systemitem> en
+<xref linkend="X-087-2-dns-host.conf.file">.
+</para>
+
+<example id="X-087-2-dns-host.conf.file">
+<title>Ejemplo de fichero host.conf</title>
+<screen>
+# /etc/host.conf
+# Tenemos servidor de nombres, pero no NIS (de momento)
+order   bind hosts
+# Permitir direcciones múltiples
+multi   on
+# Contra los nombres falsos
+nospoof on
+# Dominio local por defecto (no necesario).
+trim    vbrew.com.
+</screen>
+</example>
+
+<sect3 id="X-087-2-resolv.environ"><title>Variables de entorno</title>
+<indexterm><primary>resolución</primary><secondary>variables de entorno</secondary></indexterm>
+<indexterm><primary>variables de entorno</primary><secondary>resolución</secondary></indexterm> 
+
+<para>
+Existen algunas variables de entorno que establecen opciones que
+tienen más prioridad sobre las puestas en el fichero
+<filename>host.conf</filename>. Éstas son:
+
+<variablelist>
+<varlistentry><term><systemitem class=environvar>RESOLV_HOST_CONF</systemitem></term>
+<listitem><para>
+<indexterm><primary>variable de entorno RESOLV_HOST_CONF</primary></indexterm>
+Especifica un fichero alternativo a <filename>/etc/host.conf</filename>.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><systemitem class=environvar>RESOLV_SERV_ORDER</systemitem></term>
+<listitem><para>
+<indexterm><primary>variable de entorno RESOLV_SERV_ORDER</primary></indexterm>
+Establece la opción equivalente a la orden <systemitem role="keyword">order</systemitem> del
+fichero anterior. Los servicios pueden ser <systemitem role="keyword">hosts</systemitem>,
+<systemitem role="keyword">bind</systemitem> y/o <systemitem role="keyword">nis</systemitem>, separados por comas, espacios, puntos
+o puntos y coma.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><systemitem class=environvar>RESOLV_SPOOF_CHECK</systemitem></term>
+<listitem><para>
+<indexterm><primary>variable de entorno RESOLV_SPOOF_CHECK</primary></indexterm>
+Determina la política seguida frente a los nombres
+falsos. Estará completamente desactivada con la opción
+<systemitem role="keyword">off</systemitem>. Con las opciones 
+<systemitem role="keyword">warn</systemitem> y 
+<systemitem role="keyword">warn off</systemitem> se realizarán comprobaciones contra los 
+nombres falsos, pero en el primer caso se mandarán los avisos al registro. Un valor 
+<systemitem role="keyword">*</systemitem> activa las comprobaciones contra nombres falsos, 
+pero las anotaciones en el registro se dejan como diga el fichero 
+<filename>host.conf</filename>.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><systemitem class=environvar>RESOLV_MULTI</systemitem></term>
+<listitem><para>
+<indexterm><primary>variable de entorno RESOLV_MULTI</primary></indexterm> 
+El valor <systemitem role="keyword">on</systemitem> activa la opción
+``multi'', y el valor <systemitem role="keyword">off</systemitem> la desactiva.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><systemitem class=environvar>RESOLV_OVERRIDE_TRIM_DOMAINS</systemitem></term>
+<listitem><para>
+<indexterm><primary>variable de entorno RESOLV_OVERRIDE_TRIM_DOMAINS</primary></indexterm> 
+Esta variable lleva una lista de dominios por defecto, similar
+a la puesta en el fichero <filename>host.conf</filename> con la opción
+<systemitem role="keyword">trim</systemitem>. 
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><systemitem class=environvar>RESOLV_ADD_TRIM_DOMAINS</systemitem></term>
+<listitem><para>
+<indexterm><primary>variable de entorno RESOLV_ADD_TRIM_DOMAINS</primary></indexterm>
+Esta variable lleva una lista de dominios por defecto que se
+<emphasis>añade</emphasis> a las que se dan en el fichero
+<filename>host.conf</filename>.
+</para>
+</listitem>
+</varlistentry>
+</variablelist>
+</para>
+</sect3>
+
+</sect2>
+
+<sect2 id="X-087-2-resolv.nsswitch-conf"><title>El fichero nsswitch.conf</title>
+<indexterm><primary>resolución</primary><secondary>uso de NIS</secondary></indexterm>
+<indexterm><primary>resolución</primary><secondary>uso de un servidor
+de nombres</secondary></indexterm>
+<indexterm><primary>nsswitch.conf, fichero</primary></indexterm>
+
+<para>
+La versión 2 de la biblioteca estándar de funciones de GNU incluye
+un fichero más flexible para sustituir a
+<filename>host.conf</filename>. El concepto de servicio de nombres se
+ha extendido para incluir una variedad de diferentes tipos de
+información. Las opciones para seleccionar las bases de datos a las
+que interrogar se han introducido todas en un fichero, que se llama
+<filename>nsswitch.conf</filename>.
+</para>
+
+<para>
+El fichero <filename>nsswitch.conf</filename> permite al administrador
+de sistemas configurar una amplia variedad de diferentes bases de
+datos. Limitaremos nuestra discusión a opciones que se refieran a la
+resolución de nombres de máquina y direcciones IP. Se puede encontrar
+fácilmente mucha más información para aprovechar el resto de las
+características de este fichero, sin más que leer la documentación de
+la biblioteca estándar GNU.
+</para>
+
+<para>
+Las opciones del fichero <filename>nsswitch.conf</filename> deben
+estar en líneas diferentes. Los campos se separan por blancos
+(espacios o tabuladores). Un signo de almohadillado
+(<systemitem role="keyword">#</systemitem>) introducirá un comentario
+para todo el resto de esa línea. Cada línea describe un servicio en
+particular; la resolución de nombres es uno de ellos. El primer campo
+de cada línea es el nombre de la base de datos, finalizado en el signo
+de dos puntos. La base de datos relacionada con la resolución es
+<systemitem role="keyword">hosts</systemitem>. Una base de datos
+relacionada es <systemitem role="keyword">networks</systemitem>, que
+se usa para convertir nombres en direcciones de redes. El resto de
+cada línea lleva opciones que determinan cómo se hacen las búsquedas
+de los elementos de la base de datos.
+</para>
+
+
+<para>
+Las opciones posibles son:
+
+<variablelist>
+<varlistentry><term><systemitem role="keyword">dns</systemitem></term>
+<listitem><para>
+<indexterm><primary>DNS (Sistema de Nombres de
+Dominios)</primary><secondary>resolución y</secondary></indexterm>
+Indica que se usa el DNS para resolver la dirección. Esto solo sirve
+para resolución de nodos, no de redes. Para ello se mira primero el
+fichero <filename>/etc/resolv.conf</filename>, que veremos después.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><systemitem role="keyword">files</systemitem></term>
+<listitem><para>
+Hace la búsqueda en un fichero local. Es decir, en
+<filename>/etc/hosts</filename> para los nodos, y en
+<filename>/etc/network</filename> para las redes.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><systemitem role="keyword">nis</systemitem> o 
+<systemitem role="keyword">nisplus</systemitem></term>
+<listitem><para>
+<indexterm><primary>NIS (Sistema de Información de Red)
+</primary><secondary>resolución y</secondary></indexterm>
+Usará el sistema NIS (sistema de información en red) para resolver
+nodos o redes. NIS y NIS+ se discuten en detalle en <xref
+linkend="X-087-2-nis">.
+</para></listitem>
+</varlistentry>
+
+</variablelist>
+</para>
+
+<para>
+El orden en el que los servicios estén listados es el orden en el que
+serán interrogados para buscar un nombre. Es decir, los servicios son
+interrogados leyéndolos de izquierda a derecha, hasta encontrar la respuesta.
+</para>
+
+<para>
+Un ejemplo de fichero <filename>nsswitch.conf</filename> lo tenemos en
+<xref linkend="X-087-2-dns-nsswitch.conf.file">.
+</para>
+
+<example id="X-087-2-dns-nsswitch.conf.file">
+<title>Ejemplo de fichero nsswitch.conf</title>
+<screen>
+# /etc/nsswitch.conf
+#
+# Ejemplo de configuracion del nsswitch de GNU.
+# En el paquete `libc6-doc' se documentan estos ficheros.
+
+hosts:          dns files
+networks:       files
+
+</screen>
+</example>
+
+<para>
+Este ejemplo hace que el sistema busque los nodos, primero en el DNS y
+después en <filename>/etc/hosts</filename>, si no se encuentra. En
+cambio las redes se buscan exclusivamente en
+<filename>/etc/networks</filename>.
+</para>
+
+<para>
+<indexterm><primary>fichero nsswitch.conf</primary><secondary>sentencias 
+de acción</secondary></indexterm> Podemos controlar el comportamiento más
+precisamente, usando &ldquo;items de acción&rdquo; que describen qué
+hacer tras el último intento de búsquedas. Los items de acción
+aparecen entre los servicios, y se encierran entre corchetes,
+<systemitem role="keyword">[</systemitem>. La sintaxis general es:
+
+<screen>
+[ [!] <replaceable>estado</replaceable> = <replaceable>acción</replaceable> ... ]
+</screen>
+
+</para>
+
+<para>
+Hay dos posibles acciones:
+
+<variablelist>
+<varlistentry><term><systemitem role="keyword">return</systemitem></term>
+<listitem><para>
+Hace que el control retorne al programa que hizo la petición de
+resolución. Si la búsqueda tuvo éxito, retornará los detalles. Si no,
+retornará un cero.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><systemitem role="keyword">continue</systemitem></term>
+<listitem><para>
+El sistema seguirá buscando a través del siguiente servicio de la lista.
+</para></listitem>
+</varlistentry>
+</variablelist>
+
+El carácter opcional (!) especifica que el valor de estado debe
+considerarse invertido antes de comprobarlo, es decir, es un
+&ldquo;not.&rdquo;
+</para>
+
+<para>
+Los valores de estado posible son:
+
+<variablelist>
+<varlistentry><term><systemitem role="keyword">success</systemitem></term>
+<listitem><para>
+La petición se encontró sin errores. La acción por defecto aquí es
+<systemitem role="keyword">return</systemitem>.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><systemitem role="keyword">notfound</systemitem></term>
+<listitem><para>
+No hubo error en la búsqueda, pero no se encontró el nodo o la red. La
+acción predeterminada aquí es <systemitem role="keyword">continue</systemitem>.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><systemitem role="keyword">unavail</systemitem></term>
+<listitem><para>
+El servicio solicitado no está disponible. Por ejemplo, que el fichero
+<filename>/etc/hosts</filename> no esté en su sitio, o que el servidor
+DNS o NIS requeridos no respondan. La acción predeterminada es 
+<systemitem role="keyword">continue</systemitem>.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><systemitem role="keyword">tryagain</systemitem></term>
+<listitem><para>
+Significa que el servicio estaba no disponible temporalmente. Por
+ejemplo, que el fichero <filename>hosts</filename> esté bloqueado por
+otro proceso, o que el DNS esté muy cargado. La acción predeterminada
+para este estado es <systemitem role="keyword">continue</systemitem>.
+</para></listitem>
+</varlistentry>
+
+</variablelist>
+</para>
+
+<para>
+Un ejemplo de uso de todo esto se muestra en
+<xref linkend="X-087-2-dns-nsswitch.conf.file.extended">.
+</para>
+
+<example id="X-087-2-dns-nsswitch.conf.file.extended">
+<title>Ejemplo de nsswitch.conf con acciones</title>
+<screen>
+# /etc/nsswitch.conf
+#
+# Ejemplo de configuracion del nsswitch de GNU.
+# En el paquete `libc6-doc' se documentan estos ficheros.
+
+hosts:          dns [!UNAVAIL=return] files
+networks:       files
+
+</screen>
+</example>
+
+<para>
+Este ejemplo intentará resolver los nodos usando el DNS. Si se
+devuelve un error que no sea UNAVAIL, el sistema devolverá lo que ha
+encontrado. En otro caso intentará buscarlo en
+<filename>/etc/hosts</filename>. Esto significa que este fichero solo
+se usará en caso de que el DNS no funcione bien.
+</para>
+
+</sect2>
+
+<sect2 id="X-087-2-resolv.resolv"><title>Configuración del fichero resolv.conf</title>
+<indexterm><primary>configuración</primary><secondary>servidor de nombres</secondary><tertiary>búsqueda</tertiary></indexterm>
+<indexterm><primary>fichero resolv.conf</primary></indexterm>
+<indexterm><primary>servidores de nombres</primary><secondary>búsquedas</secondary></indexterm> 
+
+<para>
+Cuando se configura la biblioteca de resolución para utilizar los
+servicios de BIND, tiene que indicarse también qué servidores
+utilizar. El fichero <filename>resolv.conf</filename> contiene una lista de
+servidores, que si está vacía hará considerar al sistema que el
+servidor está en su máquina.
+</para>
+
+<para>
+Si ejecuta un servidor de nombres en su máquina local, tendrá que
+configurarlo por separado, como se explicará después. Si se encuentra
+en una red local y puede usar un servidor de nombres existente,
+mejor. Si estamos conectados a Internet por módem, lo habitual es
+especificar en <filename>resolv.conf</filename> el servidor de nombres
+que nos diga nuestro proveedor de servicios.
+</para>
+
+<para>
+La opción más importante del fichero <filename>resolv.conf</filename> es
+<systemitem role="keyword">nameserver</systemitem>, que tiene la
+dirección IP del servidor de
+nombres a usar. Si especifican varios servidores poniendo varias líneas
+<systemitem role="keyword">nameserver</systemitem>, se intentarán usar
+en el orden dado; por lo que
+debería poner en primer lugar el servidor de nombres más rápido o
+cercano. Actualmente, puede ponerse un máximo de tres servidores
+distintos. Si no se pone ninguno, intentará buscar un servidor de
+nombres en la máquina local.
+</para>
+
+<para>
+<?troff .hw mathematics>
+<indexterm><primary>dominios</primary><secondary>nombres</secondary><tertiary>predeterminado</tertiary></indexterm>
+<indexterm><primary>configuración</primary><secondary>dominio predeterminado</secondary></indexterm>
+Otras dos opciones, <systemitem role="keyword">domain</systemitem> y
+<systemitem role="keyword">search</systemitem>, nos permiten usar
+nombres cortos (sin dominio) para máquinas que estén en nuestro
+dominio. Normalmente, para conectarnos a una máquina de la misma red,
+no queremos poner el dominio completo, sino su nombre. Por ejemplo,
+<systemitem role="sitename">gauss</systemitem> en lugar de
+<systemitem role="sitename">gauss.mathematics.groucho.edu</systemitem>.
+</para>
+
+<para>
+Para esto sirve la palabra <systemitem role="keyword">domain</systemitem>. 
+Nos permite especificar un dominio predeterminado que se añade a las
+peticiones cuando su búsqueda inicial falla. Por ejemplo, al buscar
+<systemitem role="sitename">gauss</systemitem> y fallar el servidor
+de nombres buscándolo en Internet, le añade automáticamente su dominio
+predeterminado y ya sí puede resolverlo.
+</para>
+
+<para>
+Esto está bien, pensaremos, pero tan pronto como nos refiramos a una
+máquina que esté fuera del Departamento de Matemáticas, tendremos que
+volver a teclear el dominio completo. A lo mejor queremos teclear solo
+<systemitem role="sitename">quark.physics</systemitem> para referirnos
+a una máquina del Departamento de Físicas.
+</para>
+
+<para>
+Para esto podemos usar la <emphasis>lista de búsqueda</emphasis>, que
+puede especificarse con la opción
+<systemitem role="keyword">search</systemitem>. En esta lista se
+especifica una lista de dominios donde resolver nombres cortos. Los
+elementos de la lista deben especificarse separándolos por espacios o
+tabuladores.
+</para>
+
+<para>
+Las opciones <systemitem role="keyword">search</systemitem> y
+<systemitem role="keyword">domain</systemitem> son mutuamente
+excluyentes y no pueden aparecer más de una vez. Si ninguna de las dos
+se pone, el sistema intentará asignar a los nombres cortos el dominio
+de la máquina local, que averiguará usando la llamada al sistema
+<function>getdomainname(2)</function>. Si el nodo local no tiene
+dominio, se asumirá que el dominio predeterminado es el raíz.
+</para>
+
+<para>
+Si decidimos poner una opción <systemitem role="keyword">search</systemitem>
+en el fichero <filename>resolv.conf</filename>, habrá que ser
+cuidadosos con los dominios que añadimos a la lista. Las bibliotecas de
+resolución anteriores a BIND 4.9 solían construir una lista de
+búsqueda predeterminada para el dominio cuando no se proporciona otra
+lista. Esta lista predeterminada se hacía con el dominio del nodo, más
+todos los dominios padre hasta llegar a la raíz. Esto daba lugar a
+búsquedas innecesarias a los servidores de nombres externos.
+</para>
+
+<para>
+Asumamos que estamos en la Cervecera Virtual y queremos conectarnos al
+sistema <systemitem role="sitename">foot.groucho.edu</systemitem>. Por un error
+tecleamos el nombre <systemitem role="sitename">foo</systemitem>, que
+no existe. El servidor de la universidad nos responderá que no existe
+el nodo. Con la búsqueda antigua, intentará buscar ese nombre en los
+dominios <systemitem role="sitename">vbrew.com</systemitem> y
+<systemitem role="sitename">com</systemitem>. Este último es
+problemático porque causa una búsqueda innecesaria y además podría
+existir. Al final nos habremos intentado conectar a una máquina
+totalmente ajena.
+</para>
+
+<para>
+En algunos casos, esto es un potencial problema de seguridad. De hecho
+las listas de búsqueda deben limitarse a dominios de la organización
+local o algo similar. La lista en el Departamento de Matemáticas debe
+limitarse a los dominios
+<systemitem role="sitename">maths.groucho.edu</systemitem> y
+<systemitem role="sitename">groucho.edu</systemitem>.
+</para>
+
+<para>
+Como lo anterior puede resultar confuso, sea el siguiente ejemplo de
+fichero <filename>resolv.conf</filename> para la Cervecera Virtual:
+
+<screen>
+# /etc/resolv.conf
+# Nuestro dominio
+domain         vbrew.com
+#
+# Nuestro servidor principal va a ser vlager:
+name server     172.16.1.1
+</screen>
+</para>
+
+<para>
+Cuando se trate de traducir el nombre
+<systemitem role="sitename">vale</systemitem>, el sistema empezará
+por buscar directamente <systemitem role="sitename">vale</systemitem>
+y si falla, probará con
+<systemitem role="sitename">vale.vbrew.com</systemitem>.
+</para>
+</sect2>
+
+<sect2 id="X-087-2-resolv.robustness"><title>Robustez del sistema de resolución</title>
+<indexterm><primary>resolución</primary><secondary>robustez</secondary></indexterm>
+
+<para>
+Si tiene en funcionamiento una red local dentro de otra más grande,
+deberá usar servidores de nombres principales siempre que sea
+posible. La ventaja de hacerlo así es que se consiguen generosas
+memorias <emphasis>caché</emphasis>, ya que todas las peticiones de nombres les llega a
+ellos. Este esquema, sin embargo, tiene un inconveniente: cuando un incendio
+inutilizó el cable de red dorsal de nuestro departamento en la Universidad,
+no pudimos trabajar, pues ninguno de los servidores de nombres estaban
+accesibles. No funcionaban ni los terminales X ni las impresoras...
+</para>
+
+<para>
+Aunque no es muy habitual que las redes dorsales de las universidades
+sean pasto de las llamas, deberían tomarse precauciones para casos
+como éste.
+</para>
+
+<para>
+Una solución es poner un servidor de nombres local que se ocupe de sus
+nombres locales, y reenvíe todas las peticiones de otros nombres a los
+servidores principales. Por supuesto, esto sólo es posible si usted
+tiene un dominio propio.
+</para>
+
+<para>
+Alternativamente, puede mantener una copia de la tabla de nombres para
+su dominio o red local en el fichero <filename>/etc/hosts</filename>. En el fichero
+<filename>/etc/host.conf</filename> deberá incluir la opción
+&ldquo;<systemitem role="keyword">order bind,hosts</systemitem>&rdquo;, 
+para obligar a usar el fichero local si el servidor principal
+de nombres falla. Si usamos <filename>/etc/nsswitch.conf</filename>,
+habrá que cambiar la línea que haga referencia a
+<emphasis>hosts</emphasis>, dejándola así: 
+&ldquo;<systemitem role="keyword">hosts: dns files</systemitem>&rdquo;.
+<INDEXTERM startref="idx-resolverconfiguring-1" class=endofrange>
+<indexterm><primary sortas="fichero etc/host.conf">fichero /etc/host.conf</primary></indexterm> 
+<indexterm><primary sortas="fichero etc/host">fichero /etc/host</primary></indexterm> 
+</para>
+</sect2>
+</sect1>
+
+<sect1 id="X-087-2-resolv.howdnsworks"><title>Cómo funciona el DNS</title>
+<indexterm><primary>nombres (DNS)</primary></indexterm>
+<indexterm><primary>hostname</primary><secondary>completamente cualificado</secondary></indexterm>
+<indexterm><primary>hostname</primary><secondary>nombre de dominio y</secondary></indexterm>
+<indexterm><primary>nombre de máquina</primary><secondary>completamente cualificado</secondary></indexterm>
+<indexterm><primary>nombre de máquina</primary><secondary>nombre de dominio y</secondary></indexterm>
+<indexterm><primary>dominios</primary><secondary>nombres</secondary></indexterm>
+<indexterm><primary>dominios</primary></indexterm> 
+<indexterm><primary>subdominios</primary></indexterm> 
+<para>
+El DNS organiza los nombres de máquina (hostname) en una jerarquía de
+dominios. Un <emphasis>dominio</emphasis> es una colección de nodos
+relacionados de alguna forma&mdash;porque estén en la misma red, tal
+como los nodos de una universidad&mdash;. Por ejemplo, las
+universidades americanas se agrupan en el dominio
+<systemitem role="sitename">edu</systemitem>. Cada universidad tiene
+allí un <emphasis>subdominio</emphasis>, tal como la universidad
+Groucho Marx, que posee el subdominio
+<systemitem role="sitename">groucho.edu</systemitem>. A su vez,
+podemos encontrar nuevos subdominios dentro, como el Departamento de
+Matemáticas (maths). Finalmente, un nodo de ese departamento llamado
+<systemitem role="sitename">erdos</systemitem> tendrá un nombre
+completo (conocido como totalmente cualificado) tal como
+<systemitem role="sitename">erdos.maths.groucho.edu</systemitem>. Este
+nombre totalmente cualificado también se conoce por las siglas FQDN.
+</para>
+
+<para>
+En <xref linkend="X-087-2-resolv.fig.dns"> vemos una parte del espacio
+de nombres. La raíz del árbol, que se identifica con un punto
+sencillo, es lo que se denomina <emphasis>dominio raíz</emphasis> y es
+el origen de todos los dominios. Para indicar que un nombre es FQDN, a
+veces se termina su escritura en un punto. Este punto significa que el
+último componente del nombre es el dominio raíz.
+<indexterm><primary>dominio raíz</primary></indexterm> 
+</para>
+
+<figure id="X-087-2-resolv.fig.dns">
+<title>Una parte del espacio de nombres de dominios</title>
+<mediaobject>
+  <imageobject><imagedata fileref="lag2_0601" format="eps"></imageobject>
+  <imageobject><imagedata fileref="lag2_0601.jpg" format="jpg"></imageobject>
+</mediaobject>
+</figure>
+
+<para>
+<indexterm><primary>dominios</primary><secondary>top-level</secondary></indexterm>
+<indexterm><primary>dominios</primary><secondary>primer nivel</secondary></indexterm>
+Dependiendiendo de su localización en la jerarquía, un dominio puede
+ser de primer nivel (top-level), segundo nivel o tercer nivel. Se
+pueden añadir todos los niveles que queramos, pero no son
+habituales. Los que siguen son los dominios de primer nivel que
+veremos con frecuencia:
+</para>
+
+<indexterm><primary>dominio edu</primary></indexterm> 
+<indexterm><primary>dominio com</primary></indexterm> 
+<indexterm><primary>dominio org</primary></indexterm> 
+<indexterm><primary>dominio net</primary></indexterm> 
+<indexterm><primary>dominio mil</primary></indexterm> 
+<indexterm><primary>dominio gov</primary></indexterm>
+<indexterm><primary>dominio uucp</primary></indexterm>
+<informaltable>
+<tgroup cols="2">
+<colspec colwidth="1.27cm">
+<colspec colwidth="10.16cm">
+<thead>
+<row>
+<entry>Dominio</entry>
+<entry>Descripción</entry>
+</row>
+</thead>
+<tbody>
+<row><entry>edu</entry><entry><para>Instituciones universitarias, casi
+todas norteamericanas.</para></entry></row>
+<row><entry>com</entry><entry><para>Organizaciones comerciales.</para></entry></row>
+<row><entry>org</entry><entry><para>Organizaciones no comerciales. Las
+redes privadas UUCP suelen estar en este dominio.</para></entry></row>
+<row><entry>net</entry><entry><para>Pasarelas y otras redes administrativas.</para></entry></row>
+<row><entry>mil</entry><entry><para>El ejército norteamericano.</para></entry></row>
+<row><entry>gov</entry><entry><para>El gobierno norteamericano.</para></entry></row>
+<row><entry>uucp</entry><entry><para>Dominio para redes UUCP.</para></entry></row>
+</tbody>
+</tgroup>
+</informaltable>
+
+<para>
+Inicialmente los cuatro primeros dominios de la lista anterior
+pertenecían solo a los Estados Unidos, sin embargo, los cambios de
+política posteriores han hecho que estos dominios, llamados de
+dominios globales primer nivel (gTLD) sean realmente globales. Además
+se están negociando nuevos dominios de primer
+nivel.<footnote><para>N. del T.: Ya han sido aprobados algunos, cuya
+elección no ha estado exenta de polémica.</para></footnote>
+</para>
+
+<para>
+Fuera de los Estados Unidos, cada país suele tener su propio dominio
+de primer nivel codificado con las dos letras del país definidas en la
+tabla ISO-3166. Finlandia, por ejemplo, usa el dominio <systemitem
+role="sitename">fi</systemitem>; en España se usa el dominio
+<systemitem role="sitename">es</systemitem>; en México se usa
+<systemitem role="sitename">mx</systemitem>; en Argentina,
+<systemitem role="sitename">ar</systemitem>, etc.
+Por debajo de cada dominio de primer nivel, cada país organiza los
+dominios a su manera. Algunos crean a segundo nivel una serie de
+dominios similares a los gTLD. Por ejemplo, en Argentina encontramos
+los dominios <systemitem role="sitename">com.ar</systemitem> para las
+empresas, y <systemitem role="sitename">org.ar</systemitem> para las
+organizaciones sin ánimo de lucro. Otros países, como España, ponen
+directamente como nombres de segundo nivel las instituciones o
+empresas que los solicitan. Por ejemplo, tenemos
+<systemitem role="sitename">hispalinux.es</systemitem>.
+</para>
+
+<para>
+Por supuesto, el hecho de que un nombre esté en uno de estos dominios
+nacionales, no implica que la máquina esté realmente en ese país;
+significa simplemente que ha sido registrada en el NIC de ese país. Un
+fabricante sueco puede tener oficinas en Australia y tener sus
+ordenadores de allá registrados en el dominio
+<systemitem role="sitename">se</systemitem>.
+</para>
+
+<para>
+La organización del espacio de nombres en una jerarquía de nombres de
+dominio sirve para resolver fácilmente el problema de la unicidad de
+los nombres; además muchos nombres completamente cualificados son
+fáciles de recordar. Bajo esta premisa es conveniente dividir un
+dominio con gran número de máquinas en subdominios.
+</para>
+
+<para>
+<indexterm><primary>delegación</primary><secondary>subdominios DNS
+</secondary></indexterm>
+<indexterm><primary>creación</primary><secondary>subdominios</secondary></indexterm>
+<indexterm><primary>subdominios</primary><secondary>DNS</secondary></indexterm>
+El sistema DNS hace más cosas. Permite delegar la
+<emphasis>autoridad</emphasis> de un subdominio a sus
+administradores. Por ejemplo, los responsables del Centro de Cálculo
+Groucho pueden crear un subdominio para cada departamento, y delegar
+su control a éstos. Así, cada departamento puede definir libremente
+todos los nodos que quiera dentro de su subdominio e incluso crear
+nuevos subdominios y delegarlos.
+</para>
+
+<para>
+<INDEXTERM id="DNS.zones" class=startofrange><PRIMARY>DNS (Sistema de
+Nombres de Dominio)</PRIMARY><SECONDARY>zonas</SECONDARY></INDEXTERM>
+Para esto, el espacio de nombres se divide en <emphasis>zonas</emphasis>, 
+cada una asignada a un dominio. Hay que ver la diferencia entre
+<emphasis>zona</emphasis> y <emphasis>dominio</emphasis>: por ejemplo,
+el dominio <systemitem role="sitename">groucho.edu</systemitem>
+incluye todas las máquinas y subdominios de éste. Mientras que la zona
+<systemitem role="sitename">groucho.edu</systemitem> solo incluye las
+máquinas del dominio, no los subdominios delegados. Es decir, los
+nodos del subdominio 
+<systemitem role="sitename">physics.groucho.edu</systemitem>
+pertenecen a una zona diferente. En 
+<xref linkend="X-087-2-resolv.fig.dns">, el inicio de la zona 
+se marca con un pequeño círculo a la derecha del nombre de dominio.
+</para>
+
+<sect2 id="X-087-2-resolv.dns.lookups"><title>Búsquedas con DNS</title>
+<indexterm><primary>máquinas</primary><secondary>búsqueda</secondary></indexterm>
+<indexterm><primary>DNS (Sistema de Nombres de Dominio)</primary><secondary>búsqueda</secondary></indexterm>
+<indexterm><primary>búsqueda de nombres</primary><secondary>con DNS</secondary></indexterm> 
+
+<para>
+Veremos ahora la parte más ingeniosa del DNS. La idea es que si
+queremos buscar la dirección IP del sistema
+<systemitem role="sitename">erdos</systemitem>, DNS pensará,
+&ldquo;Preguntemos a la gente que lo maneja, y nos lo dirá.&rdquo;
+</para>
+
+<para>
+<indexterm><primary>servidores de nombres</primary></indexterm> De
+hecho, el DNS es como una gigantesca base de datos distribuida. Está
+realizada a través de los llamados servidores de nombres, que
+proporcionan la información de uno o varios dominios. Para cada zona,
+debe haber dos o más servidores de nombres capaces de responder por
+ella. Para obtener la dirección IP de <systemitem
+role="sitename">erdos</systemitem>, todo lo que necesitamos es
+contactar con el servidor de nombres de la zona <systemitem
+role="sitename">groucho.edu</systemitem> y obtendremos los datos
+solicitados.
+</para>
+
+<para>
+<indexterm><primary>DNS (Sistema de Nombres de Dominio)</primary><secondary>petición</secondary></indexterm>
+Pensaremos, es más fácil decirlo que hacerlo pues, ¿cómo llegamos al
+servidor de nombres de la Universidad Groucho Marx? En el caso de que
+nuestro ordenador no esté equipado con un oráculo de resolución de
+direcciones, el DNS nos lo hace también. Cuando nuestra aplicación
+quiera buscar la información de <systemitem role="sitename">erdos</systemitem>,
+contactará con un servidor de nombres local, quien lleva a cabo una
+secuencia de peticiones. En primer lugar pregunta al servidor de
+nombres raíz, preguntando por
+<systemitem role="sitename">erdos.maths.groucho.edu</systemitem>. El
+servidor raíz reconoce que el nombre no pertenece a ninguna de sus
+zonas <emphasis>de autoridad</emphasis> pero sí sabe qué hacer con la
+zona <emphasis>edu</emphasis>.
+Esto es, devuelve a nuestro servidor más información sobre los
+servidores de nombres que pueden servir la zona
+<systemitem role="sitename">edu</systemitem>. Ahora nuestro servidor
+preguntará por este nombre a uno de esos servidores. Ellos nos
+enviarán a uno que tenga información autorizada del dominio
+<systemitem role="sitename">groucho.edu</systemitem>. Ahora nuestro
+servidor interrogará a éste y finalmente obtendrá la dirección de
+<systemitem role="sitename">erdos</systemitem>.
+
+<graphic fileref="OREILLY.BIND.DIAGRAM"></graphic> 
+</para>
+
+<para>
+Aparentemente la búsqueda de una dirección IP supone mucho tráfico,
+sin embargo es minúsculo si lo comparamos con la consulta de un
+gigantesco fichero <filename>HOSTS.TXT</filename>. Aun así hay
+técnicas para mejorar el rendimiento.
+</para>
+
+<para>
+Para acelerar futuras peticiones de nombres, el servidor almacena la
+información obtenida en la búsqueda anterior en su
+<emphasis>caché</emphasis> local. Así, la próxima vez que busquemos
+algún nodo de <systemitem role="sitename">groucho.edu</systemitem>, ya
+no habrá que ir a los servidores raíz o los de la zona
+<systemitem role="sitename">edu</systemitem>.<footnote
+id="X-087-2-FNIS06"><para>Si la información no se almacenara en caché,
+el sistema sería realmente ineficiente.
+</para>
+</footnote>
+</para>
+
+<para>
+<indexterm><primary>DNS (Sistema de Nombres de Dominio)</primary><secondary>tiempo de vida
+(TTL)</secondary></indexterm> 
+Por supuesto, el servidor de nombres no
+almacenará para siempre la información en la caché; la limpiará cada
+cierto tiempo. El tiempo de vida se llama <emphasis>TTL</emphasis>
+(del inglés <emphasis>time to live</emphasis>). En cada zona DNS el
+administrador asigna un valor de TTL.
+</para>
+
+</sect2>
+
+<sect2 id="X-087-2-resolv.dns.auth"><title>Tipos de servidores de nombres</title>
+<indexterm><primary>servidores de nombres</primary></indexterm> 
+<indexterm><primary>servidor autorizado de nombres</primary></indexterm>
+<indexterm><primary>servidores de nombres</primary><secondary>autorizado</secondary></indexterm>
+
+<para>
+Los servidores de nombres que mantienen oficialmente la información de
+una zona se conocen como <emphasis>autorizados</emphasis> de la zona,
+y a veces se conocen como <emphasis>servidores
+principales o maestros</emphasis>. Cualquier petición de nodos de esa
+zona irá a parar a uno de estos servidores principales.
+</para>
+
+<para>
+<indexterm><primary>sincronización de servidores de nombres</primary></indexterm>
+<indexterm><primary>servidores de nombres</primary><secondary>sincronización</secondary></indexterm>
+<indexterm><primary>servidores de nombres</primary><secondary>secundario</secondary></indexterm>
+<indexterm><primary>servidores de nombres</primary><secondary>primario</secondary></indexterm>
+Los servidores principales deben estar bien sincronizados. Es decir,
+uno de ellos será llamado <emphasis>primario</emphasis>, que carga su
+información de un fichero, y hacer a los demás
+<emphasis>secundarios</emphasis>, que obtienen su información
+pidiéndosela periódicamente al primario.
+</para>
+
+<para>
+El objetivo de tener varios servidores principales es distribuir la
+carga y dar cierta tolerancia a fallos. Cuando uno de los servidores
+principales falla, todas las peticiones acabarán en los demás. Por
+supuesto, este esquema no nos protege de fallos del servidor que
+produzcan errores en todas las peticiones DNS, como podrían ser
+errores del software.
+</para>
+
+<para>
+<indexterm><primary>servidores de nombres</primary><secondary>solo caché</secondary></indexterm>
+También podemos instalar un servidor de nombres que no es maestro de
+ninguna zona.<footnote id="X-087-2-FNIS07">
+<para>En todo caso debe servir el dominio
+<systemitem role="sitename">localhost</systemitem> y resolución
+inversa de <systemitem role="sitename">127.0.0.1</systemitem>.</para>
+</footnote> Esto es útil, para dar servicio de nombres a 
+una red local aprovechando sus características de ahorro de ancho de
+banda gracias a su caché. Estos servidores se conocen como de
+<emphasis>sólo-caché</emphasis>.
+</para>
+</sect2>
+
+<sect2 id="X-087-2-resolv.dns.records"><title>La base de datos DNS</title>
+<indexterm><primary>DNS (Sistema de Nombres de Dominio)</primary><secondary>databases</secondary></indexterm>
+<para>
+Hemos visto que el DNS no sólo sabe de direcciones IP de máquinas,
+pero también almacena otras informaciones.
+</para>
+
+<para>
+<indexterm><primary>DNS (Sistema de Nombres
+de Dominio)</primary><secondary>registro de
+recurso</secondary></indexterm> Cada unidad de información del DNS se
+llama <emphasis>Registro de Recurso</emphasis> (RR). Cada registro
+tiene un tipo asociado que describe el dato que contiene, y una clase
+que especifica el tipo de red al que se aplica. Esto último se adapta
+a diferentes esquemas de dirección, como 
+<indexterm><primary>Direcciones Hesiod</primary></indexterm>
+<indexterm><primary>direcciones</primary><secondary>Hesiod</secondary></indexterm>
+direcciones IP (la clase IN), direcciones Hesiod (utilizadas por el
+sistema Kerberos del MIT) y algunas más. El RR típico es el
+registro A, que asocia un nombre completamente cualificado con una
+dirección IP.
+</para>
+
+<para>
+<indexterm><primary>nombre canónico</primary></indexterm>
+<indexterm><primary>nombre de máquina</primary><secondary>canónico</secondary></indexterm>
+<indexterm><primary>alias</primary><secondary>nombre de máquina</secondary></indexterm>
+Un nodo puede ser conocido por más de un nombre. Por ejemplo, podemos
+tener un servidor que proporciona tanto servicio FTP como WWW, y
+tendrá dos nombres: <systemitem
+role="sitename">ftp.maquinas.org</systemitem> y <systemitem
+role="sitename">www.maquinas.org</systemitem>. Sin embargo, uno de
+estos nombres debe ser identificado como oficial o
+<emphasis>canónico</emphasis>. La diferencia es que el canónico es
+el único registro A que debe existir apuntando a esa dirección IP,
+mientras que el resto de los nombres deben ser alias (registros
+CNAME), que apuntan al nombre canónico.
+</para>
+
+<para>
+No vamos a revisar todos los tipos de RR aquí, pero veremos algún
+ejemplo más amplio. En <xref linkend="X-087-2-resolv.fig.hosts"> 
+vemos una parte de la base de datos DNS que está cargada en
+los servidores de nombres para la zona
+<systemitem role="sitename">physics.groucho.edu</systemitem>.
+</para>
+
+<example id="X-087-2-resolv.fig.hosts">
+<title>Extracto del fichero named.hosts del Departamento de Físicas</title>
+<programlisting>
+; Informacion autoritativa physics.groucho.edu.
+@  IN  SOA niels.physics.groucho.edu. janet.niels.physics.groucho.edu. {
+                  1999090200       ; numero de serie
+                  360000           ; refresco
+                  3600             ; reintento
+                  3600000          ; caducidad
+                  3600             ; TTL predeterminado
+                }
+;
+; Servidores de nombres
+              IN    NS       niels
+              IN    NS       gauss.maths.groucho.edu.
+gauss.maths.groucho.edu. IN A 149.76.4.23
+;
+; Fisica Teorica (subred 12)
+niels         IN    A        149.76.12.1
+              IN    A        149.76.1.12
+nameserver    IN    CNAME    niels
+otto          IN    A        149.76.12.2
+quark         IN    A        149.76.12.4
+down          IN    A        149.76.12.5
+strange       IN    A        149.76.12.6
+...
+; Laboratorio (subred 14)
+boson         IN    A        149.76.14.1
+muon          IN    A        149.76.14.7
+bogon         IN    A        149.76.14.12
+...
+</programlisting>
+</example>
+
+<para>
+<indexterm><primary>SOA (registro DNS)</primary></indexterm>
+<indexterm><primary>servidor de nombres autoritativo</primary></indexterm>
+<indexterm><primary>servidores de nombres</primary><secondary>autoritativo</secondary></indexterm>
+<indexterm><primary>Inicio de Autoridad</primary></indexterm>
+Aparte de los registros A y CNAME, vemos al principio un registro
+especial, de varias líneas. Es el registro SOA, que señaliza el
+<emphasis>inicio de autoridad</emphasis>, que almacena diversos parámetros
+de la zona de la que es autoritativo el servidor. El registro SOA
+incluye, por ejemplo, el tiempo de vida predeterminado de los
+registros (TTL).
+</para>
+
+<para>
+Nótese que todos los nombres del fichero de ejemplo que no finalizan
+en un punto deben interpretarse relativos al dominio <systemitem
+role="sitename">physics.groucho.edu</systemitem>. El nombre especial
+(<systemitem role="sitename">@</systemitem>) utilizado en el
+registro <literal>SOA</literal> representa al propio nombre del
+dominio.
+</para>
+
+<para>
+<indexterm><primary>registros glue</primary></indexterm> Hemos visto
+antes que los servidores de nombres para el dominio <systemitem
+role="sitename">groucho.edu</systemitem> tienen que saber acerca de la
+zona <systemitem role="sitename">physics</systemitem> para poder
+realizar peticiones a sus servidores de nombres. Esto normalmente se 
+realiza mediante dos registros: los registros DNS que proporcionan
+el FQDN del servidor de nombres, y el registro A que asocia ese
+FQDN con una dirección IP. Puesto que estos registros son los que
+mantienen el espacio de nombres, se conocen frecuentemente como
+<emphasis>registros glue</emphasis>. Sólo son instancias de registros
+para los que una zona padre mantiene información sobre nodos de la zona
+subordinada. Los registros glue apuntando  a los servidores de nombres
+de <systemitem role="sitename">physics.groucho.edu</systemitem>
+se muestran en <xref linkend="X-087-2-resolv.fig.nsptr">.
+</para>
+
+<example id="X-087-2-resolv.fig.nsptr">
+<title>Un extracto del fichero named.hosts de  GMU</title>
+<programlisting>
+ ;  Zona de datos para la zona groucho.edu
+ @  IN  SOA vax12.gcc.groucho.edu. joe.vax12.gcc.groucho.edu. {
+                      1999070100       ; serie no
+                      360000           ; refresco
+                      3600             ; reintento
+                      3600000          ; expiración
+                      3600             ; ttl por omisión
+               }
+ ....
+ ;
+ ; Registros glue para la zona  physics.groucho.edu 
+ physics        IN     NS        niels.physics.groucho.edu.
+                IN     NS        gauss.maths.groucho.edu.
+ niels.physics  IN     A         149.76.12.1
+ gauss.maths    IN     A         149.76.4.23
+ ...
+</programlisting>
+</example>
+
+</sect2>
+
+<sect2 id="X-087-2-resolv.dns.in-addr"><title>Resolución inversa</title>
+<indexterm><primary>resolución inversa</primary></indexterm> 
+<indexterm><primary>DNS (Sistema de Nombres de Dominio)</primary><secondary>resolución inversa</secondary></indexterm> 
+<indexterm><primary>búsqueda de direcciones</primary></indexterm>
+<indexterm><primary>direcciones</primary><secondary>mapeado a nombres
+		  de máquina</secondary></indexterm>
+<indexterm><primary>nodo</primary><secondary>obtención desde dirección
+		IP</secondary></indexterm>
+<indexterm><primary>IP (Internet
+		  Protocol)</primary><secondary>direcciones</secondary><tertiary>nombre de nodo y</tertiary></indexterm>
+<indexterm><primary>IP (Internet Protocol)</primary><secondary>redes</secondary></indexterm>
+<indexterm><primary SORTAS="dominio in addr.arpa">dominio in-addr.arpa</primary></indexterm>
+<para>
+La operación más habitual con el DNS es obtener la dirección IP
+correspondiente a un nombre de nodo. Sin embargo, a veces queremos
+hacer la operación opuesta: encontrar el nombre a partir de la dirección
+IP. Esto se conoce como <emphasis>resolución inversa</emphasis>, y la
+usan diversas aplicaciones para comprobación de identidad del cliente.
+Cuando se utiliza el fichero <filename>hosts</filename>, la resolución
+se realiza mediante una búsqueda simple en el fichero. Con el DNS,
+una búsqueda exhaustiva en el espacio de nombres carece de sentido.
+En su lugar, existe un dominio especial, el <systemitem
+role="sitename">in-addr.arpa</systemitem>, que contiene las
+direcciones IP de todos los sistemas en una notación de puntos
+invertida. Por ejemplo, a la dirección <systemitem role="sitename">
+1.2.3.4</systemitem> le corresponde el nombre <systemitem
+role="sitename">4.3.2.1.in-addr.arpa</systemitem>. El
+registro de recurso (RR) que define esto se llama
+registro PTR.
+</para>
+
+<para>
+<indexterm><primary>servidores de nombres</primary><secondary>con autoridad</secondary></indexterm>
+<indexterm><primary>delegación</primary><secondary>subdominios DNS</secondary></indexterm>
+<indexterm><primary>creación</primary><secondary>subredes</secondary></indexterm>
+<indexterm><primary>IP (Internet Protocol)</primary><secondary>subredes</secondary></indexterm>
+<indexterm><primary>subdominios</primary><secondary>DNS</secondary></indexterm>
+Cuando se crea una zona de autoridad, ello suele significar que sus
+administradores tienen control total sobre cómo se asignan los nombres
+a las direcciones. Puesto que normalmente tienen bajo su control una
+o más redes o subredes IP, se da una situación de mapeo uno-a-varios
+entre zonas DNS y redes IP. El Departamento de Física, por ejemplo,
+comprende las subredes <systemitem role="sitename">149.76.8.0</systemitem>,
+<systemitem role="sitename">149.76.12.0</systemitem> y <systemitem
+role="sitename">149.76.14.0</systemitem>.
+</para>
+
+<para>
+En consecuencia, deben crearse nuevas zonas en el dominio <systemitem
+role="sitename">in-addr.arpa</systemitem> para la zona
+de Física, delegándose a ésta las siguientes:
+<systemitem role="sitename">8.76.149.in-addr.arpa</systemitem>,
+<systemitem role="sitename">12.76.149.in-addr.arpa</systemitem>, y
+<systemitem role="sitename">14.76.149.in-addr.arpa</systemitem>.
+De otro modo, cada vez que instalásemos un nuevo nodo
+en el laboratorio Collider, habría que contactar con el que gestiona
+la red padre para que actualizase su fichero de zona
+<systemitem role="sitename">in-addr.arpa</systemitem>.
+</para>
+
+<para>
+En <xref linkend="X-087-2-resolv.fig.subnet12"> se muestra la
+base de datos para la subred 12. Los registros glue correspondientes
+a la base de datos de la zona padre se muestran en
+<xref linkend="X-087-2-resolv.fig.groucho-rev">.
+</para>
+
+<example id="X-087-2-resolv.fig.subnet12">
+<title>Extracto del fichero named.rev de la subred 12</title>
+<programlisting>
+ ; dominio 12.76.149.in-addr.arpa
+ @  IN  SOA  niels.physics.groucho.edu. janet.niels.physics.groucho.edu. {
+                      1999090200 360000 3600 3600000 3600
+            }
+ 2        IN     PTR       otto.physics.groucho.edu.
+ 4        IN     PTR       quark.physics.groucho.edu.
+ 5        IN     PTR       down.physics.groucho.edu.
+ 6        IN     PTR       strange.physics.groucho.edu.
+</programlisting>
+</example>
+
+<example id="X-087-2-resolv.fig.groucho-rev">
+<title>Extracto del fichero named.rev de la Red 149.76</title>
+<programlisting>
+ ; dominio 76.149.in-addr.arpa
+ @  IN  SOA vax12.gcc.groucho.edu. joe.vax12.gcc.groucho.edu. {
+                      1999070100 360000 3600 3600000 3600
+                  }
+ ...
+ ; subnet 4: Mathematics Dept.
+ 1.4        IN     PTR      sophus.maths.groucho.edu.
+ 17.4       IN     PTR      erdos.maths.groucho.edu.
+ 23.4       IN     PTR      gauss.maths.groucho.edu.
+ ...
+ ; subnet 12: Physics Dept, separate zone
+ 12         IN     NS       niels.physics.groucho.edu.
+            IN     NS       gauss.maths.groucho.edu.
+ niels.physics.groucho.edu. IN  A 149.76.12.1
+ gauss.maths.groucho.edu. IN  A   149.76.4.23
+ ...
+</programlisting>
+</example>
+
+<para>
+<indexterm><primary>creación</primary><secondary>Zonas
+DNS</secondary></indexterm>
+Las zonas de <systemitem role="sitename">in-addr.arpa</systemitem>
+sólo pueden ser creadas por superconjuntos de redes IP. Hay una
+restricción más severa: las máscaras de estas redes deben
+contener los octetos completos. Es decir, podemos crear
+una zona para una red con máscara <systemitem
+role="sitename">255.255.255.0</systemitem> pero no para
+una del tipo <systemitem role="sitename">255.255.255.128</systemitem>.
+El motivo es que para especificar la red delegada <systemitem role="sitename">
+149.76.4.0</systemitem> tenemos el dominio <systemitem role="sitename">
+4.76.149.in-addr.arpa</systemitem>, pero para la red <systemitem
+role="sitename">149.76.4.128</systemitem> no tenemos forma de
+nombrar el dominio in-addr correspondiente.
+</para>
+
+<INDEXTERM startref="DNS.zones" class=endofrange>
+</sect2>
+</sect1>
+
+<sect1 id="X-087-2-resolv.named"><title>Ejecución de named</title>
+<indexterm id="idx-commandnamedcommand-1"
+		   class=startofrange><primary>programa named</primary></indexterm>
+<indexterm id="idx-name-serverconfiguring-1"
+		   class=startofrange><primary>servidores de nombres</primary><secondary>configuración</secondary></indexterm>
+<indexterm id="idx-configuringname-server-1"
+		   class=startofrange><primary>configuración</primary><secondary>servidor de nombres</secondary></indexterm>
+<indexterm id="idx-DNSconfiguringserver-1"
+		   class=startofrange><primary>DNS (Sistema de Nombres de
+		Dominio)</primary><secondary>configuración del servidor</secondary></indexterm>
+<indexterm id="idx-BIND-1" class=startofrange><primary>BIND (Berkeley Internet Name Domain)</primary></indexterm>
+<indexterm id="idx-BIND-es-1" class=startofrange><primary>BIND
+		(Nombres de Dominio de Internet, de Berkeley)</primary></indexterm>
+
+<para>
+<command>named</command> (pronúnciese <emphasis>n'eim-di:</emphasis>)
+es el servidor DNS en casi todas las máquinas Unix. Es un programa desarrollado
+originalmente para BSD. La versión 4 se ha usado mucho tiempo y venía
+con cualquier distribución GNU/Linux. La nueva edición, la versión 8,
+se ha introducido después y supone grandes cambios desde la
+anterior.<footnote id="X-087-2-FNDN01">
+<para>
+BIND 4.9 fue desarrollado por Paul Vixie,
+<systemitem role="emailaddr">paul@vix.com</systemitem>,
+aunque actualmente lo mantiene el Consorcio de Software para Internet,
+en <systemitem role="emailaddr">bind-bugs@isc.org</systemitem>.</para>
+</footnote>
+Tiene muchas características nuevas, como el soporte de actualización
+dinámica del DNS, notificaciones de cambios, mejoras
+importantes de rendimiento y una nueva sintaxis de fichero de
+configuración. Para más detalle debemos comprobar la documentación
+que viene con el código fuente.
+</para>
+
+<para>
+Esta sección requiere ideas acerca de cómo funciona el Sistema de
+Nombres y Dominios (DNS). Si lo que sigue a continuación le suena a
+chino, puede releer el capítulo <xref linkend="X-087-2-resolv.howdnsworks">,
+que le dará información acerca de cómo funciona básicamente el DNS.
+</para>
+
+<para>
+<INDEXTERM><PRIMARY SORTAS="fichero etc/named.boot">fichero /etc/named.boot
+</PRIMARY></INDEXTERM> <indexterm><primary>ficheros
+de zona</primary></indexterm> <command>named</command> suele iniciarse
+al arrancar la máquina, y ejecutarse hasta que se apaga. Las versiones
+anteriores de BIND hasta la 8 obtienen la información que necesitan de
+un fichero llamado <filename>/etc/named.boot</filename>. Las nuevas versiones
+usan el fichero <filename>/etc/named.conf</filename>. Además,
+hay que configurar los ficheros de zona.
+</para>
+<?troff .Nd 10>
+<para>
+Para ejecutar <command>named</command>, sólo tiene que teclear:
+
+<screen>
+# <userinput>/usr/sbin/named</userinput>
+</screen>
+
+</para>
+
+<para>
+El programa <command>named</command> se iniciará y leerá el fichero
+<command>named.boot</command> y los ficheros de zona que se especifiquen en él. Su
+número de proceso será anotado en ASCII en el fichero
+<filename>/var/run/named.pid</filename>, recibirá ficheros de zona de los servidores
+principales si es necesario y comenzará a escuchar las peticiones de
+DNS por el puerto 53.</para>
+
+<sect2><title>El fichero named.boot</title>
+<para>
+<indexterm id="idx-namedboot-1" class=startofrange><primary
+sortas="named boot file">fichero named.boot</primary></indexterm> El
+fichero de configuración para los BIND anteriores a la 8
+tenían una estructura muy simple. En la versión 8
+el fichero se llama <filename>/etc/named.conf</filename> y es
+totalmente distinto. Nos pararemos en ambas versiones
+y veremos las diferencias, y cómo convertir del formato
+antiguo al nuevo.
+</para>
+
+<para>
+El fichero <command>named.boot</command> suele ser muy pequeño y contiene punteros
+a ficheros con información de zonas y a otros servidores de
+nombres. Los comentarios en este fichero comienzan con un punto y coma
+y se extienden hasta el siguiente fin de línea. Antes de que veamos
+con más detalle el formato de este fichero, observaremos el ejemplo
+para la máquina <systemitem role="sitename">vlager</systemitem> dado
+en <xref linkend="X-087-2-resolv.fig.named.boot">.
+</para>
+
+<example id="X-087-2-resolv.fig.named.boot">
+<title>Fichero named.boot para vlager</title>
+<screen>
+;
+; Fichero /etc/named.boot para vlager.vbrew.com
+;
+directory     /var/named
+;
+;             domain                   file
+;-----------------
+caché         .                        named.ca
+primary       vbrew.com                named.hosts
+primary       0.0.127.in-addr.arpa     named.local
+primary       16.172.in-addr.arpa      named.rev
+</screen>
+</example>
+
+<para>
+Veamos cómo es el fichero. La palabra <systemitem
+role="keyword">directory</systemitem> indica a
+<command>named</command> el directorio donde están los demás
+ficheros de configuración (los ficheros de zona).
+</para>
+
+<para>
+Los comandos <systemitem role="keyword">caché</systemitem> y <systemitem role="keyword">primary</systemitem> sirven para cargar
+información en \prog{named}. Esta información se obtiene de los
+ficheros espeficados en el segundo argumento. Contienen
+representaciones textuales de los registros DNS, que veremos a continuación.
+</para>
+
+<para>
+En este ejemplo, se configura <command>named</command> como el servidor de nombres
+principal para tres dominios: los que se indican con la orden
+<systemitem role="keyword">primary</systemitem>. La primera línea dice que <command>named</command> actúe como
+servidor principal para <systemitem role="sitename">vbrew.com</systemitem>, tomando la información de
+zona del fichero <command>named.hosts</command>.
+</para>
+
+<para>
+La entrada iniciada con la palabra <systemitem role="keyword">caché</systemitem> es muy especial y
+debe estar presente en casi todas las máquinas que ejecuten un
+servidor de nombres. Su función es doble: indica a
+<command>named</command> que active su <emphasis>caché</emphasis>, y también  que cargue la
+información de los servidores raíz del fichero indicado (en este caso,
+<filename>named.ca</filename>). Regresaremos a este concepto más tarde.
+</para>
+
+<para>
+A continuación se presenta una lista de las opciones más importantes
+que podemos poner en el fichero <filename>named.boot</filename>&thinsp;:
+
+<variablelist>
+<varlistentry><term><systemitem
+role="keyword">directory</systemitem></term> <listitem><para> 
+Especifica un directorio donde estén los ficheros de
+zona. Pueden ponerse varios directorios repitiendo el comando
+<systemitem role="keyword">directory</systemitem>. De acuerdo con el estándar de sistema de ficheros
+para Linux, el directorio debería ser <filename>/var/named</filename>.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><systemitem role="keyword">primary</systemitem></term>
+<listitem><para>
+<indexterm><primary>opción primary (BIND)</primary></indexterm>
+<indexterm><primary>servidores de nombres</primary><secondary>primario</secondary></indexterm>
+Los argumentos que lleva son un nombre de dominio y un
+nombre de fichero, declarando el servidor local primario para
+el dominio de named. Como servidor primario, <command>named</command> carga la
+información de zona del fichero dado.
+</para>
+
+<para>
+Normalmente, siempre habrá por lo menos una orden
+<systemitem role="keyword">primary</systemitem> en cada fichero <filename>named.boot</filename>, para traducción
+inversa del IP <filename>127.0.0.1</filename>, que es el interfaz de
+bucle o «loopback», como ya sabemos.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><systemitem
+role="keyword">secondary</systemitem></term> <listitem><para>
+<indexterm><primary>opción secondary (BIND)</primary></indexterm>
+<indexterm><primary>servidores de nombres</primary><secondary>secundario</secondary></indexterm>
+Esta sentencia tiene como parámetros un nombre de
+dominio, una lista de direcciones y un nombre de
+fichero. Declara el servidor local como servidor maestro secundario
+para el dominio indicado.
+</para>
+
+<para>
+Un servidor secundario mantiene también información
+«autorizada» como el primario, pero en lugar de obtenerla de un
+fichero, la intenta obtener de un servidor primario. Debe
+proporcionarse al menos una dirección IP de servidor primario en la lista
+de direcciones. El servidor local irá contactando con cada uno de
+ellos hasta que transfiera con éxito la base datos de zona, que será
+almacenada en el fichero de respaldo -copia de seguridad o backup- dado en
+el tercer argumento del comando. Si ninguno de los servidores primarios
+responde, se obtendrá la información de zona del fichero de respaldo.
+</para>
+
+<para>
+<command>named</command> intentará entonces refrescar los datos
+almacenados regularmente. Esto se explica después cuando se vean las
+entradas SOA de los ficheros.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><systemitem
+role="keyword">caché</systemitem></term> <listitem><para>
+<indexterm><primary>caché (opción de BIND)</primary></indexterm>
+<indexterm><primary>servidores de
+nombres</primary><secondary>caché</secondary></indexterm>
+Tiene como argumentos un dominio y un nombre de
+fichero. Contiene la lista de servidores de nombres raíz. Sólo
+se reconocerán registros NS y A. El argumento domain es normalmente
+el nombre del dominio raíz (.).
+</para>
+
+<para>
+<?troff .hw situation>
+<?troff .hw follows>
+Esta información es fundamental: si la orden <systemitem role="keyword">caché</systemitem>
+no existiera, <command>named</command> no haría una <emphasis>caché</emphasis> local. Esto
+degradaría de forma importante el rendimiento e incrementaría
+la carga de la red si los nombres que se buscan no están en la red local.
+Además, <command>named</command> tampoco será capaz de contactar con cualquier
+servidor de nombres raíz, y por ello, no podrá resolver ninguna
+dirección excepto aquellas para las que esté autorizado. Una
+excepción a esta regla, ocurre cuando se usan servidores redirigidos (con
+la opción <systemitem role="keyword">forwarders</systemitem> explicada a continuación).
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><systemitem
+role="keyword">forwarders</systemitem></term> <listitem><para>
+Esta opción lleva una lista de direcciones como
+argumento. Las direcciones IP en la lista especifican servidores de
+nombres a los que <command>named</command> puede preguntar si falla una traducción
+de un nombre mediante su <emphasis>caché</emphasis> local. Se intenta preguntar a
+todos en orden hasta que uno de ellos responda.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><systemitem
+role="keyword">slave</systemitem></term> <listitem><para>
+<indexterm><primary>servidores 
+</primary><secondary>esclavos</secondary></indexterm>
+Esta opción hace que el servidor sea <emphasis>esclavo</emphasis>. Esto
+significa que nunca realizará consultas recursivas, sino que las
+redirigirá a los servidores especificados con <systemitem
+role="keyword">forwarders</systemitem>.
+</para></listitem>
+</varlistentry>
+</variablelist>
+
+Hay dos opciones adicionales que no vamos a describir:
+<systemitem role="keyword">sortlist</systemitem> y <systemitem
+role="keyword">domain</systemitem>. Además, hay dos directivas que
+pueden aparecer en los ficheros de zona. Son <systemitem
+role="keyword">&dollar;INCLUDE</systemitem> y
+<systemitem role="keyword">&dollar;ORIGIN</systemitem>, que tampoco
+vamos a describir, ya que raramente se utilizan.
+</para>
+
+<INDEXTERM startref="idx-namedboot-1" class=endofrange>
+</sect2>
+
+<sect2><title>El fichero named.conf de BIND 8</title>
+<indexterm><primary sortas="named conf file">fichero named.conf</primary></indexterm>
+<para>
+En la versión 8 de BIND se han incluido nuevas características, lo
+cual ha requerido una nueva sintaxis del fichero de configuración
+principal. El fichero <filename>named.boot</filename> ha sido
+reemplazado por otro, de nombre <filename>named.conf</filename>,
+que tiene una sintaxis similar a la del programa <command>gated</command>
+y recuerda a la del lenguaje C.
+</para>
+
+<para>
+La nueva sintaxis es más compleja, pero por suerte disponemos
+de una utilidad para convertir automáticamente los ficheros
+<filename>named.boot</filename> de sintaxis antigua.
+<indexterm><primary>named-bootconf.pl</primary></indexterm>
+Esta utilidad es un script de PERL llamado
+<command>named-bootconf.pl</command>, que encontraremos en el código
+fuente de BIND 8; y lee un fichero en sintaxis antigua, devolviendo
+por su salida estándar el fichero en sintaxis nueva. Naturalmente,
+para utilizarlo es necesario tener correctamente instalado
+el intérprete de lenguaje PERL.
+</para>
+
+<para>
+Al script lo invocaremos, por ejemplo, así:
+
+<screen>
+# <userinput>cd /etc</userinput>
+# <userinput>named-bootconf.pl &lt;named.boot &gt;named.conf</userinput>
+</screen>
+
+El script produce entonces un fichero similar al que se muestra en
+<xref linkend="X-087-2-resolv.fig.named.conf">, donde hemos eliminado
+algunos comentarios que produce adicionalmente el script.
+</para>
+
+<example id="X-087-2-resolv.fig.named.conf">
+<title>Fichero named.conf para usar BIND 8 con vlager</title>
+<screen>
+// 
+// /etc/named.boot para vlager.vbrew.com
+options {
+	directory "/var/named";
+};
+
+zone "." {
+	type hint;
+	file "named.ca";
+};
+
+zone "vbrew.com" {
+	type master;
+	file "named.hosts";
+};
+
+zone "0.0.127.in-addr.arpa" {
+	type master;
+	file "named.local";
+};
+
+zone "16.172.in-addr.arpa" {
+	type master;
+	file "named.rev";
+};
+</screen>
+</example>
+
+<para>
+Si observamos el ejemplo, veremos que cada línea de
+<filename>named.boot</filename> ha sido convertida a un bloque
+en estilo C, encerrado entre llaves (signos { y }&thinsp;).
+</para>
+
+<para>
+Los comentarios del fichero se escriben ahora en notación similar
+a C++, es decir, dos barras (signo //&thinsp;).
+</para>
+
+<para>
+La sentencia <systemitem role="keyword">directory</systemitem> va ahora
+dentro del bloque <systemitem role="keyword">options</systemitem>, junto
+a otras posibles opciones globales de configuración.
+</para>
+
+<para>
+Las sentencias <systemitem role="keyword">caché</systemitem> y
+<systemitem role="keyword">primary</systemitem> se convierten en
+bloques de zona, con sentencias <systemitem	role="keyword">type</systemitem>
+específicas, de valor <systemitem role="keyword">hint</systemitem> y
+<systemitem role="keyword">master</systemitem>, respectivamente.
+</para>
+
+<para>
+Los ficheros de zona no necesitan modificarse, ya que su sintaxis
+sigue siendo la de antes.
+</para>
+
+<para>
+La nueva sintaxis de configuración se ha pensado para poder
+incluir muchas más opciones de configuración, en las que no vamos
+a detenernos. Si deseamos conocerlas, la mejor fuente de información
+es la que viene con el paquete de fuentes de BIND 8.
+</para>
+</sect2>
+
+<sect2><title>Ficheros de base de datos DNS</title>
+<para>
+<indexterm><primary>DNS (Sistema de Nombres de
+Dominios)</primary><secondary>base de datos</secondary></indexterm> Los
+ficheros incluidos con <command>named</command>, como <command>named.hosts</command>,
+siempre tienen un dominio asociado a ellos llamado <emphasis>origen</emphasis>.
+Este es el nombre de dominio especificado con los comandos <systemitem
+role="keyword">caché</systemitem> y <systemitem
+role="keyword">primary</systemitem>. En un fichero maestro,
+se pueden especificar nombres de máquinas y dominios relativos a este
+dominio. Un nombre dado en un fichero de configuración se considera
+<emphasis>absoluto</emphasis> si termina con un punto. En caso contrario se considera
+relativo al origen. Al origen en sí mismo nos podemos referir con
+«<systemitem role="keyword">@</systemitem>».
+</para>
+
+<para>
+<indexterm><primary>DNS (Sistema de Nombres de
+Dominios)</primary><secondary>Registro de Recurso</secondary></indexterm>
+<indexterm><primary>registro de recurso (RR)</primary></indexterm>
+<indexterm><primary>RR (registro de recurso)</primary></indexterm> Todos
+los datos en un fichero principal se dividen en <emphasis>registros
+de recursos</emphasis> o RRs. Son la unidad de información del DNS. Cada RR
+tiene un tipo. Los registros de tipo A, por ejemplo, asocian un nombre
+a una dirección IP. Los registros de tipo CNAME asocian un alias de
+una máquina con su nombre oficial. Como ejemplo, obsérvese <xref
+linkend="X-087-2-resolv.fig.named.hosts">, que muestra el fichero
+<filename>named.hosts</filename> para nuestro sistema.
+</para>
+
+<para>
+La representación de los RRs en los ficheros utiliza el siguiente formato:
+
+<screen>
+[<replaceable>domain</replaceable>] [<replaceable>ttl</replaceable>] [<replaceable>class</replaceable>] <replaceable>type</replaceable> <replaceable>rdata</replaceable>
+</screen>
+</para>
+
+<para>
+Los campos se separan por espacios o tabulaciones. Una entrada puede
+continuarse en varias líneas si se abre un paréntesis antes del primer
+fin de línea y el último campo es seguido de un cierre de
+paréntesis. Cualquier cosa entre un punto y coma y el siguiente salto
+de línea será un comentario.
+</para>
+
+<variablelist>
+<varlistentry><term><replaceable>domain</replaceable></term>
+<listitem><para>
+Aquí va el nombre del dominio que se aplica al RR actual. Si
+no se da nombre de dominio, se asume el mismo que se puso para el RR anterior.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><replaceable>ttl</replaceable></term>
+<listitem><para>
+<indexterm><primary>DNS (Sistema de Nombres de Dominios)</primary>
+<secondary>TTL (tiempo de vida)</secondary></indexterm>
+Con el fin de forzar al sistema DNS a descartar información
+después de cierto tiempo, cada RR lleva asociado un <emphasis>tiempo de
+vida</emphasis> o <emphasis>ttl</emphasis><footnote><para>N. del T.: Time to Live</para></footnote>. El campo
+<replaceable>ttl</replaceable> especifica, en segundos,
+el tiempo de validez de la
+información desde que se obtiene del servidor. Es un número decimal de
+hasta ocho dígitos.
+</para>
+
+<para>
+Si no se especifica ningún valor, tomará uno por defecto del
+campo <replaceable>minimum</replaceable> del registro SOA precedente.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><replaceable>class</replaceable></term>
+<listitem><para>
+Aquí se indica la clase de dirección: IN para direcciones IP,
+HS para objetos de la clase Hesiod. Trabajando con redes TCP/IP debe usarse
+siempre la clase IN.
+</para>
+<para>
+Si no se especifica ningún valor, se toma el valor del RR anterior.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><replaceable>type</replaceable></term>
+<listitem><para>
+Describe el tipo de RR. Los tipos habituales son A, SOA, PTR y
+NS. En las siguientes secciones comentaremos estos tipos de RRs.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><replaceable>rdata</replaceable></term>
+<listitem><para>
+Contiene los datos asociados al RR. El formato depende del
+tipo, y se describirán más adelante.
+</para>
+</listitem>
+</varlistentry>
+</variablelist>
+
+<para>
+A continuación se presenta una lista incompleta de RRs que se utilizan
+en los ficheros de DNS. Hay algunos más que no vamos a comentar. Son
+experimentales, y de escaso uso.
+</para>
+
+<variablelist>
+<varlistentry><term><emphasis>SOA</emphasis></term>
+<listitem><para>
+<indexterm><primary>servidor de nombres con autoridad</primary></indexterm>
+<indexterm><primary>SOA (registro DNS)</primary></indexterm>
+<indexterm><primary>DNS (Sistema de Nombres de Dominio)</primary><secondary>zonas</secondary></indexterm>
+
+Describe una zona de autoridad (SOA significa «Start of Authority»,
+es decir, «Comienzo de Autoridad»). Señala que los registros
+siguientes contienen información «autorizada» para el dominio. Cada
+fichero incluido en la opción <systemitem role="keyword">primary</systemitem>
+debe tener un registro SOA para esta zona. Los datos asociados
+contienen los siguientes campos:
+
+<variablelist>
+<varlistentry><term><replaceable>origin</replaceable></term>
+<listitem><para>
+Nombre canónico del servidor de nombres primario para este
+dominio. Se suele dar como nombre absoluto.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><replaceable>contact</replaceable></term>
+<listitem><para>
+Dirección de correo electrónico de la persona responsable de
+mantener el dominio, reemplazando el carácter «<systemitem
+role="keyword">@</systemitem>» por un
+punto. Por ejemplo, si el responsable de nuestra red fuese
+<systemitem role="userid">janet</systemitem>, este campo contendrá:
+<systemitem role="keyword">janet.vbrew.com</systemitem>.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><replaceable>serial</replaceable></term>
+<listitem><para>
+Este es el número de versión del fichero de zona, expresado
+con un número decimal. Cuando se cambien datos del fichero, deberá
+incrementarse este número. Se suele expresar como número
+de versión en el día actual, es decir, en el formato
+AAAAMMDDnn siendo AAAA el año, MM el mes, DD el día y nn el número de
+revisión de ese día (01 si no hay más de una). Por ejemplo,
+2001072201 para el 22 de julio de 2001.
+</para>
+
+<para>
+El número de versión es utilizado por los servidores
+secundarios para saber cuándo la información de una zona ha
+cambiado. Para mantenerse actualizados, los servidores secundarios
+piden cada cierto tiempo el registro SOA del primario, y comparan el
+número de versión con el que tienen en la <emphasis>caché</emphasis>. Si ha cambiado,
+el servidor secundario pedirá de nuevo la información de zona al primario.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><replaceable>refresh</replaceable></term>
+<listitem><para>
+Especifica el intervalo, en segundos, que esperan los
+servidores secundarios entre peticiones de registros SOA a los
+primarios. De nuevo, se trata de un número decimal de hasta ocho
+dígitos.
+</para>
+
+<para>
+Normalmente, la topología de la red no cambia mucho, con lo
+que este número será como poco de un día para grandes redes, y de mucho
+más tiempo para redes pequeñas.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><replaceable>retry</replaceable></term>
+<listitem><para>
+Este número determina los intervalos de tiempo entre
+reintentos de comunicación con servidores primarios cuando una
+petición de una zona falla. No debe ser pequeño ya que un fallo
+temporal del servidor primario hará que el secundario cargue
+inútilmente la red. Buenas elecciones son una hora o como poco media hora.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><replaceable>expire</replaceable></term>
+<listitem><para>
+Especifica el tiempo, en segundos, que tardará el servidor en
+descartar los datos de zona si no ha podido contactar con el servidor
+primario. Normalmente se pondrá un valor grande, de por lo menos una
+semana (604800 segundos), aunque si se incrementa a un mes o más será
+incluso más razonable.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term><replaceable>minimum</replaceable></term>
+<listitem><para>
+Valor predeterminado para el valor del <emphasis>ttl</emphasis> en los
+registros de
+recursos que no lo especifiquen. Sirve para indicar a otros servidores de
+nombres que descarten el RR tras cierto tiempo. No tiene efecto, sin embargo,
+sobre el tiempo en el que un servidor secundario intenta actualizar la
+información de zona.
+</para>
+
+<para>
+El valor de <replaceable>minimum</replaceable> debe ser grande, en especial para
+redes locales con topologías poco cambiantes. Una buena elección puede
+ser de una semana o un mes. En el caso de que haya registros RR que
+cambien con frecuencia, siempre podrá asignarle valores particulares
+de <replaceable>ttl</replaceable>.
+</para>
+</listitem>
+</varlistentry>
+</variablelist>
+
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term>A</term>
+<listitem><para>
+<indexterm><primary>A (registro DNS)</primary></indexterm>
+<indexterm><primary>address</primary><secondary>registro de recurso DNS</secondary></indexterm>
+Asocia direcciones IP con nombres. El campo de datos contiene la
+dirección separando los octetos por puntos, como es habitual.
+</para>
+
+<para>
+<indexterm><primary>nombre de máquina</primary><secondary>canónico</secondary></indexterm>
+<indexterm><primary>nombre de máquina canónico</primary></indexterm>
+<indexterm><primary>CNAME (registro DNS)</primary></indexterm>
+<indexterm><primary>nombre de máquina</primary><secondary>alias</secondary></indexterm>
+<indexterm><primary>alias</primary><secondary>nombre de máquina</secondary></indexterm>
+Para cada máquina sólo puede haber un registro A, que se considera
+nombre oficial o <emphasis>canónico</emphasis>. Cualquier otro nombre será un alias
+y debe ser incluido con registros CNAME.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term>NS</term>
+<listitem><para>
+Apunta a un servidor de nombres maestro de una zona subordinada. El
+campo de datos contiene el nombre del servidor. Para
+traducir ese nombre debe proporcionarse un registro A adicional, que
+se conoce como <emphasis>glue</emphasis>, al proporcionar la dirección
+IP del servidor.
+</para>
+
+<para>
+Hay que incluir registros NS en dos casos: primero, cuando delegamos
+la autoridad a una zona subordinada. Segundo, en la base de datos del
+servidor principal de cualquier zona. Los servidores NS especificados
+en el fichero de zona deben coincidir exactamente con los que
+especifica la zona padre que delega.
+</para>
+
+<para>
+El registro NS especifica el nombre del servidor de nombres primario
+y los secundarios para una zona. Estos nombres deben poderse resolver
+para poderse usar. A veces los servidores pertenecen al mismo dominio
+que sirven, lo que ocasiona un problema de <emphasis>el huevo o la
+gallina</emphasis>: no podemos obtener el servidor de nombres hasta
+que accedamos al dominio, pero para acceder el dominio hay que conocer
+la IP del servidor de nombres... Para resolver este problema se crean
+registros A directamente en la zona padre, para resolver esas
+direcciones. Estos son los que ya comentamos antes, los
+<emphasis>registros glue</emphasis> (podríamos traducirlos como
+registros-pegamento), puesto que
+unen o <emphasis>pegan</emphasis> la zona hija a la zona padre.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term>CNAME</term>
+<listitem><para>
+Asocia un alias con su <emphasis>nombre canónico</emphasis>. El nombre canónico se
+determina con un registro A. Los alias son indicados mediante
+registros CNAME.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term>PTR</term>
+<listitem><para>
+<indexterm><primary>PTR (registro DNS)</primary></indexterm>
+Se usa para asociar nombres del dominio
+<systemitem role="sitename">in-addr.arpa</systemitem> con sus
+nombres normales. Se usa para obtener nombres a partir de
+direcciones IP (traducción inversa). El nombre de la máquina debe
+ser el canónico.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term>MX</term>
+<listitem><para>
+<indexterm><primary>MX (registro DNS)</primary></indexterm>
+Especifica el <emphasis>servidor de correo</emphasis> para un dominio. En la
+sección <xref linkend="X-087-2-mail.routing.internet"> se explica
+por qué son necesarios estos servidores. La sintaxis del registro MX
+es:
+
+<screen>
+[<replaceable>domain</replaceable>] [<replaceable>ttl</replaceable>] [<replaceable>class</replaceable>] MX <replaceable>preference</replaceable> <replaceable>host</replaceable>
+</screen>
+</para>
+
+<para>
+<replaceable>host</replaceable> nombra el servidor de correo para el
+dominio <replaceable>domain</replaceable>. Cada servidor tiene asociado un
+valor de
+<replaceable>preference</replaceable> (preferencia). Cuando un agente
+de transferencia de mensajes quiere entregar correo al dominio, intentará
+conectarse a esos servidores hasta conseguir entregar el mensaje;
+empezando por el que tenga menor valor de preferencia.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term>HINFO</term>
+<listitem><para>
+Este registro da información sobre el hardware y el software de la
+máquina. Su sintaxis es:
+
+<screen>
+[<replaceable>domain</replaceable>] [<replaceable>ttl</replaceable>] [<replaceable>class</replaceable>] HINFO <replaceable>hardware software</replaceable>
+</screen>
+</para>
+
+<para>
+El campo <replaceable>hardware</replaceable> identifica el hardware
+usado en este nodo. Para indicarlo, se siguen ciertas convenciones,
+especificadas en el RFC 1700. Si el campo contiene blancos, debe
+encerrarse entre comillas dobles. El campo <replaceable>software</replaceable>
+indica el sistema operativo que ejecuta el nodo, que también está normalizado.
+
+</para>
+<?troff .Nd 10>
+<para>
+Por ejemplo, un registro <literal>HINFO</literal> para describir un
+sistema Intel ejecutando Linux podría ser:
+
+
+<screen>
+tao	 36500  IN  HINFO  IBM-PC  LINUX2.2
+</screen>
+
+y para el caso de que se tratara de un sistema basado en Motorola
+68000:
+
+<screen>
+cevad 36500 IN  HINFO  ATARI-104ST LINUX2.0
+jedd  36500 IN  HINFO  AMIGA-3000  LINUX2.0
+</screen>
+
+</para>
+</listitem>
+</varlistentry>
+</variablelist>
+</sect2>
+
+<sect2 id="X-087-2-resolv.named-cachingonly">
+<title>Configuración de named sólo para caché</title>
+<indexterm><primary>configuración</primary><secondary>servidor de
+nombres sólo para
+caché</secondary></indexterm>
+<indexterm><primary>configuracióbn</primary><secondary>DNS sobre SLIP/PPP</secondary></indexterm>
+<indexterm><primary>servidor de nombres sólo para caché</primary></indexterm>
+<indexterm><primary>servidores de nombres</primary><secondary>sólo caché</secondary></indexterm>
+<indexterm><primary>fichero resolv.conf</primary></indexterm> 
+<para>
+Hay una clase especial de configuración de <filename>named</filename>,
+que nos servirá para introducirnos en su funcionamiento. Se llama
+<emphasis>sólo-caché</emphasis>. No sirve ningún dominio propio, pero
+actúa como repetidor de otros DNS para nuestra red local. Cuando
+se repitan peticiones a un mismo nodo, el servidor responderá
+con la información que ya tiene, evitando peticiones repetidas
+que ocupen ancho de banda en Internet. Esto es especialmente útil
+cuando contamos con una conexión de banda estrecha, como las
+que veremos en <xref linkend="X-087-2-slip"> y <xref linkend="X-087-2-ppp">.
+</para>
+
+<para>
+El fichero <filename>named.boot</filename> para un servidor sólo de
+caché, es similar a éste:
+
+<screen>
+; named.boot para servidor de sólo caché
+directory                            /var/named
+primary       0.0.127.in-addr.arpa   named.local ; red local
+caché         .                      named.ca    ; servidores raiz
+</screen>
+</para>
+
+<para>
+Además de este fichero, hay que tener el correspondiente
+<filename>named.ca</filename>, con una lista válida de servidores
+raíz. Debemos copiar y usar <xref
+linkend="X-087-2-resolv.fig.named.cache"> para esto. No se requieren
+otros ficheros para una configuración de sólo caché.
+</para>
+</sect2>
+
+<sect2><title>Cómo hacer los ficheros maestros</title>
+<para>
+<xref linkend="X-087-2-resolv.fig.named.cache">,
+<xref linkend="X-087-2-resolv.fig.named.hosts">,
+<xref linkend="X-087-2-resolv.fig.named.local">, y
+<xref linkend="X-087-2-resolv.fig.named.rev"> muestran ficheros de
+ejemplo para un servidor de nombres de la Cervecera Virtual,
+localizada en <systemitem role="sitename">vlager</systemitem>. Debido
+a la naturaleza de la red propuesta (una simple LAN), el ejemplo
+es muy simple también.
+</para>
+
+<para>
+<indexterm><primary>DNS (Sistema de Nombres de
+Dominio)</primary><secondary>servidores raíz</secondary></indexterm>
+<indexterm><primary>servidores de nombres</primary><secondary>raíz</secondary></indexterm>
+
+El fichero de caché <filename>named.ca</filename> mostrado en
+<xref linkend="X-087-2-resolv.fig.named.cache"> contiene ejemplos
+de registros de servidores raíz. Un fichero típico de caché contiene
+como una docena de servidores de esta clase. Se puede obtener una
+lista de los servidores raíz usando la utilidad 
+The <filename>named.ca</filename> caché file shown in
+<command>nslookup</command> mostrada en la siguiente sección.
+<footnote id="X-087-2-FNDN03"><para>
+Nótese que no podemos preguntar esto a nuestro servidor de nombres
+si no tenemos entradas de servidores raíz instaladas. Para evitar
+esto, podemos usar <command>nslookup</command> para interrogar a un
+servidor de nombres externo, o usar como fichero de caché el mostrado
+en <xref linkend="X-087-2-resolv.fig.named.cache"> y de ahí
+obtener una lista completa.
+</para>
+</footnote>
+
+</para>
+
+<example id="X-087-2-resolv.fig.named.cache">
+<title>El fichero named.ca</title>
+<screen>
+;
+; /var/named/named.ca          Fichero de caché para la cervecera.
+;                Al no estar en Internet no necesitamos servidores
+;                raiz. Si no fuera asi, descomentense.
+;
+;.                        3600000  IN  NS    A.ROOT-SERVERS.NET.
+;A.ROOT-SERVERS.NET.      3600000      A     198.41.0.4
+;.                        3600000      NS    B.ROOT-SERVERS.NET.
+;B.ROOT-SERVERS.NET.      3600000      A     128.9.0.107
+;.                        3600000      NS    C.ROOT-SERVERS.NET.
+;C.ROOT-SERVERS.NET.      3600000      A     192.33.4.12
+;.                        3600000      NS    D.ROOT-SERVERS.NET.
+;D.ROOT-SERVERS.NET.      3600000      A     128.8.10.90
+;.                        3600000      NS    E.ROOT-SERVERS.NET.
+;E.ROOT-SERVERS.NET.      3600000      A     192.203.230.10
+;.                        3600000      NS    F.ROOT-SERVERS.NET.
+;F.ROOT-SERVERS.NET.      3600000      A     192.5.5.241
+;.                        3600000      NS    G.ROOT-SERVERS.NET.
+;G.ROOT-SERVERS.NET.      3600000      A     192.112.36.4
+;.                        3600000      NS    H.ROOT-SERVERS.NET.
+;H.ROOT-SERVERS.NET.      3600000      A     128.63.2.53
+;.                        3600000      NS    I.ROOT-SERVERS.NET.
+;I.ROOT-SERVERS.NET.      3600000      A     192.36.148.17
+;.                        3600000      NS    J.ROOT-SERVERS.NET.
+;J.ROOT-SERVERS.NET.      3600000      A     198.41.0.10
+;.                        3600000      NS    K.ROOT-SERVERS.NET.
+;K.ROOT-SERVERS.NET.      3600000      A     193.0.14.129 
+;.                        3600000      NS    L.ROOT-SERVERS.NET.
+;L.ROOT-SERVERS.NET.      3600000      A     198.32.64.12
+;.                        3600000      NS    M.ROOT-SERVERS.NET.
+;M.ROOT-SERVERS.NET.      3600000      A     202.12.27.33
+;
+</screen>
+</example>
+
+<example id="X-087-2-resolv.fig.named.hosts">
+<title>El Fichero named.hosts</title>
+<screen>
+;
+; /var/named/named.hosts       Nodos de la cervecera
+;                               El origen es vbrew.com
+;
+@                IN  SOA   vlager.vbrew.com. janet.vbrew.com. (
+                           2000012601 ; serie
+                           86400      ; refresco: uno al dia
+                           3600       ; reintento: una hora
+                           3600000    ; caducidad:  42 dias
+                           604800     ; minimo: 1 semana
+                           )
+                 IN  NS    vlager.vbrew.com.
+;
+; Correo local se entrega a vlager
+                 IN  MX    10 vlager
+;
+; direccion `loopback'
+localhost.       IN  A     127.0.0.1
+;
+; La ethernet de la cervecera virtual
+vlager           IN  A     172.16.1.1
+vlager-if1       IN  CNAME vlager
+; vlager es tambien servidor de noticias
+news             IN  CNAME vlager
+vstout           IN  A     172.16.1.2
+vale             IN  A     172.16.1.3
+;
+; Ethernet de la vinatera virtual
+vlager-if2       IN  A     172.16.2.1
+vbardolino       IN  A     172.16.2.2
+vchianti         IN  A     172.16.2.3
+vbeaujolais      IN  A     172.16.2.4
+;
+; Ethernet (subsidiaria) de los Espiritus Virtuales
+vbourbon         IN  A     172.16.3.1
+vbourbon-if1     IN  CNAME vbourbon
+</screen>
+</example>
+
+<example id=X-087-2-resolv.fig.named.local>
+<title>Fichero named.local</title>
+<screen>
+;
+; /var/named/named.local      Resolucion inversa de 127.0.0
+;                             El origen es 0.0.127.in-addr.arpa.
+;
+@             IN  SOA   vlager.vbrew.com. joe.vbrew.com. (
+                        1          ; serie
+                        360000     ; refresco: 100 horas
+                        3600       ; reintento:   una hora
+                        3600000    ; caducidad:  42 dias
+                        360000     ; minimo: 100 horas
+                        )
+              IN  NS    vlager.vbrew.com.
+1             IN  PTR   localhost.
+</screen>
+</example>
+
+<example id=X-087-2-resolv.fig.named.rev>
+<title>Fichero named.rev</title>
+<screen>
+;
+; /var/named/named.rev         Resolucion inversa de nuestras IPs
+;                               El origen es 16.172.in-addr.arpa.
+;
+@             IN  SOA   vlager.vbrew.com. joe.vbrew.com. (
+                          16         ; serie
+                          86400      ; refresco: una vez diaria
+                          3600       ; reintento: una hora
+                          3600000    ; caducidad:  42 dias
+                          604800     ; minimo: 1 semana
+                          )
+              IN  NS    vlager.vbrew.com.
+; cervecera
+1.1           IN  PTR   vlager.vbrew.com.
+2.1           IN  PTR   vstout.vbrew.com.
+3.1           IN  PTR   vale.vbrew.com.
+; vinatera
+1.2           IN  PTR   vlager-if2.vbrew.com.
+2.2           IN  PTR   vbardolino.vbrew.com.
+3.2           IN  PTR   vchianti.vbrew.com.
+4.2           IN  PTR   vbeaujolais.vbrew.com.
+</screen>
+</example>
+</sect2>
+
+<sect2 id="X-087-2-resolv.nslookup"><title>Cómo verificar la configuración</title>
+<indexterm><primary>servidores de nombres</primary><secondary>verificación</secondary></indexterm>
+<indexterm><primary>chequeo</primary><secondary>servidores de nombres</secondary></indexterm>
+<indexterm id="idx-commandnslookupcommand-1"
+		   class=startofrange><primary>programa nslookup</primary></indexterm>
+<indexterm><primary>verificación</primary><secondary>nombres de máquina</secondary></indexterm>
+<indexterm><primary>nombres de máquina</primary><secondary>búsqueda</secondary></indexterm>
+<indexterm><primary>DNS (Sistema de Nombres de Dominio)</primary><secondary>verificación</secondary></indexterm>
+
+<para>
+<command>nslookup</command> es una estupenda utilidad para comprobar
+el funcionamiento de un servidor de nombres. Se puede usar
+interactivamente o pasándole la pregunta por la línea de órdenes. En
+este último caso podemos invocar la orden así:
+
+<screen>
+$ <userinput>nslookup</userinput>
+<emphasis><literal>nombre-de-host</literal></emphasis>
+</screen>
+</para>
+
+<para>
+<command>nslookup</command> envía sus peticiones al servidor citado en
+<filename>resolv.conf</filename>. Si este fichero tiene más de un
+servidor, <command>nslookup</command> eligirá uno al azar.
+</para>
+
+<para>
+El modo interactivo es mucho más interesante. No sólo sirve para
+buscar la IP de un nodo, sino que también podemos interrogar acerca de
+cualquier tipo de registro DNS y transferirnos toda la información de
+una zona si queremos.
+</para>
+
+<para>
+Si se invoca sin argumentos, <command>nslookup</command> muestra el
+nombre del servidor elegido y entra en modo interactivo. En el
+prompt <command>&gt;</command> podemos escribir cualquier nombre de
+dominio. Al principio preguntará sólo por registros A, es decir,
+obtención de la IP asociada.
+</para>
+
+<para>
+Podemos elegir un tipo de registro diferente con la orden:
+</para>
+<screen>
+<userinput>set type=</userinput><literal>tipo</literal>
+</screen>
+
+<para>
+donde <replaceable>tipo</replaceable> es uno de los tipos de RR
+descritos antes, o ANY.
+</para>
+
+<para>
+Veamos una posible sesión de <command>nslookup</command>:
+
+<screen>
+$ <userinput>nslookup</userinput>
+Default Server:  tao.linux.org.au
+Address:  203.41.101.121
+
+> <userinput>metalab.unc.edu</userinput>
+Server:  tao.linux.org.au
+Address:  203.41.101.121
+
+Name:    metalab.unc.edu
+Address:  152.2.254.81
+
+>
+</screen>
+</para>
+
+<para>
+La salida muestra el servidor DNS interrogado y el resultado obtenido.
+</para>
+
+<para>
+Si preguntamos por algo que no tiene IP asociada pero sí otros
+registros de otra clase, el programa nos devolverá una advertencia del
+tipo <literal>No type A records found</literal>. Sin embargo, podemos
+usar el citado comando <command>set type</command> para buscar
+registros de otras clases. Por ejemplo, el registro SOA de un dominio
+puede ser pedido así:
+
+<screen>
+> <userinput>unc.edu</userinput>
+Server:  tao.linux.org.au
+Address:  203.41.101.121
+
+*** No address (A) records available for unc.edu
+> <userinput>set type=SOA</userinput>
+> <userinput>unc.edu</userinput>
+Server:  tao.linux.org.au
+Address:  203.41.101.121
+
+unc.edu
+        origin = ns.unc.edu
+        mail addr = host-reg.ns.unc.edu
+        serial = 1998111011
+        refresh = 14400 (4H)
+        retry   = 3600 (1H)
+        expire  = 1209600 (2W)
+        minimum ttl = 86400 (1D)
+unc.edu name server = ns2.unc.edu
+unc.edu name server = ncnoc.ncren.net
+unc.edu name server = ns.unc.edu
+ns2.unc.edu     internet address = 152.2.253.100
+ncnoc.ncren.net internet address = 192.101.21.1
+ncnoc.ncren.net internet address = 128.109.193.1
+ns.unc.edu      internet address = 152.2.21.1
+</screen>
+</para>
+
+<para>
+De manera parecida, para preguntar por registros MX haremos:
+
+<screen>
+> <userinput>set type=MX</userinput>
+> <userinput>unc.edu</userinput>
+Server:  tao.linux.org.au
+Address:  203.41.101.121
+
+unc.edu preference = 0, mail exchanger = conga.oit.unc.edu
+unc.edu preference = 10, mail exchanger = imsety.oit.unc.edu
+unc.edu name server = ns.unc.edu
+unc.edu name server = ns2.unc.edu
+unc.edu name server = ncnoc.ncren.net
+conga.oit.unc.edu       internet address = 152.2.22.21
+imsety.oit.unc.edu      internet address = 152.2.21.99
+ns.unc.edu      internet address = 152.2.21.1
+ns2.unc.edu     internet address = 152.2.253.100
+ncnoc.ncren.net internet address = 192.101.21.1
+ncnoc.ncren.net internet address = 128.109.193.1
+</screen>
+</para>
+
+<para>
+Con el tipo ANY obtendremos todos los registros existentes asociados
+al nombre dado.
+</para>
+
+<para>
+<indexterm><primary>DNS (Sistema de Nombres de
+Dominio)</primary><secondary>servidores de nombres raíz</secondary></indexterm>
+<indexterm><primary>servidores de nombres</primary><secondary>raíz</secondary></indexterm>
+Una aplicación práctica de <command>nslookup</command>, para depurar
+un servidor, es obtener la lista de servidores raíz. Para ello no hay
+más que pedir los NS del registro raíz (.):
+
+<screen>
+> <userinput>set type=NS</userinput>
+> <userinput>.</userinput>
+Server:  tao.linux.org.au
+Address:  203.41.101.121
+
+Non-authoritative answer:
+(root)  name server = A.ROOT-SERVERS.NET
+(root)  name server = H.ROOT-SERVERS.NET
+(root)  name server = B.ROOT-SERVERS.NET
+(root)  name server = C.ROOT-SERVERS.NET
+(root)  name server = D.ROOT-SERVERS.NET
+(root)  name server = E.ROOT-SERVERS.NET
+(root)  name server = I.ROOT-SERVERS.NET
+(root)  name server = F.ROOT-SERVERS.NET
+(root)  name server = G.ROOT-SERVERS.NET
+(root)  name server = J.ROOT-SERVERS.NET
+(root)  name server = K.ROOT-SERVERS.NET
+(root)  name server = L.ROOT-SERVERS.NET
+(root)  name server = M.ROOT-SERVERS.NET
+
+Authoritative answers can be found from:
+A.ROOT-SERVERS.NET      internet address = 198.41.0.4
+H.ROOT-SERVERS.NET      internet address = 128.63.2.53
+B.ROOT-SERVERS.NET      internet address = 128.9.0.107
+C.ROOT-SERVERS.NET      internet address = 192.33.4.12
+D.ROOT-SERVERS.NET      internet address = 128.8.10.90
+E.ROOT-SERVERS.NET      internet address = 192.203.230.10
+I.ROOT-SERVERS.NET      internet address = 192.36.148.17
+F.ROOT-SERVERS.NET      internet address = 192.5.5.241
+G.ROOT-SERVERS.NET      internet address = 192.112.36.4
+J.ROOT-SERVERS.NET      internet address = 198.41.0.10
+K.ROOT-SERVERS.NET      internet address = 193.0.14.129
+L.ROOT-SERVERS.NET      internet address = 198.32.64.12
+M.ROOT-SERVERS.NET      internet address = 202.12.27.33
+</screen>
+</para>
+
+<para>
+Para ver el conjunto completo de comandos, podemos usar
+<command>help</command> dentro de <command>nslookup</command>.
+</para>
+
+<para>
+<INDEXTERM startref="idx-commandnslookupcommand-1" class=endofrange>
+</para>
+</sect2>
+
+<sect2><title>Otras Utilidades Interesantes</title>
+<indexterm><primary>DNS (Sistema de Nombres de Dominios)</primary><secondary>utilidades</secondary></indexterm>
+
+<para>
+Hay algunas utilidades que pueden ayudarnos en nuestro trabajo como
+administradores de BIND. Vamos va ver algunas de ellas. Para cualquier
+detalle adicional se recomienda consultar la documentación específica
+de dichas utilidades.
+</para>
+
+<para>
+<indexterm><primary>DNS (Domain Name System)</primary><secondary
+sortas="converting etc/hosts">converting
+/etc/hosts</secondary></indexterm> <indexterm><primary>fichero hosts
+</primary><secondary>conversión a ficheros maestros BIND 
+</secondary></indexterm> <indexterm><primary>programa hostcvt
+</primary></indexterm> <command>hostcvt</command> le ayuda 
+con la configuración inicial de  BIND convirtiendo su fichero
+<filename>/etc/hosts</filename> en ficheros maestros para
+<command>named</command>. Genera tanto las entradas del mapeado directo (A) como
+el mapeado inverso (PTR), y toma en cuenta los alias. Por supuesto,
+no hará todo el trabajo por usted, así que todavía tendrá que ajustar los
+palores de temporización el el registro SOA, por ejemplo, a añadir registros MX.
+También, le puede ayudar a ahorrarse algunas aspirinas. <command>hostcvt</command>
+es parte de las fuentes BIND, pero puede encontrase como 
+un paquete individual en unos pocos servidores FTP. 
+</para>
+
+<para>
+<indexterm><primary>DNS (Sistema
+de Nombres de Dominio)</primary><secondary>depuración de bases
+de datos</secondary></indexterm> <indexterm><primary>programa
+dnswalk</primary></indexterm> <indexterm><primary>programa
+nslint</primary></indexterm>
+<indexterm><primary>depuración</primary><secondary>bases de
+datos DNS</secondary></indexterm> Tras la puesta en marcha del
+servidor, normalmente habrá que probarla. Algunas utilidades facilitan
+la vida para esto. Una de ellas es <command>dnswalk</command>, que
+está basada en Perl. La segunda es <command>nslint</command>. Ambas
+recorren la base de datos DNS buscando errores habituales y
+verificando que la información que encuentran es consistente. Otras
+dos utilidades interesantes son <command>host</command> y
+<command>dig</command>, que vienen con el paquete BIND y pueden usarse
+para una inspección manual del las bases de datos.
+</para>
+
+<para>
+Estas utilidades suelen venir empaquetadas.
+<command>dnswalk</command> y <command>nslint</command> están
+disponibles en fuentes en <systemitem
+role="url">http://www.visi.com/~barr/dnswalk/</systemitem> y
+<systemitem
+role="url">ftp://ftp.ee.lbl.gov/nslint.tar.Z</systemitem>. En cuanto a
+<command>host</command> y <command>dig</command>, el código fuente se
+encuentra en <systemitem
+role="url">ftp://ftp.nikhef.nl/pub/network/</systemitem> y
+<systemitem
+role="url">ftp://ftp.is.co.za/networking/ip/dns/dig/</systemitem>.
+</para>
+
+<para>
+<INDEXTERM startref="chdn.hostname.resolution" class=endofrange>
+<INDEXTERM startref="idx-configuringname-server-1" class=endofrange>
+<INDEXTERM startref="idx-name-serverconfiguring-1" class=endofrange>
+<INDEXTERM startref="idx-DNSconfiguringserver-1" class=endofrange>
+<INDEXTERM startref="idx-BIND-1" class=endofrange>
+<INDEXTERM startref="idx-commandnamedcommand-1" class=endofrange>
+<INDEXTERM startref="idx-configuringhostnameres" class=endofrange>
+<INDEXTERM startref="chdn.sve.config" class=endofrange>
+
+</para>
+
+</sect2>
+
+</sect1>
+
+</chapter>
+

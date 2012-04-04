@@ -1,0 +1,356 @@
+<!--
+$Header: /home/cvs/lucas/doc-postgresql-es/v7/src/sgml/geqo.sgml,v 1.3 2002/04/27 22:48:32 emaldonadog Exp $
+Genetic Optimizer
+-->
+
+ <chapter id="geqo">
+  <docinfo>
+   <author>
+    <firstname>Martin</firstname>
+    <surname>Utesch</surname>
+    <affiliation>
+     <orgname>
+      University of Mining and Technology
+     </orgname>
+     <orgdiv>
+      Institute of Automatic Control
+     </orgdiv>
+     <address>
+      <city>
+       Freiberg
+      </city>
+      <country>
+       Germany
+      </country>
+     </address>
+    </affiliation>
+   </author>
+   <date>1997-10-02</date>
+  </docinfo>
+
+  <title>Optimización Genética de Consultas</title>
+
+  <para>
+   <note>
+    <title>Author</title>
+    <para>
+     Escrito por Martin Utesch (<email>utesch@aut.tu-freiberg.de</email>)
+     del Instituto de Control Automático de la Universidad de Minería y 
+		 Tecnología en Freiberg, Alemania.
+    </para>
+   </note>
+  </para>
+
+  <sect1 id="geqo-intro">
+   <title>La creación de consultas como un problemas complejo de optimización</title>
+
+   <para>
+    Entre todos los operadores relacionales, el más difícil de procesar y
+    optimizar es <firstterm>join</firstterm> (unión). El número de vías 
+		alternativas para responder a una consulta crece exponencialmente con el
+		número de <command>join</command>s incluidos en ella. El más importante
+		esfuerzo de optimización se debe a tener que soportar una variedad de
+    <firstterm>métodos de unión</firstterm>
+    (p.ej., bucle anidado, exploración de índice, fusión de unión en 
+		<productname>Postgres</productname>) para procesar uniones individuales
+		y una variedad de <firstterm>índices</firstterm> (p.ej:, r-tree,
+    b-tree, hash en <productname>Postgres</productname>) como camino de 
+		acceso para las relaciones.
+   </para>
+
+   <para>
+		La implementación actual del optimizador de 
+		<productname>Postgres</productname> realiza una
+    <firstterm>búsqueda casi exhaustiva</firstterm> en el ámbito de las
+		estrategias alternativas. Esta técnica de optimización de consultas es
+		inadecuada para soportar aplicaciones de base de datos que realicen
+		consultas extensivas, tales como la inteligencia artificial.
+   </para>
+
+   <para>
+		El Instituto de Control Automático de la Universidad de Minería y 
+		Tecnonogía de Freiberg, Alemania, encontró los problemas descritos
+		cuando quiso utilizar <productname>Postgres</productname> como backend
+		de sistema de decisión basado en el conocimiento para el mantenimiento
+		de una planta de energía eléctrica. El DBMS necesitaba soportar grandes
+		consultas con <command>join</command> para el motor de inferencia del
+		sistema basado en el conocimiento.
+   </para>
+
+   <para>
+		Los problemas de rendimiento al explorar el ámbito de las posibles vias
+		de consulta crearon la demanda de una nueva técnica de optimización que
+		se ha desarrollado.
+   </para>
+
+   <para>
+		A continuación, proponemos la implementación de un 
+		<firstterm>Algoritmo Genético</firstterm> como posible solución al
+		problema de la optimización de consultas a bases de datos.
+   </para>
+  </sect1>
+
+  <sect1 id="geqo-intro2">
+   <title>Algoritmos Genéticos (<acronym>AG</acronym>)</title>
+
+   <para>
+    <acronym>AG</acronym> es un método de optimización heurístico que opera
+		mediante búsqueda determinada y aleatoria. El conjunto de posibles
+		soluciones se considera como una
+    <firstterm>población</firstterm> de <firstterm>individuos</firstterm>.
+		El grado de adaptación de un individuo a su entorno se determina por su
+    <firstterm>adaptabilidad</firstterm>.
+   </para>
+
+   <para>
+		Las coordenadas de un individuo en el ámbito de búsqueda se representan
+		por <firstterm>cromosomas</firstterm>, en esencia un conjunto de cadenas
+		de caracteres. Un <firstterm>gen</firstterm> es una subsección de un
+		cromosoma que codifica el valor de un único parámetro que ha de ser 
+		optimizado. Las codificaciones típicas para un gen podrían ser
+    <firstterm>binarias</firstterm> o <firstterm>enteras</firstterm>.
+   </para>
+
+   <para>
+		Durante la simulación de operaciones evolutivas de
+		<firstterm>recombinación</firstterm>, <firstterm>mutación</firstterm>,
+		y <firstterm>selección</firstterm> aparecen nuevas generaciones de puntos
+		de búsqueda que muestran una media de adaptabilidad superior a sus 
+		ancentros.
+   </para>
+
+   <para>
+		Según la <acronym>FAQ</acronym> de "comp.ai.genetic" no se puede enfatizar
+		más claramente que un <acronym>AG</acronym> no es una búsqueda puramente
+		aleatoria de una solución al problema. Un <acronym>AG</acronym> utiliza
+		procesos estocásticos, pero la solución es claramente no aleatoria (mejor
+		que aleatoria).
+
+    <programlisting>
+Diagrama estructurado de un <acronym>AG</acronym>:
+---------------------------
+
+P(t)    generación de antecesores en el instante t
+P''(t)  generación de descencientes en el instante t
+
++=========================================+
+|>>>>>>>>>>>  Algoritmo AG  <<<<<<<<<<<<<<|
++=========================================+
+| INICIALIZA t := 0                       |
++=========================================+
+| INICIALIZA P(t)                         |
++=========================================+
+| comprueba ADAPTABILIDAD de P(t)         |
++=========================================+
+| mientras no CONDICIONES DE PARADA haz   |
+|   +-------------------------------------+
+|   | P'(t)  := RECOMBINACIÓN{P(t)}       |
+|   +-------------------------------------+
+|   | P''(t) := MUTACIÓN{P'(t)}           |
+|   +-------------------------------------+
+|   | P(t+1) := SELECCIÓN{P''(t) + P(t)}  |
+|   +-------------------------------------+
+|   | comprueba ADAPTABILIDAD de P''(t)   |
+|   +-------------------------------------+
+|   | t := t + 1                          |
++===+=====================================+
+    </programlisting>
+   </para>
+  </sect1>
+
+  <sect1 id="geqo-pg-intro">
+   <title>Optimización Genética de Consultas (<acronym>GEQO</acronym>) en 
+	 Postgres</title>
+
+   <para>
+    El módulo <acronym>GEQO</acronym> está previsto para solucionar el problema
+		de optimización de consultas similar al problema del viajante
+		(<acronym>PV</acronym>). Los posibles planes de consulta se codifican
+		como cadenas de enteros. Cada cadena representa el orden del
+		<command>join</command> de una relación de la consulta a la siguiente.
+    P.ej., el árbol de la consulta
+    <programlisting>
+   /\
+  /\ 2
+ /\ 3
+4  1
+    </programlisting>
+		se codifica como la cadena de enteros '4-1-3-2', lo que significa, primera
+		relación de unión '4' y '1', después '3' y después '2', donde 1, 2, 3 y 4
+		son 'relids' dentro del optimizador de <productname>Postgres</productname>.
+   </para>
+
+   <para>
+    Partes del módulo de <acronym>GEQO</acronym> están adaptadas del algoritmo
+		Genitor de D. Whitley.
+   </para>
+
+   <para>
+		Las características específicas de la implementación de 
+		<acronym>GEQO</acronym> en <productname>Postgres</productname> son:
+
+    <itemizedlist spacing="compact" mark="bullet">
+     <listitem>
+      <para>
+			 El uso de un <acronym>AG</acronym> en <firstterm>estado 
+			 constante</firstterm> (reemplazo de los individuos menos adaptados de
+			 la población, no reemplazo total de la generación), permite
+			 converger rápidamente hacia planes planes mejorados de consulta. Esto
+			 es esencial para el manejo de la consulta en un tiempo razonable.
+      </para>
+     </listitem>
+
+     <listitem>
+      <para>
+       El uso de <firstterm>cruce de recombinación limitada</firstterm>, que
+			 está especialmente adaptado para quedarse con el límite menor de
+			 pérdidas para la solución del <acronym>TSP</acronym> por medio
+			 de un <acronym>AG</acronym>;
+      </para>
+     </listitem>
+
+     <listitem>
+      <para>
+			 La mutación como operador genético está desaconsejada por lo que no
+			 se necesitan mecanismos de reparación para generar viajes legales en
+			 el <acronym>PV</acronym>.
+      </para>
+     </listitem>
+    </itemizedlist>
+   </para>
+
+   <para>
+    El módulo <acronym>GEQO</acronym> permite al optimizador de consultas de
+    <productname>Postgres</productname> soportar grandes consultas con
+    <command>join</command> con efectividad mediante búsqueda no exhaustiva.
+   </para>
+
+  <sect2 id="geqo-future">
+   <title>Tareas Futuras de Implementación para el <acronym>GEQO</acronym>
+    de <productname>PostgreSQL</></title>
+
+     <para>
+			Se necesita todavía trabajar en la mejora de ajustes de los parámetros
+			del algoritmo genético.
+      En el fichero <filename>backend/optimizer/geqo/geqo_params.c</filename>, 
+			en las rutinas <function>gimme_pool_size</function> y 
+			<function>gimme_number_generations</function>, se necesita encontrar un
+			compromiso para ajustar los parámetros en dos demandas que compiten:
+      <itemizedlist spacing="compact">
+       <listitem>
+	<para>
+	 Optimización del plan de consulta
+	</para>
+       </listitem>
+       <listitem>
+	<para>
+	 Tiempo de computación
+	</para>
+       </listitem>
+      </itemizedlist>
+     </para>
+
+   </sect2>
+
+   <bibliography id="geqo-biblio">
+    <title>
+     Referencias
+    </title>
+    <para>Información de referencia para los algoritmos <acronym>GEQO</acronym>.
+    </para>
+    <biblioentry>
+
+     <bookbiblio>
+      <title>
+       The Hitch-Hiker's Guide to Evolutionary Computation
+      </title>
+      <authorgroup>
+       <author>
+	<firstname>J&ouml;rg</firstname>
+	<surname>Heitk&ouml;tter</surname>
+       </author>
+       <author>
+	<firstname>David</firstname>
+	<surname>Beasley</surname>
+       </author>
+      </authorgroup>
+      <publisher>
+       <publishername>
+	Recurso en internet
+       </publishername>
+      </publisher>
+      <abstract>
+       <para>
+	La FAQ de <ulink url="news://comp.ai.genetic">comp.ai.genetic</ulink>
+	disponible en <ulink
+	 url="ftp://ftp.Germany.EU.net/pub/research/softcomp/EC/Welcome.html">Encore</ulink>.
+       </para>
+      </abstract>
+     </bookbiblio>
+
+     <bookbiblio>
+      <title>
+       The Design and Implementation of the Postgres Query Optimizer
+      </title>
+      <authorgroup>
+       <author>
+	<firstname>Z.</firstname>
+	<surname>Fong</surname>
+       </author>
+      </authorgroup>
+      <publisher>
+       <publishername>
+	University of California, Berkeley Computer Science Department
+       </publishername>
+      </publisher>
+      <abstract>
+       <para>
+	El archivo <filename>planner/Report.ps</filename> en la distribución de
+	documentación de Postgres.
+       </para>
+      </abstract>
+     </bookbiblio>
+
+     <bookbiblio>
+      <title>
+       Fundamentals of Database Systems
+      </title>
+      <authorgroup>
+       <author>
+	<firstname>R.</firstname>
+	<surname>Elmasri</surname>
+       </author>
+       <author>
+	<firstname>S.</firstname>
+	<surname>Navathe</surname>
+       </author>
+      </authorgroup>
+      <publisher>
+       <publishername>
+	The Benjamin/Cummings Pub., Inc.
+       </publishername>
+      </publisher>
+     </bookbiblio>
+
+    </biblioentry>
+   </bibliography>
+
+  </sect1>
+ </chapter>
+
+<!-- Keep this comment at the end of the file
+Local variables:
+mode:sgml
+sgml-omittag:nil
+sgml-shorttag:t
+sgml-minimize-attributes:nil
+sgml-always-quote-attributes:t
+sgml-indent-step:1
+sgml-indent-data:t
+sgml-parent-document:nil
+sgml-default-dtd-file:"./reference.ced"
+sgml-exposed-tags:nil
+sgml-local-catalogs:("/usr/lib/sgml/catalog")
+sgml-local-ecat-files:nil
+End:
+-->

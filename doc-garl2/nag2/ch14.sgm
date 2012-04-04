@@ -1,0 +1,713 @@
+<!-- $Id: ch14.sgm,v 1.6 2002/09/28 02:41:19 pakojavi2000 Exp $ -->  
+<!--
+Nota legal:
+
+   Linux Network Administration Guide, por Olaf Kirch et al.
+
+   La traducción al español se publica bajo la licencia GFDL,
+siendo texto de portada el siguiente:
+
+Linux Network Administrator's Guide
+by Olaf Kirch and Terry Dawson
+Copyright  (c) 1993 Olaf Kirch
+Copyright  (c) 2000 Terry Dawson
+Copyright on O'Reilly printed version (c) 2000 O'Reilly & Associates
+
+y siendo secciones invariantes, la sección de Agradecimientos,
+la sección titulada «La traducción al español», el apéndice C; así
+como esta nota.
+
+Capítulo traducido por:
+
+Luis Jäeger, ljaeger@paidforsurf.com
+Eduardo Hernández, edu@est.unileon.es
+
+Revisión 1 por Francisco Javier Fernández 1 septiembre 2002
+Revisión 2 por Francisco javier Fernández 28 de septiembre de 2002
+-->
+<chapter id="X-087-2-nfs"><title>El Sistema de Ficheros<?lb>de Red</title>  
+<indexterm><primary>compartición de ficheros</primary></indexterm>  
+<indexterm><primary>remoto</primary><secondary>acceso a ficheros</secondary></indexterm>  
+<indexterm id="idx-NFS-1" class="startofrange"><primary>NFS (Network File System)</primary></indexterm>  
+  
+<para>  
+El Sistema de Ficheros de Red (NFS, por sus siglas en inglés) 
+es probablemente el servicio de red más prominente que usa RPC. 
+Permite acceder a ficheros en anfitriones remotos exactamente en la 
+misma manera que se accedería si fueran locales. Una mezcla de soporte
+en el núcleo y demonios en espacio de usuario en el lado 
+del cliente, junto con un servidor NFS en el lado del servidor, hace esto 
+posible. Este acceso a los ficheros es completamente transparente 
+al cliente y funciona con varias clases de servidores y arquitecturas 
+anfitrionas.  
+</para>  
+  
+<para>  
+NFS ofrece varias características útiles:  
+  
+<itemizedlist>  
+<listitem><para>  
+Los datos accedidos por todos los usuarios pueden mantenerse en un anfitrión 
+central, con los clientes montando este directorio en tiempo de arranque. Por ejemplo, 
+se puede mantener todas la cuentas de usuario en un anfitrión y hacer que 
+todos los anfitriones de la red monten el directorio <filename>/home</filename> 
+desde ese anfitrión. Si se instala NFS junto a NIS, los usuarios pueden entrar 
+en cualquier sistema y trabajar en un conjunto de ficheros.  
+</para></listitem>  
+  
+<listitem><para>  
+La información que consume grandes cantidades de disco puede mantenerse en un 
+único anfitrión. Por ejemplo, todos los ficheros y programas relativos a LaTeX y 
+METAFONT pueden  almacenarse y mantenerse en un lugar...
+</para></listitem>  
+  
+<listitem><para>  
+Los datos administrativos pueden almacenarse en un único anfitrión. No hay necesidad 
+de  usar <command>rcp</command> para instalar el mismo fichero estúpido
+en 20 máquinas diferentes.</para></listitem>  
+</itemizedlist>  
+</para>  
+  
+<para>  
+No es demasiado difícil preparar el funcionamiento básico de NFS en el cliente y  
+el servidor; este capítulo le dice cómo.  
+</para>  
+  
+<para>  
+Linux NFS es principalmente obra de Rick Sladkey, quien escribió el código 
+del núcleo de NFS y gran parte del servidor de NFS.<footnote id="X-087-2-FNNF01"><para>  
+Puede contactar a Rick en <systemitem role="emailaddr">jrs@world.std.com</systemitem>.  
+</para>  
+</footnote> Lo último se deriva del servidor NFS de espacio de usuario <emphasis role="bold">unfsd </emphasis>, originalmente escrito por Mark Shand, y el servidor NFS Harris <emphasis role="bold">hnfs</emphasis>, escrito por Donald Becker.  
+  
+</para>  
+  
+<para>  
+<indexterm><primary>NFS (Network File System)</primary><secondary>montando volúmenes en</secondary></indexterm>  
+Echemos un vistazo a cómo funciona NFS. Primero, un cliente intenta montar 
+un directorio de un anfitrión remoto en un directorio local justo de la misma 
+manera que si fuese un dispositivo físico.  Sin embargo, la sintaxis 
+usada para especificar el directorio remoto es diferente. Por ejemplo, 
+para montar <filename>/home</filename> desde el anfitrión 
+<systemitem role="sitename">vlager</systemitem> en 
+<filename>/users</filename> en <systemitem role="sitename">vale</systemitem>, 
+el administrador escribe la  siguiente orden en 
+<systemitem role="sitename">vale</systemitem>:<footnote id="X-087-2-FNNF02"><para>
+Actualmente, usted puede omitir el argumento <literal>&ndash;t nfs</literal> porque 
+la orden <command>mount</command> interpreta por los dos puntos que esto especifica 
+un volumen NFS. 
+</para>  
+</footnote>  
+  
+<screen>  
+# <userinput>mount -t nfs vlager:/home /users</userinput>  
+</screen>  
+</para>  
+  
+<para>  
+<indexterm><primary>mount, orden</primary></indexterm>   
+<command>mount</command> tratará de conectar con el demonio remoto sobre 
+<command>rpc.mountd</command> de <systemitem role="sitename">vlager</systemitem> vía RPC. 
+El servidor verificará si <systemitem role="sitename">vale</systemitem> tiene permiso 
+para montar el directorio en cuestión, en cuyo caso, devuelve un descriptor de fichero. 
+Este descriptor será usado en todas las peticiones subsecuentes que se hagan sobre los 
+ficheros bajo <filename>/users</filename>.  
+</para>  
+  
+<para>  
+<indexterm><primary>servidores</primary><secondary>rpc.nfsd demonio</secondary></indexterm>  
+<indexterm><primary>servidores</primary><secondary>nfsd demonio</secondary></indexterm>  
+<indexterm><primary>rpc.nfsd demonio</primary></indexterm>  
+<indexterm><primary>nfsd demonio</primary></indexterm>  
+Cuando alguien accede a un fichero sobre NFS, el núcleo manda una llamada de RPC  
+a <command>rpc.nfsd</command> (el demonio de NFS) en la máquina servidor. Esta 
+llamada toma el descriptor de fichero, el nombre del fichero a acceder y los 
+identificadores de usuario y grupo del usuario como parámetros. Éstos se usan 
+en la determinación de los derechos de acceso al fichero especificado. Para prevenir 
+que usuarios no autorizados lean o modifiquen ficheros, los identificadores de usuario 
+y grupo deben ser iguales en ambos anfitriones...  
+</para>  
+  
+<para>  
+En la mayoría de las implementaciones de  Unix, la funcionalidad NFS de cliente y servidor
+se implementan como demonios a nivel de núcleo que arrancan desde el espacio de usuario al 
+arrancar la máquina. Éstos son los <emphasis>Demonios NFS</emphasis>   
+(<command>rpc.nfsd</command>&thinsp;) en el anfitrión servidor, y <emphasis>Block I/O Daemon</emphasis>  
+(<command>biod</command>&thinsp;) en el anfitrión cliente. Para mejorar el rendimiento, 
+<command>biod </command> realiza la E/S usando prelectura y postescritura asíncrona; también, 
+varios demonios <command>rpc.nfsd </command> usualmente se ejecutan concurrentemente.  
+</para>  
+  
+<para>  
+<INDEXTERM><PRIMARY>Kirch, Olaf</PRIMARY></INDEXTERM>  
+<INDEXTERM><PRIMARY>2.2 núcleos</PRIMARY><SECONDARY>soporte como servidor NFS</SECONDARY></INDEXTERM>  
+La implementación actual de NFS de Linux es un poco diferente del NFS clásico en la que el código 
+de servidor se ejecuta enteramente en espacio de usuario, así que ejecutar múltiples copias 
+simultáneamente es más complicado. La implementación actual de<command>rpc.nfsd </command> ofrece 
+una característica experimental que permite soporte limitado para múltiples servidores. Olaf Kirch 
+desarrolló el soporte para servidor NFS basado en el núcleo ofrecido en la versión 2.2 del núcleo 
+de Linux. Su desempeño es significativamente mejor que la de la implementación en el entorno de 
+usuario existente. Lo describiremos más adelante en este capítulo.  
+</para>  
+  
+<sect1 id="X-087-2-nfs.nfsd"><title>Preparando  NFS</title>  
+  
+<para>  
+<indexterm><primary sortas="proc/filesystems file">/proc/filesystems fichero</primary></indexterm>  
+Antes que pueda usar NFS, sea como servidor o cliente, debe asegurarse de que su núcleo 
+tenga incluido el soporte de NFS compilado. Los núcleos más nuevos  tienen una interfaz simple en 
+el sistema de ficheros <filename>proc</filename> para esto, el fichero 
+<filename>/proc/filesystems</filename>, el cual puede visualizar usando la orden <command>cat</command>:  
+  
+<screen>  
+$ <userinput>cat /proc/filesystems</userinput>  
+	minix  
+	ext2  
+	msdos  
+nodev	proc  
+nodev	nfs  
+</screen>  
+</para>  
+  
+<para>  
+Si falta la palabra <systemitem role="keyword">nfs</systemitem> en esta lista, tendrá que compilar
+su propio núcleo con NFS habilitado, o quizás necesitará cargar el módulo del núcleo si su soporte de 
+NFS fue compilado como un módulo.  Las opciones de configuración en red del núcleo se explican en la 
+sección &ldquo;Configuración del Núcleo&rdquo; <xref linkend="X-087-2-hardware">.  
+</para>  
+  
+</sect1>  
+  
+<sect1 id="X-087-2-nfs.mountd"><title>Montando un Volumen NFS</title>  
+<para>  
+<indexterm><primary>remoto</primary><secondary>sistema de ficheros</secondary></indexterm>  
+<indexterm><primary>montando</primary><secondary>un volumen NFS</secondary></indexterm>  
+<indexterm><primary>acceso</primary><secondary>a ficheros remotos</secondary></indexterm>  
+<indexterm><primary>NFS (Network File System)</primary><secondary>montando el volumen</secondary></indexterm>  
+El montaje de volúmenes NFS se parece mucho al de los sistemas de ficheros comunes. Invoque 
+<command>mount</command> usando la siguiente sintaxis:<footnote id="X-087-2-FNNF05"><para>
+No se dice sistema de ficheros porque no son propiamente sistemas de ficheros.
+</para>
+</footnote>
+
+<screen>  
+# <userinput>mount -t nfs</userinput> <replaceable>nfs_volume local_dir options</replaceable>   
+</screen>  
+</para>  
+  
+<para>  
+<replaceable>nfs_volume</replaceable> se da como  
+<replaceable>remote_host</replaceable>:<replaceable>remote_dir</replaceable>.  
+Dado que esta notación es sólo para NFS, se puede omitir la opción <option>&ndash;t nfs</option>.  
+</para>  
+  
+<para>  
+<indexterm><primary sortas="etc/fstab file">/etc/fstab fichero</primary></indexterm>  
+Hay varias opciones adicionales que se puede especificar para la orden   
+<command>mount</command> al montar un volumen de NFS. Éstas pueden ser  
+dadas siguiendo al modificador <option>&ndash;o </option> en la línea 
+de órdenes o en el campo de opciones de entrada para el volumen en el 
+fichero <filename>/etc/fstab</filename>. En ambos casos las múltiples 
+opciones son separadas por comas y no pueden contener espacios en blanco. 
+Las opciones especificadas en la línea de órdenes siempre tienen preferencia 
+sobre las que estén contenidas en el fichero <filename>fstab</filename>.  
+</para>  
+  
+<para>  
+Aquí hay un ejemplo de entrada del fichero <filename>/etc/fstab</filename>&thinsp;:  
+  
+<screen>  
+# volumen              punto de montaje   tipo  opciones  
+news:/var/spool/news  /var/spool/news     nfs   timeo=14,intr  
+</screen>  
+</para>  
+  
+<para>  
+Este volumen puede ser montado usando esta orden:  
+  
+<screen>  
+# <userinput>mount news:/var/spool/news</userinput>  
+</screen>  
+</para>  
+  
+<para>  
+En ausencia de una entrada en <filename>fstab</filename>, las llamadas a <command>mount</command> 
+parecen muy feas. Por ejemplo, suponga que monta su directorio inicial de usuario desde una 
+máquina llamada <systemitem role="sitename">moonshot</systemitem>, la cual usa un tamaño de bloque 
+de 4 K para las operaciones de lectura/escritura.  tendría que incrementar el tamaño del bloque 
+a 8 K para obtener un mejor rendimiento escribiendo la orden:  
+  
+<screen>  
+# <userinput>mount moonshot:/home /home -o rsize=8192,wsize=8192</userinput>  
+</screen>  
+</para>  
+  
+<para>  
+<indexterm><primary>NFS (Network File System)</primary><secondary>restringiendo el tamaño de bloque</secondary></indexterm>  
+La lista de todas las opciones válidas se describe completamente en la página 
+de ayuda <filename>nfs(5)</filename> del manual. La siguiente es una lista 
+parcial de opciones que  probalemente querría usar:  
+  
+<variablelist>  
+<varlistentry><term><emphasis>rsize=n</emphasis> y <emphasis>wsize=n</emphasis></term>  
+<listitem><para>  
+Especifican el tamaño de datagrama usado por los clientes de NFS en las 
+peticiones de lectura y escritura respectivamente. El tamaño predeterminado depende 
+de la versión del núcleo, pero normalmente es de 1.024 bytes.  
+</para>  
+</listitem>  
+</varlistentry>  
+  
+<varlistentry><term><emphasis>timeo=n</emphasis></term>  
+<listitem><para>  
+Establece el tiempo (en décimas de segundo) que el cliente de NFS esperará por 
+la respuesta a una petición.  El valor predefinido es 7 (0.7 segundos). Lo que 
+pase después depende de si  usa la opción <emphasis>hard </emphasis> o   
+<emphasis>soft</emphasis>.  
+</para>  
+</listitem>  
+</varlistentry>  
+  
+<varlistentry><term><emphasis>hard</emphasis></term>  
+<listitem><para>  
+Explícitamente marca este volumen como montado físicamente. Es el valor predeterminado.  
+Esta opción hace que el servidor muestr por la consola un mensaje cuando expoira el tiempo de operación y continúa indefinidamente.  
+</para>  
+</listitem>  
+</varlistentry>  
+  
+<varlistentry><term><emphasis>soft</emphasis></term>  
+<listitem><para>  
+Monta lógicamente (como opuesto al montaje físico) el controlador. Esta opción causa  
+un error de E/S a ser informado al proceso que intenta poner en funcionamiento un 
+fichero cuando expira el tiempo de operación.  
+</para>  
+</listitem>  
+</varlistentry>  
+  
+<varlistentry><term><emphasis>intr</emphasis></term>  
+<listitem><para>  
+Permite una señal para interrumpir una llamada a NFS. Es útil  parar abortar cuando el  
+el servidor no responde.  
+</para>  
+</listitem>  
+</varlistentry>  
+</variablelist>  
+</para>  
+  
+<para>  
+Salvo para <emphasis>rsize</emphasis> y <emphasis>wsize</emphasis>, todas estas opciones  
+se aplican a la conducta del cliente en caso de que el servidor se vuelva temporalmente  
+inaccesible. Funcionan juntos de la manera siguiente: Cuando el cliente envía una petición 
+al servidor NFS, espera que la operación finalice tras un intervalo dado de tiempo (especificado 
+en la opción <emphasis>timeout </emphasis>). Si no se recibe confirmación dentro de este tiempo, 
+ocurre una  <emphasis>expiración menor</emphasis><footnote><para>minor timeout</para></footnote>, y la operación 
+se reintenta con el tiempo de expiración duplicado. Después de un tiempo de 
+expiración máximo de 60 segundos ocurre una <emphasis>expiración mayor</emphasis><footnote><para>major timeout</para></footnote>.  
+</para>  
+  
+<para>  
+<indexterm><primary>NFS (Network File System)</primary><secondary>montaje fuerte frente a montaje débil</secondary></indexterm>  
+<indexterm><primary>NFS (Network File System)</primary><secondary>expiración</secondary></indexterm>  
+Por omisión, una expiración mayor causa  que el cliente envíe un mensaje a la 
+consola y comience de nuevo, esta vez con un tiempo de expiración inicial doble que
+la cascada anterior. Potencialmente, esto podría continuar para siempre. Los volúmenes que
+obstinadamente reintentan el funcionamiento hasta que el servidor esté nuevamente 
+disponible se llaman <emphasis>de montaje fuerte</emphasis>. La variedad opuesta, 
+llamada <emphasis>de montaje débil</emphasis>, genera un error de E/S para el proceso 
+que llama siempre que expire el tiempo de conexión. Debido a la post-escritura
+<footnote><para>write-behind</para></footnote> introducida desde la caché del búfer, esta 
+condición de error no se propaga hacia el proceso mismo antes de que éste llame a la 
+función <function>write</function> la próxima vez, así que un programa nunca puede estar seguro de que 
+una operación de escritura sobre un volumen montado débilmente se ha completado del todo.  
+</para>  
+  
+<para>  
+El montar fuerte o débilmente un volumen depende parcialmente 
+de su gusto, pero también del tipo de información al que quiere 
+acceder desde un volumen. Por ejemplo, si  monta sus programas X 
+por NFS,  ciertamente no querría que su sesión X enloquezca tan sólo 
+porque alguien llevó la red al colapso lanzando siete copias de DOOM 
+al mismo tiempo o desenchufando el conector Ethernet por un momento. 
+Mediante el montaje físico del directorio que contiene estos programas,  puede
+asegurarse que su computadora espera hasta que pueda restablecer el contacto 
+con su servidor NFS. Por otro lado, los datos no-críticos como las 
+particiones de las noticias montadas sobre NFS o ficheros de FTP también 
+pueden ser montadas débilmente, así si la máquina remota está temporalmente 
+inaccesible o apagada, no cuelga su sesión. Si su conexión de la red al servidor 
+es dificultosa o pasa por un encaminador muy cargado, puede en cualquier caso 
+aumentar el tiempo de expiración inicial usando la opción <emphasis>timeo</emphasis> 
+o montar fuertemente los volúmenes. Los volúmenes NFS son 
+montados fuertemente por omisión.</para>  
+    
+<para>  
+El montaje fuerte presenta un problema porque por omisión  las operaciones con los
+ficheros no son interrumpibles. Así, si un proceso intenta, por ejemplo, una escritura en 
+un servidor remoto y ese servidor es inalcanzable, la aplicación del usuario 
+se cuelga y el usuario no puede hacer nada para abortar la operación. Si  
+usa la opción <emphasis>intr</emphasis> junto con un montaje fuerte, cualquier señal
+recibida por el proceso interrumpe la llamada NFS para que así los usuarios 
+puedan todavía abortar los accesos a los ficheros colgados y continuar el trabajo 
+(aunque sin guardar el fichero).  
+</para>  
+  
+<para>  
+Usualmente, el demonio <command>rpc.mountd</command> de una manera u otra   
+rastrea qué directorios han sido montados por qué anfitrioness. Esta información 
+puede mostrarse usando la orden <command>showmount</command> que 
+también está incluida en el paquete del servidor NFS.  
+  
+<screen>  
+# <userinput>showmount -e moonshot</userinput>  
+Lista de exportación para el anfitrión local:  
+/home &lt;anon clnt>  
+  
+# <userinput>showmount -d moonshot</userinput>  
+Directorios en el anfitrión local:  
+/home  
+  
+# <userinput>showmount -a moonshot</userinput>  
+Todos los puntos de montaje para el anfitrión local:  
+localhost:/home  
+</screen>  
+</para>  
+  
+</sect1>  
+  
+<sect1 id="X-087-2-nfs.daemons"><title>Los Demonios NFS </title>  
+<para>  
+<indexterm><primary>NFS (Network File System)</primary><secondary>demonios</secondary></indexterm>  
+<indexterm><primary>rpc.mountd demonios</primary></indexterm>  
+<indexterm><primary>rpc.nfsd demonios</primary></indexterm>  
+Si  quiere dar servicio de NFS a otros anfitriones, debe ejecutar los demonios   
+<command>rpc.nfsd</command> y <command>rpc.mountd</command> en su máquina. Como los programas basados 
+en RPC, no son gestionados por <command>inetd</command>, sino  que son iniciados en tiempo de 
+arranque y se registran a sí mismos con el mapeador de puertos; por consiguiente,  tiene que 
+asegurarse de arrancarlos sólo después que <command>rpc.portmap</command> se esté ejecutando. 
+Normalmente, usaría algo como el ejemplo siguiente en uno de sus guiones de arranque de red:  
+  
+<screen>  
+if [ -x /usr/sbin/rpc.mountd ]; then  
+        /usr/sbin/rpc.mountd; echo -n " mountd"  
+fi  
+if [ -x /usr/sbin/rpc.nfsd ]; then  
+        /usr/sbin/rpc.nfsd; echo -n " nfsd"  
+fi  
+</screen>  
+</para>  
+  
+<para>  
+<indexterm><primary>NFS (Network File System)</primary><secondary>coincidencias de uids y gids</secondary></indexterm>  
+La información de propiedad de los ficheros que un demonio de NFS 
+proporciona a sus clientes usualmente contiene sólo identificadores 
+numéricos de usuario y de grupo. Si tanto cliente como servidor 
+asocian los mismos nombres de usuario y grupo con esos identificadores 
+numéricos, se dice que éstos comparten el espacio uid/gid . Por ejemplo, 
+éste es el caso cuando  usa NIS para distribuir la información 
+<filename>passwd</filename> a todos los anfitriones de su red de área local.</para>  
+  
+<para>  
+Sin embargo, en algunas ocasiones, los IDs en los diferentes anfitriones no 
+coinciden. En lugar actualizar los uids y gids del cliente para que  coincidan con los 
+que hay en el servidor, puede usar el demonio mapeador <command>rpc.ugidd</command> para
+solucionar las disparidades. Usando la opción <emphasis>map_daemon</emphasis> 
+explicada poco más adelante, puede mandar a <command>rpc.nfsd</command> 
+que mapee  el espacio uid/gid del servidor al espacio uid/gid del cliente 
+con la ayuda de <command>rpc.ugidd</command> en el cliente. 
+Desafortunadamente el demonio <command>rpc.ugidd</command> no es 
+suministrado con todas las distribuciones modernas de GNU/Linux, así si  
+lo necesita y la suya no lo tiene, necesitará compilarlo a partir de las fuentes.</para>  
+  
+<para>  
+<command>rpc.ugidd</command> Es un servidor basado en RPC que se inicia
+desde sus guiones de arranque de la red, como <command>rpc.nfsd</command> y  
+<command>rpc.mountd</command>:  
+</para>  
+  
+<screen>  
+if [ -x /usr/sbin/rpc.ugidd ]; then  
+        /usr/sbin/rpc.ugidd; echo -n " ugidd"  
+fi  
+</screen>  
+  
+</sect1>  
+  
+<sect1 id="X-087-2-nfs.exports"><title>El Fichero exports</title>  
+<para>  
+<indexterm><primary>NFS (Network File System)</primary><secondary>exportación de un volumen</secondary></indexterm>  
+<indexterm><primary>NFS (Network File System)</primary><secondary>exports, fichero</secondary></indexterm>  
+<indexterm><primary>aceso</primary><secondary>granting</secondary></indexterm>  
+<indexterm><primary>mountd, demonio</primary></indexterm>  
+<indexterm><primary>exports, fichero</primary></indexterm>  
+<indexterm><primary sortas="etc/exports file">/etc/exports, fichero</primary></indexterm>   
+Ahora veremos cómo configurar el servidor NFS. Específicamente, veremos cómo 
+decirle al servidor NFS qué sistemas de ficheros deben ponerse disponibles 
+para el montaje y  varios parámetros que controlan el acceso que tienen los 
+clientes al sistema de ficheros. El servidor determina el tipo de 
+acceso que se permite a los ficheros del servidor. El fichero 
+<filename>/etc/exports</filename> lista los sistemas de ficheros que el servidor 
+permitirá a los clientes montar y usar.  
+</para>  
+  
+<para>  
+Por omisión, <command>rpc.mountd </command> desaprueba el montaje de todos los directorios,  
+lo cual es una actitud bastante sensata. Si  desea permitir a uno o más anfitriones
+montar un directorio de NFS,  debe <emphasis>exportarlo</emphasis> es decir,  
+especificarlo en el fichero <filename>exports</filename>. Un ejemplo del fichero puede parecer como éste:  
+  
+<screen>  
+# exports file for vlager  
+/home             vale(rw) vstout(rw) vlight(rw)  
+/usr/X11R6        vale(ro) vstout(ro) vlight(ro)  
+/usr/TeX          vale(ro) vstout(ro) vlight(ro)  
+/                 vale(rw,no_root_squash)  
+/home/ftp         (ro)  
+</screen>  
+</para>  
+  
+<para>  
+Cada línea define un directorio y los anfitriones a los que se les permite montarlo.  Un nombre de 
+anfitrión es usualmente un nombre de dominio completamente cualificado pero puede 
+contener adicionalmente los comodines <systemitem role="keyword">*</systemitem> 
+y <systemitem role="keyword">?</systemitem>los cuales funcionan igual que en intérprete de órdenes
+Bourne. 
+Por ejemplo, <literal>lab*.foo.com</literal> coincide con 
+<systemitem role="sitename">lab01.foo.com</systemitem> así como 
+<systemitem role="sitename">laboratory.foo.com</systemitem>. El anfitrión puede ser especificado  
+también usando un rango de direcciones IP en la forma 
+<replaceable>dirección</replaceable>/<replaceable>máscara de redk</replaceable>. Si no se 
+da un nombre de anfitrión, como con el directorio <filename>/home/ftp</filename> en el 
+ejemplo previo, cualquier anfitrión coincide y se le permite montar el directorio.
+</para>  
+  
+<para>  
+Cuando se verifica a un anfitrión cliente contra el fichero <filename>exports</filename>,  
+<command>rpx.mountd </command> busca el nombre del anfitrión cliente usando la llamada 
+<function>gethostbyaddr</function>. Con DNS, esta llamada devuelve el nombre canónico 
+del anfitrión cliente, así  debe asegurarse de no usar alias en <filename>exports</filename>. 
+En un entorno NIS el nombre devuelto es la primera coincidencia de la base de datos 
+de anfitriones, y sin DNS o NIS, el nombre devuelto es el primer nombre de anfitrión encontrado 
+en el fichero <filename>hosts</filename> que coincida con la dirección del cliente.
+</para>  
+  
+<para>  
+El nombre del anfitrión es seguido por una lista opcional de señales separadas 
+por comas, encerradas entre paréntesis. Algunos de los valores que éstas 
+señales pueden tomar son:  
+  
+<variablelist>  
+<varlistentry><term><emphasis>secure</emphasis></term>  
+<listitem><para>  
+Esta señal insiste en requerir que se haga desde un puerto origen
+reservado, por ejemplo, uno que sea menor que 1.024. Esta señal está puesta por omisión.  
+</para></listitem>  
+</varlistentry>  
+  
+<varlistentry><term><emphasis>insecure</emphasis></term>  
+<listitem><para>  
+Esta señal revierte el efecto de la señal <emphasis>secure</emphasis>.  
+</para></listitem>  
+</varlistentry>  
+  
+<varlistentry><term><emphasis>ro</emphasis></term>  
+<listitem><para>  
+Esta señal provoca que el montaje de NFS sea para sólo lectura. Esta señal 
+está activada por omisión.</para></listitem>  
+</varlistentry>  
+  
+<varlistentry><term><emphasis>rw</emphasis></term>  
+<listitem><para>  
+Esta opción monta la jerarquía de ficheros en lectura-escritura.  
+</para>  
+</listitem>  
+</varlistentry>  
+  
+<varlistentry><term><emphasis>root_squash</emphasis></term>  
+<listitem><para>  
+<indexterm><primary>acceso</primary><secondary>restricción</secondary></indexterm>  
+Este característica de seguridad deniega a los superusuarios en los hosts especificados 
+cualquier derecho de acceso especial mapeando las peticiones 
+desde el uid 0 en el cliente al uid 65534 (es decir, -2) en el servidor. 
+Este uid debe ser asociado con el usuario <systemitem role="userid">nobody</systemitem>.  
+
+</para>  
+</listitem>  
+</varlistentry>  
+  
+<varlistentry><term><emphasis>no_root_squash</emphasis></term>  
+<listitem><para>  
+No mapea las peticiones desde uid 0. Esta opción está habilitada por omisión, así 
+los superusuarios tienen acceso de supervisor a los directorios exportados de su sistema.</para>  
+</listitem>  
+</varlistentry>  
+  
+<varlistentry><term><emphasis>link_relative</emphasis></term>  
+<listitem><para>  
+Esta opción convierte los enlaces simbólicos absolutos (donde el contenido del enlace 
+comienza con un slash) en enlaces relativos. Esta opción sólo tiene sentido cuando está montado
+el sistema de ficheros entero de un anfitrión; por otra parte, algunos de los 
+enlaces podrían apuntar a ninguna parte, o peor aún, a ficheros que nunca debieran 
+apuntar. Esta opción está habilitada de forma predeterminada.  
+</para>  
+</listitem>  
+</varlistentry>  
+  
+<varlistentry><term><emphasis>link_absolute</emphasis></term>  
+<listitem><para>  
+Esta opción deja todos los enlaces simbólicos como son (la conducta normal  
+para los servidores de NFS suministrados por Sun).  
+</para>  
+</listitem>  
+</varlistentry>  
+  
+<varlistentry><term><emphasis>map_identity</emphasis></term>  
+<listitem><para>  
+<indexterm><primary>NFS (Network File System)</primary><secondary>haciendo coincidir uids y gids</secondary></indexterm>  
+Esta opción le indica al servidor asumir que el cliente usa el mismo  
+uid y gid que el servidor. Esta opción está habilitada por omisión.  
+</para>  
+</listitem>  
+</varlistentry>  
+  
+<varlistentry><term><emphasis>map_daemon</emphasis></term>  
+<listitem><para>  
+Esta opción indica al servidor de NFS asumir que el cliente y el servidor no 
+comparten el mismo espacio uid/gid.  <command>rpc.nfsd</command> entonces construye 
+una lista que mapea los IDs entre cliente y servidor preguntando al demonio 
+<command>rpc.ugidd</command> del cliente.  
+</para>  
+</listitem>  
+</varlistentry>  
+  
+<varlistentry><term><emphasis>map_static</emphasis></term>  
+<listitem><para>  
+Esta opción le permite especificar el nombre de un fichero que contiene un mapa 
+estático de uids. Por ejemplo, <literal>map_static=/etc/nfs/vlight.map</literal> 
+especificaría el fichero <filename>/etc/nfs/vlight.map</filename> como un mapa 
+de uid/gid. La sintaxis del mapa del fichero se describe en la página 5 del 
+manual <filename>exports(5)</filename>.  
+</para>  
+</listitem>  
+</varlistentry>  
+  
+<varlistentry><term><emphasis>map_nis</emphasis></term>  
+<listitem><para>  
+Esta opción causa que el servidor de NIS haga un mapeado de uid y gid.  
+</para>  
+</listitem>  
+</varlistentry>  
+  
+<varlistentry><term><emphasis>anonuid</emphasis> y <emphasis>anongid</emphasis></term>  
+<listitem><para>  
+Estas opciones le permiten especificar el uid y el gid de la cuenta anónima.  
+Esto es útil si tiene un volumen exportado para montajes públicos.  
+</para>  
+</listitem>  
+</varlistentry>  
+  
+</variablelist>  
+</para>  
+  
+<para>  
+<indexterm><primary>syslog</primary></indexterm>
+Cualquier error que ocurra al procesar el fichero <filename>exports</filename>
+se informa al <systemitem role="keyword">demonio</systemitem>
+<command>syslogd</command> con el nivel <systemitem role="keyword">notice</systemitem>
+en cualquier momento en que <command>rpc.nfsd</command> o <command>rpc.mountd</command>
+se inicien.
+</para>
+
+<para>
+<?troff .hw security>
+Se ha de tener en cuenta que los nombres del anfitrión se obtienen
+a partir de la dirección IP del cliente a través de resolución
+inversa, por lo cual la resolución de nombres tendrá que
+estar configurada adecuadamente.
+Si usa BIND y le preocupa la seguridad, deberá activar las
+comprobaciones de spoofing en su fichero <filename>host.conf</filename>.
+Se hablará más profusamente sobre este tema en 
+<xref linkend="X-087-2-resolv">.
+</para>
+
+</sect1>
+
+<sect1 id="X-087-2-nfs.kernelv2"><title>Soporte para NFSv2 Basado en Núcleo</title>
+<para>
+<INDEXTERM><PRIMARY>NFS (Network File System)</PRIMARY><SECONDARY>soporte servidor basado en el núcleo</SECONDARY></INDEXTERM>
+<INDEXTERM><PRIMARY>NFSv2/NFSv3 server support</PRIMARY></INDEXTERM>
+<INDEXTERM><PRIMARY>servidores</PRIMARY><SECONDARY>soporte basado en el núcleo</SECONDARY></INDEXTERM>
+<INDEXTERM><PRIMARY>núcleos</PRIMARY><SECONDARY>soporte servidor NFSv2/NFSv3</SECONDARY></INDEXTERM>
+Los servidores NFS tradicionales son ejecutados en el espacio del usuario
+y funcionan de forma fiable, pero tienen problemas de rendimiento cuando
+su carga es alta. Esto es causa de la sobrecarga que añade a su
+funcionamiento el interfaz que ejecuta las llamadas al sistema, y porque
+tiene que competir con otros procesos que se encuentran en el espacio
+del usuario (y que son potencialmente menos importantes) para ganar
+tiempo de CPU.
+</para>
+
+<para>
+<?troff .hw performance>
+<INDEXTERM><PRIMARY>Kirch, Olaf</PRIMARY></INDEXTERM>
+<INDEXTERM><PRIMARY>Lu, H.J.</PRIMARY></INDEXTERM>
+<INDEXTERM><PRIMARY>Morris, G. Allan</PRIMARY></INDEXTERM>
+<INDEXTERM><PRIMARY>Myklebust, Trond</PRIMARY></INDEXTERM>
+<INDEXTERM><PRIMARY>2.2 núcleos</PRIMARY><SECONDARY>soporte servidor NFS</SECONDARY></INDEXTERM>
+El núcleo 2.2.0 soporta un servidor NFS experimental 
+programado inicialmente por Olaf Kirch y después por H.J. Lu, G. Allan
+Morris, and Trond Myklebust. El soporte de NFS basado en núcleo proporciona
+un incremento significativo en el rendimiento del servidor.
+</para>
+
+<para>
+En las distribuciones actuales, puede encontrar todas las herramientas
+del servidor NFS en un paquete. Si no, puede localizarlas en
+<systemitem role="url">http://csua.berkeley.edu/~gam3/knfsd/</systemitem>. Necesita 
+compilar un núcleo 2.2.0 con el demonio de NFS basado en el núcleo incluido 
+si se quiere hacer uso de las herramientas.
+Puede comprobar si su núcleo tiene el demonio de NFS incluido comprobando
+si existe el fichero
+<filename>/proc/sys/sunrpc/nfsd_debug</filename>. Si inicialmente no se
+encuentra, puede que necesite cargar el módulo <command>rpc.nfsd</command>
+a través de la utilidad <command>modprobe</command>.
+</para>
+
+<para>
+El demonio de NFS basado en el núcleo utiliza un fichero de configuración
+<filename>/etc/exports</filename> estándar. El paquete incluye programas
+que sustituyen a los demonios <command>rpc.mountd</command> y
+<command>rpc.nfsd</command> que además se ejecutan de una forma
+prácticamente igual que sus equivalentes ejecutados en el espacio de
+usuario.
+</para>
+
+</sect1>
+
+<sect1 id="X-087-2-nfs.kernelv3"><title>Soporte para NFSv2 Basado en Núcleo</title>
+<para>
+La versión de NFS más comúnmente utilizada ha sido la 2. La tecnología,
+no obstante, ha seguido avanzando comenzando a mostrar algunos puntos
+débiles que sólo una nueva revisión del protocolo podría solucionar. La
+versión 3 de NFS añade soporte para ficheros y sistemas de ficheros de 
+tamaños superiores, mejora de forma significativa
+la seguridad, y ofrece diversas mejoras de rendimiento que resultarán
+útiles para la mayoría de los usuarios.
+</para>
+
+<para>
+Olaf Kirch y Trond Myklebust están desarrollando un servidor experimental de
+NFSv3. Aparece en los núcleos de desarrollo 2.3 aunque también existe un
+parche que permite incluirlo en el código fuente del núcleo 2.2. Se compila
+sobre la versión 2 del demonio de NFS basado en el núcleo.
+</para>
+
+<para>
+Los parches necesarios se encuentran disponibles en la página principal
+del servidor NFS basado en el núcleo, que se encuentra en
+<systemitem role="url">http://csua.berkeley.edu/~gam3/knfsd/</systemitem>.
+</para>
+
+</sect1>
+<INDEXTERM startref="idx-NFS-1" class=endofrange>
+</chapter>
+

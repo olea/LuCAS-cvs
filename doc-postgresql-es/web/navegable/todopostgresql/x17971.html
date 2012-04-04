@@ -1,0 +1,351 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<HTML
+><HEAD
+><TITLE
+>Ejemplos</TITLE
+><META
+NAME="GENERATOR"
+CONTENT="Modular DocBook HTML Stylesheet Version 1.59"><LINK
+REL="HOME"
+TITLE="PostgreSQL"
+HREF="postgres.html"><LINK
+REL="UP"
+TITLE="Triggers (disparadores)"
+HREF="triggers.html"><LINK
+REL="PREVIOUS"
+TITLE="Visibilidad de Cambios en Datos"
+HREF="x17963.html"><LINK
+REL="NEXT"
+TITLE="Server Programming Interface"
+HREF="spi.html"></HEAD
+><BODY
+CLASS="SECT1"
+BGCOLOR="#FFFFFF"
+TEXT="#000000"
+LINK="#0000FF"
+VLINK="#840084"
+ALINK="#0000FF"
+><DIV
+CLASS="NAVHEADER"
+><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TH
+COLSPAN="3"
+ALIGN="center"
+>PostgreSQL</TH
+></TR
+><TR
+><TD
+WIDTH="10%"
+ALIGN="left"
+VALIGN="bottom"
+><A
+HREF="x17963.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="80%"
+ALIGN="center"
+VALIGN="bottom"
+>Triggers (disparadores)</TD
+><TD
+WIDTH="10%"
+ALIGN="right"
+VALIGN="bottom"
+><A
+HREF="spi.html"
+>Siguiente</A
+></TD
+></TR
+></TABLE
+><HR
+ALIGN="LEFT"
+WIDTH="100%"></DIV
+><DIV
+CLASS="SECT1"
+><H1
+CLASS="SECT1"
+><A
+NAME="AEN17971"
+>Ejemplos</A
+></H1
+><P
+>   Hay ejemplos más complejos en src/test/regress/regress.c y en contrig/spi.</P
+><P
+>   He aquí un ejemplo muy sencillo sobre el uso de triggers. La función trigf
+devuelve el número de tuplas en la relación ttest e ignora la operación si la
+consulta intenta insertar NULL en x (i.e - actúa como una restricción NOT NULL
+pero no aborta la transacción).
+
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>#include "executor/spi.h"	/* Necesario para trabajar con SPI */
+#include "commands/trigger.h"	/* -"- y triggers */
+
+HeapTuple		trigf(void);
+
+HeapTuple
+trigf()
+{
+	TupleDesc	tupdesc;
+	HeapTuple	rettuple;
+	char		*when;
+	bool		checknull = false;
+	bool		isnull;
+	int		ret, i;
+
+	if (!CurrentTriggerData)
+		elog(WARN, "trigf: triggers sin inicializar");
+	
+	/* tupla para devolver al Ejecutor */
+	if (TRIGGER_FIRED_BY_UPDATE(CurrentTriggerData-&#62;tg_event))
+		rettuple = CurrentTriggerData-&#62;tg_newtuple;
+	else
+		rettuple = CurrentTriggerData-&#62;tg_trigtuple;
+	
+	/* comprobar NULLs ? */
+	if (!TRIGGER_FIRED_BY_DELETE(CurrentTriggerData-&#62;tg_event) &#38;&#38;
+		TRIGGER_FIRED_BEFORE(CurrentTriggerData-&#62;tg_event))
+		checknull = true;
+	
+	if (TRIGGER_FIRED_BEFORE(CurrentTriggerData-&#62;tg_event))
+		when = "antes ";
+	else
+		when = "después ";
+	
+	tupdesc = CurrentTriggerData-&#62;tg_relation-&#62;rd_att;
+	CurrentTriggerData = NULL;
+	
+	/* Conexión al gestor SPI */
+	if ((ret = SPI_connect()) &#60; 0)
+		elog(WARN, "trigf (lanzado %s): SPI_connect devolvió %d", when, ret);
+	
+	/* Obtiene el número de tuplas en la relación */
+	ret = SPI_exec("select count(*) from ttest", 0);
+	
+	if (ret &#60; 0)
+		elog(WARN, "trigf (lanzado %s): SPI_exec devolvió %d", when, ret);
+	
+	i = SPI_getbinval(SPI_tuptable-&#62;vals[0], SPI_tuptable-&#62;tupdesc, 1, &#38;isnull);
+	
+	elog (NOTICE, "trigf (lanzado %s): hay %d tuplas en ttest", when, i);
+	
+	SPI_finish();
+	
+	if (checknull)
+	{
+		i = SPI_getbinval(rettuple, tupdesc, 1, &#38;isnull);
+		if (isnull)
+			rettuple = NULL;
+	}
+
+	return (rettuple);
+}</PRE
+></TD
+></TR
+></TABLE
+></P
+><P
+>   Ahora, compila y
+create table ttest (x int4);
+create function trigf () returns opaque as 
+'...path_to_so' language 'c';
+
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>vac=&#62; create trigger tbefore before insert or update or delete on ttest 
+for each row execute procedure trigf();
+CREATE
+vac=&#62; create trigger tafter after insert or update or delete on ttest 
+for each row execute procedure trigf();
+CREATE
+vac=&#62; insert into ttest values (null);
+NOTICE:trigf (fired before): there are 0 tuples in ttest
+INSERT 0 0
+
+-- Insertion skipped and AFTER trigger is not fired
+
+vac=&#62; select * from ttest;
+x
+-
+(0 rows)
+
+vac=&#62; insert into ttest values (1);
+NOTICE:trigf (fired before): there are 0 tuples in ttest
+NOTICE:trigf (fired after ): there are 1 tuples in ttest
+                                       ^^^^^^^^
+                             remember what we said about visibility.
+INSERT 167793 1
+vac=&#62; select * from ttest;
+x
+-
+1
+(1 row)
+
+vac=&#62; insert into ttest select x * 2 from ttest;
+NOTICE:trigf (fired before): there are 1 tuples in ttest
+NOTICE:trigf (fired after ): there are 2 tuples in ttest
+                                       ^^^^^^^^
+                             remember what we said about visibility.
+INSERT 167794 1
+vac=&#62; select * from ttest;
+x
+-
+1
+2
+(2 rows)
+
+vac=&#62; update ttest set x = null where x = 2;
+NOTICE:trigf (fired before): there are 2 tuples in ttest
+UPDATE 0
+vac=&#62; update ttest set x = 4 where x = 2;
+NOTICE:trigf (fired before): there are 2 tuples in ttest
+NOTICE:trigf (fired after ): there are 2 tuples in ttest
+UPDATE 1
+vac=&#62; select * from ttest;
+x
+-
+1
+4
+(2 rows)
+
+vac=&#62; delete from ttest;
+NOTICE:trigf (fired before): there are 2 tuples in ttest
+NOTICE:trigf (fired after ): there are 1 tuples in ttest
+NOTICE:trigf (fired before): there are 1 tuples in ttest
+NOTICE:trigf (fired after ): there are 0 tuples in ttest
+                                       ^^^^^^^^
+                             remember what we said about visibility.
+DELETE 2
+vac=&#62; select * from ttest;
+x
+-
+(0 rows)</PRE
+></TD
+></TR
+></TABLE
+>&#13;</P
+><P
+>	<DIV
+CLASS="NOTE"
+><P
+></P
+><TABLE
+CLASS="NOTE"
+WIDTH="100%"
+BORDER="0"
+><TR
+><TD
+WIDTH="25"
+ALIGN="CENTER"
+VALIGN="TOP"
+><IMG
+SRC="./stylesheet-images/note.gif"
+HSPACE="5"
+ALT="Nota"></TD
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+><P
+>        Aportación del traductor.Manuel Martínez Valls
+       </P
+><P
+>	En la version 6.4 ya existian los triggers, lo que eran triggers para tuplos, (FOR EACH ROW) pero no para sentencias (FOR STATEMENT), por eso creo que es importante poner disparadores para sentencias, no disparadores solo.
+	 </P
+><P
+>	Los trigger son parte de lo que se conoce como "elementos activos" de una BD. Asi como lo son las constraints tales como NOT NULL, FOREIGN KEY, PRIMARY KEY, CHECK. Una vez definidas ellas "se activaran" solo al ocurrir un evento que las viole, un valor nulo en un campo con NOT NULL, etc
+	</P
+><P
+>	¿Por que entonces llamar triggers a los triggers? ;Con ellos se quizo dar mas control al programador sobre los eventos que desencadenan un elemento activo, se le conoce en ingles como ECA rules o event-condition-action rule. Es por ello que los triggers tienen una clausula BEFORE, AFTER o INSTEAD (por cierto pgsql no tiene INSTEAD) y bajo que evento (INSERT, UPDATE, DELETE) pero de esta forma el trigger se ejecutara para tuplo (o fila) sometido al evento (clausula FOR EACH ROW) pero el standard (que pgsql no cubre completamente) dice que puede ser tambien FOR EACH SENTENCE. 
+	</P
+><P
+>	Esto provoca que se ejecute el trigger para toda la relacion (o tabla) para la cual se define (clausula ON). La diferencia para los que lo han programado, por ejemplo en plpgsql, queda clara entonces: cuando es FOR EACH ROW en la funcion pgsql que implementa el trigger se tiene un objeto NEW y uno OLD que se refiere a la tupla completa, en el trigger de STATEMENT tiene un objeto NEW y OLD que son la relacion (o tabla) completa
+	</P
+><P
+>	Esta claro entonces que es un poco mas dificil implementar un trigger para statement que para fila (todavia pgsql no lo tiene).
+	</P
+><P
+>	Finalmente este es un buen ejemplo de que por que pgsql dice que "implementa un subconjunto extendido de SQL92", no hay trigger en SQL92, son del SQL3. 
+	</P
+></TD
+></TR
+></TABLE
+></DIV
+></P
+></DIV
+><DIV
+CLASS="NAVFOOTER"
+><HR
+ALIGN="LEFT"
+WIDTH="100%"><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+><A
+HREF="x17963.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="postgres.html"
+>Inicio</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+><A
+HREF="spi.html"
+>Siguiente</A
+></TD
+></TR
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+>Visibilidad de Cambios en Datos</TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="triggers.html"
+>Subir</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+>Server Programming Interface</TD
+></TR
+></TABLE
+></DIV
+></BODY
+></HTML
+>

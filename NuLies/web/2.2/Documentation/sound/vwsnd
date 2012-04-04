@@ -1,0 +1,303 @@
+vwsnd - Controlador de sonido para tarjetas de sonido integradas en las
+estaciones de trabajo Silicon Graphics 320 y 540 Visual.
+
+Copyright 1999 Silicon Graphics, Inc.  Todos los derechos reservados.
+
+
+Cuando se escribe esto, Marzo de 1999, hay dos modelos de estaciones Visuales,
+la 320 y la 540.  Este documento describe solo estos modelos.  Futuros modelos
+de estaciones Visuales pueden tener diferentes capacidades sonoras, y este
+controlador probablemente no funciones con estas cajas.
+
+La estación de tabajo Visual tiene un dispositivo de sonido Analog Devices
+AD1843 "SoundComm".  El AD1843 es accedido a través de una E/S ASIC Cobalt,
+también conocida como Lithium. Este controlador programa ambos chips.
+
+==============================================================================
+CONFIGURACIÓN RÁPIDA
+
+	# insmod soundcore
+	# insmod vwsnd
+
+==============================================================================
+CONEXIONES DE E/S
+
+En la estación de trabajo Visual, hay enchufadas sólo tres entradas del 
+AD1843.  El conector de la línea analógica se conecta a la entrada
+AUX1 del AD1843.  Las líneas del CD se conectan a la entrada AUX2 del AD1843.
+El conector del micrófono se conecta a la entrada MIC del AD1843.  
+El conector del micrófono es mono, pero la señal se distribuye a ambas
+entradas, izquierda y derecha, de la entrada MIC.
+Puede grabar en estéreo desde la entrada del micrófono, pero obtendrá la misma
+señal para ambos canales (dentro de los límites de la precisión A/D).  
+La escala completa de la entrada LINE es +/- 2.0 V.  La escala completa
+de la entrada MIC es de 20 dB menos, o +/- 0.2 V.
+
+Las salidas del AD1843 LOUT1 están conectadas al auricular de salida de Línea.
+Las salidas del AD1843 HPOUT están conectadas al conector de los 
+altavoces/auriculares.
+LOUT2 no está conectada.  El máximo nivel de la salida de línea es de
++/- 2.0 V de pico a pico.  El máximo de altavoz/auricular es de +/- 4.0 V de
+pico a pico.
+
+Uno de los canales de entrada del AD1843 y uno de los canales de salida (DAC1)
+están conectados a Lithium.  El otro canal de salida (DAC2) no está conectado.
+
+==============================================================================
+CAPACIDADES
+
+El AD1843 tiene entrada y salida PCM (Pulse Code Modulation, también conocida
+por tabla de ondas).  La entrada y la salida PCM puede ser mono o estéreo en
+cualquiera de cuatro formatos. Los formatos son 16 bits con signo y 8 bits
+sin signo, u-Law, y A-Law.  Se puede usar cualquier frecuencia de muestreo de
+4 KHz a 49 KHz, en incrementos de 1 Hz.
+
+El AD1843 incluye un mezclador analógico que puede mezclar las tres señales
+de entrada (línea, mic y CD) en las salidas analógicas.  El mezclador tiene
+un control de ganancia y un conmutador 'mute' para cada entrada.
+
+Hay dos salidas, salida de línea y altavoz/auricular.  Siempre
+producen la misma señal, y el altavoz tiene siempre 3 dB más de ganancia
+que la salida de línea.  La salida altavoz/auricular puede ser enmudecida,
+pero este controlador no exporta esta función.
+
+El hardware puede sincronizarse con el reloj de vídeo, pero este controlador
+no tiene ninguna forma de especificar esta sincronización.
+
+==============================================================================
+PROGRAMACIÓN
+
+Esta sección explica la API soportada por este controlador.
+También vea la Guia de Programación de Open Sound en 
+http://www.opensound.com/pguide/ .
+Esta sección asume una cierta familiaridad con ese documento.
+
+El controlador tiene dos interfaces, una interfaz de E/S y una interfaz de
+mezclador. No tiene capacidades de secuenciador o MIDI.
+
+==============================================================================
+PROGRAMACIÓN DE LA E/S PCM
+
+La interfaz E/S se accede normalmente desde /dev/audio o /dev/dsp.
+Usando las llamadas ioctl del estándar Open Sound System (OSS), se puede
+cambiar la frecuencia de muestreo, el número de canales y el formato de la
+muestra con las limitaciones mostradas a continuación.
+El controlador soporta 'triggering'.  También soporta la captura
+de los punteros de entrada y salida con una precisión de una muestra.
+
+La ioctl SNDCTL_DSP_GETCAP devuelve las siguientes capacidades.
+
+	DSP_CAP_DUPLEX - el controlador soporta full duplex.
+
+	DSP_CAP_TRIGGER - el controlador soporta triggering.
+
+	DSP_CAP_REALTIME - los valores devueltos por SNDCTL_DSP_GETIPTR
+	y SNDCTL_DSP_GETOPTR son precisos en algunas muestras.
+
+El mapeado de memoria no se ha implementado.
+
+El controlador permite tamaños de subdivisión de fragmentos desde 64 a 4096 
+bytes.
+El número de fragmentos puede ser cualquiera desde 3 fragmentos hasta los que
+entren en 124 kilobytes. Es tarea del usuario determinar cuántos fragmentos
+pueden usarse sin introducir cortes dada una determinada carga. Linux no
+es un sistema operativo de tiempo real, por lo que no podemos permitir 
+nada. (sig...)
+
+Cuando este controlador cambia en la salida, del modo mu-Law a A-Law,
+puede producir clics audibles.  Esto es inevitable.  Para prevenir
+los clics, use el modo de 16-bit, y convierta del formato mu-Law a A-Law 
+por software.
+
+==============================================================================
+PROGRAMACIÓN DEL INTERFAZ DEL MEZCLADOR
+
+La interfaz del mezclador se accede normalmente desde /dev/mixer.  
+Se accede a través de ioctls.  El mezclador permite a las aplicaciones
+controlar la ganancia o el mute, varios canales de sonido y también 
+permite la selección de la fuente de grabación.
+
+Cada una de las constantes descritas aquí se pueden leer usando la ioctl
+MIXER_READ(SOUND_MIXER_xxx).  Las que no son de sólo lectura se pueden
+también escribir usando la ioctl MIXER_WRITE(SOUND_MIXER_xxx) ioctl.  
+En la mayoría de los casos, <sys/soundcard.h> define las constantes 
+SOUND_MIXER_READ_xxx y SOUND_MIXER_WRITE_xxx que también funcionan.
+
+SOUND_MIXER_CAPS	Sólo-Lectura
+
+Esta es una máscara de las capacidades opcionales que están implementadas.
+La única capacidad de este controlador es SOUND_CAP_EXCL_INPUT, que significa,
+que sólo puede estar activa una fuente de grabación a la vez.
+
+SOUND_MIXER_DEVMASK	Sólo-Lectura
+
+Esta es una máscara de los canales de sonido.  Los canales de sonido de este
+controlador son PCM, LINE, MIC, CD, y RECLEV.
+
+SOUND_MIXER_STEREODEVS	Sólo-Lectura
+
+Esta es una máscara que indica que canales son capaces de sonar en estéreo.
+Todos los canales son capaces de sonar en estéreo.  (Pero vea la advertencia
+sobre la entrada MIC en la sección superior CONEXIONES de E/S).
+
+SOUND_MIXER_OUTMASK	Sólo-Lectura
+
+Esta es la máscara de los canales que rutan la entrada a través de la salida.
+Estos son LINE, MIC, y CD.
+
+SOUND_MIXER_RECMASK	Sólo-Lectura
+
+Esta es una máscara de los canales que pueden ser fuentes de grabación.
+Estos son PCM, LINE, MIC, CD.
+
+SOUND_MIXER_PCM		Por defecto: 0x5757 (0 dB)
+
+Esta es control de ganancia para la salida PCM.  La ganancia de los
+canales izquierdo y derecho se controlan independientemente.
+Este control de ganancia tiene 64 niveles, que van desde -82.5 dB a +12.0 dB 
+en pasos de 1.5 dB.  Estos 64 niveles se mapean en 100 niveles en las ioctls,
+mire abajo.
+
+SOUND_MIXER_LINE	Por defecto: 0x4a4a (0 dB)
+
+Este es el control de ganancia para la mezcla de la fuente Line In en las 
+salidas.  La ganancia de los canales izquierdo y derecho se controlan 
+independientemente. Este control de ganancia tiene 32 niveles, que van desde
+-34.5 dB a +12.0 dB en pasos de 1.5 dB.  Estos 32 niveles se mapean en 100
+niveles en las ioctls, mire abajo.
+
+SOUND_MIXER_MIC		Por defecto: 0x4a4a (0 dB)
+
+Este es el control de ganancia para la mezcla de la fuente MIC en las
+salidas.  La ganancia de los canales izquierdo y derecho se controlan
+independientemente. Este control de ganancia tiene 32 niveles, que van desde
+-34.5 dB a +12.0 dB en pasos de 1.5 dB.  Estos 32 niveles se mapean en 100
+niveles en las ioctls, mire abajo.
+
+SOUND_MIXER_CD		Por defecto: 0x4a4a (0 dB)
+
+Este es el control de ganancia para la mezcla de la fuente CD en las
+salidas.  La ganancia de los canales izquierdo y derecho se controlan
+independientemente.  Este control de ganancia tiene 32 niveles, que van desde
+-34.5 dB a +12.0 dB en pasos de 1.5 dB.  Estos 32 niveles se mapean en 100
+niveles en las ioctls, mire abajo.
+
+SOUND_MIXER_RECLEV	 Por defecto: 0 (0 dB)
+
+Este es el control de ganancia para la entrada PCM (RECording LEVel).  
+La ganancia de los canales izquierdo y derecho se controlan independientemente. 
+Este control de ganancia tiene 16 niveles, que van desde 0 dB a +22.5 dB 
+en pasos de 1.5 dB.  Estos 16 niveles se mapean en 100 niveles en las ioctls, 
+mire abajo.
+
+SOUND_MIXER_RECSRC	 Por defecto: SOUND_MASK_LINE
+
+Esta es la máscara de las fuentes de entrada PCM seleccionadas actualmente
+(RECording SouRCes).  Dado que el AD1843 sólo puede tener una fuente de 
+entrada a la vez, en esta máscara sólo puede estar activado, cada vez, un bit.
+Los valores permitidos son SOUND_MASK_PCM, SOUND_MASK_LINE, SOUND_MASK_MIC,
+o SOUND_MASK_CD.  Si selecciona SOUND_MASK_PCM se activará el 
+remuestreo(resampling) que es útil para pruebas en circuito cerrado y para
+conversiones de la frecuencia de muestreo por hardware. Pero la conversión
+de la  frecuencia de muestreo por software es probablemente más rápida, por lo
+que no se lo útil que será.
+
+SOUND_MIXER_OUTSRC	Por Defecto: SOUND_MASK_LINE|SOUND_MASK_MIC|SOUND_MASK_CD
+
+Esta es la máscara de las fuentes que pasan a través de las salidas.
+Las fuentes cuyos bits no están activados son enmudecidas.
+
+==============================================================================
+CONTROL DE GANANCIA
+
+Hay cinco controles de ganancia listados en la parte superior.
+Cada uno de los cuales tiene 16, 32, o 64 pasos.  Cada control tiene 1.5 dB 
+de ganancia en cada paso.  Cada control es estéreo.
+
+El OSS define que el argumento a una ioctl del canal de control de ganancia
+tiene dos componentes, izquierda y derecha, cada una de las cuales va de 
+0 a 100.  Las dos componentes están empaquetadas en la misma palabra,
+con la parte izquierda de la ganancia en el byte menos significativo y 
+la parte derecha de la ganancia en el segundo byte menos significativo. 
+En C, diríamos esto.
+
+	#include <assert.h>
+
+	...
+
+	 	assert(leftgain >= 0 && leftgain <= 100);
+		assert(rightgain >= 0 && rightgain <= 100);
+		arg = leftgain | rightgain << 8;
+
+Por lo que cada control de ganancia OSS tiene 101 pasos.  Pero el hardware
+tiene 16, 32, o 64 pasos.  Los pasos del hardware están distribuidos 
+equitativamente por los 101 pasos del OSS.  Las fórmulas de conversión
+son algo parecido a esto, siendo N igual a 16, 32, o 64.
+
+	int round = N/2 - 1;
+	OSS_gain_steps = (hw_gain_steps * 100 + round) / (N - 1);
+	hw_gain_steps = (OSS_gain_steps * (N - 1) + round) / 100;
+
+Aquí tiene un recorte de código C que devolverá la ganancia izquierda y derecha
+de cualquier canal en dB.  Pásele una de las estructuras gain_desc_t 
+predefinidas para acceder a la ganancia de cualquiera de los cinco canales.
+
+	typedef struct gain_desc {
+		float min_gain;
+		float gain_step;
+		int nbits;
+		int chan;
+	} gain_desc_t;
+
+	const gain_desc_t gain_pcm    = { -82.5, 1.5, 6, SOUND_MIXER_PCM    };
+	const gain_desc_t gain_line   = { -34.5, 1.5, 5, SOUND_MIXER_LINE   };
+	const gain_desc_t gain_mic    = { -34.5, 1.5, 5, SOUND_MIXER_MIC    };
+	const gain_desc_t gain_cd     = { -34.5, 1.5, 5, SOUND_MIXER_CD     };
+	const gain_desc_t gain_reclev = {   0.0, 1.5, 4, SOUND_MIXER_RECLEV };
+
+	int get_gain_dB(int fd, const gain_desc_t *gp,
+			float *left, float *right)
+	{
+		int word;
+		int lg, rg;
+		int mask = (1 << gp->nbits) - 1;
+
+		if (ioctl(fd, MIXER_READ(gp->chan), &word) != 0)
+			return -1;	/* fail */
+		lg = word & 0xFF;
+		rg = word >> 8 & 0xFF;
+		lg = (lg * mask + mask / 2) / 100;
+		rg = (rg * mask + mask / 2) / 100;
+		*left = gp->min_gain + gp->gain_step * lg;
+		*right = gp->min_gain + gp->gain_step * rg;
+		return 0;
+	}	
+
+Y aqui tiene la rutina correspondiente a la conversión de la gancia del canal
+a dB.
+
+	int set_gain_dB(int fd, const gain_desc_t *gp, float left, float right)
+	{
+		float max_gain =
+			gp->min_gain + (1 << gp->nbits) * gp->gain_step;
+		float round = gp->gain_step / 2;
+		int mask = (1 << gp->nbits) - 1;
+		int word;
+		int lg, rg;
+
+		if (left < gp->min_gain || right < gp->min_gain)
+			return EINVAL;
+		lg = (left - gp->min_gain + round) / gp->gain_step;
+		rg = (right - gp->min_gain + round) / gp->gain_step;
+		if (lg >= (1 << gp->nbits) || rg >= (1 << gp->nbits))
+			return EINVAL;
+		lg = (100 * lg + mask / 2) / mask;
+		rg = (100 * rg + mask / 2) / mask;
+		word = lg | rg << 8;
+
+		return ioctl(fd, MIXER_WRITE(gp->chan), &word);
+	}
+
+
+"Traducido para el proyecto NuLies por
+ Gorka Olaizola Sánchez <olsago@jet.es>"

@@ -1,0 +1,1418 @@
+\chapter{El sistema de ficheros}
+\begin{center}
+\fbox{
+\parbox{5.2in}{
+{\bf NOTA}: Obviamente, en este cap\'{\i}tulo no hablaremos del tratamiento de
+ficheros (creaci\'on, borrado, modificaci\'on, jerarqu\'{\i}a de 
+directorios\ldots), sino de temas referentes
+a la seguridad de los archivos y el sistema de ficheros. Para informaci\'on 
+sobre la gesti\'on de ficheros se puede consultar cualquier obra que estudie
+Unix desde una perspectiva general, como \cite{kn:tho82}, \cite{kn:chr94} o 
+\cite{kn:man91}. Para un conocimiento m\'as profundo sobre los ficheros y los
+sistemas de archivos se puede consultar \cite{kn:tan91}, \cite{kn:bac86} ({\sc
+bsd}), \cite{kn:goo94} ({\it System V}) o, en el caso de Linux, \cite{kn:car97}
+o \cite{kn:bec96}.  
+}}
+\end{center}
+\section{Introducci\'on}
+Dentro del sistema Unix todo son archivos: desde la memoria f\'{\i}sica del 
+equipo hasta el rat\'on, pasando por m\'odems, teclado, impresoras o terminales.
+Esta filosof\'{\i}a de dise\~no es uno de los factores que m\'as \'exito y
+potencia proporciona a Unix (\cite{kn:ker84}), pero tambi\'en uno de los que
+m\'as peligros entra\~na: un simple error en un permiso puede permitir a un
+usuario modificar todo un disco duro o leer los datos tecleados desde una
+terminal. Por esto, una correcta utilizaci\'on de los permisos, atributos y
+otros controles sobre los ficheros es vital para la seguridad de un sistema.\\ 
+\\En un sistema Unix t\'{\i}pico existen tres tipos b\'asicos de archivos: 
+ficheros planos, directorios, y ficheros especiales (dispositivos)
+\footnote{Otros tipos de archivos, como los enlaces simb\'olicos, los {\it 
+sockets} o los {\it pipes} no los vamos a tratar aqu\'{\i}.}; generalmente,
+al hablar de {\it ficheros} nos solemos referir a todos ellos si no se
+especifica lo contrario. Los {\bf ficheros 
+planos} son secuencias de {\it bytes} que {\it a priori} no poseen ni estructura
+interna ni contenido significante para el sistema: su significado depende de 
+las aplicaciones que interpretan su contenido. Los {\bf directorios} son 
+archivos cuyo contenido son otros ficheros de cualquier tipo (planos, m\'as 
+directorios, o ficheros especiales), y los {\bf ficheros especiales} son 
+ficheros que representan dispositivos del sistema; este \'ultimo tipo se divide
+en dos grupos: los dispositivos orientados a car\'acter y los orientados a 
+bloque. La principal diferencia entre ambos es la forma de realizar operaciones
+de entrada/salida: mientras que los dispositivos orientados a car\'acter las
+realizan {\it byte} a {\it byte} (esto es, car\'acter a car\'acter), los 
+orientados a bloque las realizan en bloques de caracteres.\\
+\\El {\bf sistema de ficheros} es la parte del n\'ucleo m\'as visible por los 
+usuarios; se encarga de abstraer propiedades f\'{\i}sicas de diferentes 
+dispositivos para proporcionar una interfaz \'unica de almacenamiento: el
+archivo. Cada sistema Unix tiene su sistema de archivos nativo (por ejemplo,
+{\it ext2} en Linux, {\sc ufs} en Solaris o {\sc efs} en IRIX), por lo que
+para acceder a todos ellos de la misma forma el n\'ucleo de Unix incorpora una 
+capa superior denominada VFS ({\it Virtual File System}) encargada de 
+proporcionar un acceso uniforme a diferentes tipos de sistema de ficheros.\\
+\\Un {\bf inodo} o nodo \'{\i}ndice es una estructura de datos que relaciona un 
+grupo 
+de bloques de un dispositivo con un determinado nombre del sistema de ficheros.
+Internamente, el n\'ucleo de Unix no distingue a sus archivos por su nombre
+sino por un n\'umero de inodo; de esta forma, el fichero con n\'umero de inodo
+23421 ser\'a el mismo tanto si se denomina {\tt /etc/passwd} como si se 
+denomina {\tt /usr/fichero}. Mediante la orden {\tt ln(1)} se pueden asignar a
+un mismo inodo varios nombres de fichero diferentes en el sistema de archivos.
+\section{Sistemas de ficheros}
+Cuando un sistema Unix arranca una de las tareas que obligatoriamente ha de
+realizar es incorporar diferentes sistemas de ficheros -- discos completos, una 
+partici\'on, una unidad de CD-ROM\ldots -- a la jerarqu\'{\i}a de
+directorios Unix; este proceso se llama {\bf montaje}, y para realizarlo 
+generalmente se
+utiliza la orden {\tt mount}. Es obligatorio montar al menos un sistema de 
+ficheros durante el arranque, el sistema ra\'{\i}z ({\tt `/'}), del que 
+colgar\'an todos los dem\'as.\\
+\\Montar un sistema de ficheros no significa m\'as que asociar un determinado 
+nombre de directorio, denominado {\it mount point} o punto de montaje, con el 
+sistema en cuesti\'on, de forma que al utilizar 
+dicha ruta estaremos trabajando sobre el sistema de ficheros que hemos asociado 
+a ella. Para saber qu\'e sistemas
+de ficheros se han de montar en el arranque de la m\'aquina, y bajo qu\'e
+nombre de directorio, Unix utiliza un determinado archivo; aunque su nombre 
+depende del clon utilizado ({\tt /etc/vfstab} en Solaris, {\tt /etc/fstab} en 
+Linux\ldots), su funci\'on -- e incluso su sintaxis -- es siempre equivalente. 
+Un ejemplo de este fichero es el siguiente:
+\begin{quote}
+\begin{verbatim}
+luisa:~# cat /etc/fstab
+/dev/hda3       /        ext2        defaults   1   1
+/dev/hda4       /home    ext2        defaults   1   2
+none            /proc    proc        defaults   1   1
+luisa:~#
+\end{verbatim}
+\end{quote}
+Cuando el sistema arranque, el fichero anterior viene a indicar que en 
+{\tt /dev/hda3} se encuentra el sistema de ficheros ra\'{\i}z, de tipo {\it
+ext2} (el habitual en Linux), y que se ha de montar con las opciones que se
+toman por defecto. La segunda l\'{\i}nea nos dice que {\tt /home} es un
+sistema diferente del anterior, pero del mismo tipo y que se montar\'a
+con las mismas opciones; finalmente, la \'ultima entrada hace referencia al
+directorio {\tt /proc/}, donde se encuentra un sistema de ficheros especial
+que algunos Unices utilizan como interfaz entre estructuras de datos del 
+n\'ucleo y el espacio de usuario (no entraremos en detalles con \'el). Si 
+cualquiera de las entradas anteriores fuera err\'onea, el sistema o bien no
+arrancar\'{\i}a o bien lo har\'{\i}a incorrectamente. Por lo que evidentemente
+el fichero {\tt /etc/fstab} o sus equivalentes ha de ser s\'olo modificable por 
+el {\tt root}, aunque nos puede interesar -- como veremos luego -- que los 
+usuarios sin privilegios puedan leerlo.\\
+\\Lo visto hasta aqu\'{\i} no suele representar ning\'un problema de seguridad
+en Unix; si hemos dicho que no hablar\'{\i}amos de aspectos generales de los
+sistemas de ficheros, >por qu\'e comentamos este aspecto? Muy sencillo: 
+diferentes problemas radican en una gesti\'on incorrecta del montaje de sistemas
+de ficheros. Por ejemplo, algo muy habitual en un atacante que consigue 
+privilegios de administrador en una m\'aquina es instalar ciertas utilidades que
+le permitan seguir gozando de ese privilegio (por ejemplo, un {\it rootkit} o
+un simple {\it shell} {\it setuidado}); si guarda el fichero {\it setuidado} -- 
+hablaremos m\'as tarde de estos permisos `especiales' -- en cualquier 
+directorio de nuestro sistema, su localizaci\'on ser\'a muy r\'apida: una orden 
+tan simple como {\tt find} nos alertar\'a de su presencia. En cambio, >qu\'e 
+sucede si el atacante utiliza una parte del sistema de ficheros {\it oculta}?
+Cuando montamos un sistema bajo un nombre de directorio, todo lo que hab\'{\i}a
+en ese directorio desaparece de la vista, y es sustituido por el contenido del
+sistema montado; no volver\'a a estar accesible hasta que no desmontemos el
+sistema:
+\begin{quote}
+\begin{verbatim}
+luisa:~# mount
+/dev/hda3 on / type ext2 (rw)
+/dev/hda4 on /home type ext2 (rw)
+none on /proc type proc (rw)
+luisa:~# ls /home/
+ftp/   toni/    lost+found/ 
+luisa:~# umount /home
+luisa:~# ls /home/
+luisa:~#
+\end{verbatim}
+\end{quote}
+El atacante puede desmontar una parte de nuestra jerarqu\'{\i}a de directorios,
+guardar ah\'{\i} ciertos ficheros, y volver a montar el sistema que hab\'{\i}a
+anteriormente; localizar esos archivos puede ser complicado, no por motivos 
+t\'ecnicos sino porque a muy poca gente se le ocurre hacerlo. La orden 
+{\tt ncheck}, existente en Unices antiguos, puede detectar estos ficheros
+ocultos bajo un {\it mount point}; si no disponemos de esta utilidad podemos
+buscar por Internet aplicaciones que consiguen lo mismo, o simplemente desmontar
+manualmente los sistemas (a excepci\'on del ra\'{\i}z) y comprobar que no hay 
+nada oculto bajo ellos.\\
+\\El tema de desmontar sistemas de ficheros tambi\'en puede ocasionar alg\'un
+dolor de cabeza a muchos administradores; aunque no se trata de algo 
+estrictamente relativo a la seguridad, vamos a comentar un problema t\'{\i}pico
+que se podr\'{\i}a considerar incluso una negaci\'on de servicio (no causada
+por un fallo de Unix sino por el desconocimiento del administrador). En 
+ocasiones, al intentar desmontar un sistema de ficheros, encontramos el
+siguiente resultado:
+\begin{quote}
+\begin{verbatim}
+luisa:~# umount /home/
+umount: /home: device is busy
+luisa:~#
+\end{verbatim}
+\end{quote}
+>Qu\'e sucede? Simplemente que existe un determinado proceso haciendo uso de 
+recursos bajo ese nombre de directorio. Hasta que dicho proceso no finalice
+(por las buenas o por las malas), ser\'a imposible desmontar el sistema; es
+f\'acil determinar de qu\'e proceso se trata -- y posteriormente eliminarlo --
+mediante la orden {\tt fuser}.\\
+\\Otro problema cl\'asico de los sistemas de ficheros viene de la necesidad que
+en muchos entornos existe de permitir a los usuarios -- sin privilegios -- 
+montar y desmontar sistemas de ficheros (t\'{\i}picamente, discos flexibles o
+CD-ROMs). Por ejemplo, imaginemos un laboratorio de m\'aquinas Unix donde es
+deseable que todos los usuarios puedan acceder a la disquetera, tanto para
+copiar pr\'acticas realizadas en casa como para hacer una copia de las que se
+han hecho en el propio laboratorio (este es uno de los casos m\'as frecuentes en
+cualquier organizaci\'on). Unix permite dar una soluci\'on 
+r\'apida a este problema, pero esta soluci\'on puede convertirse en una amenaza
+a la seguridad si no es implantada correctamente:\\
+\\Al hablar de {\tt /etc/fstab} hemos comentado el montaje con ciertas opciones
+tomadas por defecto; dichas opciones son -- en el caso de Linux, consultar la
+p\'agina del manual de {\tt mount} en otros sistemas -- {\tt `rw'} (se permite
+tanto la lectura como la escritura), {\tt `suid'} (se permite la existencia de
+ficheros {\it setuidados}), {\tt `dev'} (se permite la existencia de 
+dispositivos), {\tt `exec'} (se permite la ejecuci\'on de binarios), {\tt 
+`auto'} (el sistema se monta autom\'aticamente al arrancar o al utilizar {\tt
+mount -a}), {\tt `nouser'} 
+(s\'olo puede ser montado por el {\tt root}) y {\tt `async'} (la entrada/salida
+sobre el dispositivo se realiza de forma as\'{\i}ncrona). Evidentemente, se
+trata de las opciones m\'as l\'ogicas para sistemas de ficheros `normales',
+pero no para los que puedan montar los usuarios; si deseamos que un usuario sin
+privilegios pueda montar y desmontar cierto dispositivo, hemos de especificar
+la opci\'on {\tt `user'} en la entrada correspondiente de {\tt /etc/fstab}.
+Parece l\'ogico tambi\'en utilizar {\tt `noauto'} para que el sistema no se
+monte autom\'aticamente en el arranque de la m\'aquina (si esto sucediera, 
+el {\tt root} tendr\'{\i}a que desmontar la unidad manualmente para que otros
+usuarios puedan montarla), pero otras opciones importantes no son tan 
+inmediatas. Es {\bf imprescindible} que si permitimos a un usuario montar 
+una unidad utilicemos {\tt `nodev'}, de forma que si en el sistema montado
+existen ficheros de tipo dispositivo (por ejemplo, un archivo que haga 
+referencia a nuestros discos duros) ese fichero sea ignorado; en caso contrario,
+cualquiera podr\'{\i}a acceder directamente a nuestro {\it hardware}, por 
+ejemplo para destruir completamente los discos duros o bloquear toda la 
+m\'aquina. Tambi\'en es importante especificar {\tt `nosuid'}, de forma que
+se ignore el bit de {\it setuid} en cualquier fichero contenido en el sistema
+que el usuario monta: as\'{\i} evitamos que con un simple {\it shell} setuidado
+en un disco flexible el usuario consiga privilegios de administrador en nuestro
+sistema. Incluso puede ser conveniente especificar {\tt `noexec'}, de forma
+que no se pueda ejecutar nada de lo que est\'a en el dispositivo montado -- 
+esto parece l\'ogico, ya que en principio se va a tratar de una unidad utilizada
+simplemente para transferir datos entre la m\'aquina y un sistema externo a la
+red, como el ordenador de casa de un alumno --. Todas estas opciones ({\tt
+`noexec'}, {\tt `nosuid'} y {\tt `nodev'}) en Linux se asumen simplemente al
+indicar {\tt `user'}, pero en otros sistemas Unix quiz\'as no, por lo que
+nunca est\'a de m\'as ponerlas expl\'{\i}citamente (o al menos consultar el
+manual en otros clones de Unix para asegurarse del efecto de cada opci\'on);
+de esta forma, si queremos que los usuarios puedan montar por ejemplo la
+disquetera, una entrada correcta en {\tt /etc/fstab} ser\'{\i}a la siguiente:
+\begin{quote}
+\begin{verbatim}
+luisa:~# grep fd0 /etc/fstab
+/dev/fd0    /floppy     ext2        user,noauto,nodev,nosuid,noexec
+luisa:~#
+\end{verbatim}
+\end{quote}
+Otro aspecto relacionado con el montaje de sistemas de ficheros que puede 
+afectar a nuestra seguridad es el uso de sistemas de ficheros diferentes del
+ra\'{\i}z bajo ciertos directorios; una elecci\'on incorrecta a la hora de 
+elegir d\'onde montar sistemas puede causar ciertos problemas, sobre todo 
+negaciones de servicio. Generalmente, es recomendable montar dispositivos 
+diferentes bajo todos y cada uno de los directorios sobre los que los usuarios
+tienen permiso de escritura; esto incluye el padre de sus {\it \$HOME}, {\tt
+/tmp/} o {\tt /var/tmp/} (que puede ser un simple enlace a {\tt /tmp/}). Con
+esto conseguimos que si un usuario llena un disco, esto no afecte al resto
+del sistema: un disco lleno implica muchos problemas para la m\'aquina, desde
+correo electr\'onico que no se recibe, {\it logs} que no se registran, o 
+simplemente una negaci\'on de servicio contra el resto de usuarios, que no 
+podr\'an almacenar nada. Aunque algunos Unices reservan una parte de cada disco
+o partici\'on para escritura s\'olo del {\tt root} o de procesos que corran bajo
+el UID 0 -- t\'{\i}picamente un 10\% de su capacidad total --, no podemos
+confiar ciegamente en este mecanismo para mantener segura nuestra m\'aquina;
+as\'{\i}, una configuraci\'on m\'as o menos adecuada ser\'{\i}a la 
+siguiente\footnote{Recordemos que en ciertos Unices existe {\tt /var/tmp/}, 
+directorio donde los usuarios tambi\'en pueden escribir; quiz\'as nos interese,
+en lugar de dedicar una partici\'on a este directorio, enlazarlo 
+simb\'olicamente a {\tt /tmp/}.}:
+\begin{quote}
+\begin{verbatim}
+rosita:~# mount
+/dev/hda1 on / type ext2 (rw)
+/dev/hda2 on /tmp type ext2 (rw)
+/dev/hdb1 on /home type ext2 (rw)
+none on /proc type proc (rw)
+rosita:~#
+\end{verbatim}
+\end{quote}
+Como podemos comprobar, si un usuario lanza un {\tt ftp} en {\it background}
+desde su {\it \$HOME}
+durante la noche -- t\'{\i}pico proceso que llena gran cantidad de disco --, en
+todo caso podr\'a afectar al resto de usuarios, pero nunca al sistema en global
+(correo, {\it logs}, {\tt root}\ldots); este tipo de problemas no suelen ser
+ataques, sino m\'as bien descuidos de los usuarios que no tienen en cuenta 
+el espacio disponible antes de descargar ficheros de forma no interactiva. Si
+queremos que ni siquiera pueda afectar al resto de usuarios, podemos establecer
+un sistema de {\it quotas} de disco en nuestra m\'aquina.
+\section{Permisos de un archivo}
+Los permisos de cada fichero son la protecci\'on m\'as b\'asica de estos
+objetos del sistema operativo; definen qui\'en puede acceder a cada uno de 
+ellos, y de qu\'e forma puede hacerlo. Cuando hacemos un listado largo de 
+ciertos archivos podemos ver sus permisos junto al tipo de fichero 
+correspondiente, en la primera columna de cada l\'{\i}nea:
+\tt
+\begin{quote}
+\begin{verbatim}
+anita:~# ls -l /sbin/rc0
+-rwxr--r--   3 root     sys         2689 Dec  1  1998 /sbin/rc0
+anita:~#
+\end{verbatim}
+\end{quote}
+\rm
+En este caso vemos que el archivo listado es un fichero plano (el primer
+car\'acter es un {\tt `-'}) y sus permisos son {\tt `rwxr--r--'}. >C\'omo
+interpretar estos caracteres? Los permisos se dividen en tres ternas en
+funci\'on de a qu\'e usuarios afectan; cada una de ellas indica la existencia o
+la ausencia de permiso para leer, escribir o ejecutar el fichero: una {\tt r}
+indica un permiso de lectura, una {\tt w} de escritura, una {\tt x} de 
+ejecuci\'on y un {\tt `-'} indica que el permiso correspondiente no est\'a
+activado. As\'{\i}, si en una de las ternas tenemos los caracteres {\tt rwx},
+el usuario o usuarios afectados por esa terna tiene o tienen permisos para 
+realizar cualquier operaci\'on sobre el fichero. >De qu\'e usuarios se trata en
+cada caso? La primera terna afecta al propietario del fichero, la segunda al
+grupo del propietario cuando lo cre\'o (recordemos un mismo usuario puede 
+pertenecer a varios grupos) y la tercera al resto de usuarios. De esta forma,
+volviendo al ejemplo anterior, tenemos los permisos mostrados en la figura
+\ref{perm}.\\
+\begin{figure}
+\vspace{0.5cm}
+\setlength{\unitlength}{0.00083300in}%
+%
+\begingroup\makeatletter\ifx\SetFigFont\undefined%
+\gdef\SetFigFont#1#2#3#4#5{%
+  \reset@font\fontsize{#1}{#2pt}%
+  \fontfamily{#3}\fontseries{#4}\fontshape{#5}%
+  \selectfont}%
+\fi\endgroup%
+\begin{picture}(4524,1614)(589,-1363)
+\thicklines
+\put(601,-286){\framebox(1200,525){}}
+\put(2101,-286){\framebox(1200,525){}}
+\put(3601,-286){\framebox(1200,525){}}
+\put(4201,-286){\line( 0,-1){375}}
+\put(4201,-661){\vector( 1, 0){900}}
+\put(2701,-286){\line( 0,-1){675}}
+\put(2701,-961){\vector( 1, 0){1725}}
+\put(1201,-286){\line( 0,-1){975}}
+\put(1201,-1261){\vector( 1, 0){1725}}
+\put(751,-136){\makebox(0,0)[lb]{\smash{\SetFigFont{17}{20.4}{\ttdefault}{\mddefault}{\updefault}r w x}}}
+\put(2251,-136){\makebox(0,0)[lb]{\smash{\SetFigFont{17}{20.4}{\ttdefault}{\mddefault}{\updefault}r - -}}}
+\put(3751,-136){\makebox(0,0)[lb]{\smash{\SetFigFont{17}{20.4}{\ttdefault}{\mddefault}{\updefault}r - -}}}
+\put(4501,-1036){\makebox(0,0)[lb]{\smash{\SetFigFont{10}{12.0}{\ttdefault}{\mddefault}{\updefault}Miembros del grupo (sys): lectura.}}}
+\put(3001,-1336){\makebox(0,0)[lb]{\smash{\SetFigFont{10}{12.0}{\ttdefault}{\mddefault}{\updefault}Propietario (root): lectura, escritura y ejecuci\'on.}}}
+\put(5026,-736){\makebox(0,0)[lb]{\smash{\SetFigFont{10}{12.0}{\ttdefault}{\mddefault}{\updefault} Resto de usuarios: lectura.}}}
+\end{picture}
+\vspace{0.4cm}
+\caption{Permisos de un fichero}
+\label{perm}
+\end{figure}
+\\Cuando un usuario\footnote{Excepto el {\it root}, que no se ve afectado por
+los permisos de un fichero.} intenta acceder en alg\'un modo a un archivo, el 
+sistema comprueba qu\'e terna de permisos es la aplicable y se basa 
+\'unicamente en ella para conceder o denegar el acceso; as\'{\i}, si un usuario
+es el propietario del fichero s\'olo se comprueban permisos de la primera terna;
+si no, se pasa a la segunda y se aplica en caso de que los grupos coincidan, y
+de no ser as\'{\i} se aplican los permisos de la \'ultima terna. De esta forma
+es posible tener situaciones tan curiosas como la de un usuario que no tenga
+ning\'un permiso sobre uno de sus archivos, y en cambio que el resto de usuarios
+del sistema pueda leerlo, ejecutarlo o incluso borrarlo; obviamente, esto no
+es lo habitual, y de suceder el propietario siempre podr\'a restaurar los 
+permisos a un valor adecuado.\\
+\\El propietario y el grupo de un fichero se pueden modificar con las \'ordenes
+{\tt chown} y {\tt chgrp} respectivamente; ambas reciben como par\'ametros al
+menos el nombre de usuario o grupo (los nombres v\'alidos de usuario
+son los que poseen una entrada en {\tt /etc/passwd} mientras que los grupos
+v\'alidos se leen de {\tt /etc/group}) al que vamos a otorgar la posesi\'on
+del fichero, as\'{\i} como el nombre de archivo a modificar:
+\begin{quote}
+\begin{verbatim}
+anita:~# ls -l /tmp/fichero 
+-rw-r--r--   1 root     other          799 Feb  8 19:47 /tmp/fichero
+anita:~# chown toni /tmp/fichero
+anita:~# ls -l /tmp/fichero 
+-rw-r--r--   1 toni     other          799 Feb  8 19:47 /tmp/fichero
+anita:~# chgrp staff /tmp/fichero
+anita:~# ls -l /tmp/fichero 
+-rw-r--r--   1 toni     staff          799 Feb  8 19:47 /tmp/fichero
+anita:~# 
+\end{verbatim}
+\end{quote}
+En muchas variantes de Unix es posible cambiar a la vez el propietario y el
+grupo de un fichero mediante {\tt chown}, separando ambos mediante un car\'acter
+especial, generalmente {\tt `:'} o {\tt `.'}:
+\begin{quote}
+\begin{verbatim}
+anita:~# ls -l /tmp/fichero 
+-rw-r--r--   1 root     other          799 Feb  8 19:47 /tmp/fichero
+anita:~# chown toni:staff /tmp/fichero
+anita:~# ls -l /tmp/fichero 
+-rw-r--r--   1 toni     staff          799 Feb  8 19:47 /tmp/fichero
+anita:~#
+\end{verbatim}
+\end{quote}
+Como vemos, ninguna de estas \'ordenes altera el campo de permisos\footnote{Esto
+no siempre es as\'{\i}: bajo ciertas circunstancias en algunos Unix el cambio
+de grupo o de propietario puede modificar los permisos del archivo, como veremos
+al hablar de  ficheros setuidados.}; para modificar los permisos de un archivo
+se utiliza la orden {\tt chmod}. Este comando generalmente recibe como 
+par\'ametro el permiso en octal que queremos asignar a cierto fichero, as\'{\i}
+como el nombre del mismo:
+\begin{quote}
+\begin{verbatim}
+anita:~# ls -l /tmp/fichero 
+-rw-r--r--   1 root     staff          799 Feb  8 19:47 /tmp/fichero
+anita:~# chmod 755 /tmp/fichero
+anita:~# ls -l /tmp/fichero 
+-rwxr-xr-x   1 root     staff          799 Feb  8 19:47 /tmp/fichero
+anita:~# 
+\end{verbatim}
+\end{quote}
+>C\'omo podemos obtener el n\'umero en octal a partir de una terna de permisos
+determinada, y viceversa? Evidentemente no podemos entrar aqu\'{\i} a tratar
+todas las caracter\'{\i}sticas de este sistema de numeraci\'on, pero vamos a
+proporcionar unas ideas b\'asicas. Imaginemos que tenemos un fichero con unos
+determinados permisos de los que queremos calcular su equivalente octal, o que
+conocemos los permisos a asignar pero no su equivalente num\'erico; por 
+ejemplo, necesitamos asignar a un fichero la terna {\tt rw-r---wx}, que en la
+pr\'actica no tiene mucho sentido pero que a nosotros nos sirve de ejemplo.
+Lo primero que debemos hacer a partir de estos bits {\it rwx} es calcular su
+equivalente binario, para lo que asignamos el valor {\tt `1'} si un determinado
+permiso est\'a activo (es decir, si aparece una {\tt r}, {\tt w} o {\tt x} en
+\'el) y un {\tt `0'} si no lo est\'a (aparece un {\tt `-'}); as\'{\i}, el 
+equivalente binario de la terna propuesta es {\tt 110100011}. Ahora simplemente
+hemos de pasar el n\'umero del sistema binario al octal: lo dividimos en 
+grupos de tres elementos ({\tt 110 100 011}) y de cada uno de ellos calculamos
+su equivalente octal:
+\begin{quote}
+$110_{2}\equiv 1\cdot 2^{2} + 1\cdot 2^{1} + 0\cdot 2^{0} \equiv 6_{8}$\\
+$100_{2}\equiv 1\cdot 2^{2} + 0\cdot 2^{1} + 0\cdot 2^{0} \equiv 4_{8}$\\
+$011_{2}\equiv 0\cdot 2^{2} + 1\cdot 2^{1} + 1\cdot 2^{0} \equiv 3_{8}$
+\end{quote}
+Ya tenemos los tres n\'umeros de nuestra terna de permisos, o lo que es lo
+mismo, la representaci\'on octal de los bits iniciales: 643. Por tanto, si
+necesitamos asignar esta terna a un cierto fichero, simplemente hemos de 
+ejecutar la orden {\tt chmod} indic\'andole este n\'umero y el nombre del
+archivo:
+\begin{quote}
+\begin{verbatim}
+anita:~# chmod 643 /tmp/fichero
+anita:~# ls -l /tmp/fichero 
+-rw-r---wx   1 root     root          799 Feb  8 19:47 /tmp/fichero*
+anita:~#
+\end{verbatim}
+\end{quote}
+La forma de trabajar de {\tt chmod} comentada requiere que se indique 
+expl\'{\i}citamente el valor octal de los bits {\it rwx} que queremos otorgar
+a un fichero; sin importar el valor de las ternas que pose\'{\i}a antes de
+ejecutar la orden, estamos asignando a los permisos del archivo el nuevo valor 
+valor indicado en la l\'{\i}nea de comandos. Existe otra forma de trabajo de
+{\tt chmod} denominada `simb\'olica' en la que no necesitamos indicar el valor
+octal de todos los bits, sino que especificamos \'unicamente par\'ametros 
+para los valores de los permisos que el archivo posee y deseamos modificar. En
+lugar de utilizar el equivalente octal, utilizamos s\'{\i}mbolos (de ah\'{\i}
+el nombre de esta forma de trabajo) que representan la activaci\'on o 
+desactivaci\'on de ciertos bits en cada una de las tres ternas; la sintaxis
+b\'asica\footnote{Se recomienda consultar la p\'agina del manual para ver otras
+opciones de la orden.} de {\tt chmod} en este caso es la siguiente:
+\it
+\begin{center}
+chmod $[$ugoa$]$\{+,-\}\{rwxst\} fichero 
+\end{center}
+\rm
+Podemos ver que el valor simb\'olico comienza por cero o m\'as letras que 
+indican sobre que terna de los permisos se van a realizar los cambios ({\tt u} 
+para propietario del fichero, {\tt g} para grupo, {\tt o} para resto de 
+usuarios y {\tt a} para las tres ternas; si no se especifica ninguna letra, se
+asume {\tt a}). A ellas les sigue un signo {\tt `+'} o {\tt `-'} en funci\'on
+de si deseamos activar o resetar el bit sobre el que trabajamos, par\'ametro
+indicado por el \'ultimo conjunto formado por una o m\'as letras, {\tt r} para
+el permiso de lectura, {\tt w} para escritura, {\tt x} para ejecuci\'on, {\tt s}
+para {\sc suid} o {\sc sgid} y {\tt t} para bit de permanencia (el significado
+de estos dos \'ultimos se explicar\'a en el punto siguiente). Entre los tres
+campos del valor simb\'olico no se insertan espacios:
+\begin{quote}
+\begin{verbatim}
+anita:~# ls -l /tmp/fichero
+-r--------   1 root     other          902 Feb  9 05:05 /tmp/fichero
+anita:~# chmod +x /tmp/fichero
+anita:~# ls -l /tmp/fichero
+-r-x--x--x   1 root     other          902 Feb  9 05:05 /tmp/fichero
+anita:~# chmod og-x /tmp/fichero
+anita:~# ls -l /tmp/fichero
+-r-x------   1 root     other          902 Feb  9 05:05 /tmp/fichero
+anita:~# chmod ug+rwx /tmp/fichero
+anita:~# ls -l /tmp/fichero
+-rwxrwx---   1 root     other          902 Feb  9 05:05 /tmp/fichero
+anita:~# 
+\end{verbatim}
+\end{quote}
+Esta forma de trabajo simb\'olica es menos utilizada en la pr\'actica que la
+forma octal, pero en ciertas situaciones es muy \'util, por ejemplo si deseamos
+activar todos los permisos de ejecuci\'on de un archivo o si queremos {\it 
+setuidarlo}: un simple {\tt chmod +x} o {\tt chmod u+s} es suficiente en estos
+casos, y evitamos preocuparnos por si modificamos el resto de permisos.\\
+\\Quiz\'as despu\'es de ver el procedimiento de modificaci\'on de los permisos
+de un fichero, este puede parecer demasiado
+complicado y arcaico para un sistema operativo moderno; a fin de
+cuentas, mucha gente prefiere gestores gr\'aficos de permisos -- igual que
+prefiere gestores gr\'aficos para otras tareas de administraci\'on --, programas
+que dan todo hecho y no obligan al administrador a `complicarse', llenos de
+men\'us desplegables y di\'alogos que una y otra vez preguntan si realmente 
+deseamos modificar cierto permiso ({\it >Est\'a usted seguro? >Realmente 
+seguro? >Es mayor de edad? >Me lo jura?}). Incluso esas personas aseguran que
+el procedimiento gr\'afico es mucho m\'as claro y m\'as potente que el que
+Unix ofrece en modo texto. Nada m\'as lejos de la realidad; por un lado,
+aunque todo el mundo reconoce que la explicaci\'on detallada de c\'omo funcionan
+los permisos de ficheros es algo farragosa, en la pr\'actica el convertir una
+terna de bits {\it rwx} a octal o viceversa es una tarea trivial, algo que 
+ning\'un 
+administrador con unas cuantas horas de pr\'actica ni siquiera necesita pensar. 
+Por otro, algo m\'as importante que la facilidad o dificultad de
+modificar los permisos: su robustez; hemos de pensar que este modelo de
+protecci\'on est\'a vigente desde hace casi treinta a\~nos y no ha cambiado 
+{\bf absolutamente nada}. Si en todo este tiempo no se ha modificado el 
+mecanismo, obviamente es porque siempre ha funcionado -- y lo sigue haciendo --
+bien.
+\section{Los bits {\sc suid}, {\sc sgid} y {\it sticky}}
+Habitualmente, los permisos de los archivos en Unix se corresponden con un
+n\'umero en octal que var\'{\i}a entre 000 y 777; sin embargo, existen unos
+permisos especiales que hacen variar ese n\'umero entre 0000 y 7777: se trata
+de los bits de permanencia (1000), {\sc sgid} (2000) y {\sc suid} (4000).\\
+\\El bit de {\sc suid} o {\it setuid} se activa sobre un fichero 
+a\~nadi\'endole 4000 a la
+representaci\'on octal de los permisos del archivo y otorg\'andole adem\'as
+permiso de ejecuci\'on al propietario del mismo; al hacer esto, en lugar de
+la {\tt x} en la primera terna de los permisos, aparecer\'a una {\tt s} o una
+{\tt S} si no hemos otorgado el permiso de ejecuci\'on correspondiente (en 
+este caso el bit no tiene efecto):
+\begin{quote}
+\begin{verbatim}
+anita:~# chmod 4777 /tmp/file1
+anita:~# chmod 4444 /tmp/file2
+anita:~# ls -l /tmp/file1 
+-rwsrwxrwx   1 root     other            0 Feb  9 17:51 /tmp/file1*
+anita:~# ls -l /tmp/file2
+-r-Sr--r--   1 root     other            0 Feb  9 17:51 /tmp/file2*
+anita:~# 
+\end{verbatim}
+\end{quote}
+El bit {\sc suid} activado sobre un fichero  indica que todo aqu\'el que
+ejecute el archivo va a tener durante la ejecuci\'on los mismos privilegios que
+qui\'en lo cre\'o; dicho de otra forma, si el administrador crea un fichero
+y lo {\it setuida}, todo aquel usuario que lo ejecute va a disponer, hasta que
+el programa finalice, de un nivel de privilegio total en el sistema. Podemos 
+verlo con el siguiente ejemplo:
+\begin{quote}
+\begin{verbatim}
+luisa:/home/toni# cat testsuid.c
+#include <stdio.h>
+#include <unistd.h>
+
+main(){
+  printf("UID: %d, EUID: %d\n",getuid(),geteuid());
+}
+luisa:/home/toni# cc -o testsuid testsuid.c
+luisa:/home/toni# chmod u+s testsuid
+luisa:/home/toni# ls -l testsuid
+-rwsr-xr-x   1 root     root         4305 Feb 10 02:34 testsuid
+luisa:/home/toni# su toni
+luisa:~$ id
+uid=1000(toni) gid=100(users) groups=100(users)
+luisa:~$ ./testsuid
+UID: 1000, EUID: 0
+luisa:~$ 
+\end{verbatim}
+\end{quote}
+Podemos comprobar que el usuario {\it toni}, sin ning\'un privilegio
+especial en el sistema, cuando ejecuta nuestro programa {\it setuidado} de 
+prueba est\'a trabajando con un {\sc euid} ({\it Effective UID}) 0, lo que le
+otorga todo el poder del administrador (fij\'emonos que \'este \'ultimo es
+el propietario del ejecutable); si en lugar de este c\'odigo el ejecutable
+fuera una copia de un {\it shell}, el usuario {\it toni} tendr\'{\i}a todos los
+privilegios del {\it root} mientras no finalice la ejecuci\'on, es decir, hasta
+que no se teclee {\tt exit} en la l\'{\i}nea de \'ordenes.\\
+\\Todo lo que acabamos de comentar con respecto al bit {\it setuid} es aplicable
+al bit {\it setgid} pero a nivel de grupo del fichero en lugar de propietario: 
+en lugar de trabajar con el {\sc euid} del propietario, todo usuario que 
+ejecute un programa {\it setgidado} tendr\'a los privilegios del grupo al que
+pertenece el archivo. Para activar el bit de {\it setgid} sumaremos 2000 a la
+representaci\'on octal del permiso del fichero y adem\'as habremos de darle
+permiso de ejecuci\'on a la terna de grupo; si lo hacemos, la {\tt s} o {\tt S} 
+aparecer\'a en lugar de la {\tt x} en esta terna. Si el fichero es un directorio
+y no un archivo plano, el bit {\it setgid} afecta a los ficheros y 
+subdirectorios que se creen en \'el: estos tendr\'an como grupo propietario al
+mismo que el directorio {\it setgidado}, siempre que el proceso que los cree
+pertenezca a dicho grupo.\\
+\\Pero, >c\'omo afecta todo esto a la seguridad del sistema? Muy sencillo: 
+los bits de {\it setuid} y {\it setgid} dan a Unix una gran flexibilidad, pero
+constituyen al mismo tiempo la mayor fuente de ataques internos al sistema
+(entendiendo por ataques internos aquellos realizados por un usuario --
+autorizado o no -- desde la propia m\'aquina, generalmente con el objetivo de
+aumentar su nivel de privilegio en la misma).
+Cualquier sistema Unix tiene un cierto n\'umero de ejecutables {\it 
+setuidados} y/o {\it setgidados}. Cada uno de ellos, como acabamos de comentar,
+se ejecuta con los privilegios de quien lo cre\'o (generalmente el {\it root}
+u otro usuario con ciertos privilegios) lo que directamente implica que 
+cualquier usuario tiene la capacidad de lanzar tareas que escapen total o 
+parcialmente al control del sistema operativo: se ejecutan en modo privilegiado
+si es el administrador quien cre\'o los ejecutables. Evidentemente, estas 
+tareas han de estar controladas de una forma exhaustiva, ya que si una de ellas
+se comporta de forma anormal (un simple {\it core dump}) puede causar
+da\~nos irreparables al sistema\footnote{Es especialmente preocupante la 
+posibilidad de ejecutar c\'odigo arbitrario (\cite{kn:ale97}), comentada en
+la secci\'on \ref{bufover}.}; tanto es as\'{\i} que hay innumerables 
+documentos que definen, o lo intentan, pautas de programaci\'on considerada
+`segura' (en la secci\'on \ref{progseg} se citan algunos de ellos y tambi\'en
+se explican algunas de estas t\'ecnicas). Si por cualquier motivo un programa
+{\it setuidado} falla se asume inmediatamente que presenta un problema de
+seguridad para la m\'aquina, y se recomienda resetear el bit de {\it setuid} 
+cuanto antes.\\
+\\Est\'a claro que asegurar completamente el comportamiento correcto de un
+programa es muy dif\'{\i}cil, por no decir imposible; cada cierto tiempo suelen
+aparecer fallos ({\it bugs}) en ficheros {\it setuidados} de los diferentes
+clones de Unix que ponen en peligro la integridad del sistema. Entonces, >por
+qu\'e no se adopta una soluci\'on radical, como eliminar este tipo de archivos?
+Hay una sencilla raz\'on: el riesgo que presentan no se corre in\'utilmente,
+para tentar al azar, sino que los archivos que se ejecutan con privilegios son
+estrictamente necesarios en Unix, al menos algunos de ellos. Veamos un ejemplo:
+un fichero setuidado cl\'asico en cualquier clon es {\tt /bin/passwd},
+la orden para que los usuarios puedan cambiar su contrase\~na de entrada al
+sistema. No hace falta analizar con mucho detalle el funcionamiento de este
+programa para darse cuenta que una de sus funciones consiste en modificar el
+fichero de claves ({\tt /etc/passwd} o {\tt /etc/shadow}). Est\'a claro que
+un usuario {\it per se} no tiene el nivel de privilegio necesario para hacer
+esto (incluso es posible que ni siquiera pueda leer el fichero de claves), por lo
+que frente a este problema tan simple existen varias soluciones: podemos 
+asignar permiso de escritura para todo el mundo al fichero de contrase\~nas, 
+podemos denegar a los usuarios el cambio de clave o podemos obligarles a pasar
+por la sala de operaciones cada vez que quieran cambiar su contrase\~na. Parece
+obvio que ninguna de ellas es apropiada para la seguridad del sistema (quiz\'as
+la \'ultima lo sea, pero es impracticable en m\'aquinas con un n\'umero de 
+usuarios considerable). Por tanto, debemos asumir que el bit de {\it setuid} en
+{\tt /bin/passwd} es imprescindible para un correcto funcionamiento del
+sistema. Sin embargo, esto no siempre sucede as\'{\i}: en un sistema Unix 
+instalado {\it out of the box} el n\'umero de ficheros setuidados suele ser
+mayor de cincuenta; sin perjudicar al correcto funcionamiento de la m\'aquina,
+este n\'umero se puede reducir a menos de cinco, lo que viene a indicar que
+una de las tareas de un administrador sobre un sistema reci\'en instalado es
+minimizar el n\'umero de ficheros {\it setuidados} o {\it setgidados}. No
+obstante, tampoco es conveniente eliminarlos, sino simplemente resetear su bit 
+de {\it setuid} mediante {\tt chmod}:
+\begin{quote}
+\begin{verbatim}
+luisa:~# ls -l /bin/ping 
+-r-sr-xr-x   1 root     bin         14064 May 10  1999 /bin/ping*
+luisa:~# chmod -s /bin/ping
+luisa:~# ls -l /bin/ping 
+-r-xr-xr-x   1 root     bin         14064 May 10  1999 /bin/ping*
+luisa:~#
+\end{verbatim}
+\end{quote}
+Tambi\'en hemos de estar atentos a nuevos ficheros de estas caracter\'{\i}sticas
+que se localicen en la m\'aquina; demasiadas aplicaciones de Unix se instalan
+por defecto con ejecutables {\it setuidados} cuando realmente este bit no es
+necesario, por lo que a la hora de instalar nuevo {\it software} o actualizar
+el existente hemos de acordarnos de resetear el bit de los ficheros que no lo 
+necesiten. Especialmente grave es la aparici\'on de archivos {\it setuidados}
+de los que el administrador no ten\'{\i}a constancia (ni son aplicaciones del
+sistema ni un aplicaciones a\~nadidas), ya que esto casi en el 100\% de los
+casos indica que nuestra m\'aquina ha sido comprometida por un atacante. Para 
+localizar los ficheros con alguno de estos bits activos, podemos ejecutar la 
+siguiente orden:
+\begin{quote}
+\begin{verbatim}
+luisa:~# find / \( -perm -4000 -o -perm -2000 \) -type f -print
+\end{verbatim}
+\end{quote}
+Por otra parte, el {\it sticky bit} o bit de permanencia se activa sum\'andole 
+1000 a la 
+representaci\'on octal de los permisos de un determinado archivo y otorg\'andole
+adem\'as permiso de ejecuci\'on; si hacemos esto, veremos que en lugar de una 
+{\tt x} en la terna correspondiente al resto de usuarios aparece una {\tt t} 
+(si no le hemos dado permiso de ejecuci\'on al archivo, aparecer\'a una {\tt 
+T}):
+\begin{quote}
+\begin{verbatim}
+anita:~# chmod 1777 /tmp/file1
+anita:~# chmod 1774 /tmp/file2
+anita:~# ls -l /tmp/file1 
+-rwxrwxrwt   1 root     other            0 Feb  9 17:51 /tmp/file1*
+anita:~# ls -l /tmp/file2
+-rwxrwxr-T   1 root     other            0 Feb  9 17:51 /tmp/file2*
+anita:~# 
+\end{verbatim}
+\end{quote}
+Si el bit de permanencia de un fichero est\'a activado (recordemos que si 
+aparece una {\tt T} no lo est\'a) le estamos indicando al sistema operativo que 
+se trata de un archivo muy utilizado, por lo que es conveniente que permanezca
+en memoria principal el mayor tiempo posible; esta opci\'on se utilizaba en 
+sistemas antiguos que dispon\'{\i}an de muy poca RAM, pero hoy en d\'{\i}a
+pr\'acticamente no se utiliza. Lo que si que sigue vigente es el efecto del 
+{\it sticky bit} activado sobre un directorio: en este caso se indica al
+sistema operativo que, aunque los permisos `normales' digan que cualquier 
+usuario pueda crear y eliminar ficheros (por ejemplo, un 777 octal), s\'olo el
+propietario de cierto archivo y el administrador pueden borrar un archivo 
+guardado en un directorio con estas caracter\'{\i}sticas. Este bit, que s\'olo
+tiene efecto cuando es activado por el administrador (aunque cualquier
+usuario puede hacer que aparezca una {\tt t} o una {\tt T} en sus ficheros y
+directorios), se utiliza principalmente en directorios del sistema de ficheros
+en los que interesa que todos puedan escribir pero que no todos puedan borrar
+los datos escritos, como {\tt /tmp/} o {\tt /var/tmp/}: si el equivalente octal
+de los permisos de estos directorios fuera simplemente 777 en lugar de 1777,
+cualquier usuario podr\'{\i}a borrar los ficheros del resto. Si pensamos que 
+para evitar problemas podemos simplemente denegar la escritura en directorios
+como los anteriores tambi\'en estamos equivocados: muchos programas -- como 
+compiladores, editores o gestores de correo -- asumen que van a poder crear
+ficheros en {\tt /tmp/} o {\tt /var/tmp/}, de forma que si no se permite a los
+usuarios hacerlo no van a funcionar correctamente; por tanto, es muy 
+recomendable para el buen funcionamiento del sistema que al menos el 
+directorio {\tt /tmp/} tenga el bit de permanencia activado.\\
+\\Ya para finalizar, volvemos a lo que hemos comentado al principio de la
+secci\'on: el equivalente octal de los permisos en Unix puede variar entre 0000
+y 7777. Hemos visto que pod\'{\i}amos sumar 4000, 2000 o 1000 a los permisos
+`normales' para activar respectivamente los bits {\it setuid}, {\it setgid} o
+{\it sticky}. Por supuesto, podemos activar varios de ellos a la vez simplemente
+sumando sus valores: en la situaci\'on poco probable de que necesit\'aramos 
+todos los bits activos, sumar\'{\i}amos 7000 a la terna octal 777:
+\begin{quote}
+\begin{verbatim}
+luisa:~# chmod 0 /tmp/fichero
+luisa:~# ls -l /tmp/fichero 
+----------   1 root     root            0 Feb  9 05:05 /tmp/fichero
+luisa:~# chmod 7777 /tmp/fichero
+luisa:~# ls -l /tmp/fichero 
+-rwsrwsrwt   1 root     root            0 Feb  9 05:05 /tmp/fichero*
+luisa:~#
+\end{verbatim}
+\end{quote}
+Si en lugar de especificar el valor octal de los permisos queremos utilizar
+la forma simb\'olica de {\tt chmod}, utilizaremos {\tt +t} para activar el
+bit de permanencia, {\tt g+s} para activar el de {\it setgid} y {\tt u+s} para 
+hacer lo mismo con el de {\it setuid}; si queremos resetearlos, utilizamos un
+signo {\tt `-'} en lugar de un {\tt `+'} en la l\'{\i}nea de \'ordenes.
+\section{Atributos de un archivo}
+En el sistema de ficheros {\it ext2} ({\it Second Extended File System}) de 
+Linux existen ciertos atributos para los ficheros que pueden ayudar a 
+incrementar la seguridad de un sistema. Estos atributos son los mostrados en
+la tabla \ref{attr}.\\
+\begin{table}
+\begin{center}
+\begin{tabular}{|c||c|}
+\hline
+Atributo & Significado\\
+\hline\hline
+A & Don\'{}t update {\bf A}time\\
+\hline
+S & {\bf S}ynchronous updates\\
+\hline
+a & {\bf A}ppend only\\
+\hline
+c & {\bf C}ompressed file\\
+\hline
+i & {\bf I}mmutable file\\
+\hline
+d & No {\bf D}ump\\
+\hline
+s & {\bf S}ecure deletion\\
+\hline
+u & {\bf U}ndeletable file\\
+\hline
+\end{tabular}
+\end{center}
+\caption{Atributos de los archivos en {\it ext2fs}.}
+\label{attr}
+\end{table}
+\\De todos ellos, de cara a la seguridad algunos no nos interesan demasiado,
+pero otros s\'{\i} que se deben tener en cuenta. Uno de los atributos 
+interesantes -- quiz\'as el que m\'as -- es {\tt `a'}; tan importante es que 
+s\'olo el administrador tiene el privilegio suficiente para activarlo o 
+desactivarlo.  El atributo {\tt `a'} sobre un fichero indica que este s\'olo se 
+puede abrir en modo escritura para a\~nadir datos, pero nunca para eliminarlos.
+>Qu\'e tiene que ver esto con la seguridad? Muy sencillo: cuando un intruso ha
+conseguido el privilegio suficiente en un sistema atacado, lo primero que suele
+hacer es borrar sus huellas; para esto existen muchos programas (denominados
+{\it zappers}, {\it rootkits}\ldots) que, junto a otras funciones, eliminan
+estructuras de ciertos ficheros de {\it log} como {\tt lastlog}, {\tt wtmp} o
+{\tt utmp}. As\'{\i} consiguen que cuando alguien ejecute {\tt last}, {\tt who},
+{\tt users}, {\tt w} o similares, no vea ni rastro de la conexi\'on que el
+atacante ha realizado a la m\'aquina; evidentemente, si estos archivos de {\it
+log} poseen el atributo {\tt `a'} activado, el pirata y sus programas lo tienen 
+m\'as dif\'{\i}cil para borrar datos de ellos. Ahora viene la siguiente
+cuesti\'on: si el pirata ha conseguido el suficiente nivel de privilegio como
+para poder escribir -- borrar -- en los ficheros (en la mayor\'{\i}a de Unices
+para realizar esta tarea se necesita ser {\it root}), simplemente ha de 
+resetear el atributo {\tt `a'} del archivo, eliminar los datos comprometedores
+y volver a activarlo. Obviamente, esto es as\'{\i} de simple, pero siempre 
+hemos de recordar que en las redes habituales no suelen ser atacadas por piratas
+con un m\'{\i}nimo nivel de conocimientos, sino por los intrusos m\'as novatos
+de la red; tan novatos que generalmente se limitan a ejecutar programas desde 
+sus flamantes Windows sin tener ni la m\'as remota idea de lo que 
+est\'an haciendo en Unix, de forma que una protecci\'on tan elemental como un 
+fichero con el {\it flag} {\tt `a'} activado se convierte en algo imposible de 
+modificar para ellos, con lo que su acceso queda convenientemente registrado en 
+el sistema.\\
+\\Otro atributo del sistema de archivos {\it ext2} es {\tt `i'} (fichero 
+inmutable); un archivo con este {\it flag} activado no se puede modificar de
+ninguna forma, ni a\~nadiendo datos ni borr\'andolos, ni eliminar el archivo,
+ni tan siquiera enlazarlo mediante {\tt ln}. Igual que suced\'{\i}a antes,
+s\'olo el administrador puede activar o desactivar el atributo {\tt `i'} de
+un fichero. Podemos aprovechar esta caracter\'{\i}stica en los archivos que 
+no se modifican frecuentemente, por ejemplo muchos de los contenidos en 
+{\tt /etc/} (ficheros de configuraci\'on, {\it scripts} de arranque\ldots
+incluso el propio fichero de contrase\~nas si el a\~nadir o eliminar usuarios
+tampoco es frecuente en nuestro sistema); de esta forma conseguimos que 
+ning\'un usuario pueda modificarlos incluso aunque sus permisos lo permitan.
+Cuando activemos el atributo {\tt `i'} en un archivo hemos de tener siempre
+en cuenta que el archivo no va a poder ser modificado por nadie, incluido el
+administrador, y tampoco por los programas que se ejecutan en la m\'aquina;
+por tanto, si activ\'aramos este atributo en un fichero de {\it log}, {\bf no
+se grabar\'{\i}a ninguna informaci\'on en \'el}, lo que evidentemente no es
+conveniente. Tambi\'en hemos de recordar que los archivos tampoco van a poder
+sen enlazados, lo que puede ser problem\'atico en algunas variantes de Linux
+que utilizan enlaces duros para la configuraci\'on de los ficheros de
+arranque del sistema.\\
+\\Atributos que tambi\'en pueden ayudar a implementar una correcta pol\'{\i}tica
+de seguridad en la m\'aquina, aunque menos importantes que los anteriores, son
+{\tt `s'} y {\tt `S'}. Si borramos un archivo con el atributo {\tt `s'} activo,
+el sistema va a rellenar sus bloques con ceros en lugar de efectuar un simple
+{\tt unlink()}, para as\'{\i} dificultar la tarea de un atacante que intente 
+recuperarlo; realmente, para un pirata experto esto no supone ning\'un problema,
+simplemente un retraso en sus prop\'ositos: en el punto \ref{secure-del} se
+trata m\'as ampliamente la amenaza de la recuperaci\'on de archivos, y tambi\'en
+ah\'{\i} se comenta que un simple relleno de bloques mediante {\tt bzero()} 
+no hace que la informaci\'on sea irrecuperable.\\
+\\Por su parte, el atributo {\tt `S'} sobre un fichero hace que los cambios 
+sobre el archivo se escriban inmediatamente en el disco en lugar de esperar
+el {\tt sync} del sistema operativo. Aunque no es lo habitual, bajo ciertas
+circunstancias un fichero de {\it log} puede perder informaci\'on que a\'un
+no se haya volcado a disco: imaginemos por ejemplo que alguien conecta al
+sistema y cuando \'este registra la entrada, la m\'aquina se apaga
+s\'ubitamente; toda la informaci\'on que a\'un no se haya grabado en disco se
+perder\'a. Aunque como decimos, esto no suele ser habitual -- adem\'as, ya hemos
+hablado de las ventajas de instalar un S.A.I. --, si nuestro sistema se apaga
+frecuentemente s\'{\i} que nos puede interesar activar el bit {\tt `S'} de 
+ciertos ficheros importantes.\\
+\\Ya hemos tratado los atributos del sistema de ficheros {\it ext2} que pueden
+incrementar la seguridad de Linux; vamos a ver ahora, sin entrar en muchos
+detalles (recordemos que tenemos a nuestra disposici\'on las p\'aginas del
+manual) c\'omo activar o desactivar estos atributos sobre ficheros, y tambi\'en
+c\'omo ver su estado. Para lo primero utilizamos la orden {\tt chattr}, que
+recibe como par\'ametros el nombre del atributo junto a un signo {\tt `+'} o 
+{\tt `-'}, en funci\'on de si deseamos activar o desactivar el atributo, y
+tambi\'en el nombre de fichero correspondiente. Si lo que deseamos es visualizar
+el estado de los diferentes atributos, utilizaremos {\tt lsattr}, cuya salida
+indicar\'a con la letra correspondiente cada atributo del fichero o un signo
+{\tt -} en el caso de que el atributo no est\'e activado:
+\begin{quote}
+\begin{verbatim}
+luisa:~# lsattr /tmp/fichero 
+-------- /tmp/fichero
+luisa:~# chattr +a /tmp/fichero 
+luisa:~# chattr +Ss /tmp/fichero 
+luisa:~# lsattr /tmp/fichero 
+s--S-a-- /tmp/fichero
+luisa:~# chattr -sa /tmp/fichero 
+luisa:~# lsattr /tmp/fichero 
+---S---- /tmp/fichero
+luisa:~# 
+\end{verbatim}
+\end{quote}
+\section{Listas de control de acceso: ACLs}
+Las listas de control de acceso (ACLs, {\it Access Control Lists}) proveen
+de un nivel adicional de seguridad a los ficheros extendiendo el cl\'asico
+esquema de permisos en Unix: mientras que con estos \'ultimos s\'olo podemos 
+especificar permisos para los tres grupos de usuarios habituales (propietario, 
+grupo y resto), las ACLs van a permitir asignar permisos a usuarios o grupos
+concretos; por ejemplo, se
+pueden otorgar ciertos permisos a dos usuarios sobre unos ficheros sin necesidad
+de incluirlos en el mismo grupo. Este mecanismo est\'a
+disponible en la mayor\'{\i}a de Unices (Solaris, AIX, HP-UX\ldots), mientras
+que en otros que no lo proporcionan por defecto, como Linux, puede instalarse 
+como un {\it software} adicional. A pesar de las agresivas campa\~nas de 
+{\it marketing} de alguna empresa, que justamente presum\'{\i}a de ofrecer este 
+modelo de protecci\'on en sus {\it sistemas operativos} frente al `arcaico' 
+esquema utilizado en Unix, las listas de control de acceso existen en Unix 
+desde hace m\'as de diez a\~nos (\cite{kn:apo88}).\\
+\\Los ejemplos que vamos a utilizar aqu\'{\i} (\'ordenes, resultados\ldots) se
+han realizado sobre Solaris; la idea es la misma en el resto de Unices, aunque 
+pueden cambiar las estructuras de las listas. Para obtener una excelente 
+visi\'on de las ACLs es recomendable consultar \cite{kn:fri95}, y por supuesto
+la documentaci\'on de los diferentes clones de Unix para detalles concretos de 
+cada manejo e implementaci\'on.\\
+\\La primera pregunta que nos debemos hacer sobre las listas de control de
+acceso es obvia: >c\'omo las vemos? Si habitualmente queremos saber si a un 
+usuario se le permite cierto tipo de acceso sobre un fichero no tenemos m\'as 
+que hacer un listado largo:
+\begin{quote}
+\begin{verbatim}
+anita:~# ls -l /usr/local/sbin/sshd 
+-rwx------   1 root     bin      2616160 Apr 28  1997 /usr/local/sbin/sshd
+anita:~# 
+\end{verbatim}
+\end{quote}
+Viendo el resultado, directamente sabemos que el fichero {\tt sshd} puede ser
+ejecutado, modificado y le\'{\i}do por el administrador, pero por nadie m\'as;
+sin embargo, no conocemos el estado de la lista de control de acceso asociada al
+archivo. Para ver esta lista, en Solaris se ha de utilizar la orden {\tt 
+getfacl}:
+\begin{quote}
+\begin{verbatim}
+anita:/# getfacl /usr/local/sbin/sshd 
+
+# file: /usr/local/sbin/sshd
+# owner: root
+# group: bin
+user::rwx
+group::---              #effective:---
+mask:---
+other:---
+anita:/# 
+\end{verbatim}
+\end{quote}
+Acabamos de visualizar una lista de control de acceso de Solaris; en primer 
+lugar se nos indica el nombre del fichero, su propietario y su grupo, todos
+precedidos por {\tt `\#'}. Lo que vemos a continuaci\'on es la propia lista de
+control: los campos {\tt user}, {\tt group} y {\tt other} son b\'asicamente
+la interpretaci\'on que {\tt getfacl} hace de los permisos del fichero (si nos
+fijamos, coincide con el resultado del {\tt ls -l}). El campo {\tt mask} es
+muy similar al {\tt umask} cl\'asico: define los permisos m\'aximos que un
+usuario (a excepci\'on del propietario) o grupo puede tener sobre el fichero. 
+Finalmente, el campo {\tt effective} nos dice, para cada usuario (excepto el
+propietario) o grupo el efecto que la m\'ascara tiene sobre los permisos: es
+justamente el campo que tenemos que analizar si queremos ver qui\'en puede
+acceder al archivo y de qu\'e forma.\\
+\\Sin embargo, hasta ahora no hemos observado nada nuevo; podemos fijarnos que
+la estructura de la lista de control de acceso otorga los mismos permisos que
+las ternas cl\'asicas. Esto es algo normal en todos los Unix: si no indicamos
+lo contrario, al crear un fichero se le asocia una ACL que coincide con los
+permisos que ese archivo tiene en el sistema (cada archivo tendr\'a una lista
+asociada, igual que tiene unos permisos); de esta forma, el resultado anterior
+no es m\'as que la visi\'on que {\tt getfacl} tiene de los bits {\it rwx} 
+del fichero (\cite{kn:gal96b}).\\ 
+\\Lo interesante de cara a la protecci\'on de ficheros es extender los permisos
+cl\'asicos del archivo, modificando su lista asociada. Esto lo podemos conseguir
+con la orden {\tt setfacl}:
+\begin{quote}
+\begin{verbatim}
+anita:~# setfacl -m user:toni:r-x /usr/local/sbin/sshd 
+anita:~# getfacl /usr/local/sbin/sshd 
+
+# file: /usr/local/sbin/sshd
+# owner: root
+# group: bin
+user::rwx
+user:toni:r-x           #effective:---
+group::---              #effective:---
+mask:---
+other:---
+anita:~# 
+\end{verbatim}
+\end{quote}
+Como vemos, acabamos de modificar la lista de control de acceso del archivo
+para asignarle a {\tt toni} permiso de ejecuci\'on y lectura sobre el mismo. La
+orden {\tt setfacl} se utiliza principalmente de tres formas: o bien a\~nadimos
+entradas a la ACL, mediante la opci\'on {\tt -m} seguida de las entradas que 
+deseemos a\~nadir separadas por comas (lo que hemos hecho en este caso, aunque
+no se han utilizado comas porque s\'olo hemos a\~nadido una entrada), o bien 
+utilizamos el par\'ametro {\tt -s} para reemplazar la ACL completa (hemos de 
+indicar todas las entradas, separadas tambi\'en por comas), o bien borramos
+entradas de la lista con la opci\'on {\tt -d} (de sintaxis similar a {\tt -m}).
+Cada entrada de la ACL tiene el siguiente formato:
+\begin{center}
+{\large {\tt tipo:{\sc uid}$\mid${\sc gid}:permisos}}
+\end{center}
+El tipo indica a qui\'en aplicar los permisos (por ejemplo, {\tt user} para
+el propietario del archivo, o {\tt mask} para la m\'ascara), el UID indica el
+usuario al que queremos asociar la entrada (como hemos visto, se puede utilizar
+tambi\'en el {\it login}, y el GID hace lo mismo con el grupo (de la misma 
+forma, se puede especificar su nombre simb\'olico). Finalmente, el campo de
+permisos hace referencia a los permisos a asignar, y puede ser especificado 
+mediante s\'{\i}mbolos {\it rwx-} o de forma octal.\\
+\\Acabamos de indicar que el usuario {\it toni} tenga permiso de lectura y
+ejecuci\'on en el archivo; no obstante, si ahora este usuario intenta acceder 
+al fichero en estos modos obtendr\'a un error:
+\begin{quote}
+\begin{verbatim}
+anita:/usr/local/sbin$ id
+uid=100(toni) gid=10(staff)
+anita:/usr/local/sbin$ ./sshd
+bash: ./sshd: Permission denied
+anita:/usr/local/sbin$ 
+\end{verbatim}
+\end{quote}
+>Qu\'e ha sucedido? Nada anormal, simplemente est\'a actuando la m\'ascara sobre
+sus permisos (antes hemos dicho que debemos fijarnos en el campo {\tt 
+effective}, y aqu\'{\i} podemos comprobar que no se ha modificado). Para 
+solucionar esto hemos de modificar el campo {\tt mask}:
+\begin{quote}
+\begin{verbatim}
+anita:~# setfacl -m mask:r-x /usr/local/sbin/sshd
+anita:~#
+\end{verbatim}
+\end{quote}
+Si ahora {\it toni} intenta acceder al fichero para leerlo o ejecutarlo, ya
+se le va a permitir:
+\begin{quote}
+\begin{verbatim}
+anita:/usr/local/sbin$ id
+uid=100(toni) gid=10(staff)
+anita:/usr/local/sbin$ ./sshd
+/etc/sshd_config: No such file or directory
+...
+\end{verbatim}
+\end{quote}
+Aunque obtenga un error, este error ya no depende de
+la protecci\'on de los ficheros sino de la configuraci\'on del programa: el
+administrador obtendr\'{\i}a el mismo error. No obstante, s\'{\i} que hay 
+diferencias entre una ejecuci\'on de {\it toni} y otra del {\it root}, pero 
+tambi\'en son impuestas por el resto del sistema operativo Unix: {\it toni} no
+podr\'{\i}a utilizar recursos a los que no le est\'a permitido el acceso, como
+puertos bien conocidos, otros ficheros, o procesos que no le pertenezcan. Hay
+que recordar que aunque un usuario ejecute un archivo perteneciente al {\it
+root}, si el fichero no est\'a setuidado los privilegios del usuario {\bf no
+cambian}. Sucede lo mismo que pasar\'{\i}a si el usuario tuviera permiso de
+ejecuci\'on normal sobre el fichero, pero \'este realizara tareas privilegiadas:
+podr\'{\i}a ejecutarlo, pero obtendr\'{\i}a error al intentar violar la
+protecci\'on del sistema operativo.\\
+\\En Solaris, para indicar que una lista de control de acceso otorga permisos
+no reflejados en los bits {\it rwx} se situa un s\'{\i}mbolo {\tt `+'} a la
+derecha de los permisos en un listado largo:
+\begin{quote}
+\begin{verbatim}
+anita:~# ls -l /usr/local/sbin/sshd
+-rwx------+  1 root     bin      2616160 Apr 28  1997 /usr/local/sbin/sshd
+anita:~# 
+\end{verbatim}
+\end{quote}
+Otra caracter\'{\i}stica que tiene Solaris es la capacidad de leer las 
+entradas de una lista de control de acceso desde un fichero en lugar de
+indicarlas en la l\'{\i}nea de \'ordenes, mediante la opci\'on {\tt -f} de
+{\tt setfacl}; el formato de este fichero es 
+justamente el resultado de {\tt getfacl}, lo que nos permite copiar ACLs entre
+archivos de una forma muy c\'omoda:
+\begin{quote}
+\begin{verbatim}
+anita:~# getfacl /usr/local/sbin/sshd >/tmp/fichero
+anita:~# setfacl -f /tmp/fichero /usr/local/sbin/demonio
+anita:~# getfacl /usr/local/sbin/demonio
+
+# file: /usr/local/sbin/demonio
+# owner: root
+# group: other
+user::rwx
+user:toni:r-x           #effective:r-x
+group::---              #effective:---
+mask:r-x
+other:---
+anita:~#
+\end{verbatim}
+\end{quote}
+Esto es equivalente a utilizar una tuber\'{\i}a entre las dos \'ordenes, lo
+que producir\'{\i}a el mismo resultado:
+\begin{quote}
+\begin{verbatim}
+anita:~# getfacl /usr/local/sbin/sshd | setfacl -f - /usr/local/sbin/demonio
+\end{verbatim}
+\end{quote}
+Antes de finalizar este apartado dedicado a las listas de control de acceso,
+quiz\'as sea conveniente comentar el principal problema de estos mecanismos. 
+Est\'a claro que las ACLs son de gran ayuda para el administrador de sistemas
+Unix, tanto para incrementar la seguridad como para facilitar ciertas tareas;
+sin embargo, es f\'acil darse cuenta de que se pueden convertir en algo 
+tambi\'en de gran ayuda, pero para un atacante que desee situar puertas
+traseras en las m\'aquinas. Imaginemos simplemente que un usuario 
+autorizado de nuestro sistema aprovecha el \'ultimo {\it bug} de {\tt sendmail}
+(realmente nunca hay un `\'ultimo') para conseguir privilegios de administrador 
+en una m\'aquina; cuando se ha convertido en {\it root} modifica la lista de
+control de acceso asociada a {\tt /etc/shadow} y crea una nueva entrada que
+le da un permiso total a su {\it login} sobre este archivo. Una vez hecho esto,
+borra todo el rastro y 
+corre a avisarnos del nuevo problema de {\tt sendmail}, problema que 
+r\'apidamente solucionamos, le damos las gracias y nos olvidamos del asunto.
+>Nos olvidamos del asunto? Tenemos un usuario que, aunque los bits {\it rwx}
+no lo indiquen, puede modificar a su gusto un archivo crucial para nuestra 
+seguridad. Contra esto, poco podemos hacer; simplemente comprobar frecuentemente
+los listados de todos los ficheros importantes (ahora entendemos por qu\'e 
+aparece el s\'{\i}mbolo {\tt `+'} junto a las ternas de permisos), y si 
+encontramos que un 
+fichero tiene una lista de control que otorga permisos no reflejados en los
+bits {\it rwx}, analizar dicha lista mediante {\tt getfacl} y verificar que
+todo es correcto. Es muy recomendable programar un par de {\it shellscripts}
+simples, que automaticen estos procesos y nos informen en caso de que algo 
+sospechoso se detecte.
+\section{Recuperaci\'on de datos}
+\label{secure-del}
+La inform\'atica forense es un campo que d\'{\i}a a d\'{\i}a toma importancia;
+de la misma forma que la medicina forense es capaz de extraer informaci\'on
+valiosa de un cad\'aver, incluso mucho despu\'es de haber muerto, la 
+inform\'atica forense pretende extraer informaci\'on de un `cad\'aver' 
+computerizado (por ejemplo, un sistema en el que un intruso ha borrado sus 
+huellas), tambi\'en incluso mucho despu\'es de haber `muerto' (esto es, haber
+sido borrado). Aunque las t\'ecnicas de recuperaci\'on de datos en Unix se 
+aplican habitualmente para potenciar la seguridad de un equipo (por ejemplo, 
+como hemos dicho, para analizar el alcance real de un acceso no autorizado), 
+\'estas mismas t\'ecnicas utilizadas por un atacante pueden llegar a comprometer
+gravemente la seguridad del sistema: un intruso que haya conseguido cierto
+nivel de privilegio puede recuperar, por ejemplo, el texto plano de un documento
+que un usuario haya cifrado con {\sc pgp} y posteriormente borrado -- 
+almacenando \'unicamente el documento cifrado --. Aunque esto no es tan trivial
+como en otros sistemas menos seguros (en los que incluso se facilitan 
+herramientas tipo {\tt undelete}), parece claro que este tipo de actividades
+constituyen una amenaza a la seguridad (principalmente a la privacidad) de
+cualquier sistema Unix.\\
+\\En 1996, Peter Gutmann public\'o \cite{kn:gut96}, un excelente art\'{\i}culo
+donde se demostr\'o que la recuperaci\'on de datos de memoria (esto incluye por
+supuesto la memoria secundaria) es posible con un equipamiento relativamente 
+barato, de entre 1000 y 2500 d\'olares, incluso tras sobreescribir varias veces
+los datos a borrar. Hasta ese momento casi todo el trabajo realizado en el 
+campo de la destrucci\'on `segura' de datos se habia limitado a est\'andares
+de organismos de defensa estadounidenses (\cite{kn:ncsc91}, 
+\cite{kn:nsa85}\ldots). Como el propio Gutmann explica, estos trabajos -- aparte
+de quedar anticuados -- no mostraban toda la realidad sobre la destrucci\'on
+y recuperaci\'on de datos, sino que ofrec\'{\i}an una informaci\'on posiblemente
+inexacta; de esta forma las agencias estadounidenses confund\'{\i}an a la 
+opini\'on p\'ublica (y a los servicios de pa\'{\i}ses hostiles) asegurando 
+as\'{\i} el acceso de la propia agencia a la informaci\'on, y al mismo 
+tiempo proteg\'{\i}an sus propios datos mediante gu\'{\i}as y est\'andares 
+clasificados para uso interno.\\
+\\El art\'{\i}culo de Gutmann se puede considerar la base de la inform\'atica
+forense actual, un campo que como hemos dicho, d\'{\i}a a d\'{\i}a cobra
+importancia; centr\'andonos en la rama de este campo relativa a Unix (se le
+suele denominar {\it Unix Forensics}) podemos encontrar herramientas para 
+realizar borrado seguro de datos, como {\tt srm} ({\it Secure rm}), del grupo
+de {\it hackers} THC ({\it The Hacker\'{}s Choice}); este {\it software} 
+implementa un algoritmo de borrado seguro bas\'andose en \cite{kn:gut96}. Dicho
+algoritmo efectua principalmente un procedimiento de sobreescritura casi 40
+veces, haciendo un {\it flush} de la cach\'e de disco despu\'es de cada una de
+ellas; adem\'as trunca el fichero a borrar y lo renombra aleatoriamente antes
+de efectuar el {\tt unlink()}, de forma que para un potencial atacante sea
+m\'as dif\'{\i}cil obtener cualquier informaci\'on del archivo una vez borrado.
+{\tt srm} se distribuye dentro de un paquete {\it software} denominado {\tt
+secure-delete}, donde tambi\'en podemos encontrar otras herramientas 
+relacionadas con la eliminaci\'on segura de datos: {\tt smem} (borrado seguro
+de datos en memoria principal), {\tt sfill} (borrado seguro de datos en el
+espacion disponible de un disco) y por \'ultimo {\tt sswap} (borrado seguro
+de datos en el \'area de {\it swap} de Linux); todos los algoritmos utilizados
+en estos programas est\'an basados en el art\'{\i}culo de Gutmann del que 
+antes hemos hablado.\\
+\\Otra herramienta importante a la hora de hablar de {\it Unix Forensics},
+pero esta vez desde el lado opuesto a {\tt secure-delete} -- esto es, desde
+el punto de vista de la recuperaci\'on de datos -- 
+es sin duda {\it The Coroner\'{}s Toolkit}, obra de dos reconocidos
+expertos en seguridad: Wietse Venema y Dan Farmer. En verano de 1999, 
+concretamente el 6 de agosto, en el {\it IBM T.J. Watson Research Center} de
+Nueva York estos dos expertos dieron una clase sobre {\it Unix Forensics}, en
+la que mostraban c\'omo extraer informaci\'on de este sistema operativo, no
+s\'olo del sistema de ficheros, sino tambi\'en de la red, el sistema de
+{\it logs} o los procesos que se ejecutan en una m\'aquina. Lamentablemente,
+{\it The Coroner\'{}s Toolkit} a\'un no se encuentra disponible, pero es
+posible ojear lo que va a ser esta herramienta en las transparencias de esta
+conferencia, disponibles en {\tt http://www.porcupine.org/forensics/}, donde
+se muestra todo lo que un exhaustivo an\'alisis sobre Unix puede -- y tambi\'en
+lo que no puede -- conseguir.\\
+\\El an\'alisis forense, especialmente la recuperaci\'on de datos, es 
+especialmente importante a la hora de analizar los alcances de una intrusi\'on
+a un equipo. En estas situaciones, es muy posible que el atacante modifique
+ficheros de {\it log} (cuando no los borra completamente), {\it troyanize} 
+programas o ejecute procesos determinados: es aqu\'{\i} donde la persona 
+encargada de retornar al sistema a la normalidad debe desconfiar de cuanto 
+la m\'aquina le diga, y recurrir al an\'alisis forense para determinar el 
+impacto real del ataque y devolver el sistema a un correcto funcionamiento.
+\section{Almacenamiento seguro}
+\subsection{La orden {\tt crypt(1)}}
+La orden {\tt crypt} permite cifrar y descifrar ficheros en diferentes sistemas 
+Unix; si no recibe pa\-r\'a\-me\-tros lee los datos de la entrada est\'andar y los 
+escribe en la salida est\'andar, por lo que seguramente habremos de redirigir 
+ambas a los nombres de fichero adecuados. Un ejemplo simple de su uso puede ser 
+el siguiente:
+\tt
+\begin{quote}
+\begin{verbatim}
+$ crypt <fichero.txt >fichero.crypt
+Enter key:
+$ 
+\end{verbatim}
+\end{quote}
+\rm
+En el anterior ejemplo hemos cifrado utilizando {\tt crypt} el archivo {\tt
+fichero.txt} y guardado el resultado en {\tt fichero.crypt}; el original en
+texto claro se mantiene en nuestro directorio, por lo que si queremos evitar 
+que alguien lo lea deberemos borrarlo.\\
+\\Para descifrar un fichero cifrado mediante {\tt crypt} (por ejemplo, el
+anterior) utilizamos la misma orden y la misma clave:
+\tt
+\begin{quote}
+\begin{verbatim}
+$ crypt <fichero.crypt>salida.txt
+Enter key:
+$ 
+\end{verbatim}
+\end{quote}
+\rm
+El anterior comando ha descifrado {\tt fichero.crypt} con la clave tecleada y
+guardado el resultado en el archivo {\tt salida.txt}, que coincidir\'a en 
+contenido con el anterior {\tt fichero.txt}.\\ 
+\\{\tt crypt} no se debe utilizar {\bf nunca} para cifrar informaci\'on 
+confidencial; la seguridad del algoritmo de cifra utilizado por esta orden es
+m\'{\i}nima, ya que {\tt crypt} se basa en una m\'aquina con un rotor de 256
+elementos similar en muchos aspectos a la alemana {\it Enigma}, con unos 
+m\'etodos de ataque r\'apidos y conocidos por todos (\cite{kn:ree84}). Por si
+esto fuera poco, si en lugar de teclear la clave cuando la orden nos lo solicita
+lo hacemos en l\'{\i}nea de comandos, como en el siguiente ejemplo: 
+\tt
+\begin{quote}
+\begin{verbatim}
+$ crypt clave < fichero.txt > fichero.crypt
+$ 
+\end{verbatim}
+\end{quote}
+\rm
+Entonces a la debilidad criptogr\'afica de {\tt crypt} se une el hecho de que
+en muchos Unices cualquier usuario puede observar la clave con una orden tan 
+simple como {\tt ps} (no obstante, para minimizar este riesgo, el propio 
+programa guarda la clave y la elimina de su l\'{\i}nea de argumentos nada m\'as 
+leerla).\\
+\\Obviamente, la orden {\tt crypt(1)} no tiene nada que ver con la funci\'on 
+{\tt crypt(3)}, utilizada a la hora de cifrar claves de usuarios, que est\'a 
+basada en una variante del algoritmo {\sc des} y se puede considerar segura en
+la mayor\'{\i}a de entornos.
+\subsection{PGP: {\it Pretty Good Privacy}}
+El {\it software} PGP, desarrollado por el cript\'ologo estadounidense Phil
+Zimmermann (\cite{kn:zim95a},\\ \cite{kn:zim95b}), es mundialmente conocido 
+como sistema de firma digital para 
+correo electr\'onico. Aparte de esta funci\'on, PGP permite tambi\'en el 
+cifrado de archivos de forma convencional mediante criptograf\'{\i}a 
+sim\'etrica (\cite{kn:gar95}); esta faceta de PGP convierte a este programa en 
+una excelente herramienta para cifrar archivos que almacenamos en nuestro 
+sistema; no es el mismo mecanismo que el que se emplea para cifrar un fichero 
+que vamos a enviar por correo, algo que
+hay que hacer utilizando la clave p\'ublica del destinatario, sino que es un
+m\'etodo que no utiliza para nada los anillos de PGP, los {\tt userID} o el 
+cifrado asim\'etrico. Para ello utilizamos la opci\'on {\tt -c}\footnote{Los
+ejemplos se han realizado con PGP 2.6.3i, en versiones posteriores han cambiado
+la sintaxis y la forma de trabajar.} desde l\'{\i}nea de \'ordenes:
+\begin{quote}
+\begin{verbatim}
+anita:~$ pgp -c fichero.txt
+No configuration file found.
+Pretty Good Privacy(tm) 2.6.3i - Public-key encryption for the masses.
+(c) 1990-96 Philip Zimmermann, Phil's Pretty Good Software. 1996-01-18
+International version - not for use in the USA. Does not use RSAREF.
+Current time: 2000/03/02 07:18 GMT
+
+You need a pass phrase to encrypt the file. 
+Enter pass phrase: 
+Enter same pass phrase again: 
+Preparing random session key...Just a moment....
+Ciphertext file: fichero.txt.pgp
+anita:~$ 
+\end{verbatim}
+\end{quote}
+Esta orden nos preguntar\'a una clave para cifrar, una {\it pass phrase}, que
+no tiene por qu\'e ser (ni es recomendable que lo sea) la misma que utilizamos 
+para proteger la clave privada, utilizada en el sistema de firma digital. A
+partir de la clave tecleada (que obviamente no se muestra en pantalla), PGP 
+generar\'a un archivo denominado {\tt fichero.txt.pgp} cuyo 
+contenido es el resultado de comprimir y cifrar (en este orden) el archivo 
+original. Obviamente, {\tt fichero.txt} no se elimina autom\'aticamente, por lo
+que es probable que deseemos borrarlo a mano.\\
+\\Si lo que queremos es obtener el texto en claro de un archivo previamente
+cifrado simplemente hemos de pasar como par\'ametro el nombre de dicho fichero:
+\begin{quote}
+\begin{verbatim}
+anita:~$ pgp fichero.txt.pgp 
+No configuration file found.
+Pretty Good Privacy(tm) 2.6.3i - Public-key encryption for the masses.
+(c) 1990-96 Philip Zimmermann, Phil's Pretty Good Software. 1996-01-18
+International version - not for use in the USA. Does not use RSAREF.
+Current time: 2000/03/02 07:24 GMT
+
+File is conventionally encrypted.  
+You need a pass phrase to decrypt this file. 
+Enter pass phrase: 
+Just a moment....Pass phrase appears good. .
+Plaintext filename: fichero.txt
+anita:~$ 
+\end{verbatim}
+\end{quote}
+Como vemos, se nos pregunta la clave que hab\'{\i}amos utilizado para cifrar
+el archivo, y si es correcta se crea el fichero con el texto en claro; como
+suced\'{\i}a antes, el archivo original no se elimina, por lo que tendremos
+ambos en nuestro directorio.\\
+\\PGP ofrece un nivel de seguridad much\'{\i}simo superior al de {\tt crypt(1)},
+ya que utiliza algoritmos de cifra m\'as robustos: en lugar de implementar un
+modelo similar a Enigma, basado en m\'aquinas de rotor, PGP ofrece cifrado
+sim\'etrico principalmente mediante IDEA, un algoritmo de clave secreta 
+desarrollado a finales de los ochenta por Xuejia Lai y James Massey. Aparte de
+IDEA, en versiones posteriores a la utilizada aqu\'{\i} se ofrecen tambi\'en
+Triple DES (similar a DES pero con una longitud de clave mayor) y CAST5, un 
+algoritmo canadiense que hasta la fecha s\'olo ha podido ser atacado con 
+\'exito mediante fuerza bruta; este \'ultimo es el cifrador sim\'etrico 
+utilizado por defecto en PGP 5.x.
+\subsection{TCFS: {\it Transparent Cryptographic File System}}
+TCFS es un {\it software} desarrollado en la Universidad de Salerno y
+disponible para sistemas Linux que proporciona una soluci\'on al problema de la
+privacidad en sistemas de ficheros distribuidos como NFS: t\'{\i}picamente en 
+estos entornos las comunicaciones se realizan en texto claro, con la enorme
+amenaza a la seguridad que esto implica. TCFS almacena los ficheros cifrados,
+y son pasados a texto claro antes de ser le\'{\i}dos; todo el proceso se
+realiza en la m\'aquina cliente, por lo que las claves nunca son enviadas a
+trav\'es de la red.\\
+\\La principal diferencia de TCFS con respecto a otros sistemas de ficheros
+cifrados como CFS es que, mientras que \'estos operan a nivel de aplicaci\'on,
+TCFS lo hace a nivel de n\'ucleo, consiguiendo as\'{\i} una mayor transparencia
+y seguridad. Obviamente esto tiene un grave inconveniente: TCFS s\'olo est\'a
+dise\~nado para funcionar dentro del n\'ucleo de sistemas Linux, por lo que si
+nuestra red de Unix utiliza otro clon del sistema operativo, no podremos 
+utilizar TCFS correctamente. No obstante, esta gran integraci\'on de los 
+servicios de cifrado en el sistema de los ficheros hace que el modelo sea
+transparente al usuario final.\\
+\\Para utilizar TCFS necesitamos que la m\'aquina que exporta directorios 
+v\'{\i}a NFS ejecute el demonio {\tt xattrd}; por su parte, los clientes han de 
+ejecutar un n\'ucleo compilado con soporte para TCFS. Adem\'as, el 
+administrador de la m\'aquina cliente ha de autorizar a los
+usuarios a que utilicen TCFS, generando una clave que cada uno de ellos 
+utilizar\'a para trabajar con los ficheros cifrados; esto se consigue mediante
+{\tt tcfsgenkey}, que genera una entrada para cada usuario en 
+{\tt /etc/tcfspasswd}:
+\begin{quote}
+\begin{verbatim}
+rosita:~# tcfsgenkey
+login: toni
+password:
+now we'll generate the des key.
+press 10 keys:**********
+Ok.
+rosita:~# cat /etc/tcfspasswd
+toni:2rCmyOUsM5IA=
+rosita:~#
+\end{verbatim}
+\end{quote}
+Una vez que un usuario tiene una entrada en {\tt /etc/tcfspasswd} con su clave
+ya puede acceder a ficheros cifrados; para ello, en primer lugar utilizar\'a
+{\tt tcfslogin} para insertar su clave en el {\it kernel}, tras lo cual puede
+ejecutar la variante de {\tt mount} distribuida con TCFS para montar los 
+sistemas que el servidor exporta. Sobre los archivos de estos sistemas, se
+utiliza la variante de {\tt chattr} de TCFS para activar o desactivar el 
+atributo {\tt X} (podemos visualizar los atributos de un fichero con {\tt 
+lsattr}), que indica que se trata de archivos que necesitan al demonio de TCFS
+para trabajar sobre ellos (cifrando o descifrando). Finalmente, antes de
+abandonar una sesi\'on se ha de ejecutar {\tt tcfslogout}, cuya funci\'on es
+eliminar la clave del {\it kernel} de Linux. Tambi\'en es necesaria una
+variante de {\tt passwd}, proporcionada con TCFS, que regenera las claves
+de acceso a archivos cifrados cuando un usuario cambia su {\it password}.\\
+\\TCFS utiliza uno de los cuatro modos de funcionamiento que ofrece el 
+est\'andar DES (\cite{kn:fips81}) denominado CBC ({\it Cipher Block Chaining}).
+El principal problema de este modelo (aparte de la potencial inseguridad de
+DES) es la facilidad para insertar informaci\'on al final del fichero cifrado,
+por lo que es indispensable recurrir a estructuras que permitan detectar el
+final real de cada archivo; otro problema, menos peligroso {\it a priori}, es
+la repetici\'on de patrones en archivos que ocupen m\'as de 34 Gigabytes
+(aproximadamente), que puede conducir, aunque es poco probable, a un 
+criptoan\'alisis exitoso en base a estas repeticiones. M\'as peligroso es el
+uso del mismo {\it password} de entrada al sistema como clave de cifrado 
+utilizando la funci\'on resumen MD5 (el peligro no proviene del uso de esta
+funci\'on {\it hash}, sino de la clave del usuario); previsiblemente en futuras
+versiones de TCFS se utilizar\'an {\it passphrases} similares a las de PGP para
+descifrar y descifrar.
+\subsection{Otros m\'etodos de almacenamiento seguro}
+% StegFS, CFS...SFS?
+En los \'ultimos a\~nos los usuarios de Unix se han concienciado cada vez m\'as
+con la seguridad de los datos que poseen en sus sistemas, especialmente de la
+privacidad de los mismos: un sistema fiable ha de pasar necesariamente por un 
+m\'etodo de almacenamiento seguro; por supuesto, esta preocupaci\'on de los 
+usuarios autom\'aticamente se traduce en m\'as investigaciones y nuevos 
+desarrollos en este campo de la seguridad. En este cap\'{\i}tulo hemos analizado
+las ventajas, las desventajas y el funcionamiento de algunos de estos sistemas,
+desde el modelo cl\'asico y habitual en Unix hasta las \'ultimas herramientas
+de an\'alisis forense y su problem\'atica, pasando por aplicaciones tan simples
+como {\tt crypt} o tan complejas como {\sc pgp}; aunque se ha pretendido dar 
+una visi\'on general de lo que se entiende por un almacenamiento seguro en 
+Unix, es imposible tratar todas las implementaciones de sistemas que incrementan
+la seguridad en la actualidad. No obstante, antes de finalizar este 
+cap\'{\i}tulo hemos preferido comentar algunas de las caracter\'{\i}sticas de 
+sistemas que se han hecho ya, se est\'an haciendo, o previsiblemente se har\'an
+en un futuro no muy lejano un hueco importante entre los mecanismos de 
+almacenamiento seguro en Unix.\\
+\\No podemos finalizar sin hablar del sistema {\bf CFS} ({\it Cryptographic
+File System}), del experto en seguridad Matt Blaze (\cite{kn:cfs93}), que se
+ha convertido en el sistema m\'as utilizado en entornos donde coexisten 
+diferentes clones de Unix (ya hemos comentado el problema de TCFS y su 
+dependencia con Linux). Provee de servicios de cifrado a cualquier sistema de
+ficheros habitual en Unix, NFS incluido, utilizando una combinaci\'on de varios 
+modos de trabajo de DES que son lo suficientemente ligeros como para no 
+sobrecargar demasiado a una m\'aquina normal pero lo suficientemente pesados 
+como para proveer de un nivel aceptable de seguridad. Los usuarios no 
+tienen m\'as que asociar una clave a los directorios a proteger para
+que CFS cifre y descifre sus contenidos de forma transparente utilizando dicha
+clave; el texto en claro de los mismos nunca se almacena en un dispositivo o
+se transmite a trav\'es de la red, y los procedimientos de copia de seguridad
+en la m\'aquina no se ven afectados por el uso de CFS. Todo el proceso se
+realiza en el espacio de usuario (a diferencia de TCFS, que operaba dentro del
+{\it kernel} de Linux) utilizando principalmente el demonio {\tt cfsd} en 
+la m\'aquina donde se encuentren los sistemas cifrados.\\
+\\Peter Gutmann, del que ya hemos hablado en este cap\'{\i}tulo, desarroll\'o
+en la primera mitad de los noventa {\bf SFS} ({\it Secure File System}). Este
+modelo de almacenamiento seguro se dise\~n\'o originalmente para sistemas 
+MS-DOS o Windows, donde funciona como un manejador de dispositivos m\'as, aunque
+en la actualidad existen tambi\'en versiones para Windows 95, Windows NT y OS/2.
+No est\'a portado a Unix, pero aqu\'{\i} lo citamos porque existe un sistema de 
+almacenamiento seguro para Unix denominado tambi\'en {\it Secure File System}, 
+SFS, pero no tiene nada que ver con el original de Gutmann. El SFS de Unix 
+funciona de una forma similar a CFS pero utilizando el criptosistema {\it 
+Blowfish} y una versi\'on minimalista de RSA en lugar de DES; no vamos a entrar
+en detalles de este {\it software} principalmente porque su uso en entornos 
+Unix no est\'a ni de lejos tan extendido como el de CFS.\\
+\\La criptograf\'{\i}a es la herramienta principal utilizada en la mayor\'{\i}a
+de los sistemas de almacenamiento seguro; sin embargo, todos ellos plantean un 
+grave problema: toda su seguridad reside en la clave de cifrado, de forma que el
+usuario se encuentra indefenso ante m\'etodos legales -- o ilegales -- que le
+puedan obligar a desvelar esta clave una vez que se ha determinado la presencia
+de informaci\'on cifrada en un dispositivo de almacenamiento. Esto, que nos
+puede parecer algo exagerado, no lo es en absoluto: todos los expertos en
+criptograf\'{\i}a coinciden en afirmar que los m\'etodos de ataque m\'as 
+efectivos contra un criptosistema no son los efectuados contra el algoritmo,
+sino contra las personas (chantaje, amenazas, presiones judiciales\ldots).
+Intentando dar soluci\'on a este problema, durante los \'ultimos a\~nos de
+la d\'ecada de los noventa, prestigiosos investigadores de la talla de Roger
+Needham, Ross Anderson o Adi Shamir (\cite{kn:ans98}) han establecido las bases 
+de sistemas seguros basados en modelos esteganogr\'aficos, con desarrollos 
+especialmente importantes sobre plataformas Linux (\cite{kn:steg99}, 
+\cite{kn:ss98}\ldots). La disponibilidad
+del c\'odigo fuente completo de este clon de Unix unida a su pol\'{\i}tica de
+desarrollo ha propiciado enormemente estos avances, hasta el punto de que
+existen en la actualidad sistemas de ficheros basados en esteganograf\'{\i}a que
+se insertan en el {\it kernel} igual que lo hace un sistema normal como {\it
+ufs} o {\it nfs}, o que se a\~naden a {\it ext2} proporcionando funciones de
+cifrado.\\
+\\La idea es sencilla: si por ejemplo tenemos cinco archivos cifrados con una
+aplicaci\'on como {\sc pgp}, cualquier atacante con acceso al dispositivo y
+que haga unas operaciones sobre ficheros puede determinar que tenemos 
+exactamente esos archivos cifrados; con esta informaci\'on, su labor para 
+obtener la informaci\'on est\'a muy clara: se ha de limitar a obtener las 
+cinco claves privadas usadas para cifrar los ficheros. Conocer el n\'umero 
+exacto es de una ayuda incalculable para el atacante. Con los sistemas
+esteganogr\'aficos, a pesar de que es imposible ocultar la existencia de
+cierta informaci\'on cifrada, alguien que la inspeccione no va a poder 
+determinar si la clave de descifrado que el propietario le ha proporcionado 
+otorga acceso a toda la informaci\'on o s\'olo a una parte de la misma. Un 
+atacante que no posea todas las claves no va a poder descifrar todos los 
+ficheros, y lo m\'as importante: no va a poder saber ni siquiera si otros
+archivos aparte de aquellos a los que ha accedido existen o no, aunque posea un 
+acceso total al {\it software} y al soporte f\'{\i}sico. Para conseguir esto
+se utiliza una propiedad de ciertos mecanismos de seguridad denominada {\it
+plausible deniability}, algo que se vendr\'{\i}a a traducir como `negaci\'on
+creible'; dicha propiedad permitir\'{\i}a a un usuario negar de forma creible
+que en un dispositivo exista m\'as informaci\'on cifrada de la que ya se ha
+podido descubrir, o que cierta transacci\'on se haya llevado a cabo. Volviendo
+al ejemplo de {\sc pgp}, el usuario podr\'{\i}a revelar la clave de cifrado
+de s\'olo uno o dos de los archivos, aquellos que no considere vitales, 
+ocultando las claves y la existencia del resto sin que el atacante sea capaz
+de determinar que la informaci\'on accedida no es toda la existente.

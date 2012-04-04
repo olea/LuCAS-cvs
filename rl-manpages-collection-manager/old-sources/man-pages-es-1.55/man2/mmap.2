@@ -1,0 +1,310 @@
+.\" Hey Emacs! This file is -*- nroff -*- source.
+.\"
+.\" Copyright (C) 1996 Andries Brouwer (aeb@cwi.nl)
+.\"
+.\" Permission is granted to make and distribute verbatim copies of this
+.\" manual provided the copyright notice and this permission notice are
+.\" preserved on all copies.
+.\"
+.\" Permission is granted to copy and distribute modified versions of this
+.\" manual under the conditions for verbatim copying, provided that the
+.\" entire resulting derived work is distributed under the terms of a
+.\" permission notice identical to this one
+.\" 
+.\" Since the Linux kernel and libraries are constantly changing, this
+.\" manual page may be incorrect or out-of-date.  The author(s) assume no
+.\" responsibility for errors or omissions, or for damages resulting from
+.\" the use of the information contained herein.  The author(s) may not
+.\" have taken the same level of care in the production of this manual,
+.\" which is licensed free of charge, as they might when working
+.\" professionally.
+.\" 
+.\" Formatted or processed versions of this manual, if unaccompanied by
+.\" the source, must acknowledge the copyright and authors of this work.
+.\"
+.\" Modified Fri Jan 31 16:38:25 1997 by Eric S. Raymond <esr@thyrsus.com>
+.\" Modified Sat Mar 25 08:11:16 2000 by Jim Van Zandt <jrv@vanzandt.mv.com>
+.\" Modified Thu Oct  4 03:09:44 2001 by John Levon <moz@compsoc.man.ac.uk>
+.\" Modified Sun Feb  2 16:00    2003 by Andi Kleen <ak@muc.de>
+.\"
+.\" Translation revised May 3 1998 by Juan Piernas <piernas@dif.um.es>
+.\" Revisado por Miguel Pérez Ibars <mpi79470@alu.um.es> el 17-septiembre-2004
+.\"
+.TH MMAP 2 "25 marzo 2000" "Linux 2.3.51" "Manual del Programador de Linux"
+.SH NOMBRE
+mmap, munmap \- ubica o elimina ficheros o dispositivos en memoria
+.SH SINOPSIS
+.B #include <sys/mman.h>
+.sp
+.BI "caddr_t mmap(void *" start ", size_t " length ", int " prot
+.BI ", int " flags ", int " fd ", off_t " offset );
+.sp
+.BI "int munmap(void *" start ", size_t " length );
+.SH DESCRIPCIÃN
+La funciÃ³n
+.B mmap
+intenta ubicar
+.I length
+bytes comenzando en el desplazamiento
+.I offset
+desde el fichero (u otro objeto) especificado por el descriptor de fichero
+.I fd
+en memoria, preferiblemente en la direcciÃ³n
+.IR start .
+Esta Ãºltima direcciÃ³n es una sugerencia y normalmente se especifica como 0. 
+El lugar donde es ubicado el objeto es devuelto por
+.BR mmap,
+y nunca vale 0.
+El argumento
+.I prot
+describe la protecciÃ³n de memoria deseada. (y no debe entrar en conflicto
+con el modo de apertura del fichero). Puede valer
+.B PROT_NONE
+o ser la combinación mediante la operación OR de una o más de las otras banderas PROT_*.
+.TP 1.1i
+.B PROT_EXEC
+Las pÃ¡ginas deben ser ejecutadas.
+.TP
+.B PROT_READ
+Las pÃ¡ginas deben ser leÃ­das.
+.TP
+.B PROT_WRITE
+Las pÃ¡ginas deben ser escritas.
+.TP
+.B PROT_NONE
+Las pÃ¡ginas no pueden ser accedidas.
+.LP
+El parÃ¡metro
+.I flags
+especifica el tipo de objeto insertado, las opciones de asociaciÃ³n y si las 
+modificaciones hechas a la copia insertada en memoria son privadas al proceso
+o son compartidas por otras referencias. Tiene los bits:
+.TP 1.1i
+.B MAP_FIXED
+No seleccionar una direcciÃ³n diferente a la especificada. 
+Si la direcciÃ³n especificada no puede ser utilizada,
+.B mmap
+fallarÃ¡. Si MAP_FIXED es especificado,
+.I start
+debe ser un mÃºltiplo del tamaÃ±o de pÃ¡gina. Utilizar esta opciÃ³n es
+desaconsejable.
+.TP
+.B MAP_SHARED
+Comparte este Ã¡rea con todos los otros objetos que seÃ±alan a este objeto.
+Almacenar en la región es equivalente a escribir en el fichero.
+El fichero puede no actualizarse hasta que se llame a
+.BR msync (2)
+o
+.BR munmap (2).
+.TP
+.B MAP_PRIVATE
+Crear un Ã¡rea privada "copy-on-write".
+Almacenar en la región no afecta al fichero original.
+Es indefinido si los cambios hechos al fichero después de la
+llamada a
+.B mmap
+son visibles en la región mapeada.
+.LP
+Debe especificarse exactamente uno de los parÃ¡metros MAP_SHARED o MAP_PRIVATE.
+.LP
+Los tres parÃ¡metros anteriores estÃ¡n descritos en POSIX.1b (formalmente POSIX.4) y 
+Linux también reconoce los siguientes parámetros no estándares:
+.TP
+.B MAP_DENYWRITE
+Este parámetro es ignorado.
+.\" Introducido en 1.1.36, eliminado en 1.3.24.
+(Anteriormente, indicaba que los intentos de escritura al fichero subyacente
+deberían fallar con ETXTBUSY. Pero ésto era fuente de ataques de denegación -de-servicio.)
+.TP
+.B MAP_EXECUTABLE
+Este parámetro es ignorado.
+.\" Introducido en 1.1.38, eliminado en 1.3.24. Parámetro comprobado en proc_follow_link.
+.\" (Anteriormente, indicaba que el fichero subyacente era un ejecutable.
+.\" Sin embargo, esa información no era realmente usada en ninguna parte.)
+.\" Linus hablaba de DOS relacionado con MAP_EXECUTABLE, pero estaba pensando en
+.\" MAP_DENYWRITE?
+.TP
+.B MAP_NORESERVE
+(Usado junto con MAP_PRIVATE.) No reserva páginas del espacio de intercambio para
+esta correspondencia. Cuando se reserva espacio de intercambio, se tiene la garantía
+de que es posible modificar esta región privada.
+.\" When swap space is reserved, one has the guarantee
+.\" that it is possible to modify this private copy-on-write region.
+Cuando no se reserva puede obtenerse una violación de segmento
+al escribir si no hay memoria disponible.
+.\" (En Linux no hay ninguna garantía. Cualquier proceso puede ser matado
+.\" en cualquier instante cuando el sistema se queda sin memoria.)
+.TP
+.B MAP_LOCKED
+Este parámetro es ignorado.
+.\" Si está activo, las páginas asociadas no serán intercambiadas.
+.TP
+.B MAP_GROWSDOWN
+Usado para pilas. Indica al sistema VM del núcleo que la correspondencia
+podría extenderse hacia abajo en memoria.
+.TP
+.B MAP_ANONYMOUS
+La correspondencia no está respaldada por ningún fichero; los argumentos
+.I fd
+y
+.I offset
+son ignorados. Este parámetro conjuntamente con MAP_SHARED
+está implementado desde Linux 2.4.
+.TP
+.B MAP_ANON
+Sinónimo para MAP_ANONYMOUS. Desaconsejado.
+.TP
+.B MAP_FILE
+Parámetro de compatibilidad. Ignorado.
+.TP
+.B MAP_32BIT
+Ubica la correspondencia dentro de los primeros 2 GB del espacio de direcciones
+del proceso.
+Es ignorado cuando
+.I MAP_FIXED
+está activo. Este parámetro está soportado actualmente sólo sobre x86-64 para programas de 64 bits.
+.LP
+Algunos sistemas documentan los parámetros adicionales MAP_AUTOGROW, MAP_AUTORESRV,
+MAP_COPY, y MAP_LOCAL.
+.LP
+.I fd
+debe ser un descriptor de fichero válido, a menos que MAP_ANONYMOUS esté activo,
+en cuyo caso el argumento es ignorado.
+.LP
+.I offset
+debe ser un múltiplo del tamaño de página como lo devuelve 
+.BR getpagesize (2).
+.LP
+La memoria asociada con
+.B mmap
+es conservada  después de
+.BR fork (2),
+con los mismos atributos.
+.LP
+Un fichero es ubicado en múltiplos del tamaño de página. Para un fichero que no sea
+múltiplo del tamaño de página, la memoria restante es puesta a cero cuando se ubica,
+y las escrituras a esa región no son llevadas al fichero. El efecto de cambiar el tamaño
+del fichero subyacente a una correspondencia en aquellas páginas que correspondan
+a regiones añadidas o eliminadas del fichero es indefinido.
+
+La llamada al sistema
+.B munmap
+borra las ubicaciones para el rango de direcciones especificado, y produce
+referencias a las direcciones dentro del rango a fin de generar referencias a
+memoria invÃ¡lidas.  La región es también desubicada automáticamente
+cuando el proceso termina. Por otra parte, cerrar el descriptor de fichero
+no desubica la región.
+.LP
+La dirección
+.I start
+debe ser un múltiplo del tamaño de página. Todas las páginas que contengan una parte
+del rango indicado son desubicadas, y referencias posteriores
+a estas páginas generarán una violación de segmento. No se considera un error si el
+rango indicado no contiene páginas con correspondencia.
+
+Para correspondencias respaldadas por fichero, el campo
+.B st_atime
+para el fichero ubicado puede ser actualizado en cualquier instante entre 
+la llamada
+.B mmap()
+y la desubicación correspondiente; la primera referencia a una página
+con correspondencia actualizará el campo si no lo ha sido ya.
+.LP
+Los campos
+.B st_ctime
+y
+.B st_mtime
+para un fichero ubicado con PROT_WRITE y MAP_SHARED serán actualizados después de
+una escritura a la región ubicada, y antes de una llamada posterior a
+.I msync()
+con la opción MS_SYNC o MS_ASYNC, si alguna procede.
+.SH "VALOR DEVUELTO"
+Si ha funcionado
+.B mmap
+devuelve un puntero al Ã¡rea reservada.
+En caso de error, es devuelto \-1, y
+.I errno
+es modificado apropiadamente.
+Si ha funcionado
+.B munmap
+devuelve 0, si hay error \-1, y
+.I errno
+es fijada (probablemente a EINVAL).
+.SH OBSERVACIONES
+Es dependiente de la arquitectura si
+.I PROT_READ
+incluye a
+.I PROT_EXEC
+o no. Los programas portables deberían siempre activar
+.I PROT_EXEC
+si intentan ejecutar código en la nueva región ubicada.
+.SH ERRORES
+.TP
+.B EBADF
+.I fd
+no es un descriptor de fichero vÃ¡lido (y MAP_ANONYMOUS no ha sido fijado).
+.TP
+.B EACCES
+Un descriptor de fichero hace referencia a un fichero no regular.
+O bien se solicitó MAP_PRIVATE, pero
+.I fd
+no está abierto para lectura.
+O bien se solicitó MAP_SHARED y PROT_WRITE está activo, pero
+.I fd
+no está abierto en modo lectura/escritura (O_RDWR).
+O bien PROT_WRITE está activo, pero el fichero es sólo para añadir.
+.TP
+.B EINVAL
+No es correcto
+.I start
+o
+.I length
+o
+.IR offset .
+(E.g., son demasiado grandes, o no estÃ¡n alineados en los lÃ­mites de un valor
+mÃºltiplo de PAGESIZE).
+.\" jbl - no estoy seguro de que ésto realmente ocurra ? vea generic_file_mmap
+.\" .TP
+.\" .B ENOEXEC
+.\" Un fichero no puede ser ubicado para lectura.
+.TP
+.B ETXTBSY
+MAP_DENYWRITE fue fijado pero el objeto especificado por
+.I fd
+estÃ¡ abierto para escritura.
+.TP
+.B EAGAIN
+El fichero ha sido bloqueado, o se ha bloqueado una cantidad excesiva de
+memoria.
+.TP
+.B ENOMEM
+No hay memoria disponible, o el número máximo de correspondencias del proceso
+habría sido excedido.
+.TP
+.B ENODEV
+El sistema de ficheros subyacente del fichero especificado no soporta
+la correspondencia de memoria.
+.LP
+El uso de una región ubicada puede resultar en estas señales:
+.TP
+.B SIGSEGV
+Intento de escritura en una región especificada a mmap como solo-lectura.
+.TP
+.B SIGBUS
+Intento de acceso a una porción del buffer que no se corresponde con el fichero
+(por ejemplo, más allá del fin del fichero, incluyendo el caso
+en el que otro proceso ha truncado el fichero).
+.SH "CONFORME A"
+SVr4, POSIX.1b (formalmente POSIX.4), 4.4BSD, SUSv2.
+SVr4 documenta los cÃ³digos de error ENXIO y ENODEV.
+SUSv2 documenta ls códigos de error adicionales EMFILE y EOVERFLOW.
+
+.I MAP_32BIT 
+es una extensión de Linux.
+.SH "VÃASE TAMBIÃN"
+.BR getpagesize (2),
+.BR mmap2 (2),
+.BR mremap (2),
+.BR msync (2),
+.BR shm_open (2),
+B.O. Gallmeister, POSIX.4, O'Reilly, pp. 128-129 and 389-391.

@@ -1,0 +1,1693 @@
+.\" @(#)rpc.3n	2.4 88/08/08 4.0 RPCSRC; from 1.19 88/06/24 SMI
+.\" Translated Fri Apr 28 2000 by Juan Piernas <piernas@ditec.um.es>
+.\"
+.TH RPC 3N "16 febrero 1988"
+.SH NOMBRE
+rpc \- rutinas de biblioteca para llamadas a procedimientos remotos
+.SH SINOPSIS Y DESCRIPCIÓN
+Estas rutinas permiten a los programas en C realizar llamadas a
+procedimientos en otras máquinas a través de la red.
+Primero, el cliente llama a un procedimiento para enviar un paquete de datos
+al servidor. A la llegada del paquete, el servidor llama a una rutina de
+atención que realiza el servicio solicitado, y a continuación envía de
+vuelta una respuesta.
+Finalmente, la llamada al procedimiento termina y vuelve al cliente.
+.LP
+Las rutinas que se usan para RPC seguro (autenticación DES) se describen en
+.BR rpc_secure (3N).
+RPC seguro sólo se puede usar si hay disponible cifrado DES.
+.LP
+.ft B
+.nf
+.sp .5
+#include <rpc/rpc.h>
+.fi
+.ft R
+.br
+.if t .ne 8
+.LP
+.ft B
+.nf
+.sp .5
+void
+auth_destroy(auth)
+\s-1AUTH\s0 *auth;
+.fi
+.ft R
+.IP
+Una macro que destruye la información de autenticación asociada a
+.IR auth .
+La destrucción usalmente implica la liberación de estructuras de datos
+privadas. El uso de
+.I auth
+es indefinido trás llamar a
+.BR auth_destroy(\|) .
+.br
+.if t .ne 6
+.LP
+.ft B
+.nf
+.sp .5
+\s-1AUTH\s0 *
+authnone_create(\|)
+.fi
+.ft R
+.IP
+Crea y devuelve una asa (handle) de autenticación
+.SM RPC
+que pasa información de autenticación inservible en cada llamada a
+procedimientos remotos. Esta es la autenticación por omisión usada por el
+sistema
+.SM RPC.
+.if t .ne 10
+.LP
+.ft B
+.nf
+.sp .5
+\s-1AUTH\s0 *
+authunix_create(host, uid, gid, len, aup_gids)
+char *host;
+int uid, gid, len, *aup.gids;
+.fi
+.ft R
+.IP
+Crea y devuelve una asa de autenticación
+.SM RPC
+que contiene información de autenticación.
+.UX
+El parámetro
+.I host
+es el nombre de la máquina en la que se ha creado la información.
+.I uid
+es el
+.SM ID
+del usuario.
+.I gid
+es el
+.SM ID
+del grupo actual del usuario.
+.I len
+y
+.I aup_gids
+se refieren a un array de grupos a los que el usuario pertenece.
+Es fácil hacerse pasar por un usuario.
+.br
+.if t .ne 5
+.LP
+.ft B
+.nf
+.sp .5
+\s-1AUTH\s0 *
+authunix_create_default(\|)
+.fi
+.ft R
+.IP
+Llama a
+.B authunix_create(\|)
+con los parámetros apropiados.
+.br
+.if t .ne 13
+.LP
+.ft B
+.nf
+.sp .5
+callrpc(host, prognum, versnum, procnum, inproc, in, outproc, out)
+char *host;
+u_long prognum, versnum, procnum;
+char *in, *out;
+xdrproc_t inproc, outproc;
+.fi
+.ft R
+.IP
+Llama al procedimiento remoto asociado a
+.IR prognum ,
+.IR versnum
+y
+.I procnum
+de la máquina
+.IR host .
+El parámetro
+.I in
+es la dirección del (los) argumento(s) del procedimiento, y
+.I out
+es la dirección donde colocar el (los) resultado(s).
+.I inproc
+se usa para codificar los parámetros del procedimiento, y
+.I outproc
+se usa para decodificar los resultados del procedimiento.
+Esta rutina devuelve cero en caso de éxtio o el valor de
+.B "enum clnt_stat"
+convertido a un entero, en caso de de fallo.
+La rutina
+.B clnt_perrno(\|)
+es adecuada para traducir estados de fallo a mensajes.
+.IP
+Cuidado: la llamada a procedimientos con esta rutina usa
+.SM UDP/IP
+como protocolo de transporte. Vea
+.B clntudp_create(\|)
+para restricciones.
+No tiene control de plazos de tiempo o autenticación usando esta rutina.
+.br
+.if t .ne 16
+.LP
+.ft B
+.nf
+.sp .5
+enum clnt_stat
+clnt_broadcast(prognum, versnum, procnum, inproc, in, outproc, out, eachresult)
+u_long prognum, versnum, procnum;
+char *in, *out;
+xdrproc_t inproc, outproc;
+resultproc_t eachresult;
+.fi
+.ft R
+.IP
+Como
+.BR callrpc(\|) ,
+salvo que el mensaje de llamada es difundido a todas las redes de difusión
+conectadas localmente. Cada vez que recibe una respuesta, esta rutina llama
+a
+.BR eachresult(\|) ,
+cuyo formato es:
+.IP
+.RS 1i
+.ft B
+.nf
+eachresult(out, addr)
+char *out;
+struct sockaddr_in *addr;
+.ft R
+.fi
+.RE
+.IP
+donde
+.I out
+es lo mimo que el
+.I out
+pasado a
+.BR clnt_broadcast(\|) ,
+salvo que la salida del procedimiento remoto se decodifica allí.
+.I addr
+apunta a la dirección de la máquina que ha devuelto los resultados.
+Si
+.B eachresult(\|)
+devuelve cero,
+.B clnt_broadcast(\|)
+espera más respuestas. En otro caso, termina con un estado apropiado.
+.IP
+Cuidado: los conectores de difusión están limitados en tamaño a la unidad de
+transferencia máxima del enlace de datos. Para Ethernet, este valor es
+1500 bytes.
+.br
+.if t .ne 13
+.LP
+.ft B
+.nf
+.sp .5
+enum clnt_stat
+clnt_call(clnt, procnum, inproc, in, outproc, out, tout)
+\s-1CLIENT\s0 *clnt;
+u_long
+procnum;
+xdrproc_t inproc, outproc;
+char *in, *out;
+struct timeval tout;
+.fi
+.ft R
+.IP
+Una macro que llama al procedimiento remoto
+.I procnum
+asociado a la asa de cliente
+.IR clnt ,
+que se obtiene con una rutina de creación de clientes
+.SM RPC
+tal como
+.BR clnt_create(\|) .
+El parámetro
+.I in
+es la dirección del (los) argumento(s) del procedimiento, y
+.I out
+es la dirección donde colocar el (los) resultado(s).
+.I inproc
+se usa para codificar los parámetros del procedimiento, y
+.I outproc
+se usa para decodificar los resultados del procedimiento.
+.I tout
+es el plazo de tiempo permitido para que los resultados lleguen.
+.br
+.if t .ne 7
+.LP
+.ft B
+.nf
+.sp .5
+clnt_destroy(clnt)
+\s-1CLIENT\s0 *clnt;
+.fi
+.ft R
+.IP
+Una macro que destruye la asa
+.SM RPC
+del cliente. La destrucción usualmente implica la liberación de estructuras
+de datos privadas, incluyendo el propio
+.IR clnt .
+El uso de
+.I clnt
+es indefinido tras llamar a
+.BR clnt_destroy(\|) .
+Si la biblioteca
+.SM RPC
+abrió el conector asociado, también lo cerrará.
+En otro caso, el conector permanece abierto.
+.br
+.if t .ne 10
+.LP
+.ft B
+.nf
+.sp .5
+\s-1CLIENT\s0 *
+clnt_create(host, prog, vers, proto)
+char *host;
+u_long prog, vers;
+char *proto;
+.fi
+.ft R
+.IP
+Rutina genérica para la creación de clientes.
+.I host
+identifica el nombre del anfitrión remoto donde se encuentra el servidor.
+.I proto
+indica qué clase de protocolo de transporte se usará. Los valores
+actualmente soportados para este campo son \(lqudp\(rq
+y \(lqtcp\(rq.
+Se establecen los plazos de tiempo por omisión, aunque se pueden modificar
+usando
+.BR clnt_control(\|) .
+.IP
+Cuidado: el uso de
+.SM UDP
+tiene sus defectos. Ya que los mensajes
+.SM RPC
+basados en
+.SM UDP\s0
+sólo pueden contener hasta 8 Kbytes de dados codificados, este protocolo de
+transporte no se puede usar para procedimientos que toman grandes argumentos
+o devuelven resultados enormes.
+.br
+.if t .ne 10
+.LP
+.ft B
+.nf
+.sp .5
+bool_t
+clnt_control(cl, req, info)
+\s-1CLIENT\s0 *cl;
+char *info;
+.fi
+.ft R
+.IP
+Una macro usada para cambiar u obtener información diversa sobre un objeto
+cliente.
+.I req
+indica el tipo de operación e
+.I info
+es un puntero a la información. Tanto para
+.SM UDP
+como para
+.SM TCP\s0,
+los valores soportados de
+.IR req ,
+y sus tipos de argumento y lo que hacen los mismos, son:
+.IP
+.nf
+.ta +2.0i +2.0i +2.0i
+.SM CLSET_TIMEOUT\s0	struct timeval	establece el plazo de
+		tiempo total
+.SM CLGET_TIMEOUT\s0	struct timeval	obtiene el plazo de
+		tiempo total
+.fi
+.IP
+Nota: si establece el plazo de tiempo usando
+.BR clnt_control(\|) ,
+el parámetro de plazo de tiempo pasado a
+.B clnt_call(\|)
+se ignorará en todas las llamadas futuras.
+.IP
+.nf
+.SM CLGET_SERVER_ADDR\s0	struct sockaddr_in	obtiene la dirección
+		del servidor
+.fi
+.br
+.IP
+Las siguientes operaciones sólo son válidas para
+.SM UDP\s0:
+.IP
+.nf
+.ta +2.0i +2.0i +2.0i
+.SM CLSET_RETRY_TIMEOUT\s0	struct timeval	establece el plazo
+		para reintento
+.SM CLGET_RETRY_TIMEOUT\s0	struct timeval	obtiene el plazo
+		de reintento
+.fi
+.br
+.IP
+El plazo de reintento es el tiempo que la
+.SM "RPC UDP"
+espera a que el servidor responda antes de retransmitir la petición.
+.br
+.if t .ne 10
+.LP
+.ft B
+.nf
+.sp .5
+clnt_freeres(clnt, outproc, out)
+\s-1CLIENT\s0 *clnt;
+xdrproc_t outproc;
+char *out;
+.fi
+.ft R
+.IP
+Una macro que libera cualquier dato reservado por el sistema
+.SM RPC/XDR
+cuando decodifica los resultados de una llamada
+.SM RPC\s0.
+El parámetro
+.I out
+es la dirección de los resultados, y
+.I outproc
+es la rutina
+.SM XDR
+que describe los resultados.
+Esta rutina devuelve uno si los resultados se han liberado con éxito, y cero
+en caso contrario.
+.br
+.if t .ne 6
+.LP
+.ft B
+.nf
+.sp .5
+void
+clnt_geterr(clnt, errp)
+\s-1CLIENT\s0 *clnt;
+struct rpc_err *errp;
+.fi
+.ft R
+.IP
+Una macro que copia la estructura de error de la asa del cliente a la
+estructura en la dirección
+.IR errp .
+.br
+.if t .ne 8
+.LP
+.ft B
+.nf
+.sp .5
+void
+clnt_pcreateerror(s)
+char *s;
+.fi
+.ft R
+.IP
+Muestra un mensaje en la salida estándar de error indicando por qué no se ha
+podido crear una asa
+.SM RPC
+de cliente.
+El mensaje es preterminado con la cadena
+.I s
+y un carácter dos puntos.
+Se usa cuando una llamada a
+.BR clnt_create(\|) ,
+.BR clntraw_create(\|) ,
+.B clnttcp_create(\|)
+o
+.B clntudp_create(\|)
+falla.
+.br
+.if t .ne 8
+.LP
+.ft B
+.nf
+.sp .5
+void
+clnt_perrno(stat)
+enum clnt_stat stat;
+.fi
+.ft R
+.IP
+Muestra un mensaje en la salida de error estándar correspondiente a la
+condición indicada por
+.IR stat .
+Se usa tras un
+.BR callrpc(\|) .
+.br
+.if t .ne 8
+.LP
+.ft B
+.nf
+.sp .5
+clnt_perror(clnt, s)
+\s-1CLIENT\s0 *clnt;
+char *s;
+.fi
+.ft R
+.IP
+Muestra un mensaje en la salida de error estándar indicando por qué ha
+fallado una llamada
+.SM RPC\s0.
+.I clnt
+es la asa usada para hacer la llamada.
+El mensaje es preterminado con la cadena
+.I s
+y un carácter dos puntos.
+Se usa tras un
+.BR clnt_call(\|) .
+.br
+.if t .ne 9
+.LP
+.ft B
+.nf
+.sp .5
+char *
+clnt_spcreateerror
+char *s;
+.fi
+.ft R
+.IP
+Como
+.BR clnt_pcreateerror(\|) ,
+excepto que devuelve una cadena en lugar de mostrar la información en la
+salida estándar de error.
+.IP
+Fallos: devuelve un puntero a datos estáticos que se sobrescriben en cada
+llamada.
+.br
+.if t .ne 9
+.LP
+.ft B
+.nf
+.sp .5
+char *
+clnt_sperrno(stat)
+enum clnt_stat stat;
+.fi
+.ft R
+.IP
+Toma los mismos argumentos que
+.BR clnt_perrno(\|) ,
+pero en lugar de enviar un mensaje a la salida de error estándar indicando
+por qué ha fallado una llamada
+.SM RPC\s0,
+devuelve un puntero a una cadena que contiene el mensaje. La cadena termina
+con un carácter
+.SM NEWLINE
+(nueva línea).
+.IP
+.B clnt_sperrno(\|)
+se usa en lugar de
+.B clnt_perrno(\|)
+si el programa no tiene una salida de error estándar (como es bastante
+probable en un programa que funciona como servidor) o si el programador no
+quiere que el mensaje sea mostrado con
+.BR printf ,
+o si se va a usar un formato de mensaje diferente del soportado por
+.BR clnt_perrno(\|) .
+Nota: a diferencia de
+.B clnt_sperror(\|)
+y
+.BR clnt_spcreaterror(\|) ,
+.B clnt_sperrno(\|)
+devuelve un puntero a datos estáticos pero el resultado no se sobrescribirá
+en cada llamada.
+.br
+.if t .ne 7
+.LP
+.ft B
+.nf
+.sp .5
+char *
+clnt_sperror(rpch, s)
+\s-1CLIENT\s0 *rpch;
+char *s;
+.fi
+.ft R
+.IP
+Igual que
+.BR clnt_perror(\|) ,
+salvo que (como
+.BR clnt_sperrno(\|) )
+devuelve una cadena en lugar de mostrar el mensaje por la salida estándar de
+error.
+.IP
+Fallos: devuelve un puntero a datos estáticos que se sobrescriben en cada
+llamada.
+.br
+.if t .ne 10
+.LP
+.ft B
+.nf
+.sp .5
+\s-1CLIENT\s0 *
+clntraw_create(prognum, versnum)
+u_long prognum, versnum;
+.fi
+.ft R
+.IP
+Esta rutina crea un cliente
+.SM RPC
+de juguete (de mentira) para el programa remoto
+.IR prognum ,
+con versión
+.IR versnum .
+El medio de transporte usado para pasar mensajes al servicio es realmente
+un buffer dentro del espacio de direcciones del proceso, por lo que el
+servidor
+.SM RPC
+correspondiente debería residir en el mismo espacio de direcciones. Vea
+.BR svcraw_create(\|) .
+Esto permite la simulación de
+.SM RPC\s0s
+y la estimación de sobrecargas
+.SM RPC\s0,
+tal como el tiempo de ida y vuelta, sin ninguna interferencia del núcleo.
+Esta rutina devuelve
+.SM NULL
+si falla.
+.br
+.if t .ne 15
+.LP
+.ft B
+.nf
+.sp .5
+\s-1CLIENT\s0 *
+clnttcp_create(addr, prognum, versnum, sockp, sendsz, recvsz)
+struct sockaddr_in *addr;
+u_long prognum, versnum;
+int *sockp;
+u_int sendsz, recvsz;
+.fi
+.ft R
+.IP
+Esta rutina crea un cliente
+.SM RPC
+para el programa remoto
+.IR prognum ,
+con versión
+.IR versnum .
+El cliente usa
+.SM TCP/IP
+como protocolo de transporte. El programa remoto se encuentra en la dirección
+de Internet
+.IR *addr .
+Si
+.\"The following in-line font conversion is necessary for the hyphen indicator
+\fB\%addr\->sin_port\fR
+es cero, entonces se le asigna el puerto real por el que el programa remoto
+está escuchando (para obtener esta información se consulta el servicio
+.B portmap
+remoto). El parámetro
+.I sockp
+es un conector. Si vale
+.BR \s-1RPC_ANYSOCK\s0 ,
+entonces esta rutina abre uno nuevo y se lo asigna a
+.IR sockp .
+Ya que la
+.SM RPC
+basada en
+.SM TCP
+usa
+.SM E/S
+mediante buffers, el ususario puede especificar el tamaño de los buffers de
+envío y recepción con los parámetros
+.I sendsz
+y
+.IR recvsz .
+Los valores cero hacen que se elijan valores por omisión adecuados.
+Esta rutina devuelve
+.SM NULL
+si falla.
+.br
+.if t .ne 15
+.LP
+.ft B
+.nf
+.sp .5
+\s-1CLIENT\s0 *
+clntudp_create(addr, prognum, versnum, wait, sockp)
+struct sockaddr_in *addr;
+u_long prognum, versnum;
+struct timeval wait;
+int *sockp;
+.fi
+.ft R
+.IP
+Esta rutina crea un cliente
+.SM RPC
+para el programa remoto
+.IR prognum ,
+con versión
+.IR versnum .
+El cliente usa
+.SM UDP/IP
+como protocolo de transporte. El programa remoto se encuentra en la dirección
+de Internet
+.IR addr .
+Si
+\fB\%addr\->sin_port\fR
+es cero, entonces se le asigna el puerto real por el que el programa remoto
+está escuchando (para obtener esta información se consulta el servicio
+.B portmap
+remoto). El parámetro
+.I sockp
+es un conector. Si vale
+.BR \s-1RPC_ANYSOCK\s0 ,
+esta rutina abre uno nuevo y se lo asigna a
+.IR sockp .
+El transporte
+.SM UDP
+reenvía los mensajes de llamada a intervalos de tiempo
+.B wait
+hasta que se recibe una respuesta o hasta que la llamada agota su plazo de
+tiempo.
+El plazo total de tiempo para la llamada se especifica en
+.BR clnt_call(\|) .
+.IP
+Cuidado: ya que los mensajes
+.SM RPC
+basados en
+.SM RPC
+.SM UDP
+sólo pueden contener 8 Kbytes de datos codificados, este protocolo de
+transporte no se puede usar para procedimientos que toman grandes
+argumentos o devuelven resultados enormes.
+.br
+.if t .ne 8
+.LP
+.ft B
+.nf
+.sp .5
+\s-1CLIENT\s0 *
+clntudp_bufcreate(addr, prognum, versnum, wait, sockp, sendsize, recosize)
+struct sockaddr_in *addr;
+u_long prognum, versnum;
+struct timeval wait;
+int *sockp;
+unsigned int sendsize;
+unsigned int recosize;
+.fi
+.ft R
+.IP
+Esta rutina crea un cliente
+.SM RPC
+para el programa remoto
+.IR prognum ,
+con versión
+.IR versnum .
+El cliente usa
+.SM UDP/IP
+como protocolo de transporte. El programa remoto se encuentra en la
+dirección de Internet
+.IR addr .
+Si
+\fB\%addr\->sin_port\fR
+es cero, se le asigna el puerto real por le que escucha el programa remoto
+(para obtener esta información se consulta el servicio
+.B portmap
+remoto). El parámetro
+.I sockp
+es un conector. Si vale
+.BR \s-1RPC_ANYSOCK\s0 ,
+esta rutina abre uno nuevo y se lo asigna a
+.BR sockp .
+El protocolo de transporte
+.SM UDP
+reenvía el mensaje de llamada a intervalos de tiempo
+.B wait
+hasta que se recibe una respuesta o hasta que la llamada agota su plazo de
+tiempo.
+El plazo total de tiempo para la llamada viene especificado por
+.BR clnt_call(\|) .
+.IP
+Esta permite al usuario especificar el tamaño máximo de paquete para enviar
+y recibir mensajes
+.SM RPC
+basados en
+.SM UDP\s0.
+.br
+.if t .ne 7
+.LP
+.ft B
+.nf
+.sp .5
+void
+get_myaddress(addr)
+struct sockaddr_in *addr;
+.fi
+.ft R
+.IP
+Rellena
+.IR *addr
+con la dirección
+.SM IP
+de la máquina sin consultar las rutinas de biblioteca que tratan con
+.BR /etc/hosts .
+Como número de puerto siempre se asigna
+.BR htons(\s-1PMAPPORT\s0) .
+.br
+.if t .ne 10
+.LP
+.ft B
+.nf
+.sp .5
+struct pmaplist *
+pmap_getmaps(addr)
+struct sockaddr_in *addr;
+.fi
+.ft R
+.IP
+Una interfaz de usuario para el servicio
+.B portmap
+que devuelve una lista de las asociaciones "programa
+.SM RPC\s0-puerto"
+actuales de la máquina que se encuentra en la dirección
+.SM IP
+.IR *addr .
+Esta rutina puede devolver
+.SM NULL .
+La orden
+.RB ` "rpcinfo \-p" '
+usa esta rutina.
+.br
+.if t .ne 12
+.LP
+.ft B
+.nf
+.sp .5
+u_short
+pmap_getport(addr, prognum, versnum, protocol)
+struct sockaddr_in *addr;
+u_long prognum, versnum, protocol;
+.fi
+.ft R
+.IP
+Una interfaz de usuario para el servicio
+.B portmap
+que devuelve el número de puerto en el que espera un servicio que soporta el
+número de programa
+.IR prognum ,
+con versión
+.IR versnum ,
+y habla el protocolo de transporte asociado con
+.IR protocol .
+El valor más probable de
+.I protocol
+es
+.B
+.SM IPPROTO_UDP
+o 
+.BR \s-1IPPROTO_TCP\s0 .
+Si se devuelve un valor cero significa que no existe la asociación o que el
+sistema
+.SM RPC
+ha fallado al intentar contactar con el servicio
+.B portmap
+remoto. En este último caso, la variable global
+.B rpc_createerr(\|)
+contiene el estado de la
+.SM RPC\s0.
+.br
+.if t .ne 15
+.LP
+.ft B
+.nf
+.sp .5
+enum clnt_stat
+pmap_rmtcall(addr, prognum, versnum, procnum, inproc, in, outproc, out, tout, portp)
+struct sockaddr_in *addr;
+u_long prognum, versnum, procnum;
+char *in, *out;
+xdrproc_t inproc, outproc;
+struct timeval tout;
+u_long *portp;
+.fi
+.ft R
+.IP
+Una interfaz de usuario para el servicio
+.B portmap
+que ordena al 
+.B portmap
+de la máquina de dirección
+.SM IP
+.I *addr
+que realice una llamada
+.SM RPC
+en su nombre a un procedimiento en esa máquina.
+Al parámetro
+.I *portp
+se le asignará el número de puerto del programa si el procedimiento tiene
+éxito. Las definiciones de los otros parámetros se discuten en
+.B callrpc(\|)
+y
+.BR clnt_call(\|) .
+Este procedimiento se debería usar para \(lqping\(rq y nada más. Vea también
+.BR clnt_broadcast(\|) .
+.br
+.if t .ne 9
+.LP
+.ft B
+.nf
+.sp .5
+pmap_set(prognum, versnum, protocol, port)
+u_long prognum, versnum, protocol;
+u_short port;
+.fi
+.ft R
+.IP
+Una interfaz de usuario para el servicio
+.B portmap
+que establece una correspondencia entre la terna
+.RI [ prognum , versnum , protocol\fR]
+y
+.IR port ,
+en el servicio
+.B portmap
+de la máquina. El valor más probable de
+.I protocol
+es
+.B
+.SM IPPROTO_UDP
+o 
+.BR \s-1IPPROTO_TCP\s0 .
+Esta rutina devuelve uno si tiene éxito y cero en caso contrario. Hecho
+automáticamente por
+.BR svc_register(\|) .
+.br
+.if t .ne 7
+.LP
+.ft B
+.nf
+.sp .5
+pmap_unset(prognum, versnum)
+u_long prognum, versnum;
+.fi
+.ft R
+.IP
+Una interfaz de usuario para el servicio
+.B portmap
+que destruye todas las correspondencias entre la terna
+.RI [ prognum , versnum , *\fR]
+y los
+.B ports
+del servicio
+.B portmap
+de la máquina. Esta rutina devuelve uno si tiene éxito y cero en caso
+contrario.
+.br
+.if t .ne 15
+.LP
+.ft B
+.nf
+.sp .5
+registerrpc(prognum, versnum, procnum, procname, inproc, outproc)
+u_long prognum, versnum, procnum;
+char *(*procname) (\|) ;
+xdrproc_t inproc, outproc;
+.fi
+.ft R
+.IP
+Registra el procedimiento
+.I procname
+en el paquete de servicios
+.SM RPC\s0.
+Si llega una petición para el programa
+.IR prognum ,
+con versión
+.IR versnum ,
+y procedimiento
+.IR procnum ,
+se llama a
+.I procname
+con un puntero a su(s) parámetro(s).
+.I progname
+debería devolver un puntero a su(s) resultado(s) estático(s).
+.I inproc
+se usa para decodificar los parámetros mientras que
+.I outproc
+se usa para codificar los resultados.
+Esta rutina devuelve cero si el registro tiene éxtio y \-1 en caso
+contrario. 
+.IP
+Cuidado: se accede a los procedimientos remotos registrados de esta forma
+usando el protocolo de transporte
+.SM UDP/IP\s0.
+Vea
+.B svcudp_create(\|)
+para restricciones.
+.br
+.if t .ne 5
+.LP
+.ft B
+.nf
+.sp .5
+struct rpc_createerr     rpc_createerr;
+.fi
+.ft R
+.IP
+Una variable global cuyo valor es establecido por cualquier rutina de
+creación de clientes
+.SM RPC
+que no tiene éxito. Use la rutina
+.B clnt_pcreateerror(\|)
+para mostrar el por qué.
+.if t .ne 7
+.LP
+.ft B
+.nf
+.sp .5
+svc_destroy(xprt)
+\s-1SVCXPRT\s0 *
+xprt;
+.fi
+.ft R
+.IP
+Una macro que destruye la asa de transporte de un servicio
+.SM RPC\s0,
+.IR xprt .
+La destrucción usualmente implica la liberación de estructuras de datos
+privadas, incluyendo el propio
+.IR xprt .
+El uso de
+.I xprt
+es indefinido tras llamar a esta rutina.
+.br
+.if t .ne 8
+.LP
+.ft B
+.nf
+.sp .5
+fd_set svc_fdset;
+.fi
+.ft R
+.IP
+Una variable global que refleja la máscara de bits de los descriptores de
+ficheros de lectura del lado del servicio
+.SM RPC\s0.
+Esta variable es adecuada como parámetro de la llamada al sistema
+.BR select .
+Sólo es de interés si un implementador de servicios no llama a
+.BR svc_run(\|) ,
+sino que más bien realiza su propio procesamiento de eventos asíncronos.
+Esta variable es de sólo-lectura (¡no pase su dirección a
+.BR select !),
+aunque puede cambiar tras llamar a
+.B svc_getreqset(\|)
+o a cualquier rutina de creación.
+.br
+.if t .ne 6
+.LP
+.ft B
+.nf
+.sp .5
+int svc_fds;
+.fi
+.ft R
+.IP
+Similar a
+.BR svc_fedset(\|) ,
+pero limitada a 32 descriptores. Esta interfaz queda obsoleta debido a
+.BR svc_fdset(\|) .
+.br
+.if t .ne 9
+.LP
+.ft B
+.nf
+.sp .5
+svc_freeargs(xprt, inproc, in)
+\s-1SVCXPRT\s0 *xprt;
+xdrproc_t inproc;
+char *in;
+.fi
+.ft R
+.IP
+Una macro que libera cualquier dato reservado por el sistema
+.SM RPC/XDR
+cuando decodificó los argumentos a un procedimiento de servicio usando
+.BR svc_getargs(\|) .
+Esta rutina devuelve 1 si los resultados se han liberado con éxito y cero en
+caso contrario.
+.br
+.if t .ne 10
+.LP
+.ft B
+.nf
+.sp .5
+svc_getargs(xprt, inproc, in)
+\s-1SVCXPRT\s0 *xprt;
+xdrproc_t inproc;
+char *in;
+.fi
+.ft R
+.IP
+Una macro que decodifica los argumentos de una petición
+.SM RPC
+asociada con la asa de transporte de un servicio
+.SM RPC
+.IR xprt .
+El parámetro
+.I in
+es la dirección donde se colocarán los argumentos.
+.I inproc
+es la rutina
+.SM XDR
+usada para decodificar los argumentos. Esta rutina devuelve 1 si la
+decodificación tiene éxito y cero en caso contrario.
+.br
+.if t .ne 9
+.LP
+.ft B
+.nf
+.sp .5
+struct sockaddr_in *
+svc_getcaller(xprt)
+\s-1SVCXPRT\s0 *xprt;
+.fi
+.ft R
+.IP
+La manera permitida de obtener la dirección de red del invocador de un
+procedimiento asociado con la asa de transporte de un servicio
+.SM RPC\s0,
+.IR xprt .
+.br
+.if t .ne 9
+.LP
+.ft B
+.nf
+.sp .5
+svc_getreqset(rdfds)
+fd_set *rdfds;
+.fi
+.ft R
+.IP
+Esta rutina sólo es de interés si un implementador de servicios no llama a
+.BR svc_run(\|) ,
+sino que en su lugar implementa un procesamiento de eventos asíncronos
+a su medida.
+Se llama cuando la llamada al sistema
+.B select
+ha determinado que ha llegado una petición
+.SM RPC
+en algún
+.B conector
+.SM RPC\s0.
+.I rdfds
+es la máscara de bits resultante de descriptores de ficheros de lectura.
+La rutina termina cuando se han servido todos los conectores asociados con
+el valor de
+.IR rdfds .
+.br
+.if t .ne 6
+.LP
+.ft B
+.nf
+.sp .5
+svc_getreq(rdfds)
+int rdfds;
+.fi
+.ft R
+.IP
+Similar a
+.BR svc_getreqset(\|) ,
+pero limitada a 32 descriptores. Esta interfaz queda obsoleta debido a
+.BR svc_getreqset(\|) .
+.br
+.if t .ne 17
+.LP
+.ft B
+.nf
+.sp .5
+svc_register(xprt, prognum, versnum, dispatch, protocol)
+\s-1SVCXPRT\s0 *xprt;
+u_long prognum, versnum;
+void (*dispatch) (\|);
+u_long protocol;
+.fi
+.ft R
+.IP
+Asocia
+.I prognum
+y
+.I versnum
+con el procedimiento de atención de servicio,
+.IR dispatch .
+Si
+.I protocol
+es cero, el servicio no se registra con el servicio
+.BR portmap .
+Si
+.I protocol
+no es cero, se establece una correspondencia entre la terna
+.RI [ prognum , versnum , protocol\fR]
+y
+\fB\%xprt\->xp_port\fR
+con el servicio
+.B portmap
+local (generalmente
+.I protocol
+es cero,
+.B
+.SM IPPROTO_UDP
+o
+.B
+.SM IPPROTO_TCP\s0).
+El procedimiento
+.I dispatch
+tiene el siguiente formato:
+.RS 1i
+.ft B
+.nf
+dispatch(request, xprt)
+struct svc_req *request;
+\s-1SVCXPRT\s0 *xprt;
+.ft R
+.fi
+.RE
+.IP
+La rutina
+.B svc_register(\|)
+devuelve uno en caso de éxito y cero en caso contrario.
+.br
+.if t .ne 6
+.LP
+.ft B
+.nf
+.sp .5
+svc_run(\|)
+.fi
+.ft R
+.IP
+Esta rutina nunca regresa. Espera la llegada de peticiones
+.SM RPC
+y llama al procedimiento de servicio apropiado usando
+.B svc_getreq(\|)
+cuando llega una. Usualmente, este procedimiento está esperando a que
+termine una llamada al sistema
+.BR select(\|) .
+.br
+.if t .ne 9
+.LP
+.ft B
+.nf
+.sp .5
+svc_sendreply(xprt, outproc, out)
+\s-1SVCXPRT\s0 *xprt;
+xdrproc_t outproc;
+char *out;
+.fi
+.ft R
+.IP
+Llamada por una rutina de atención de un servicio
+.SM RPC
+para enviar los resultados de una llamada a un procedimiento remoto. El
+parámetro
+.I xprt
+es la asa de transporte asociada de la petición.
+.I outproc
+es la rutina
+.SM XDR
+que se usa para codificar los resultados. Y
+.I out
+es la dirección de los resultados.
+Esta rutina devuelve uno si tiene éxito y cero en caso contrario.
+.br
+.if t .ne 7
+.LP
+.ft B
+.nf
+.sp .5
+void
+svc_unregister(prognum, versnum)
+u_long prognum, versnum;
+.fi
+.ft R
+.IP
+Elimina todas las correspondencias entre el par
+.RI [ prognum , versnum ]
+y las rutinas de atención, y entre la terna
+.RI [ prognum , versnum , *\fR]
+y el número de puerto.
+.br
+.if t .ne 9
+.LP
+.ft B
+.nf
+.sp .5
+void
+svcerr_auth(xprt, why)
+\s-1SVCXPRT\s0 *xprt;
+enum auth_stat why;
+.fi
+.ft R
+.IP
+Llamada por una rutina de atención de servicios que rechaza realizar una
+llamada a un procedimiento remoto debido a un error de autenticación.
+.br
+.if t .ne 7
+.LP
+.ft B
+.nf
+.sp .5
+void
+svcerr_decode(xprt)
+\s-1SVCXPRT\s0 *xprt;
+.fi
+.ft R
+.IP
+Llamada por una rutina de atención de servicios que no puede decodificar
+con éxito sus parámetros. Vea también
+.BR svc_getargs(\|) .
+.br
+.if t .ne 7
+.LP
+.ft B
+.nf
+.sp .5
+void
+svcerr_noproc(xprt)
+\s-1SVCXPRT\s0 *xprt;
+.fi
+.ft R
+.IP
+Llamada por una rutina de atención de servicios que no implanta el número
+de procedimiento que solicita el invocador.
+.br
+.if t .ne 7
+.LP
+.ft B
+.nf
+.sp .5
+void
+svcerr_noprog(xprt)
+\s-1SVCXPRT\s0 *xprt;
+.fi
+.ft R
+.IP
+Llamada cuando el programa deseado no está registrado en el paquete
+.SM RPC\s0.
+Usualmente, los implementadores de servicios no necesitan esta rutina.
+.br
+.if t .ne 7
+.LP
+.ft B
+.nf
+.sp .5
+void
+svcerr_progvers(xprt)
+\s-1SVCXPRT\s0 *xprt;
+.fi
+.ft R
+.IP
+Llamada cuando la versión deseada de un programa no está registrada en el
+paquete
+.SM RPC\s0.
+Usualmente, los implementadores de servicios no necesitan esta rutina.
+.br
+.if t .ne 7
+.LP
+.ft B
+.nf
+.sp .5
+void
+svcerr_systemerr(xprt)
+\s-1SVCXPRT\s0 *xprt;
+.fi
+.ft R
+.IP
+Llamada por una rutina de atención de servicios cuando detecta un error de
+sistema no cubierto por ningún protocolo particular.
+Por ejemplo, si un servicio no puede ya reservar almacenamiento, puede
+llamar a esta rutina.
+.br
+.if t .ne 8
+.LP
+.ft B
+.nf
+.sp .5
+void
+svcerr_weakauth(xprt)
+\s-1SVCXPRT\s0 *xprt;
+.fi
+.ft R
+.IP
+Llamada por una rutina de atención de servicios que rechaza realizar una
+llamada a un procedimiento remoto debido a insuficientes parámetros de
+autenticación. La rutina llama a
+.BR "svcerr_auth(xprt, \s-1AUTH_TOOWEAK\s0)" .
+.br
+.if t .ne 11
+.LP
+.ft B
+.nf
+.sp .5
+\s-1SVCXPRT\s0 *
+svcraw_create(\|)
+.fi
+.ft R
+.IP
+Esta rutina crea un medio de transporte de servicio
+.SM RPC
+de juguete al que devuelve un puntero. El medio de transporte es en realidad un
+buffer dentro del espacio de direcciones del proceso, por lo que el cliente
+.SM RPC
+correspondiente debería residir en el mismo espacio de direcciones. Vea
+.BR clntraw_create(\|) .
+Esta rutina permite la simulación de
+.SM RPC\s0s
+y la estimación de sobrecargas
+.SM RPC
+(tal como el tiempo de ida y vuelta), sin ninguna interferencia del núcleo.
+Esta rutina devuelve
+.SM NULL
+cuando falla.
+.br
+.if t .ne 11
+.LP
+.ft B
+.nf
+.sp .5
+\s-1SVCXPRT\s0 *
+svctcp_create(sock, send_buf_size, recv_buf_size)
+int sock;
+u_int send_buf_size, recv_buf_size;
+.fi
+.ft R
+.IP
+Esta rutina crea un medio de transporte de servicio
+.SM RPC
+basado en
+.SM TCP/IP
+devolviendo un puntero al mismo. El medio de transporte se asociada con el
+conector
+.IR sock ,
+que puede ser
+.BR \s-1RPC_ANYSOCK\s0 ,
+en cuyo caso se crea un nuevo conector.
+Si no se asocia el conector a un puerto
+.SM TCP
+local, esta rutina lo asocia a un puerto arbitrario. Al terminar,
+\fB\%xprt\->xp_sock\fR
+es el descriptor del conector del medio de transporte y
+\fB\%xprt\->xp_port\fR
+es el número de puerto del medio de transporte.
+Esta rutina devuelve
+.SM NULL
+si falla. Ya que la
+.SM RPC
+basada en
+.SM TCP
+usa
+.SM E/S
+con buffers, los usuarios pueden especificar el tamaño de los buffers. Los
+valores cero hacen que se seleccionen valores por omisión adecuados.
+.br
+.if t .ne 11
+.LP
+.ft B
+.nf
+.sp .5
+\s-1SVCXPRT\s0 *
+svcfd_create(fd, sendsize, recvsize)
+int fd;
+u_int sendsize;
+u_int recvsize;
+.fi
+.ft R
+.IP
+Crea un servicio sobre cualquier descriptor abierto. Típicamente, este
+descriptor es un conector conectado para un protocolo orientado a conexión
+tal como
+.SM TCP\s0.
+.I sendsize
+y
+.I recvsize
+indican los tamaños para los buffers de envío y recepción. Si son cero, se
+eligen valores por omisión razonables.
+.br
+.if t .ne 10
+.LP
+.ft B
+.nf
+.sp .5
+\s-1SVCXPRT\s0 *
+svcudp_bufcreate(sock, sendsize, recosize)
+int sock;
+.fi
+.ft R
+.IP
+Esta rutina crea un medio de transporte de servicio
+.SM RPC
+basado en
+.SM UDP/IP
+devolviendo un puntero al mismo.
+El medio de transporte se asocia con el conector
+.IR sock ,
+que puede ser
+.BR RPC_ANYSOCK ,
+en cuyo caso se crea un nuevo conector.
+Si el conector no está asociado a un puerto
+.SM UDP
+local, esta rutina lo asocia a un puerto arbitrario. Al terminar,
+\fB\%xprt\->xp_sock\fR
+es el descriptor del conector del medio de transporte y
+\fB\%xprt\->xp_port\fR
+es el número de puerto del medio de transporte.
+Esta rutina devuelve
+.SM NULL
+si falla.
+.IP
+Esta rutina permite al usuario especificar el tamaño de paquete máximo para
+enviar y recibir mensajes
+.SM RPC
+basados en
+.SM UDP\s0.
+.br
+.if t .ne 7
+.LP
+.ft B
+.nf
+.sp .5
+xdr_accepted_reply(xdrs, ar)
+\s-1XDR\s0 *xdrs;
+struct accepted_reply *ar;
+.fi
+.ft R
+.IP
+Usada para codificar mensajes de respuesta
+.SM RPC\s0.
+Esta rutina es útil para aquellos usuarios que desean generar mensajes al
+estilo
+\s-1RPC\s0
+sin usar el paquete
+.SM RPC\s0.
+.br
+.if t .ne 7
+.LP
+.ft B
+.nf
+.sp .5
+xdr_authunix_parms(xdrs, aupp)
+\s-1XDR\s0 *xdrs;
+struct authunix_parms *aupp;
+.fi
+.ft R
+.IP
+Se usa para describir credenciales
+.SM UNIX\s0.
+Esta rutina es útil para aquellos usuarios que desean generar estas
+credenciales sin usar el paquete de autenticación
+.SM RPC\s0.
+.br
+.if t .ne 7
+.LP
+.ft B
+.nf
+.sp .5
+void
+xdr_callhdr(xdrs, chdr)
+\s-1XDR\s0 *xdrs;
+struct rpc_msg *chdr;
+.fi
+.ft R
+.IP
+Se usa para describir mensajes de cabecera de llamadas
+.SM RPC\s0.
+Esta rutina es útil para aquellos usuarios que desean generar mensajes al
+estilo
+.SM RPC
+sin usar el paquete
+.SM RPC\s0.
+.br
+.if t .ne 7
+.LP
+.ft B
+.nf
+.sp .5
+xdr_callmsg(xdrs, cmsg)
+\s-1XDR\s0 *xdrs;
+struct rpc_msg *cmsg;
+.fi
+.ft R
+.IP
+Se usa para describir mensajes de llamada
+.SM RPC\s0.
+Esta rutina es útil para aquellos usuarios que desean generar mensajes al
+estilo
+.SM RPC
+sin usar el paquete
+.SM RPC\s0.
+.br
+.if t .ne 7
+.LP
+.ft B
+.nf
+.sp .5
+xdr_opaque_auth(xdrs, ap)
+\s-1XDR\s0 *xdrs;
+struct opaque_auth *ap;
+.fi
+.ft R
+.IP
+Se usa para describir mensajes de información de autenticación
+.SM RPC\s0.
+Esta rutina es útil para aquellos usuarios que desean generar mensajes al
+estilo
+.SM RPC
+si usar el paquete
+.SM RPC\s0.
+.br
+.if t .ne 7
+.LP
+.ft B
+.nf
+.sp .5
+xdr_pmap(xdrs, regs)
+\s-1XDR\s0 *xdrs;
+struct pmap *regs;
+.fi
+.ft R
+.IP
+Se usa para describir, externamente, los parámetros de diversos
+procedimientos de
+.BR portmap .
+Esta rutina es útil para aquellos usuarios que desean generar estos
+parámetros sin usar la interfaz
+.BR pmap .
+.br
+.if t .ne 7
+.LP
+.ft B
+.nf
+.sp .5
+xdr_pmaplist(xdrs, rp)
+\s-1XDR\s0 *xdrs;
+struct pmaplist **rp;
+.fi
+.ft R
+.IP
+Se usa para describir, externamente, una lista de correspondencias de
+puerto. Esta rutina es útil para aquellos usuarios que desean generar estos
+parámetros sin usar la interfaz
+.BR pmap .
+.br
+.if t .ne 7
+.LP
+.ft B
+.nf
+.sp .5
+xdr_rejected_reply(xdrs, rr)
+\s-1XDR\s0 *xdrs;
+struct rejected_reply *rr;
+.fi
+.ft R
+.IP
+Se usa para describir mensajes de respuesta
+.SM RPC\s0.
+Esta rutina es útil para aquellos usuarios que desean generar mensajes al
+estilo
+.SM RPC
+sin usar el paquete
+.SM RPC\s0.
+.br
+.if t .ne 8
+.LP
+.ft B
+.nf
+.sp .5
+xdr_replymsg(xdrs, rmsg)
+\s-1XDR\s0 *xdrs;
+struct rpc_msg *rmsg;
+.fi
+.ft R
+.IP
+Se usa para describir mensajes de respuesta
+.SM RPC\s0.
+Esta rutina es útil para aquellos usuarios que desean generar mensajes al
+estilo
+.SM RPC
+sin usar el paquete
+.SM RPC\s0.
+.br
+.if t .ne 8
+.LP
+.ft B
+.nf
+.sp .5
+void
+xprt_register(xprt)
+\s-1SVCXPRT\s0 *xprt;
+.fi
+.ft R
+.IP
+Después de que se creen las asas de transporte del servicio
+.SM RPC\s0,
+deben registrarse a sí mismas en el paquete de servicios
+.SM RPC\s0.
+Esta rutina modifica la variable global
+.BR svc_fds(\|) .
+Usualmente, los implementadores de servicios no necesitan esta rutina.
+.br
+.if t .ne 8
+.LP
+.ft B
+.nf
+.sp .5
+void
+xprt_unregister(xprt)
+\s-1SVCXPRT\s0 *xprt;
+.fi
+.ft R
+.IP
+Antes de que se destruya una asa de transporte del servicio
+.SM RPC\s0,
+debe darse de baja a sí misma en el paquete de servicios
+.SM RPC\s0.
+Esta rutina modifica la variable global
+.BR svc_fds(\|) .
+Usualmente, los constructores de servicios no necesitan esta rutina.
+.SH "VÉASE TAMBIÉN"
+.BR rpc_secure (3N),
+.BR xdr (3N)
+.br
+Los siguientes manuales:
+.RS
+.ft I
+Remote Procedure Calls: Protocol Specification
+.br
+Remote Procedure Call Programming Guide
+.br
+rpcgen Programming Guide
+.br
+.ft R
+.RE
+.IR "\s-1RPC\s0: Remote Procedure Call Protocol Specification" ,
+.SM RFC1050, Sun Microsystems, Inc.,
+.SM USC-ISI\s0.
+

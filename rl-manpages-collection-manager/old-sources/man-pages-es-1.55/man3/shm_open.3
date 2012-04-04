@@ -1,0 +1,258 @@
+.\" Hey Emacs! This file is -*- nroff -*- source.
+.\"
+.\" Copyright (C) 2002 Michael Kerrisk (mtk16@ext.canterbury.ac.nz)
+.\"
+.\" Permission is granted to make and distribute verbatim copies of this
+.\" manual provided the copyright notice and this permission notice are
+.\" preserved on all copies.
+.\"
+.\" Permission is granted to copy and distribute modified versions of this
+.\" manual under the conditions for verbatim copying, provided that the
+.\" entire resulting derived work is distributed under the terms of a
+.\" permission notice identical to this one
+.\" 
+.\" Since the Linux kernel and libraries are constantly changing, this
+.\" manual page may be incorrect or out-of-date.  The author(s) assume no
+.\" responsibility for errors or omissions, or for damages resulting from
+.\" the use of the information contained herein.  
+.\" 
+.\" Formatted or processed versions of this manual, if unaccompanied by
+.\" the source, must acknowledge the copyright and authors of this work.
+.\"
+.\" Traducido por Miguel Pérez Ibars <mpi79470@alu.um.es> el 13-agosto-2004
+.\"
+.TH SHM_OPEN 3 "22 febrero 2002" "Linux 2.4" "Manual del Programador de Linux"
+.SH NOMBRE
+shm_open, shm_unlink \- Crea/abre o borra objetos POSIX de memoria compartida
+.SH SINOPSIS
+.B #include <sys/types.h>
+.br
+.B #include <sys/mman.h>
+.sp
+.BI "int shm_open(const char *" name ", int " oflag ", mode_t " mode );
+.sp
+.BI "int shm_unlink(const char *" name );
+.SH DESCRIPCIÓN
+.B shm_open
+crea y abre un nuevo, o abre uno ya existente, objeto POSIX de memoria compartida.
+Un objeto POSIX de memoria compartida es en efecto un manejador que puede ser
+utilizado por procesos no relacionados para ubicar la misma zona de memoria
+compartida mediante
+.BR mmap (2).
+La función
+.B shm_unlink
+realiza la operación inversa,
+borra un objeto previamente creado con
+.BR shm_open .
+.LP
+La operación de
+.B shm_open
+es análoga a la de
+.BR open (2).
+.I name
+especifica el objeto de memoria compartida que se creará o abrirá.
+Para un uso portable,
+.I name
+debe comenzar con una barra (/) y no contener ninguna barra embebida.
+.\" The names used may or may not live in a file system, and may or may not
+.\" survive a reboot. Names starting with a slash are also visible to other
+.\" processes. Other names have implementation-defined effect.
+.LP
+.I oflag
+es una máscara de bits creada mediante una operación OR lógica de
+sólo una de
+.B O_RDONLY 
+o
+.B O_RWDR
+y de cualquier otra opción listada aquí:
+.TP 1.1i
+.B O_RDONLY
+Abre el objeto para lectura.
+Un objeto de memoria compartida abierto de esta manera
+sólo puede ser ubicado con 
+.BR mmap (2)
+para acceso de lectura (\fBPROT_READ\fP).
+.TP
+.B O_RDWR
+Abre el objeto para lectura-escritura.
+.TP
+.B O_CREAT
+Crea el objeto de memoria compartida si no existe.
+El usuario y grupo propietario del objeto son establecidos
+de igual manera que para
+.BR open (2),
+y los bits de permisos del objeto
+son establecidos según los 9 bits de orden inferior de
+.IR mode ,
+salvo que aquellos bits activos en la máscara de modo de creación
+de ficheros del proceso (véase
+.BR umask (2))
+estén desactivados para el nuevo objeto.
+(Una lista de macros que pueden ser utilizadas para definir
+.I mode
+se puede encontrar en
+.BR open (2).)
+.sp
+Un nuevo objeto de memoria compartida tiene longitud cero \- el tamaño del
+objeto puede ser modificado usando
+.BR ftruncate (2).
+(Los bytes del objeto de memoria compartida recién
+creado son automáticamente inicializados a 0.)
+.TP 
+.B O_EXCL
+Si
+.B O_CREAT
+fue especificado también, y ya existe un objeto de memoria compartida
+con el nombre dado
+.I name 
+, se devuelve un error.
+La comprobación de la existencia del objeto, y su creación
+si no existe, se hacen de manera atómica.
+.TP
+.B O_TRUNC
+Si el objeto de memoria compartida ya existe, lo trunca a cero bytes.
+.LP
+En el caso de que
+.B shm_open
+se complete con éxito se devuelve un nuevo descriptor de fichero que hace
+referencia al objeto de memoria compartida.
+Se garantiza que este descriptor de fichero será el descriptor de fichero 
+con número más bajo no abierto previamente dentro del proceso.
+La opción
+.B FD_CLOEXEC
+(véase
+.BR fcntl (2))
+es activada para el descriptor de fichero.
+
+El descriptor de fichero se utiliza normalmente en llamadas posteriores a
+to 
+.BR ftruncate (2)
+(para un objeto recién creado) y
+.BR mmap (2).
+Después de una llamada a
+.BR mmap (2)
+el descriptor de fichero puede ser cerrado sin afectar al mapeo de memoria.
+
+La operación de
+.B shm_unlink
+es análoga a la de
+.BR unlink (2):
+elimina un nombre de objeto de memoria compartida, y, una vez que todos
+los procesos han eliminado el objeto, libera y
+destruye el contenido de la zona de memoria asociada.
+Después de una llamada exitosa a
+.BR shm_unlink ,
+los intentos de abrir un objeto con
+.B shm_open 
+que tengan el mismo nombre
+.I name
+fallarán (a menos que se especificara
+.B O_CREAT
+, en cuyo caso se crea un objeto distinto nuevo).
+.SH "VALOR DEVUELTO"
+En caso de éxito,
+.B shm_open
+devuelve un descriptor de fichero no negativo. En caso de fallo,
+.B shm_open
+devuelve \-1.
+.B shm_unlink
+devuelve 0 en caso de éxito, o \-1 en caso de error.
+.SH ERRORES
+En caso de fallo,
+.I errno
+se modifica para indicar la causa del error. Los valores que pueden
+aparecer en
+.I errno
+incluyen los siguientes:
+.TP
+.B EACCES
+Se denegó el acceso a
+.I name
+en 
+.B shm_open
+en el modo 
+.IR mode
+especificado,
+o se especificó la opción
+.B O_TRUNC
+y el invocador no tiene permisos de escritura sobre el objeto.
+.TP 
+.B EACCES
+Se denegó el acceso
+para borrar el objeto de memoria compartida con
+.B shm_unlink.
+.TP 
+.B EEXIST
+Se especificaron las opciones
+.B O_CREAT
+y
+.B O_EXCL 
+a la función
+.B shm_open
+y el objeto de memoria compartida especificado por
+.I name
+ya existe.
+.TP
+.B EINVAL
+El argumento
+.I name
+para la función
+.B shm_open
+es inválido.
+.TP
+.B EMFILE
+El proceso ya ha alcanzado el número máximo de ficheros abiertos.
+.TP
+.B ENOMBRETOOLONG
+La longitud de
+.I name
+excede
+.BR PATH_MAX .
+.TP
+.B ENFILE
+El límite en el número total de ficheros abiertos en el sistema ha sido alcanzado.
+.TP
+.B ENOENT
+Se llamó a
+.B shm_open
+con un nombre
+.I name 
+que no existe, y no se especificó la opción
+.B O_CREAT.
+.TP
+.B ENOENT
+Se llamó a
+.B shm_unlink
+con un nombre
+.I name 
+que no existe.
+.SH "OBSERVACIONES"
+Estas funciones están presentes en glibc 2.2 y posteriores. Los programas 
+que usen estas funciones deben especificar la opción
+.B \-lrt
+a
+.B cc
+para enlazar con la biblioteca requerida ("realtime").
+.LP
+POSIX deja el comportamiento de la combinación de
+.B O_RDONLY
+y
+.B O_TRUNC
+indefinido. En Linux, ésto truncará con éxito un objeto de memoria
+compartida \- ésto puede no ser así en otros sistemas Unix.
+.LP
+La implementación del objeto POSIX de memoria compartida en Linux 2.4
+utiliza un sistema de ficheros dedicado, que es montado habitualmente bajo
+.BR /dev/shm .
+.SH "CONFORME A"
+POSIX 1003.1 (2001).
+.SH "VÉASE TAMBIÉN"
+.BR mmap (2),
+.BR open (2),
+.BR close (2),
+.BR ftruncate (2),
+.BR fstat (2),
+.BR fchown (2),
+.BR fchmod (2),
+.BR umask (2),
+.BR fcntl (2)

@@ -1,0 +1,321 @@
+<HTML>
+<META NAME="TtH" CONTENT="1.03">                                          
+
+<p>
+
+<H2><A NAME="tth_sEc1">1.&nbsp;</A> La capa de Sockets INET</H2>
+
+<p>
+La capa de sockets de INET soporta la familia de direcciones de internet la
+cual contiene los protocolos TCP/IP. Como se discutió parrafos anteriores, estos
+protocolos se desarrollan en capas, un protocolo usa los servicios de otro.
+El código y estructuras de datos de TCP/IP de Linux reflejan estas capas. El
+interfaz con la capa de sockets BSD se realiza a través del conjunto de operaciones
+con sockets de la familia de direcciones de Internet, la cual se registra con
+la capa socket BSD durante la inicialización de la red. Estas operaciones son
+mantenidas en el vector 
+<em>pops</em> junto a otras familias de direcciones registradas.
+La capa de sockets BSD llama a las rutinas que dan soporte a la capa INET desde
+la estructura registrada 
+<em>proto_ops</em> de INET para que hagan algún trabajo.
+Por ejemplo, un socket BSD que crea un petición con la familia de direcciones
+INET usará la función 
+<em>create</em> de la capa inferior INET. La capa de sockets
+BSD pasa la estructura de datos 
+<em>socket</em> representando al socket BSD para
+la capa INET en cada una de estas operaciones. Para evitar el desorden del socket
+BSD con la 
+<em>información</em> específica de TCP/IP, la capa socket INET usa
+su propia estructura de datos, la 
+<em>sock</em> con la que enlaza a la estructura
+
+<em>socketdata</em> de BSD. Este enlace puede ser visto en la figura <A href="#a"
+> a</A>.
+Enlaza la estructura de datos 
+<em>sock</em> a la estructurad de datos BSD 
+<em>socket</em>
+usando el puntero 
+<em>data</em> en el 
+<em>socket</em> BSD. Esto significa que la
+llamada al socket INET siguiente puede recuperar fácilmente la estructura de
+datos 
+<em>sock</em>. El puntero a las operaciones de protocolo de la estructura
+de datos 
+<em>sock</em> es incluso configurada en el momento de la creación y depende
+del protocolo pedido. Si TCP es solicitado, entonces el puntero a las operaciones
+de protocolo de la estructrua de datos 
+<em>sock</em> apuntará a un conjunto de
+operaciones del protocolo TCP necesitadas para una conexión TCP. 
+
+<p><A NAME="tth_fIg1"></A> 
+<p>
+<A NAME="a"></A>Estructura de Datos de un Socke BSD en Linux
+
+<p>
+<a href="sockets.eps">Figure</a> 
+<p>
+<p>
+ 
+
+<p>
+
+<H3><A NAME="tth_sEc1.1">1.1&nbsp;</A> Creando un Socket BSD.</H3>
+
+<p>
+La llamada al sistema para crear un nuevo socket pasa identificadores para la
+familia de direcciones , tipo de socket y protocolo que se va a usar. Primeramente,
+se usa la familia de direcciones solicitada para buscar el vector 
+<em>pops</em>
+para ésta. Puede ser que la familia de direcciones particular estea implementada
+como un módulo, y, en este caso, el hilo del núcleo 
+<em>kmod</em> o el proceso
+
+<em>kerneld</em> debe cargar el módulo antes de que podamos continuar. Un nueva
+estructura de datos 
+<em>socket</em> es reservada para representar al socket BSD.
+Actualmente, la estructura de datos 
+<em>socket</em> es físicamente parte de la
+estructura de datos 
+<em>inode</em> del VFS y reservar un socket realmente significa
+reservar un inodo VFS. Esto puede parecer estraño al no ser que se considere
+que los sockets pueden ser manjeados del mismo modo que los ficheros ordinarios.
+Todos estos ficheros son representados por una estructura de datos del VFS 
+<em>inode,</em>
+entonces, para soportar las opereaciones de ficheros, los sockets BSD deben
+estar representados por una estructura de datos VFS 
+<em>inode.</em>
+
+<p>
+La reciente estructura de datos 
+<em>socket</em> BSD creada contiene un puntero
+a las rutinas de sockets específicas a la familia de direcciones y esto es puesto
+a la estructura de datos 
+<em>proto_ops</em> recibida desde el vector 
+<em>pops.</em>
+Su tipo es configurado como el tipo de socket solicitado; uno de SOCK_STREAM,
+SOCK_DGRAM. La runtina específica de la creación de la familia de direcciones
+es llamada usando la dirección mantenida en la estructura de datos 
+<em>proto_ops.</em>
+
+<p>
+Un descriptor de fichero libre es reservado desde el vector 
+<em>vd</em> del proceso
+actual y la estructura de datos 
+<em>file</em> que lo apunta es inicializado. Esto
+incluye la configuración del puntero a las operaciones del fichero para apuntar
+al conjunto de operaciones de ficheros sobre sockets BSD soportadas por el interfaz
+del sockets BSD. Cualquier operación futura será directa sobre la interfaz del
+socket y se redireccionará a la familia de direcciones que lo soporta llamando
+a las rutinas de su familia de direcciones.
+
+<p>
+
+<H3><A NAME="tth_sEc1.2">1.2&nbsp;</A> Enlazando una dirección a un Socket BSD INET.</H3>
+
+<p>
+Con el fin de ser capaces de escuchar por peticiones de conexión entrantes de
+internet, cada servidor debe crear un socket BSD INET y enlazar su dirección
+a él. La operación de enlazado (bind), es manejado mayoritariametne dentro de
+la capa de sockets INET con algún soporte de las capas inferiores TCP y UDP.
+El socket que tiene una dirección enlazada no puede ser usado para otra comunicación.
+Esto significa que el estado del socket debe ser TCP_CL0SE. La estructura 
+<em>sockaddr</em>
+pasada a la operación de enlazado (bind) contiene la dirección IP a la cual
+será enlazada, y opcionalmente, un número de puerto. Normalmente el enlace de
+la dirección IP debiera ser el que ha sido asignado al dispositivo de red que
+soporta la familia de direcciones INET y cuyo interfaz está activo y se puede
+usar. Puedes ver las interfaces de red que están activas en el sistema usando
+el comadno 
+<em>ifconfig.</em> La dirección IP incluso puede ser la dirección broadcast
+IP de todo unos o todo ceros. Éstas son direcciones especiales que significan
+``enviar a todos''<a href="#tthFtNtAAB" name=tthFrefAAB><sup>1</sup></a>. La dirección IP incluso podría ser especificada como cualquier dirección IP
+si la máquina actua como un proxy transparente o firewall, pero sólamente los
+procesos con privilegios de superusuario pueden unirse a cualquier dirección
+IP. El enlace de la dirección IP es salvado en la estructura de datos 
+<em>sock</em>,
+en los campos 
+<em>recv_addr y saddr.</em> Estos son usados en búsquedas hash
+y como la dirección IP enviada respectivamente. El número de puerto es opcional
+y si no es especificado, se le pregunta al soporte de red por uno libre. Por
+convenio, los números de puerto menores que 1024 no pueden ser usados por procesos
+sin privilegios de superusuario. Si la capa de red reserva un número de puerto,
+siempre reservará uno más grande de 1024.
+
+<p>
+Todos los paquetes que son recibidos por los dispositivos de la capa de red,
+deben ser dirigidos a los sockets BSD INET correctos, para que puedan ser procesados.
+Por esta razón UDP y TCP mantienen tablas hash usadas para buscar direcciones
+dentro de los mensajes entrantes IP y direccionarlos al par correcto 
+<em>socket/sock.</em>TCP
+es un protocolo orientado a conexión y por lo tanto hay más información envuelta
+en el procesado de los paquetes TCP que en el procesamiento de los paquetes
+UDP.
+
+<p>
+UDP mantiene una tabla hash de puertos UDP reservados, la tabla 
+<em>udp_hash</em>.
+Ésta consiste en punteros a estructuras de datos 
+<em>sock</em> indexadas por una
+función hash basada en el número de puerto. Como la tabla hash UDP es más pequeña
+que el número de puertos permisibles (
+<em>udp_hash</em> es de solo 128 o UDP_HTABLE_SIZE
+bytes de largo) algunas entradas en la tabla apuntan a una cadena de estructuras
+de datos enlazada usando para ello, el puntero next de 
+<em>sock</em>.
+
+<p>
+TCP es mucho más complejo ya que mantiene varias tablas hash. Sin embargo, actualmente
+TCP no añade el enlace de la estructura de datos 
+<em>sock</em> en sus tablas hash
+durante la operación de enlazado (bind), simplemente chequea que el número de
+puerto pedido no está siendo usado. La estructura de datos 
+<em>sock</em> es añadida
+a las tablas hash de TCP durante la operación de 
+<em>listen</em>.
+
+<p>
+NOTA DE REVISIÓN: 
+<em>¿Qué hay sobre la entrada route?</em>
+
+<p>
+
+<H3><A NAME="tth_sEc1.3">1.3&nbsp;</A> Realizando una conexión a un socket BSD INET</H3>
+
+<p>
+Una vez que el socket ha sido creado y, visto que que no ha sido usado para
+escuchar por peticiones de conexiones entrantes, puede ser usado para peticiones
+de conexión salientes. Para protocolos sin conexión como UDP esta operación
+del socket no hace gran cosa, pero para protocolos orienteados a la conexión
+como TCP envuelve la construcción de un circuito virtual entre las dos aplicaciones.
+
+<p>
+Una conexión saliente sólamente podrá ser hecha en un socket BSD INET que está
+en el estado correcto, es decir, que todavía no tiene una conexión establecida
+y que no ha sido usado para escuchar en conexiones entrantes. Esto significa
+que la estructura de datos 
+<em>socket</em> BSD debe estar en el estado SS_UNCONNECTED.
+El protocolo UDP no establece ninguna conexión entre aplicaciones, todos lo
+mensajes son datagramas, cualquiera de los mensajes pueden o no pueden tener
+destinatarios. Sin embargo soporta la operación de sockets BSD 
+<em>connect</em>.
+Una operación de conexión en un socket BSD INET UDP simplemente configura la
+dirección de la aplicación remota; su dirección IP y su número de puerto IP.
+Adicionalmente configura una caché para la entrada de la tabla de enrutado así
+que los paquetes enviados por este socket BSD no necesiten chequear la base
+de datos del enrutado otra vez (al no ser que esta ruta llegue a ser inválida).
+La información del enrutado del caché, es manentida desde el puntero 
+<em>ip_route_cache</em>
+en la estructra de datos 
+<em>sock</em> INET. Si no se da ninguna inforamción de
+direccionamiento, esta caché de enrutado y la información del direccionameinto
+IP serán automáticamente usados para mensajes enviados usando este socket BSD.
+UDP mueve el estado de 
+<em>sock</em> a TCP_ESTABLISHED.
+
+<p>
+Para una operación de conexión en un socket BSD INET, TCP debe construir un
+mensaje TCP que contenga la información de conexión y enviarlo al destino IP
+dado. El mensaje TCP contiene información sobre la conexión, un número de secuencia
+del mensaje de comienzo único, el tamaño máximo del mensaje que puede ser manejado
+por el host, el tamaño de la ventana de transmisión y recepción y demás. Todos
+los mensajes TCP son numerados y el número de secuencia inicial es usado como
+el número del primer mensaje. Linux elige un valor razonablemente aleatorio
+para evitar ataques de protocolo maliciosos. Cada mensaje transmitido por el
+terminal de la conexión TCP y satisfactoriamente recibido por el otro, es reconocido
+(Ack) para decir que llegó bien e incorrupto. Los mensajes no satisfactorios
+serán retransmitidos. El tamaño de ventana de transmisión y recepción es el
+número de mensajes salientes que pueden ser enviados sin recibir su reconocimiento.
+El tamaño máximo del mensaje está basado en el dispositivo de red que está siendo
+usado por el terminal de la petición. Si el dispositivo terminal que recibe
+soporta tamaño de mensajes más pequeños entonces la conexíón usará el mínimo
+de los dos. La aplicación que hace la petición de la conexión del enlace TCP
+debe esperar por una respuesta desde la aplicación objetivo por una aceptación
+o rechazo de la petición de conexión. Como el 
+<em>sock</em> TCP está ahora esperando
+mensajes entrantes, es añadido a la 
+<em>tcp_listening_hash</em> así que los
+mensajes TCP entrantes puedan ser direccionados a esta estructra de datos 
+<em>sock</em>.
+TCP incluso lanza temporizadores así que la petición de conexión enlazada puede
+ser expirada si la aplicación objetivo no responde a la petición.
+
+<p>
+
+<H3><A NAME="tth_sEc1.4">1.4&nbsp;</A> Escuchando en un socket BSD INET</H3>
+
+<p>
+Una vez que un socket tiene una dirección enlazado a él, debe escuchar por peticiones
+de conexión entrantes especificadas en la dirección enlazada. Una aplicación
+de red puede escuchar en un socket sin enlazarlo primero a un dirección; en
+este caso, la capa de sockets INET busca un número de puerto sin usar (para
+este protocolo) y automáticamente lo enlaza al socket. La función de socket
+
+<em>listen</em> mueve el socket a un estado TCP_LISTEN y hace cualquier trabajo
+específico de red necesitado para permitir conexiones entrantes.
+
+<p>
+Para sockets UDP, el cambio del estado del socket es suficiente pero TCP añade
+la estructura de datos 
+<em>sock</em> del socket en dos tablas hash tan pronto
+como estea activo. Éstas son la tabla 
+<em>tcp_bound_hash</em> y la 
+<em>tcp_listening_hash.</em>
+Ambas son indexadas via función hash basada en el número de puerto IP.
+
+<p>
+Cada vez que una petición de conexión TCP entrante es recibida por un socket
+que esá escuchando, TCP construye una nueva estructura de datos 
+<em>sock</em>
+para representarla. Esta estructura de datos 
+<em>sock</em> llegará a ser la ``bottom
+half'' de la conexión TCP cuando sea aceptada. Incluso clona el 
+<em>sk_buff</em>
+entrante que contiene la petición de conexión y lo encola en 
+<em>receive_queue</em>
+para la estructura de datos 
+<em>sock</em> escuchada. El clon 
+<em>sk_buff</em> contiene
+un puntero a la nueva estructura de datos 
+<em>sock</em> creada.
+
+<p>
+
+<H3><A NAME="tth_sEc1.5">1.5&nbsp;</A> Aceptando peticiones de conexión</H3>
+
+<p>
+UDP no soporta el concepto de conexiones, el aceptar conexiones de sockets INET
+sólo aplica al protocolo TCP como una operación accept en un socket que está
+escuchando, lo que genera una nueva estructura de datos 
+<em>socket</em> para ser
+clonada desde el 
+<em>socket</em> original que está escuchando. La operación de
+acceptación es entonces pasada a la capa del protocolo soportado, en este caso
+INET para aceptar cualqueir petición de conexión entrante. La capa del protocolo
+INET hará fallar la operación de aceptación si el protocolo de la subcapa, por
+ejemplo UDP, no soporta conexiones. De lo contrario, la operación de aceptación
+es pasada a través del protocolo real, en este caso TCP. La operació de aceptación
+puede ser tanto bloqueante como no-bloqueante. En el caso de ser no bloqueante,
+si no hay conexiones entrantes para aceptar, la operación de aceptación fallará
+y la nueva estructura de datos 
+<em>socket</em> creada será desechada. En el caso
+bloqueante, la aplicación de red que realiza la operación de aceptación será
+añadida a la cola de espera y entonces será suspendida hasta que una petición
+de conexión sea recibida. Una vez que la petición de conexión haya sido recibida,
+el 
+<em>sk_buff</em> que contiene la petición es descartado y la estructura de
+datos 
+<em>sock</em> es devuelta a la capa de sockets INET, donde es enlazada a
+la nueva estructura de datos 
+<em>socket</em> creada antes. El número de descriptor
+de fichero (fd) del nuevo 
+<em>socket</em> es devuelto a la aplicación de red,
+y la aplicación puede entonces usar este descriptor de fichero las en operaciones
+de socket sobre el socket BSD INET creado.
+
+<p>
+<hr><H3>Footnotes:</H3>
+
+<p><a name=tthFtNtAAB></a><a href="#tthFrefAAB"><sup>1</sup></a> ¿Para qué es usado?
+
+<p><hr><small>File translated from T<sub><font size=-1>E</font></sub>X by <a href="http://hutchinson.belmont.ma.us/tth/tth.html">T<sub><font size=-1>T</font></sub>H</a>, version 1.0.</small>
+</HTML>

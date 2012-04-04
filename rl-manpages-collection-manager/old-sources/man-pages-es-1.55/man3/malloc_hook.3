@@ -1,0 +1,132 @@
+.\" Copyright 2002 Walter Harms (walter.harms@informatik.uni-oldenburg.de)
+.\" Distributed under GPL
+.\" Heavily based on glibc documentation
+.\" Polished, added docs, removed glibc doc bug, 2002-07-20, aeb
+.\"
+.\" Traducido por Juan Piernas <piernas en ditec.um.es> el 21-enero-2005
+.\"
+.TH MALLOC_HOOK 3 "20 julio 2002" "GNU" "Manual del Programador de Linux"
+.SH NOMBRE
+__malloc_hook, __malloc_initialize_hook,
+__memalign_hook, __free_hook, __realloc_hook, 
+__after_morecore_hook \- variables de depuración de malloc
+.SH SINOPSIS
+.sp
+.BR "#include <malloc.h>"
+.sp
+.BI "void *(*__malloc_hook)(size_t " size , 
+.BI "const void *" caller );
+.sp
+.BI "void *(*__realloc_hook)(void *" ptr , 
+.BI "size_t " size , 
+.BI "const void *" caller );
+.sp
+.BI "void *(*__memalign_hook)(size_t " alignment ,
+.BI "size_t " size ,
+.BI "const void *" caller );
+.sp
+.BI "void (*__free_hook)(void *" ptr , 
+.BI "const void *" caller );
+.sp
+.BI "void (*__malloc_initialize_hook)(void);"
+.sp
+.BI "void (*__after_morecore_hook)(void);"
+.SH DESCRIPCIÓN
+La biblioteca de C de GNU le permite modificar el comportamiento de
+.IR malloc (),
+.IR realloc ()
+y
+.IR free ()
+especificando funciones de «enganche» (\fIhook\fP) adecuadas. Puede usar
+estos enganches para que, por ejemplo, le ayuden a depurar
+programas que usan asignaciones dinámicas de memoria.
+.LP
+La variable
+.B __malloc_initialize_hook
+apunta a una función que se invoca una única vez cuando se inicializa
+la implementación de malloc. Esta es una varible normal, por lo que se
+puede redefinir en una aplicación de forma parecida a la siguiente:
+.br
+.nf
+    void (*__malloc_initialize_hook)(void) = my_init_hook;
+.fi
+.br
+Ahora la función
+.IR my_init_hook ()
+puede hacer la inicialización de todos los enganches.
+.LP
+Las cuatro funciones apuntadas por
+.BR __malloc_hook ,
+.BR __realloc_hook ,
+.B __memalign_hook
+y
+.BR __free_hook
+tienen el mismo prototipo de las funciones
+.IR malloc (),
+.IR realloc (),
+.IR memalign ()
+y
+.IR free (),
+respectivamente, aunque tienen un argumento final adicional
+.I caller
+que proporciona la dirección del invocador de
+.IR malloc (),
+etc.
+.LP
+La variable
+.B __after_morecore_hook
+apunta a un función que se invoca cada vez que se pide a
+.IR sbrk ()
+más memoria.
+.SH "EJEMPLO"
+A continuación tiene un pequeño ejemplo de cómo usar estas
+variables.
+.sp
+.nf
+#include <stdio.h>
+#include <malloc.h>
+     
+/* Prototipos para nuestros enganches.  */
+static void my_init_hook(void);
+static void *my_malloc_hook(size_t, const void *);
+
+/* Variables para guardar los enganches originales. */
+static void *(*old_malloc_hook)(size_t, const void *);
+     
+/* Redefinimos el enganche de inicialización de la biblioteca de C. */
+void (*__malloc_initialize_hook) (void) = my_init_hook;
+
+static void
+my_init_hook(void) {
+    old_malloc_hook = __malloc_hook;
+    __malloc_hook = my_malloc_hook;
+}
+
+static void *
+my_malloc_hook (size_t size, const void *caller) {
+    void *result;
+
+    /* Restauramos todos los enganches originales */
+    __malloc_hook = old_malloc_hook;
+
+    /* Llamamos recursivamente a malloc */
+    result = malloc (size);
+
+    /* Guardamos los enganches originales */
+    old_malloc_hook = __malloc_hook;
+
+    /* `printf' podría llamar a `malloc', por lo que también hay que protegerla. */
+    printf ("malloc(%u) invocada desde %p devuelve %p\\n",
+        (unsigned int) size, caller, result);
+
+    /* Restauramos nuestros enganches */
+    __malloc_hook = my_malloc_hook;
+
+    return result;
+}
+.fi
+.SH "VÉASE TAMBIÉN"
+.BR mallinfo (3), 
+.BR malloc (3),
+.BR mtrace (3),
+.BR mcheck (3)

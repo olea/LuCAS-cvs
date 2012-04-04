@@ -1,0 +1,194 @@
+10. Entrando y saliendo del sistema
+
+"Jamás pertenecería a un club en el que me aceptaran como miembro" 
+(Groucho Marx)
+
+Esta sección describe lo que ocurre cuando un usuario accede o sale del 
+sistema. Las diferentes interacciones de los procesos en segundo plano, 
+ficheros de bitácora, ficheros de configuración, y demás serán 
+descritas en mayor o menor medida.
+
+10.1. Accediendo a través de terminales
+
+La figura 10-1 muestra cómo se realiza la entrada a través del 
+terminal. En primer lugar, "init" se asegura que hay un programa "getty" 
+disponible para la conexión del terminal (o consola). "getty" escucha el 
+terminal y espera para notificar al usuario que está listo para acceder al 
+sistema (generalmente eso significa que el usuario debe escribir algo). 
+Cuando se detecta a un usuario, "getty" escribe un mensaje de 
+bienvenida (almacenado en /etc/issue), pregunta por el nombre de usuario, y 
+finalmente ejecuta el programa "login". "login" coge el nombre de usuario 
+como parámetro, y le solicita al usuario su contraseña. Si estos 
+concuerdan, "login" ejecuta el intérprete de comandos configurado para el 
+usuario; de otra forma simplemente sale y termina el proceso (quizá después 
+de dar otra oportunidad al usuario para introducir su nombre de usuario 
+y contraseña). "init" percibe que el proceso ha terminado, y ejecuta un 
+nuevo "getty" para el terminal.
+
+Figura 10-1. Accediendo a través de terminales: la interacción de init, 
+getty, login y el intérprete de comandos.
+
+Tenga en cuenta que el único proceso nuevo es aquél creado por "init" 
+(utilizando la llamada al sistema "fork"); "getty" y "login" únicamente 
+reemplazan el programa ejecutado durante el proceso (utilizando la 
+llamada al sistema "exec").
+
+Se necesita un programa independiente, para avisar al usuario, en el 
+caso de líneas series, ya que puede ser complicado (y tradicionalmente 
+así es) darse cuenta cuándo se activa un terminal. "getty" también se 
+adapta a la velocidad y otros parámetros de la conexión, lo que es 
+especialmente importante para conexiones telefónicas, donde estos parámetros 
+pueden variar entre llamada y llamada.
+
+Existen varias versiones de "getty" e "init" que se pueden utilizar, 
+cada una con sus ventajas e inconvenientes. Es buena idea aprender las 
+versiones de su sistema, y también las otras versiones (puede utilizar el 
+"Linux Software Map" para buscarlas). Si no tiene conexión telefónica, 
+probablemente no deba preocuparse sobre "getty", pero "init" será 
+todavía importante.
+
+10.2. Accediendo a través de la red
+
+Dos ordenadores de la misma red generalmente se encuentran enlazados 
+mediante un cable físico. Cuando se comunican por la red, los programas 
+de cada ordenador que toman parte en la comunicación están conectados a 
+través de una conexión virtual, una especie de cable imaginario. En lo 
+que concierne a cada uno de los programas involucrados en la conexión 
+virtual, poseen el monopolio de su propio cable. Sin embargo, puesto que 
+el cable no es real, únicamente imaginario, los sistemas operativos de 
+ambos ordenadores pueden tener varias conexiones virtuales compartiendo 
+el mismo cable físico. De esta forma, utilizando un único cable, varios 
+programas pueden comunicarse sin tener en cuenta las otras comunicaciones. Es 
+incluso posible que varios ordenadores utilicen el mismo cable; las conexiones 
+virtuales existen entre dos ordenadores, y los otros ordenadores desconocen 
+aquellas conexiones en la que no participan.
+
+Esta es una descripción complicada y abstracta de la realidad. Por otro 
+lado puede resultar suficiente para comprender por qué los accesos por 
+red son diferentes a los accesos normales. Las conexiones virtuales se 
+establecen cuando hay dos programas en diferentes ordenadores que 
+desean comunicarse. Como es en principio posible acceder desde un ordenador 
+a cualquier otro de la red, existe un número elevado de conexiones 
+virtuales potenciales. Debido a esto, no es práctico iniciar "getty" para 
+cada acceso potencial.
+
+Hay un único proceso inetd (correspondiente a "getty") que maneja todos 
+los accesos por la red. Cuando percibe que un acceso llega por la red 
+(esto es, se da cuenta de que llega una nueva conexión virtual de algún 
+otro ordenador), arranca un nuevo proceso para manejar ese acceso 
+individual. El proceso original se mantiene y continúa escuchando nuevos 
+accesos.
+
+Para hacer las cosas un poco más complicadas, existe más de un 
+protocolo de comunicación para accesos de red. Los dos más importantes son 
+"telnet" y "rlogin". Además de accesos, existen muchas otras conexiones 
+virtuales que se pueden realizar (mediante FTP, Gopher, HTTP, y otros 
+servicios de red). Sería ineficiente tener procesos separados escuchando 
+cada tipo de conexión, así que en su lugar hay uno sólo escuchando que 
+puede reconocer el tipo de conexión y puede iniciar el tipo de programa 
+correcto para proveer el servicio. Este programa único se llama "inetd"; 
+vea la Guía de Administración de Red de Linux para más información.
+
+10.2. Lo que hace login
+
+El programa "login" cuida de la autenticación del usuario (asegurándose 
+que el nombre de usuario y contraseña concuerdan), y establece un 
+entorno inicial para el usuario activando permisos para la línea serie e 
+iniciando el intérprete de comandos.
+
+Como parte de la configuración inicial se incluye mostrar el contenido 
+del archivo /etc/motd (un pequeño mensaje para cada día) y comprobar el 
+correo electrónico. Esto puede desactivarse creando un archivo llamado 
+.hushlogin en el directorio inicial del usuario.
+
+Si el archivo /etc/nologin existe, los accesos son deshabilitados. Ese 
+archivo se crea típicamente al hacer "shutdown" y similares. "login" 
+comprueba la existencia de este archivo, y no aceptará ningún acceso si 
+existe. En el caso de que exista, "login" muestra su contenido en el 
+terminal antes de salir.
+
+"login" almacena todos los accesos fallidos en un archivo de registro 
+del sistema (a través de "syslog"). También almacena todos los accesos 
+de root. Todos ellos pueden ser útiles para seguir la pista de intrusos.
+
+La gente actualmente conectada aparece en el archivo /var/run/utmp. 
+Este archivo es válido únicamente hasta que el sistema es reiniciado o 
+apagado; se limpia cuando el sistema es iniciado. Muestra cada usuario y 
+el terminal (o conexión de red) que está usando, además de alguna 
+información útil. Los comandos "who", "w" y similares miran en utmp para ver 
+quién está conectado.
+
+Todos los accesos con éxito se registran en /var/log/wtmp. Este archivo 
+crecerá sin límite, así que debe ser limpiado de manera regular, por 
+ejemplo a través de un trabajo semanal "cron" que se encargue de 
+limpiarlo. [37] El comando "last" muestra el contenido de wtmp.
+
+Tanto utmp como wtmp se encuentran en formato binario (vea la página de 
+manual de utmp); desafortunadamente no es conveniente examinarlos sin 
+programas especiales.
+
+10.4. X y xdm
+
+X proporciona accesos a través de xdm; también: xterm -ls
+
+10.5. Control de acceso
+
+Tradicionalmente la base de datos de usuarios se encuentra en 
+/etc/passwd. Algunos sistemas utilizan contraseñas "shadow", y las almacenan 
+en 
+/etc/shadow. Los sitios con muchos ordenadores que comparten las 
+cuentas utilizan NIS o algún otro método para almacenar la base de datos de 
+usuarios; pueden copiar automáticamente la base de datos de una 
+localización central al resto de ordenadores.
+
+La base de datos de usuarios contiene no sólo las contraseñas, sino 
+también información adicional sobre los usuarios, como sus nombres reales, 
+directorios iniciales, y los intérpretes de comandos. Esta otra 
+información necesita ser pública, de manera que cualquiera pueda leerla. De 
+esta forma la contraseña se almacena encriptada. Esto provoca que 
+cualquiera con acceso a la contraseña pueda usar varios métodos criptográficos 
+para adivinarla, sin ni siquiera intentar acceder al sistema. Las 
+contraseñas "shadow" intentan evitar esto moviendo las contraseñas a otro 
+archivo, el cuál sólo puede leer root (la contraseña se almacena 
+igualmente encriptada). En cualquier caso, instalar las contraseñas "shadow" 
+más adelante en un sistema que no las soporta puede ser complicado.
+
+Con o sin contraseñas, es importante asegurar que todas las contraseñas 
+en un sistema son válidas, es decir, no son fácilmente adivinables. El 
+programa "crack" puede utilizarse para romper contraseñas; cualquier 
+contraseña que pueda encontrar es por definición una mala contraseña. 
+Mientras que "crack" puede ser ejecutado por intrusos, también puede ser 
+ejecutado por el administrador del sistema para evitar malas 
+contraseñas. El propio programa "passwd" puede forzar buenas contraseñas; esto 
+es 
+de hecho más eficiente en términos de ciclos de CPU, ya que romper 
+contraseñas necesita de bastantes cálculos.
+
+La base de datos de los grupos se guarda en /etc/group; para sistemas 
+con contraseñas "shadow", puede existir /etc/shadow.group.
+
+Generalmente root no puede acceder a través de la mayoría de terminales 
+o a través de la red, sólo mediante los terminales listados en el 
+archivo /etc/securetty. Esto hace necesario tener acceso físico a uno de 
+estos terminales. Por lo tanto es posible acceder mediante cualquier 
+terminal como otro usuario, y utilizar el comando "su" para convertirse en 
+root.
+
+10.6. Intérprete de comandos
+
+Cuando un intérprete de comandos se inicia, automáticamente ejecuta uno 
+o más archivos predefinidos. Interpretes diferentes ejecutan archivos 
+diferentes; vea la documentación de cada uno para más información.
+
+La mayoría de intérpretes de comandos primero ejecutan un archivo 
+global, por ejemplo, el intérprete Bourne (/bin/sh) y sus derivados ejecutan 
+/etc/profile; adicionalmente, ejecutan .profile del directorio inicial 
+del usuario. /etc/profile permite al administrador del sistema tener un 
+entorno común para los usuarios, especialmente estableciendo la 
+variable PATH para incluir directorios de comandos locales además de los 
+normales. Por otro lado, .profile permite al usuario personalizar el entorno 
+a su propio gusto sobreescribiendo, si es necesario, el entorno por 
+defecto.
+
+
+

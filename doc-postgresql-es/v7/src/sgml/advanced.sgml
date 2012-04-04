@@ -1,0 +1,272 @@
+ <chapter id="advanced">
+  <title>Características Avanzadas de <acronym>SQL</acronym> en <productname>Postgres</productname></title>
+
+  <para>
+   Habiendo cubierto los aspectos básicos de 
+   <productname>Postgres</productname> <acronym>SQL</acronym>para acceder a los datos, discutiremos ahora 
+	aquellas características de 
+   <productname>Postgres</productname> que los distinguen de los gestores de bases de datos convecionales. 
+	Estas características incluyen herencia, time travel (viaje en el tiempo) y valores no-atómicos de 
+	datos (atributos basados en vectores y conjuntos). Los ejemplos de esta sección pueden encontrarse 
+	también en 
+   <filename>advance.sql</filename> en el directorio del tutorial. (Consulte el 
+	 <xref linkend="QUERY"> para ver la forma de utilizarlo). 
+  </para>
+
+  <sect1 id="inheritance">
+   <title>Herencia</title>
+
+   <para>
+    Creemos dos tablas. La tabla capitals (capitales) contiene las capitales de los estados, 
+	las cuales son también ciudades. Naturalmente, la tabla capitals debería 
+	heredar de cities (ciudades). 
+
+    <programlisting>
+CREATE TABLE cities (
+    name            text,
+    population      real,
+    altitude        int     -- (in ft)
+);
+
+CREATE TABLE capitals (
+    state           char(2)
+) INHERITS (cities);
+    </programlisting>
+
+    En este caso, una instancia de capitals   <firstterm>hereda</firstterm>  todas las columnas 
+	(name, population y altitude) de su padre, cities. El tipo de la columna name (nombre) es 
+    <type>text</type>, un tipo nativo de <productname>Postgres</productname>
+    para cadenas ASCII de longitud variable. El tipo de la columna population (población) es 
+    <type>real</type>, un tipo de datos numérico de punto flotante de simple precisión.
+    Las capitales de estado tienen un atributo extra, state (estado), que muestra a qué estado 
+    pertenecen. En <productname>Postgres</productname>,
+    una tabla puede heredar de ninguna o varias otras tablas, y una consulta puede hacer referencia 
+    tanto a todas las instancias de una tabla como a todas las instancias de una tabla más todos sus 
+    descendientes.
+    <note>
+     <para>
+      La jerarquía de la herencia es un gráfico acíclico dirigido.
+     </para>
+    </note>
+   </para>
+
+   <para>
+    Por ejemplo, la siguiente consulta encuentra los nombres de todas las ciudades, 
+    incluyendo capitales de estado, que están situadas a un altura de 500 o más pies:
+     
+    <programlisting>
+SELECT name, altitude
+    FROM cities
+    WHERE altitude &gt; 500;
+    </programlisting>         
+
+    que devuelve:
+
+    <programlisting>         
++----------+----------+
+|name      | altitude |
++----------+----------+
+|Las Vegas | 2174     |
++----------+----------+
+|Mariposa  | 1953     |
++----------+----------+
+|Madison   |  845     |
++----------+----------+
+    </programlisting>         
+   </para>
+
+   <para>
+    Por otro lado, la siguiente consulta encuentra todas las ciudades que no son capitales de 
+    estado y están situadas en una altura de 500 pies o superior:
+
+    <programlisting>
+SELECT name, altitude
+    FROM ONLY cities
+    WHERE altitude &gt; 500;
+    </programlisting>
+
+    which returns:
+     
+    <programlisting>
++----------+----------+
+|name      | altitude |
++----------+----------+
+|Las Vegas | 2174     |
++----------+----------+
+|Mariposa  | 1953     |
++----------+----------+
+    </programlisting>
+   </para>
+
+    Aquí la palabra <quote>ONLY</quote> antes de cities indica que la consulta debe realizarse 
+    sólo sobre la tabla cities,y no sobre las tablas que estén por debajo de ella en la 
+    jerarquía de la herencia. Muchos de los comandos que ya hemos discutido
+    -- <command>SELECT</command>, <command>UPDATE</command> and <command>DELETE</command> --
+    soportan esta notación <quote>ONLY</quote>.
+   </para>
+
+  <note>
+   <title>Obsoleto</title>
+   <para>
+   En versiones previas de <productname>Postgres</productname>, el defecto era no tener acceso
+   a las tablas hijas. Se comprobó que esto era un error y una violación del SQL99. Bajo la 
+   vieja sintaxis, para accedera a las sub-tablas, se añadía "*" al nombre de la tabla.
+   Por ejemplo:
+
+<programlisting>
+SELECT * from cities*;
+</programlisting>
+   
+   Se puede aún explícitamente revisar las tablas hijas, añadiendo "*", del mismo modo que puede
+   explícitamente especificar que no se revisen escribiendo <quote>ONLY</quote>. Pero a partir de
+   la versión 7.1, el comportamiento de defecto para un nombre de tabla <quote>no decorado</quote>
+   es revisar las tablas hijas también, mientras que antes el valor de defecto era no hacerlo.
+   Para obtener el comportamiento anterior, fije la opción de configuración
+   <literal>SQL_Inheritance</literal> a off, es decir:
+<programlisting>
+SET SQL_Inheritance TO OFF;
+</programlisting>
+   o añada una lína en el fichero <filename>postgresql.conf</filename>.
+   </para>
+  </note>
+ </sect1>
+
+  <sect1>
+   <title>Valores No-Atómicos</title>
+
+   <para>
+    Uno de los principios del modelo relacional es que las columnas de una tabla son atómicas.
+    <productname>Postgres</productname> no posee esta restricción; las columnas pueden contener 
+    sub-valores  a los que puede accederse desde el lenguaje de consulta. Por ejemplo, se pueden 
+    crear columnas que sean vectores de alguno de los tipos base.
+   </para>
+
+   <sect2>
+    <title>Vectores</title>
+
+    <para>
+     <productname>Postgres</productname> permite que las columnas de una instancia sean 
+     definidas como vectores multidimensionales de longitud fija o variable. Se pueden crear 
+     vectores de cualquiera de los tipos base o de tipos definidos por el usuario. Para 
+     ilustrar su uso, creemos primero una tabla con vectores de tipos base.
+
+     <programlisting>
+CREATE TABLE SAL_EMP (
+    name            text,
+    pay_by_quarter  integer[],
+    schedule        text[][]
+);
+     </programlisting>
+    </para>
+
+    <para>
+     La consulta de arriba creará una tabla llamada SAL_EMP con una cadena del tipo 
+     <firstterm>text</firstterm>  (name),un vector unidimensional del tipo 
+     <firstterm>integer</firstterm> (pay_by_quarter), 
+     que representa el salario trimestral del empleado y un vector 
+     bidimensional del tipo  <firstterm>text</firstterm>
+     (schedule),  que representa la agenda semanal del empleado. Ahora realizamos algunos 
+     <firstterm>INSERT</firstterm>s; notese que cuando agregamos valores a un vector, 
+     encerramos los valores entre llaves y los separamos mediante comas. Si usted conoce 
+     <firstterm>C</firstterm>,
+     esto no es distinto a la sintaxis para inicializar estructuras. 
+
+     <programlisting>
+INSERT INTO SAL_EMP
+    VALUES ('Bill',
+    '{10000, 10000, 10000, 10000}',
+    '{{"meeting", "lunch"}, {}}');
+
+INSERT INTO SAL_EMP
+    VALUES ('Carol',
+    '{20000, 25000, 25000, 25000}',
+    '{{"talk", "consult"}, {"meeting"}}');
+     </programlisting>
+
+     <productname>Postgres</productname>  utiliza de forma predeterminada la convención 
+	de vectores "basados en uno" -- es decir, un vector de n elementos comienza con 
+	vector[1] y termina con vector[n]. Ahora podemos ejecutar algunas consultas sobre 
+	SAL_EMP. Primero mostramos como acceder a un solo elemento del vector por vez. Esta 
+	consulta devuelve los nombres de los empleados cuyos pagos han cambiado en el segundo 
+	trimestre: 
+     <programlisting>
+SELECT name
+    FROM SAL_EMP
+    WHERE SAL_EMP.pay_by_quarter[1] &lt;&gt;
+    SAL_EMP.pay_by_quarter[2];
+
++------+
+|name  |
++------+
+|Carol |
++------+
+     </programlisting>
+    </para>
+
+    <para>
+     La siguiente consulta recupera el pago del tercer trimestre de todos los empleados: 
+     
+     <programlisting>
+SELECT SAL_EMP.pay_by_quarter[3] FROM SAL_EMP;
+
+
++---------------+
+|pay_by_quarter |
++---------------+
+|10000          |
++---------------+
+|25000          |
++---------------+
+     </programlisting>
+    </para>
+
+    <para>
+     Podemos también acceder a porciones arbitrarias de un vector (subvectores) especificando
+     especificando los límites inferior y superior de cada subcripción.  Esta consulta recupera 
+     el primer item de la agenda de Bill para los primeros dos días de la semana. 
+
+     <programlisting>
+SELECT SAL_EMP.schedule[1:2][1:1]
+    FROM SAL_EMP
+    WHERE SAL_EMP.name = 'Bill';
+
++-------------------+
+|schedule           |
++-------------------+
+|{{"meeting"},{""}} |
++-------------------+
+     </programlisting>
+    </para>
+   </sect2>
+  </sect1>
+
+  <sect1 id="more-advanced">
+   <title>Más características avanzadas</title>
+
+   <para>
+    <productname>Postgres</productname> posee muchas características que no se han visto en este 
+    tutorial, el cual ha sido orientado hacia usuarios nuevos de 
+    <acronym>SQL</acronym>.
+    Las mencionadas características se discuten tanto en la Guía del Usuario como en la del Programador. 
+   </para>
+
+  </sect1>
+
+ </chapter>
+
+<!-- Keep this comment at the end of the file
+Local variables:
+mode: sgml
+sgml-omittag:nil
+sgml-shorttag:t
+sgml-minimize-attributes:nil
+sgml-always-quote-attributes:t
+sgml-indent-step:1
+sgml-indent-data:t
+sgml-parent-document:nil
+sgml-default-dtd-file:"./reference.ced"
+sgml-exposed-tags:nil
+sgml-local-catalogs:("/usr/lib/sgml/catalog")
+sgml-local-ecat-files:nil
+End:
+-->

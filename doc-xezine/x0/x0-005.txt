@@ -1,0 +1,739 @@
+
+-=|=======================[ x-eZine #0 / Art. 005 ]=======================|=-
+-=|================[ IPC (Comunicacion entre procesos). ]=================|=-
+-=|=========================[ By HyLian <?@?.?> ]=========================|=-
+
+			Roberto Perez Cubero - 22/03/2002
+		  
+*** 0.- Licencia ***
+
+Este documento fue escrito por Roberto Perez Cubero y licenciado bajo la GPL,
+que puede ser consultada en el enlace de lafree_software_foundation. Cada uno
+es libre de  distribuir  el  documento  con  el  nombre  del autor, cualquier
+modificacion en el contenido  original  me  gustaria que me fuera comunicado.
+
+*** 1.- Introduccion ¿ Que es IPC ? ***
+
+IPC son las siglas de Interprocess Comunication (Comunicacion entre procesos)
+Esta comunicacion se puede llevar a cabo bajo ciertos medios, estos medios
+pueden ser:
+
+	* Ficheros.
+	* Tuberias.
+	* IPC.
+	* Sockets locales ( o sockets UNIX ).
+	
+La comunicacion mediante ficheros es lenta ya q tiene que acceder al disposi-
+tivo fisico cada vez que  se  realiza  una escritura y lectura, por ello este
+modo de comunicacion no se usa normalmente ya que como norma general se busca
+rapidez a la hora d las operaciones. Otro aspecto negativo de la comunicacion
+mediante ficheros es su presencia en el sistema de ficheros del sistema en el
+que se lleva a cabo la comunicacion,  esto  es,  cada vez que dos procesos se
+comunican se crea un fichero normal, por lo que, se reduce la eficiencia.
+
+Para cubrir estos problemas  se  crearon  las  tuberias  que son una clase de
+ficheros especiales en los que se garantizan la rapidez en las comunicaciones
+prueba de esta tecnologia es la  cantidad  de programas en UNIX que comunican
+con tuberias,por ejemplo ls | wc -l al ejecutar esa orden se crea una tuberia
+en el que pasamos informacion d un proceso a otro. Otro mecanismo que aparece
+en la lista son los sockets locales o sockets  UNIX q no son mas que tuberias
+que se tratan como sockets.
+
+Sin embargo este modo de  comunicacion  no es perfecto, para demostrarlo solo
+pensar en el hecho de  implementar  un  semaforo  con tuberias. Por todo ello
+surgio los mecanismos  de  comunicacion  entre  procesos  ( IPC ) que veremos
+detalladamente a continuacion.
+
+*** 2.- El tema de los estandares. ***
+
+Actualmente existen dos  tipos  de  programacion  IPC  uno  el marcado por el
+estandar POSIX y otro el  usado  en  el  sistema  UNIX  que es heredado de la
+universidad de Berkeley en el  articulo  cubriremos la programacion basada en
+UNIX ya que es el que aparece en  nuestros Linux por defecto. Lo cierto es el
+sistema UNIX es compatible con los  estandares  Posix.1 y Posix.2 y hay pocas
+diferencias entre un tipo y el  otro  aunque  en  algunos casos, puede que la
+filosofia sea algo difernte pero las llamadas son distintas en casi todos los
+casos.
+
+*** 3.- Mecanismos IPC System V. ***
+
+Basicamente son 3:
+
+    * Colas de Mensajes.
+    * Semaforos.
+    * Areas de memoria compartida.
+    
+A continuacion se muestra una tabla  en  la  que se resume todas las llamadas
+que se pueden realizar con IPC, es  habitual encontrarlo en forma de tabla ya
+que todas las  funciones  tienen  bastante  de  parecido,  facilitando asi su
+aprendizaje. En los siguientes puntos iremos detallando cada uno de ellos.
+
+         +-----------+-----------------+---------+------------------+
+         |           |Colas de mensajes|Semaforos|Memoria compartida|
+	 +-----------+-----------------+---------+------------------+
+         |Cabeceras  |sys/msg.h        |sys/sem.h|sys/shm.h         |
+	 +-----------+-----------------+---------+------------------+
+	 |Obtencion  |msgget()         |semget() |shmget()          |
+         +-----------+-----------------+---------+------------------+
+	 |Control    |msgctl()         |semctl() |shmctl()          |
+         +-----------+-----------------+---------+------------------+
+	 |Operaciones|msgsnd() msgrcv()|semop()  |shmat()_shmdt()   |
+         +-----------+-----------------+---------+------------------+
+	 
+*** 3.1.- Cuestiones preliminares ***
+
+Todas las funciones de Obtencion de elementos IPC llevan en su primer parame-
+tro una variable de tipo key_t,este paremtro es como el password del elemento
+IPC, d tal manera q un proceso lo crea estableciendo una clave y otro proceso
+solo puede usar sus servicios si  conoce  esa clave. Hasta aqui todo correcto
+lo curioso del tema es q cuando ejecutamos  la orden ipcs (que luego comenta-
+remos) vemos esa clave, asi pues  la  privacidad  queda puesta en total duda.
+Esta clave por lo tanto puede tomar varios  valores aunque si queremos que el
+objeto IPC solo este disponible para nuestro proceso y los posibles hijos que
+pueda crear, este parametro se fija a  IPC_PRIVATE. Por otro lado si queremos
+que el objeto sea accesible  desde  programas  diferentes  al nuestro podemos
+obtener nuestra clave mendiante la funcion ftok:
+
+	key_t ftok ( char *ruta, char num );
+
+De tal manera que a la funcion le  pasamos una ruta de un fichero como primer
+parametro y un numero de  8  bits  como  segundo  parametro. ftok opera ambos
+parametros y nos devuelve  la  clave  lista  para  pasarla a las funciones de
+obtencion d IPC.En el nuevo programa utilizaremos el mismo fichero y el mismo
+numero de 8 bits para la obtencion de la clave d tal forma q compartiremos el
+mismo objeto de memoria compartida.
+
+Otro aspecto importante que nos  vamos  a  encontrar en todas las llamadas de
+objetos IPC es la combinacion entre la clave y una serie de flags que podemos
+activar o no.De esta combinacion dependera si el identificador del objeto IPC
+que nos devuelve la llamada es creado  o referenciado, los valores que pueden
+tomar estas combinaciones son:
+
+    * La clave referenciada existe:
+          o Si no ponemos ningun  flag  o  activamos  IPC_CREAT la llamda nos
+            devuelve el identificador a la  cola ya activa para poder tabajar
+            con ella.
+          o Si ponemos  conjuntamente  IPC_CREAT  y  IPC_EXCL  la llamada nos
+            devolvera un error ya q la  cola ya existe y no podemos crear una
+            nueva con esa misma clave.
+	    
+    * La clave referenciada no existe:
+          o Si no ponemos ningun flag la llamada devolvera un error.
+          o Tanto is ponemos  IPC_CREAT  solamente  o  si ponemos IPC_CREAT y
+            IPC_EXCL conjuntamente la  llamada nos retornada un identificador
+            con la nueva cola creada y los permisos que le pasemos.
+	    
+Ya por ultimo comentar  los  comandos  que  se pueden ejecutar desde linea de
+comandos en UNIX estan son:
+
+    * ipcs: Muestra el estado  de  los  tres objetos IPC que se pueden crear,
+      mensajes, semaforos y memoria compartida. La informacion que muestra es
+          o La clave.
+          o El identificador.
+          o El propietario.
+          o Los permisos.
+          o El tamaño y el numero de procesos "enganchados" en el caso de
+            memoria compartida.
+          o El numero de semaforos.
+          o Los bytes usados en el caso de colas de mensajes.
+	  
+    * ipcrm: Borra objetos  IPC.  A  veces  los  procesos que los crean no se
+      encargan de cerrarlos o simplemente mueren antes de poder cerrarlos por
+      lo tanto con esta orden podemos  borrarlos.  Es importante cerrar todos
+      los objetos IPC que no vayamos a  utilizarlos ya que el kernel tiene un
+      maximo de descriptores por  objeto  de  tal manera que esta tabla puede
+      llegar a llenarse y no permitirnos crear nuevos objetos IPC simplemente
+      por eso.
+      
+*** 4.- Colas de mensajes System V ***
+
+El kernel maneja los  mensajes  mediante  una  lista  enlazada, es importante
+destacar que cada mensaje lleva un  campo  llamado tipo, a la hora de recibir
+mensajes podemos, o bien recibir  el  primero  de  la cola, o bien recibir el
+primer mensaje de la cola cuyo tipo  sea  igual al que inidicamos. Tambien es
+importante conocer q cada cola de mensajes que abramos tendra asociada a ella
+un identificador que debemos conocer ya  que con el podemos realizar el resto
+de operaciones como son enviar, recibir o cambiar parametros de la cola.
+
+Para manejar la lista de mensajes el kernel  usa la estructura msqid_ds de la
+que pasamos a comentar sus campos.
+
+	struct msqid_ds{
+		struct ipc_perm msg_perm; // Contiene los permisos del objeto
+					     IPC.
+					     
+		struct msg *msg_first, *msg_last; // Punteros al  principio y
+					             final  de   la  cola  de
+						     mensajes.
+						     
+	        msglen_t msg_cbytes; // Numero de bytes usados por la cola.
+	        msgqnum_t msg_qnum;  // Numero de mensajes en la cola.
+	        msglen_t msg_qbytes; // Numero maximo de bytes permitidos en
+					la cola.
+	        pid_t msg_lspid; // PID del ultimo que envio algo a la cola.
+	        pid_t msg_lrpid; // PID del ultimo q recibio algo de la cola.
+	        time_t msg_stime, msg_rtime, msg_ctime; // Tiempos de las								   ultimas operaciones
+							   de envio(msgsnd),
+							   recepcion(msgrcv)
+			                                   y control(msgctl)
+							   sobre la cola.
+	}
+Una vez descrita la estructura que principalmente podremos usar en la funcion
+msgctl() vamos a ver las funciones  para  controlar y operar con las colas de
+mensajes.
+
+*** 4.1.- Creaccion ***
+
+	int msgget ( key_t clave, int msgflg )
+	
+Con esta funcion creamos una  cola,  o bien abrimos una cola ya existente. La
+operacion de creado o apertura depende de la combinacion entre el msgflg y la
+clave como vimos en el capitulo 1.
+
+Ejemplos:
+
+    * msgget(IPC_PRIVATE,0666):Creamos una cola privada para l proceso actual
+      y sus hijos actiquiendo los permisos  de lectura y escritura para todos
+      los usuarios.
+      
+    * msgget(clave,IPC_CREAT|0666): Si la  clave  existe esta llamada nos de-
+      volvera un identificador para la cola referenciada, si por el contrario
+      la clave no existe creara una cola con esos permisos,importante incluir
+      los permisos ya que la llamada sin indicar permisos no funcionara.
+      
+    * msgget(clave,IPC_CREAT|IPC_EXCL|0666):Si la clave existe la llamada nos
+      devolvera un error si por el contrario la clave no existe crearemos una
+      cola nueva.
+      
+Una vez creada o referenciada la cola d mensajes la llamada msgget() devuelve
+un identificador q usaremos en el resto de llamadas a los objetos IPC.
+
+Ejemplo:
+
+        #include <stdio.h>;
+	#include <sys/ipc.h>;
+	#include <sys/msg.h>;
+
+	 int main(){
+	 	 int msgid;
+	 	 key_t clave;
+		 
+         	 clave = ftok("/bin/yes",0);
+         	 if ( ( msgid = msgget(clave,IPC_CREAT|0600) ) == -1 ){
+         		printf("Error creando la cola\n");
+         		perror("msgget");
+         exit(1);
+  	 }
+	 
+         //Resto del codigo q seguiremos despues
+  
+  }
+  
+*** 4.2.- Envio y Recepcion ***
+
+Una cosa importante en la formacion de mensajes es que cada uno se fabrica su
+propio mensaje, es decir cada uno crea una  estructura q la llama como quiera
+y alli mete lo que quiera, solo tiene  una  limitacion; el primer campo de la
+estructura debe ser de tipo long y tiene q indicar el tipo de mensaje que es,
+asi por ejemplo podemos tener mensajes como:
+
+	struct mensaje{
+		long tipo;
+		char datos[100];
+	};
+	struct mensbuf{
+		long tipo;
+		int id;
+		char nombre[10];
+		char dni[9];
+		char telefono[9];
+	};
+	
+Como se ve los mensajes pueden tener  cualquier estructura solo se les pide q
+tengan el primer campo como long  y  claro  este sean una estructura. Una vez
+visto el cuerpo de los mensajes, las funciones son:
+
+  int msgsnd( int msgid, struct mensaje *mensaje, int tamano_mens, int flag)
+  int msgrcv( int msgid, struct mensaje *mensaje, int tamano_mens, long
+                             tipo_mens, int flag)
+			     
+Se puede ver claramente para  que  sirve cada funcion, pasamos a comentar los
+parametros de cada funcion.
+
+-msgsnd()
+
+    * int msgid: El identificador de la cola que hemos obtenido con msgget.
+
+    * struct mensaje *mensaje: El mensaje q  queremos enviar que hemos tenido
+      que declarar previamente.
+      
+    * int tamano_mens: El tamaño  del  mensaje, lo mas normal es solucionarlo
+      con un sizeof(struct mensaje).
+      
+    * int flag: Puede ser o 0 o IPC_NOWAIT; si  es IPC_NOWAIT si no hay sitio
+      en la cola para alojar  nuestro  mensaje  la  llamada  nos devolvera un
+      error; si por otro lado el flag se  pone a 0 la llamada se quedara blo-
+      queada hasta que sea posible enviar el mensaje a la cola.
+      
+-msgrcv() (Solo comento los campos diferentes)
+
+    * struct mensaje *mensaje: Al  igual  que  antes  es  la  estructura  del
+      mensaje, con la pequeña diferencia  que ahora es de entrada es decir en
+      esta variable se nos va a depositar el mensaje que llega de la cola.
+      
+    * long tipo_mens: puede adoptar varios valores
+          o 0 : Devuelve el primer mensaje de la cola.
+          o > 0 : Devuelve el primer mensaje de la cola con ese tipo.
+          o < 0 : Devuelve el primer mensaje de la cola con el tipo menor o
+                  igual que el valor absoluto del valor q pasamos.
+		  
+    * int flag: Puede adoptar varios valores:
+    
+          o IPC_NOWAIT : Si el flag esta activo  la funcion retorna imediata-
+	    mente si no hay ningun mensaje  del  tipo que le indicamos; si el
+	    flag no esta activo la llamada se queda bloqueada.
+	    
+          o MSG_NOERROR : Si el flag  se  activa  el  mensaje  se trunca para
+            adecuarse el tamaño que le indicamos;si no esta activo la funcion
+            devuelve un error.
+	    
+Siguiendo el ejemplo de antes:
+
+{
+	struct mensaje{
+		long tipo;
+		int cantidad;
+		char unidaddest[2];
+	}men;
+
+	printf("Introduzca cantidad a convertir: ");
+	scanf("%d",&men.cantidad);
+	printf("introduzca unidad a convertir: ");
+	scanf("%2s",men.unidaddest);
+	men.tipo = 1;
+	msgsnd(msgid,&men,sizeof(struct mensaje),0);
+	msgrcv(msgid,&men,sizeof(struct mensaje), 2, 0);
+	
+		//Esperamos la respuesta
+		
+	printf("La cantidad convertida es: %d%s",men.cantidad,men.unidaddest);
+}
+//Supuesto otro proceso con la misma declaracion de mensaje
+{
+	msgrcv(msgid,&men,sizeof(struct mensaje), 1, 0);
+	if(!strcmp(men.unidaddest,"cm")){
+		//Pasamos a centimetros
+		men.cantidad *= 10;
+		strcpy(men.unidaddest,"cm");
+	}else if(!strcmp(men.unidaddest,"m")){
+		men.cantidad *= 1000;
+		strcpy(men.unidaddest,"m");
+	} //Convertimos y enviamos
+	men.tipo=2;
+	msgsnd(msgid,&men,sizeof(struct mensaje),0);
+}
+El ejemplo es un simple  programa  basado  en  el modelo cliente-servidor; el
+cliente  realiza  peticiones  para  convertir  mm  en otras dos unidades y el
+servidor responde con la cantidad  convertida. Para el ejemplo se emplea tipo
+de mensaje 1 para los mandados  por  el  cliente y tipo de mensaje 2 para las
+respuestas del servidor. 
+
+*** 4.3.- Control de la cola de mensajes ***
+
+Existe una funcion para esta labor:
+
+             int msgctl(int msgid, int cmd, struct msqid_ds *buf)
+
+Dependiendo del parametro cmd la funcion hace una cosa u otra, asi que vamos
+a ver los diferentes valores del parametro cmd y lo que realiza cada uno:
+
+    * IPC_STAT: Rellena la estructura  msqid_ds  que  le pasamos en el ultimo
+      parametro con informacion referente  a  la  cola de mensajes refenciada
+      por el parametro msgid(Recordad que la estructura la vimos al principio
+      del capitulo.
+      
+    * IPC_SET: Coje el ultimo parametro y lo establece como actual n la cola,
+      es lo contrario al comando anterior.
+      
+    * IPC_RMID : Elimina la cola referenciada por el primer parametro.
+    
+Veamos unos pocos ejemplos:
+
+	struct msqid_ds buf;
+
+	msgctl(msgid,IPC_STAT,&buf); // Consultamos sus parametros.
+	printf("El tamaño maximo de la cola es %d bytes\n",buf.msg_qbytes);
+	printf("El numero de mensajes en la cola es %d\n",buf.msg_qnum);
+	msgctl(msgid,IPC_RMID,0); // Borramos la cola.
+
+*** 5.- Semaforos IPC ***
+
+Los mensajes es un mecanismo  que  vale  para  controlar el acceso a recursos
+compartidos o para sincronizar procesos.  Los semaforos no son mas que varia-
+bles enteras que se acceden d forma compartida, es decir, visible para varios
+procesos, por tanto los semaforos se pueden gestionar de varias maneras segun
+se consideren sus valores.
+
+    * 0 : Semaforo abierto | 1 : Semaforo cerrado
+    * 0 : Semaforo cerrado | 1 : Semaforo abierto
+    * 0 : Semaforo cerrado | >0 : Semaforo abierto
+    
+Otro tema importante es que los semaforos se agrupan en conjuntos de tal
+manera que al crear un semaforo podemos crear varios referenciados por el
+mismo identificador. Este array de semaforos esta controlado por la estructu-
+ra que maneja el kernel llamada semid_ds y cada semaforo por separado se
+maneja con la estructura sem. A continuacion pasamos a ver los campos de las
+estructuras.
+
+        struct semid_ds{
+	   	struct ipc_perm; // Estructura que controla los permisos del
+				 // recurso IPC.
+		struct sem *sem_base; // Estructura que apunta a la lista de
+				      // semaforos que forman el array.
+		ushort sem_nsems; // Longitud del array de semaforos, o lo que 
+				  // es lo mismo numero de semaforos.
+		time_t sem_otime, // Tiempo de la ultima vez que se llamo a
+				  // semop().
+		time_t sem_ctime; // Tiempo de creacion del conjunto o tiempo
+				  // en que se hizo la llamada a semop() con.
+		                  // el flag IPC_SET activo.
+
+	}
+	
+Y para la estrucuta sem.
+
+
+        struct sem{
+		ushort_t semval; // El valor del semaforo.
+		short sempid; // PID del ultimo proceso q hizo semop() con la
+		              // operacion SETVAL o SETALL.
+	        ushort_t semncnt; // Numero de procesos q esperan a que
+				  // valor del semaforo sea superior al actual
+		ushort_t semzcnt; // Numero de procesos que esperan a que el
+                                  // semaforo sea 0.
+	   }
+								
+Estas dos estructuras  las  usaremos  mas  tarde  con la llamada a la funcion
+semop() para acceder  a  los  valores  y  establecer  valores de un semaforo.
+
+*** 5.1.- Creaccion ***
+
+Para crear un conjunto de semaforos vamos a usar la funcion
+
+                int semget(key_t clave, int numsems, int flag)
+
+La clave y el ultimo campo son iguales que el resto de llamadas de creaccion
+de recursos IPC, y esta explicado en el capitulo_1. El unico parametro nuevo
+es numsems y esta bien claro lo que  hace,  la llamada crea tantos semaforos
+como le digamos en este parametro, si  no creamos los semaforos sino que los
+referenciamos ( por que ya han sido creados )  este parametro puede ser 0 ya
+que no podemos cambiar el numero de semaforos q se han creado originalmente.
+La llamada devuelve -1 en caso de error.
+
+Veamos un simple ejemplo
+
+#include<stdio.h>
+#include<sys/ipc.h>
+#include<sys/sem.h>
+
+int main(){
+	int semid;
+	
+	if( (semid = semget(IPC_PRIVATE,2,IPC_CREAT|0666) ) == -1){
+		printf("Error creando el recurso\n");
+		perror("semget");
+		exit(1);
+	}
+	...
+	//Continuara mas adelante
+}
+*** 5.2.- Operaciones ***
+
+Para realizar las operaciones basicas necesitamos de la estructura sembuf que
+consta de los campos:
+
+	struct sembuf{
+		short sem_num; //El numero de semaforo del conjunto
+		short sem_op; //La operacion
+		short sem_flg; //Flag puede ser IPC_NOWAIT
+	}
+Y la funcion que usamos es:
+       int semop(int semid, struct sembuf *operaciones, unsigned nops);
+Comentando los campos de la estructura que como vemos usamos en la llamada
+para realizar operaciones en el semaforo se puede decir:
+
+    * sem_num: Con este campo indicamos sobre que semaforo del conjunto vamos
+      a realizar la operacion que indicamos en los campos que vienen a conti-
+      nuacion.
+      
+    * sem_op: Realmente el campo mas  interesante  de la estructura ya que le
+      vamos a indicar realmente que  hacemos  con  el semaforo, puede adoptar
+      varios valores:
+      
+          o 0 : Si vale cero el proceso q  hizo la llamada espera hata que el
+            valor del semaforo sea 0  de  tal  manera que el proceso se queda
+            bloqueado esperando este valor e incrementando l valor semzcnt de
+            la struct semid_ds. Hay una posibilidad d que el proceso no quede
+            bloqueado y es estableciendo  el  flag  IPC_NOWAIT en el campo de
+            flags de la llamada semop() d tal manera que la llamada retornara
+            inmediatamente devolviendo un  error. Si en cualquiera de los dos
+            casos ( con IPC_NOWAIT como sin el) si el semaforo ya esta a 0 la
+            llamada retorna inmediatamente.
+	    
+          o <0 (negativo) : el proceso  que  hace  la llamada espera a que el
+            semaforo adquiera un valor igual o mayor que el valor absoluto de
+            este parametro, por ejmplo si  ponemos -3 la funcion espera a que
+	    el semaforo tome algun valor mayor o igual a 3,si el valor actual
+	    del semaforo ya es igual o mayor al valor absoluto ( en este caso
+	    3 ) la llamada retorna inmediatamente sin bloquear el proceso.
+	    
+          o >0 (positivo) : El valor que le pasamos se añade al valor del
+            semaforo es decir semval.
+	    
+A la funcion le pasamos  una  estructura  de este tipo o un array de ellas ya
+que podemos hacer varias operaciones  de  una vez, este numero de operaciones
+"simultaneas" las indicamos por el tercer parametro de la funcion.
+Veamos un ejemplo
+
+	//Siguendo el ejemplo de antes
+	struct sembuf s;
+
+	s.sem_num=0;
+	s.sem_op=-1;
+	semop(semid,&s,1); // Esperamos que el semaforo este a 1 en este caso
+			   // el semaforo esta abiero	
+	  open(....); // Por ejemplo manipulamos un fichero
+	  write(....);
+	  close(....);
+	s.sem_num=0;
+	s.sem_op=1;
+	semop(semid,&s,1); // Abrimos el semaforo poniendolo a 1
+	//...
+En el ejemplo usamos los semaforos  para  controlar el acceso a lo que podria
+ser una seccion critica como puede  ser abrir un fichero y escribir en el. De
+este modo nos aseguramos que nadie mas va a poder acceder al fichero mientras
+nosotros estamos manipulandolo. Como se ve en el codigo primero esperamos que
+el semaforo este a 1, que para este ejemplo significa que este abierto, y una
+vez dentro el valor del semaforo es 0 ya que la llamada lo decrementa, dentro
+de la seccion critica hacemos  las  tareas  de manipulacion y cuando acabamos
+abrimos el semaforo para que otros procesos puedan acceder a el.
+
+*** 5.3.- Control ***
+
+Para el control de los semaforos vamos a usar la llamada al sistema:
+
+	int semctl (int semid,int numerosem,int cmd, union semun arg);
+
+El primer parametro de la funcion es  el  identificador del semaforo sobre el
+que vamos a realizar alguna operacion;  el  segundo  parametro corresponde al
+numero de semaforo  dentro  del  conjunto  de  semaforos  que  podemos  tener
+declarados bajo  un  mismo  identificador.  Por  otro  lado  los  dos ultimos
+parametros son realmente los q indican la accion a realizar sobre l semaforo.
+Quizas destaque la aparicion del ultimo parametro union semun arg; esta union
+nos vale para pasar argumentos  al  comando  que  queremos  ejecutar con esta
+funcion,esta union puede venir declarada por defecto o no segun en el sistema
+que trabajemos, asi que lo mejor es  que  la declaremos nosotros por lo tanto
+cuando queramos usar la funcion semctl() declararemos esta union.La union es:
+
+	union semun{
+		int valor;
+		struct semid_ds *buf;
+		unsigned short int *array;
+	}
+El significado lo iremos comentando poco a poco mientras exponemos los coman-
+dos a realizar con esta funcion, es  decir,  el contenido del parametro cmd (
+el 3 de la funcion semctl() ). Estos comandos son:
+
+    * GETVAL: La funcion devuelve el valor actual del semaforo que le indica-
+      mos con los otros parametros.
+      
+    * SETVAL: Establece el valor dl semaforo al indicado por el campo "valor"
+      de la union sembuf que le pasamos como argumento a la funcion.
+      
+    * GETZCNT: La funcion nos devuelve  el  numero  de procesos que esperan a
+      que el semaforo valga 0, es decir el campo semzcnt.
+      
+    * GETNCNT: La funcion nos  devuelve  el  numero de procesos que esperan a
+      que el semaforo tome un valor mayor que  el  que  tiene actualmente, el
+      campo semncnt de la struct semid_ds.
+      
+    * GETPID: Retorna el campo sempid de la  struct semid_ds, es decir el pid
+      del ultimo proceso que hizo semop() o semctl().
+      
+    * GETALL: Nos devuelve en el puntero de la union.
+    
+    * semun.array el valor de todos los  semaforos  del conjunto referenciado
+      por el identificador  semid, en  este  caso  el  parametro de numero de
+      semaforo no tiene importancia ya  que  nos  va a devolver todos los del
+      conjunto.
+      
+    * SETALL: Comando analogo del anterior, este lo que hace es asignar a los
+      semaforos del conjunto los valores que contiene este array contenido en
+      semun.array.
+      
+    * IPC_STAT: Nos devuelve en  el  campo  de  la union semun llamado buf el
+      contenido de la estructurasemid_ds  que maneja el kernel para semaforo.
+      
+    * IPC_SET: Comando contrario al  anterior  y lo que hace es establecer la
+      estructura que maneja el kernel a  la que le pasamos mediante la union.
+      
+    * IPC_RMID: Borra el recurso IPC, siempre hacerlo al acabar de usarlo.
+    
+Veamos unos ejemplos de uso de la llamada semctl()
+
+	union semun{
+		int valor;
+		struct semid_ds *buf;
+		unsigned short int *array;
+	}semn;
+
+	 // Consideramos los ejemplos anteriores con el semaforo ya abierto.
+	printf("El ultimo proceso que ejecuto un semop() o un semctl() con exito
+	 fue: %d"),semctl(semid,1,GETPID,NULL));
+	 // Esta llamada nos daria el mismo resultado que
+	 semctl(semid,1,IPC_STAT,&semn);
+	 printf("...... : %d",semn.buf->sempid);
+	 // Una primera inicializacion del semaforo seria
+         semn.val = 0;
+	 semctl(semid,1,SETVAL,semn);
+	 // pondria el semaforo a 0
+ 	 // Para obtener los valores de todos los semaforos
+	 semctl(semid,0,GETALL,semn);
+	 // ahora en semn.array[0], semn.array[1], ... tendriamos los valores
+	 // de todos los semaforos
+	 // Por ultimo vamos a eliminar el semaforo
+	 semctl(semid,1,IPC_RMID,NULL);
+
+	
+*** 6.- Memoria compartida IPC ***
+
+La memoria compartida es un area de memoria q declara un proceso y luego este
+area de memoria puede ser usardo, por otros  procesos q conozcan la clave con
+que fue creado. De esta manera los procesos se iran conectando a este area de
+memoria, conectar se entiende por apuntar  con  un puntero de cada programa a
+esta zona. Una cosa a tener en cuenta es el acceso multiple a esta zona d tal
+manera que en algunos casos sera necesario  garantizar el acceso multiple con
+tal de evitar inconsistencias en los datos,  esto es asi ya q si dos procesos
+acceden a la vez a este area y  intentan modificarla seguramente la modifica-
+cion  no sera correcta.
+
+Por otro lado este recurso IPC es  el  mas  rapido de todos los anteriores ya
+que una vez conectados no necesitamos hacer mas llamadas al sistema, ni inte-
+ractuar con el kernel; directamente escribimos o leemos gracias al puntero de
+nuetro programa.
+
+Veamos como en los anteriores recursos la estructura que maneja el kernel para
+controlar la memoria compartida:
+
+        struct shmid_ds{
+	        struct ipc_perm shm_perm; //Permisos
+	        int shm_segsz; //Tamaño del area
+	        time_t shm_atime; //Hora del ultimo smhmat
+                time_t shm_dtime; //Hora del ultimo shmdt()
+	        time_t shm_ctime; //Hora del ultimo shmctl()
+	        unsigned short shm_cpid; //Pid del creador
+	        unsigned short shm_lpid; //Pid del ultimo que hizo shmctl()
+	        short shm_nattach; //Numero de procesos actualmente conectados
+
+Como en los anteriores apartados esta estructura la usaremos con la llamada
+shmctl(), ahora vamos a ver cada llamada
+***** 6.1.- Creaccion *****
+Usamos la llamada:
+                  int semget(key_t clave, int tam, int flag);
+Esta llamada es simple, y los parametros conocidos, la clave es la obtenida
+como siempre con ftok(), el flag es el comentado en el tema_1. El segundo
+parametro indica el tamaño del area de memoria compartida, en el caso de que
+estemos referenciando a un area ya creada este parametro valdra 0
+  Veamos un ejemplo:
+
+     #include <sys/ipc.h>
+     #include <sys/shm.h>
+
+       int main(){
+       int shmid;
+       struct shmid_ds buf;
+       if (( shmid=shmget(ftok("/bin/yes",1),100,IPC_CREAT) ) == -1){
+             printf("Error creando memoria compartida\n");
+             perror("shmget");
+								                          exit(-1);
+
+	}
+	
+} // Continuara ...  :)
+
+*** 6.2.- "Conexion" ***
+
+Mediante la siguente funcion conectamos una variable de nuestro programa a la
+zona de memoria compartida; la funcion es:
+
+           void *shmat(int shmid, const void *shmaddr, int shmflag)
+
+Como se ve la funcion devuelve un puntero  a void q no es mas que nos permite
+asignarlo a cualquier  tipo  de  dato  mediante el cual queramos manipular la
+memoria compartida.De esta manera podemos hacer char *a=shmat(...); o tambien
+int *a=shmat(...);, en cierta manera podemos asemejar el uso d shmat() al uso
+de una llamada malloc().
+El resto de parametros no se suele usar pero su significado es:
+
+    * const void *shmaddr: Especifica la direccion concreta dond se encuentra
+      el area de memoria compartida,  si  es  0 ( lo normal ) la direccion se
+      asigna automaticamente. Si no es 0,  nos tenemos que fijar en el ultimo
+      parametro en el que puede estar o no activado el flag de SHM_RND.
+      
+          o SHM_RND activado: el puntero se conecta a la direccion especifica
+	                      que pasamos en este parametro.
+			      
+          o SHM_RND no activado: el puntero se conecta a la direccion que le
+	                         pasamos pero  redondea  hacia  abajo por la
+				 constante SHMLBA.
+				 
+		* int shmflag: Aparte del flag  anterior ( SHM_RND ) podemos
+		               poner aqui el flag SHM_RDONLY q como se podia
+			       suponer lo que hace  es conectar el puntero a
+			       la zona de memoria  pero  de solo lectura, es
+			       decir no vamos a  poder  escribir en ella con
+			       este flag activado.
+
+Una vez que tengamos conectado el  puntero  a  la zona de memoria ya podemos
+acceder a ella como si de una variable del programa se tratara
+
+        //...
+	        char *a=shmat(shmid,0,0);
+	        for(i=0; i<5;i++)
+	        printf("%d",c[i]);
+	//...
+
+*** 6.3.- "Desconexion" ***
+
+Una vez que terminamos de usar la  variable  tenemos q desconectarla del area
+de memoria compartida, al igual que  hacemos  un free() de una variable, este
+proceso se hace con la funcion:
+
+                        int shmdt(const void *shmaddr)
+
+A la funcion le pasamos como parametro la variable que hemos conectado al area
+de memoria compartida
+        //...
+	shmdt(a); // a estaba declarada como char *a=shmat(...)
+	//...
+Realmente con esto no liberamos la zona  de  memoria compartida sino que libe-
+ramos la variable local del  programa,  para  liberar  el area especificamente
+necesitamos de la funcion que explicamos ahora.
+
+*** 6.4.- Control ***
+
+Como en el resto de recursos la funcion es:
+
+              int shmctl(int shmid,int cmd, struct shmid_ds *buf)
+
+El primer parametro como  siempre es el identificador del area de memoria, el
+siguente parametro es el comando d la funcion que en conjuncion con el ultimo
+parametro puede valer:
+
+    * IPC_STAT: Nos rellena la estructura shmid_ds() con los datos que maneja
+                el kernel en lo referente a la zona de memoria compartida.
+
+   * IPC_SET: Lo contrario de lo anterior establece la estructur a que le
+               pasamos como parametro en el kernel.
+	       
+   * IPC_RMID: Borra el recurso.

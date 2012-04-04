@@ -1,0 +1,115 @@
+               Pequeñas Notas Sobre El Subsistema PCI
+
+ 			        o
+
+            "Qué debo evitar cuando programe drivers PCI"
+
+	  by Martin Mares <mj@atrey.karlin.mff.cuni.cz> on 13-Feb-1998
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+1. Cómo encontrar dispositivos PCI
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   En el caso de que su driver desee bucar todos los dispositivos con
+un determinado identificador de fabricante o dispositivo, debería usar:
+
+		struct pci_dev *dev = NULL;
+		while (dev = pci_find_device(VENDOR_ID, DEVICE_ID, dev))
+			configure_device(dev);
+
+   Para una búsqueda basada en clases, use pci_find_class(CLASS_ID, dev).
+
+   En el caso de que desee realizar algún tipo de búsqueda compleja,
+busque en pci_devices -- es una lista ligada de estructuras pci_dev
+para todos los dispositivos PCI del sistema.
+
+   Todos esos métodos devuelven un puntero a una estructura pci_dev que
+es usada como parámetro para muchas otras funciones PCI. El resto de ellas
+acepta números de bus o dispositivo que pueden ser encontradas en
+pci_dev->bus->number y pci_dev->devfn. Siéntase libre de usar todos los
+otros campos de la estructura pci_dev, pero no los modifique.
+
+   La función pci_present() puede ser usada para testear la presencia
+de PCI en la máquina.
+
+2. Cómo acceder al espacio de configuración PCI
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   Puede utilizar pci_(read|write)_config_(byte|word|dword) para acceder
+al espacio de configuración de un dispositivo representado por pci_dev.
+Todas esas funciones devuelven 0 en caso de éxito o un código de error
+(PCIBIOS_...) que puede ser convertido en una cadena de texto de error
+mediante pcibios_strerror. Muchos drivers esperan que los accesos a
+dispositivos PCI válidos no fallen.
+
+   En el caso de que desee direccionar los dispositivos por
+números de de bus, dispositivo o función, use
+pcibios_(read_write)_config_(byte|word|dword).
+
+   Si desea campos de acceso en la porción estándar de las cabeceras
+de la configuración, por favor use los nombres simbólicos de
+localizaciones y bits declarados en <linux/pci.h>.
+
+3. Direcciones e interrupciones
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   Las direcciones de puerto y de memoria y los números de interrupciones
+NO DEBEN ser leídos del espacio de configuración. Debe usar los valores de
+la estructura pci_dev conforme son mapeados por el kernel.
+
+   Si su dispositivo PCI utiliza espacio de E/S PCI, deberá utilizar
+las rutinas check_region(), request_region() y release_region(). Estas
+rutinas evitan que los dispositivos tengan regiones de E/S en
+conflicto. Acceda a sus registros utilizando las rutinas inb(), inw(),
+inl(), outb(), outw() o outl() pasando el valor de (struct pci_dev *)
+dev->base_address[] enmascarado por PCI_BASE_ADDRESS_IO_MASK como la
+dirección base de sus registros.
+
+   Si su dispositivo PCI utiliza espacio de memoria PCI, utilice
+ioremap() para crear un cookie que mapee a su dispositivo PCI. La
+máscara (struct pci_dev *) dev->base_address[] con
+PCI_BASE_ADDRESS_MEM_MASK antes de pasárselo a ioremap(). Este cookie
+se pasa a las rutinas readb(), readw(), readl(), writeb(), writew(), y
+writel() al acceder al espacio PCI. Debe utilizar siempre estas
+rutinas al acceder al espacio PCI desde el núcleo. No todas las
+arquitecturas permiten al núcleo acceso directo al espacio de memoria
+PCI desde el núcleo.
+
+    El fichero IO-mapping.txt tiene información acerca de la
+conversión entre los diversos espacios de direcciones. La gente que
+escriba controladores de dispositivos DMA deberá leer cuidadosamente
+esta información.
+
+     Las rutinas de interrupción PCI son siempre SA_SHIRQ y deberían
+utilizar el valor del campo (struct pci_dev *) dev->irq para el número
+de interrupción pasado a request_irq(). Ya que esta es una
+interrupción compartida, debe también pasar un dev_id único a
+request_irq(). 
+
+4. Funciones obsoletas
+~~~~~~~~~~~~~~~~~~~~~~
+<linux/bios32.h> está obsoleto y no debería ser incluido en ningún código
+nuevo.
+
+pcibios_find_(device|class) está tambien obsoleto y debe ser reemplazado
+por pci_find_(device|class).
+
+5. Bus mastering
+~~~~~~~~~~~~~~~~
+   Si usted necesita inicializar una tarjeta de bus-mastering, simplemente
+llame a pci_set_master(). Ello debería establecer PCI_COMMAND_MASTER en el
+registro de comandos y ajustar la latencia del temporizador si procede.
+
+
+Traducido por Santiago Romero <santiago.romero@iname.com> 
+y por David Marín <davefx@bigfoot.com> 
+para el proyecto NuLies http://nulies.hispalinux.es
+
+Mantenido por David Marín Carreño
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,339 @@
+.\" Copyright 1993 Giorgio Ciucci (giorgio@crcc.it)
+.\"
+.\" Permission is granted to make and distribute verbatim copies of this
+.\" manual provided the copyright notice and this permission notice are
+.\" preserved on all copies.
+.\"
+.\" Permission is granted to copy and distribute modified versions of this
+.\" manual under the conditions for verbatim copying, provided that the
+.\" entire resulting derived work is distributed under the terms of a
+.\" permission notice identical to this one
+.\" 
+.\" Since the Linux kernel and libraries are constantly changing, this
+.\" manual page may be incorrect or out-of-date.  The author(s) assume no
+.\" responsibility for errors or omissions, or for damages resulting from
+.\" the use of the information contained herein.  The author(s) may not
+.\" have taken the same level of care in the production of this manual,
+.\" which is licensed free of charge, as they might when working
+.\" professionally.
+.\" 
+.\" Formatted or processed versions of this manual, if unaccompanied by
+.\" the source, must acknowledge the copyright and authors of this work.
+.\"
+.\" Modified Tue Oct 22 17:55:06 1996 by Eric S. Raymond <esr@thyrsus.com>
+.TH SEMOP 2 "November 1, 1993" "Linux 0.99.13" "Linux Programmer's Manual" 
+.SH NAME
+semop \- semaphore operations
+.SH SYNOPSIS
+.nf
+.B
+# include <sys/types.h>
+.B
+# include <sys/ipc.h>
+.B
+# include <sys/sem.h>
+.fi
+.sp
+.BI "int semop ( int " semid ,
+.BI "struct sembuf *" sops ,
+.BI "unsigned " nsops " )"
+.SH DESCRIPTION
+The function performs operations on selected members of the semaphore set indicated by
+.IR semid .
+Each of the
+.I nsops
+elements in the array pointed to by
+.I sops
+specify an operation to be performed on a semaphore by a
+.B "struct sembuf"
+including the following members:
+.sp
+.B
+.br
+.B
+	short sem_num;	
+/* semaphore number: 0 = first */
+.br
+.B
+	short sem_op;	
+/* semaphore operation */
+.br
+.B
+	short sem_flg;	
+/* operation flags */
+.sp
+Flags recognized in
+.B sem_flg
+are
+.B IPC_NOWAIT
+and
+.BR SEM_UNDO .
+If an operation asserts
+.BR SEM_UNDO ,
+it will be undone when the process exits.
+.PP
+The system call semantic assures that the operations will be
+performed if and only if all of them will succeed.
+Each operation is performed on the
+.BR sem_num \-th
+semaphore of the semaphore set \- where the first semaphore of the set
+is semaphore
+.B 0
+\- and is one among the following three.
+.PP
+If
+.B sem_op
+is a positive integer, the operation adds this value to
+.BR  semval .
+Furthermore, if
+.B SEM_UNDO
+is asserted for this operation, the system updates the process undo count
+for this semaphore.
+The operation always goes through, so no process sleeping can happen.
+The calling process must have alter permissions on the semaphore set.
+.PP
+If
+.B sem_op
+is zero, the process must have read access permissions on the semaphore
+set.
+If
+.B semval
+is zero, the operation goes through.
+Otherwise, if
+.B IPC_NOWAIT
+is asserted in
+.BR sem_flg ,
+the system call fails (undoing all previous actions
+performed) with
+.B errno
+set to
+.BR EAGAIN .
+Otherwise
+.B semzcnt
+is incremented by one and the process sleeps until
+one of the following occurs:
+.IP
+.RS
+.IP \(bu
+.B semval
+becomes 0, at which time the value of
+.B semzcnt
+is decremented.
+.IP \(bu
+The semaphore set
+is removed: the system call fails with
+.B errno
+set to
+.BR EIDRM .
+.IP \(bu
+The calling process receives a signal that has to be caught:
+the value of
+.B semzcnt
+is decremented and the system call fails with
+.B errno
+set to
+.BR EINTR .
+.RE
+.PP
+If
+.B sem_op
+is less than zero, the process must have alter permissions on the
+semaphore set.
+If
+.B semval
+is greater than or equal to the absolute value of
+.BR sem_op ,
+the absolute value of
+.B sem_op
+is subtracted by
+.BR semval .
+Furthermore, if
+.B SEM_UNDO
+is asserted for this operation, the system updates the process undo count
+for this semaphore.
+Then the operation goes through.
+Otherwise, if
+.B IPC_NOWAIT
+is asserted in
+.BR sem_flg ,
+the system call fails (undoing all previous actions
+performed) with
+.B errno
+set to
+.BR EAGAIN .
+Otherwise
+.B semncnt
+is incremented by one and the process sleeps until
+one of the following occurs:
+.IP
+.RS
+.IP \(bu
+.B semval
+becomes greater or equal to the absolute value of
+.BR sem_op ,
+at which time the value of
+.B semncnt
+is decremented, the absolute value of
+.B sem_op
+is subtracted from
+.B semval
+and, if
+.B SEM_UNDO
+is asserted for this operation, the system updates the process undo count
+for this semaphore.
+.IP \(bu
+The semaphore set is removed from the system: the system call fails with
+.B errno
+set to
+.BR EIDRM .
+.IP \(bu
+The calling process receives a signal that has to be caught:
+the value of
+.B semncnt
+is decremented and the system call fails with
+.B errno
+set to
+.BR EINTR .
+.RE
+.PP
+In case of success, the
+.B sempid
+member of the structure
+.B sem
+for each semaphore specified in the array pointed to by
+.I sops
+is set to the process\-ID of the calling process.
+Furthermore both
+.B sem_otime
+and
+.B sem_ctime
+are set to the current time.
+.SH "RETURN VALUE"
+If successful the system call returns
+.BR 0 ,
+otherwise it returns
+.B \-1
+with
+.B errno
+indicating the error.
+.SH ERRORS
+For a failing return,
+.B errno
+will be set to one among the following values:
+.TP 11
+.B E2BIG
+The argument
+.I nsops
+is greater than
+.BR SEMOPM ,
+the maximum number of operations allowed per system
+call.
+.TP
+.B EACCES
+The calling process has no access permissions on the
+semaphore set as required by one of the specified operations.
+.TP
+.B EAGAIN
+An operation could not go through and
+.BR IPC_NOWAIT
+was asserted in its
+.IB sem_flg .
+.TP
+.B EFAULT
+The address pointed to by
+.I sops
+isn't accessible.
+.TP
+.B EFBIG
+For some operation the value of
+.B sem_num
+is less than 0 or greater than or equal to the number
+of semaphores in the set.
+.TP
+.B EIDRM
+The semaphore set was removed.
+.TP
+.B EINTR
+Sleeping on a wait queue, the process received a signal
+that had to be caught.
+.TP
+.B EINVAL
+The semaphore set doesn't exist, or
+.I semid
+is less than zero, or
+.I nsops
+has a non-positive value.
+.TP
+.B ENOMEM
+The
+.B sem_flg
+of some operation asserted
+.B SEM_UNDO
+and the system has not enough memory to allocate the undo
+structure.
+.TP
+.B ERANGE
+For some operation
+.B semop+semval
+is greater than
+.BR SEMVMX ,
+the implementation dependent maximum value for
+.BR semval .
+.SH NOTES
+The
+.B sem_undo
+structures of a process aren't inherited by its child
+on execution of a
+.BR fork (2)
+system call.
+They are instead inherited by the substituting process resulting
+by the execution of the
+.BR execve (2)
+system call.
+.PP
+The followings are limits on semaphore set resources affecting a
+.B semop
+call:
+.TP 11
+.B SEMOPM
+Maximum number of operations allowed for one
+.B semop
+call: policy dependent.
+.TP
+.B SEMVMX
+Maximum allowable value for
+.BR semval :
+implementation dependent (32767).
+.PP
+The implementation has no intrinsic limits for
+the adjust on exit maximum value
+.RB ( SEMAEM ),
+the system wide maximum number of undo structures
+.RB ( SEMMNU )
+and the per process maximum number of undo entries system parameters.
+.SH BUGS
+The system maintains a per process
+.B sem_undo
+structure for each semaphore altered by the process with undo requests.
+Those structures are free at process exit.
+One major cause for unhappiness with the undo mechanism is that it
+does not fit in with the notion of having an atomic set of operations
+an array of semaphores.
+The undo requests for an array and each semaphore therein may have been
+accumulated over many
+.B semopt
+calls.
+Should the process sleep when
+exiting, or should all undo operations be applied with the
+.B IPC_NOWAIT
+flag in effect?
+Currently those undo operations which go through immediately are applied,
+and those that require a wait are ignored silently.
+Thus harmless undo usage is guaranteed with private semaphores only.
+.SH "CONFORMING TO"
+SVr4, SVID.  SVr4 documents additional error conditions EINVAL, EFBIG,
+ENOSPC.
+.SH "SEE ALSO"
+.BR ipc (5),
+.BR semctl (2),
+.BR semget (2)

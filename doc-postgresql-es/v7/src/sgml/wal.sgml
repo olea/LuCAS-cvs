@@ -1,0 +1,345 @@
+<!-- $Header: /home/cvs/lucas/doc-postgresql-es/v7/src/sgml/wal.sgml,v 1.2 2002/03/06 20:14:41 emaldonadog Exp $ -->
+
+<chapter id="wal">
+ <title>Write-Ahead Logging (<acronym>WAL</acronym>)</title>
+
+ <note>
+  <title>Author</title>
+  <para>
+   Vadim Mikheev and Oliver Elphick
+  </para>
+ </note>
+
+ <sect1 id="wal-general">
+  <title>Descripción General</Title>
+
+  <para>
+   <firstterm>Write Ahead Logging</firstterm> 
+   (<acronym>WAL</acronym>, "registro previo a la escritura")
+   es una aproximación estándar al registro de transacciones. Su
+   descripción detallada se encuentra en la mayoría de (si no en todos)
+   los libros sobre proceso de transacciones. Brevemente, el concepto
+   central de <acronym>WAL</acronym> es que los cambios en los ficheros de
+   datos (donde residen las tablas y los índices) deben ser escritos sólo 
+   después de que dichos cambios hayan sido registrados, es decir, cuando
+   hayan sido pasados al dispositivo de almacenamiento permanente. Cuando
+   se sigue este procedimiento no se necesitan almacenar en disco las
+   páginas de datos en cada cierre de transacción, porque se sabe que en
+   caso de ruptura se podría recuperar la base de datos usando el
+   registro: cualquier cambio que no haya sido aplicado a las páginas
+   de datos será primero rehecho desde los datos del registro
+   (recuperación hacia adelante, "REDO") y los cambios producidos por 
+   transacciones no cerradas serán borrados de las páginas de datos 
+   (recuperación hacia atrás, "UNDO").
+  </para>
+
+  <sect2 id="wal-benefits-now">
+   <title>Beneficios inmediatos de <acronym>WAL</acronym></title>
+
+   <para>
+    El primer beneficio obvio de <acronym>WAL</acronym> es una reducción
+    significativa de escrituras en disco, ya que solamente el fichero de
+    registro necesita ser grabado en disco en el momento del cierre de 
+    transacción; en entornos multiusuario el cierre de muchas
+    transacciones puede ser realizado con un único 
+    <function>fsync()</function> del fichero de registro. Además, al ser 
+    el fichero de registro escrito secuencialmente, el precio de
+    sincronizarlo es mucho menor que el de grabar las páginas de datos.
+   </para>
+
+   <para>
+    El siguiente beneficio es la consistencia de las páginas de datos. La
+    verdad es que antes de <acronym>WAL</acronym>, 
+    <productname>PostgreSQL</productname> nunca podía garantizar la 
+    consistencia en caso de ruptura. Antes de <acronym>WAL</acronym>, 
+    cualquier corte producido durante la escritura podía resultar en:
+
+    <orderedlist>
+     <listitem>
+      <simpara>índices de tuplas que apuntan a registros 
+          inexistentes</simpara>
+     </listitem>
+
+     <listitem>
+      <simpara>índices de tuplas perdidos</simpara>
+     </listitem>
+
+     <listitem>
+      <simpara>contenido de tablas o índices corrupto debido a 
+         escritura parcial de las páginas de datos</simpara>
+     </listitem>
+    </orderedlist>
+
+    Los problemas con índices (casos 1 y 2) podrían arreglarse con
+    llamadas adicionales a <function>fsync()</function>, pero no 
+    es fácil resolver el último caso sin <acronym>WAL</acronym>; 
+    <acronym>WAL</acronym> guarda el contenido completo de la página de
+    datos en el registro si así se requiere para asegurar la consistencia
+    de la página en caso de recuperación después de un desastre.
+   </para>
+  </sect2>
+  
+  <sect2 id="wal-benefits-later">
+   <title>Beneficios futuros</title>
+
+   <para>
+    En la primera versión de <acronym>WAL</acronym>, la operación "UNDO" 
+    no está implementada, debido a problemas de tiempo. Esto quiere decir
+    que los cambios producidos por transacciones canceladas todavía ocupan 
+    espacio en disco y aún se necesitan un fichero 
+    <filename>pg_log</filename> permanente para mantener el estado de las
+    transacciones, ya que aún no es posible reutilizar los identificadores
+    de transacción. Una vez que "UNDO" sea implementada, no se requerirá 
+    que el fichero <filename>pg_log</filename> sea permanente; será posible
+    borrar <filename>pg_log</filename> al apagar, dividirlo en segmentos y
+    borrar los segmentos viejos.
+   </para>
+
+   <para>
+    Con "UNDO" también será posible establecer 
+    <firstterm>savepoints</firstterm> "puntos de salvado" para permitir la 
+    cancelación parcial de operaciones inválidas en la transacción 
+    (errores causados por comandos mal escritos, inserción de duplicados en
+    claves primarias/únicas y demás) con la posibilidad de continuar o cerrar
+    operaciones válidas hechas en la transacción antes de error. Hasta el
+    momento, cualquier error invalidará la transacción completa y requiere
+    su cancelación.
+   </para>
+
+   <para>
+    <acronym>WAL</acronym> ofrece la posibilidad de un nuevo método 
+    para salvaguardia y restauración en línea (<acronym>BAR</acronym>).
+    Para usar este método se deberían hacer copias periódicas de los datos 
+    a otro disco, cinta u otro servidor y también copiar los ficheros de 
+    registro <acronym>WAL</acronym>. La copia del fichero de base de datos
+    y los ficheros de registro archivados podrían ser usados para 
+    restaurar en caso de desastre. Cada vez que se hace una copia de la 
+    base de datos se pueden borrar los antiguos ficheros de registro.
+    La implantación de esta utilidad requerirá el registro del fichero de
+    datos y la creación y el borrado de índices; también requerirá
+    desarrollar un método para copiar los ficheros (los comandos de copia
+    del sistema no son adecuados).
+   </para>
+  </sect2>
+ </sect1>
+
+ <sect1 id="wal-implementation">
+  <title>Implementación</title>
+
+  <para>
+   <acronym>WAL</acronym> está habilitado automáticamente a partir de la 
+   versión 7.1. No se requiere intervención del administrador con la 
+   excepción de asegurarse el espacio disponible para los ficheros de 
+   registro <acronym>WAL</acronym> y algún ajuste (ver
+   <xref linkend="wal-configuration">).
+  </para>
+
+  <para>
+   Los registros <acronym>WAL</acronym> se almacenan en el directorio
+   <Filename><replaceable>$PGDATA</replaceable>/pg_xlog</Filename>, como
+   una serie de ficheros de segmento, cada uno de 16 MB. Cada segmento se
+   divide en páginas de 8 kB. Las cabeceras de cada entrada del registro 
+   se describen en <filename>access/xlog.h</filename>; el contenido de 
+   cada entrada depende del evento que se está registrando. Los ficheros 
+   de segmento se nombran con números secuenciales, comenzando en
+   <filename>0000000000000000</filename>. Los números no se reinician en 
+   este momento, de todas formas llevaría mucho tiempo agotar los números 
+   disponibles.
+  </para>
+
+  <para>
+   Los buffers y la estructura de control <acronym>WAL</acronym> están en
+   memoria compartida y son mantenidos por los backends; están protegidos 
+   por bloqueos. La demanda de memoria compartida depende del número de
+   buffers; el tamaño por defecto para los buffers <acronym>WAL</acronym> es
+   de 64 kB.
+  </para>
+
+  <para>
+   Es una ventaja colocar el registro en otro disco distinto de los 
+   ficheros principales de la base de datos. Esto se realiza moviendo el
+   directorio <filename>pg_xlog</filename> a otra posición (mientras el 
+   postmaster está apagado, por supuesto) y creando un enlace simbólico 
+   desde la ubicación original en <replaceable>$PGDATA</replaceable> a la
+   nueva situación. 
+  </para>
+
+  <para>
+   <acronym>WAL</acronym>, al asegurarse de que se escribe el registro 
+   antes de que se modifique la base de datos, puede ser engañado por
+   unidades de disco que falsamente indican una escritura correcta al 
+   kernel cuando realmente sólo han metido los datos en caché y todavía no
+   los han grabado. Una caida de tensión en esta situación puede llevar a 
+   una corrupción de datos irrecuperable; los administradores deberían
+   intentar asegurarse que los discos utilizados para datos y registro de
+   <productname>PostgreSQL</productname> no indiquen estas notificaciones
+   falsas.
+  </para>
+
+  <sect2 id="wal-recovery">
+   <title>Recuperación de la base de datos con <acronym>WAL</acronym></title>
+
+   <para>
+    Después de que se ha establecido un checkpoint y se graba el registro,
+    la posición del checkpoint se graba en el fichero
+    <filename>pg_control</filename>. Cuando se va a hacer una 
+    recuperación, el backend primero lee <filename>pg_control</filename> y
+    después el checkpoint; después lee el registro "REDO", cuya posición
+    está grabada en el checkpoint, y comienza la operación REDO (rehacer). 
+    Debido a que se graba el contenido entero de las páginas en el registro en
+    la primera modificación despues de un checkpoint, las páginas serán 
+    primero restauradas a un estado consistente.
+   </para>
+
+   <para>
+    Usar <filename>pg_control</filename> para obtener la posición de
+    checkpoint acelera el proceso de recuperación, pero para evitar la
+    posible corrupción de <filename>pg_control</filename>, se debería
+    realizar la lectura de los segmentos del registro en orden inverso, 
+    del más nuevo al más viejo, para encontrar el último checkpoint. Esto 
+    no estaba implementado en la versión 7.1.
+   </para>
+  </sect2>
+ </sect1>
+
+ <sect1 id="wal-configuration">
+  <title>Configuración de <acronym>WAL</acronym></title>
+
+  <para>
+   Hay varios parámetros relativos a <acronym>WAL</acronym> que afectan al
+   rendimiento de la base de datos. Esta sección explica su uso. Consulte
+   <xref linkend="runtime-config"> para detalles de ajuste de parámetros 
+   de configuración.
+  </para>
+
+  <para>
+   Hay dos funciones de <acronym>WAL</acronym> que se usan con frecuencia:
+   <function>LogInsert</function> y <function>LogFlush</function>.
+   <function>LogInsert</function> se usa para añadir una entrada a los
+   buffers <acronym>WAL</acronym> en memoria compartida. Si no hay espacio
+   para una entrada nueva, <function>LogInsert</function> tendrá que 
+   generar un nuevo buffer <acronym>WAL</acronym> relleno. Esto no es
+   deseable, ya que <function>LogInsert</function> es usado en cada
+   modificación a bajo nivel de la base de datos (por ejemplo, la 
+   inserción de una tupla) mientras se mantiene un bloqueo exclusivo de 
+   las páginas de datos afectadas y se supone que la operación debe ser lo
+   más rápida posible. O lo que es peor, generar nuevos buffers
+   <acronym>WAL</acronym> puede causar la creación de un nuevo segmento de
+   registro, lo que lleva aún más tiempo. Normalmente, los buffers de
+   <acronym>WAL</acronym> deberían ser escritos y grabados por una llamada 
+   a <function>LogFlush</function>, lo que se produce, en la mayor parte 
+   de los casos, en el momento del cierre de transacciones, para asegurar
+   que los datos de la transacción se graban en almacenamiento
+   permanente. En sistemas con gran salida de registro, las llamadas a
+   <function>LogFlush</function> podrían no ocurrir con la suficiente
+   frecuencia como para prevenir la generación de nuevos buffers 
+   <acronym>WAL</acronym> con <function>LogInsert</function>. En dichos
+   sistemas se podría incrementar el número de buffers <acronym>WAL</acronym>
+   modificando el parámetro <varname>WAL_BUFFERS</varname>. El número de 
+   buffers por defecto es 8. El incremento de este valor tendrá impacto en
+   el uso de la memoria compartida.
+  </para>
+
+  <para>
+   <firstterm>Checkpoints</firstterm> son puntos en la secuencia de las
+   transacciones en los cuales se garantiza que los ficheros de datos han
+   sido modificados con toda la información registrada antes del 
+   checkpoint. Durante el checkpoint, se graban en disco todas la páginas 
+   con datos sucios y se escribe una entrada especial de checkpoint en el
+   fichero de registro. Como resultado, en caso de desastre, el 
+   recuperador sabe desde que entrada en el registro (conocida como la 
+   entrada de "REDO") debe empezar la operación REDO (rehacer), ya que 
+   cualquier cambio en los ficheros de datos antes de esta entrada está
+   ya en disco. Después de que se ha establecido un checkpoint, se borra
+   cualquier segmento de registro escrito antes de la entrada "REDO", por 
+   lo que los checkpoints se usan para liberar espacio en disco en el 
+   directorio <acronym>WAL</acronym>. (Cuando se implementa 
+   <acronym>BAR</acronym> basado en <acronym>WAL</acronym>, los segmentos
+   de registro pueden ser archivados en vez de ser borrados.) El marcador
+   de checkpoint puede crear también algunos segmentos de registro para
+   uso posterior, evitando que <function>LogInsert</function> o
+   <function>LogFlush</function> pierdan tiempo creándolos.
+  </para>
+
+  <para>
+   El registro <acronym>WAL</acronym> se mantiene en disco como una serie 
+   de ficheros de 16 MB llamados <firstterm>segments</firstterm>. Por 
+   defecto se crea un nuevo segmento cuando se usa más del 75% del 
+   segmento actual. Se puede indicar al servidor la pre-creación de hasta
+   64 segmentos de registro durante el checkpoint modificando el
+   parámetro <varname>WAL_FILES</varname>.
+  </para>
+
+  <para>
+   Para recuperaciones más rápidas sería mejor establecer checkpoints con
+   más frecuencia. De todas formas se debería equilibrar el crear 
+   checkpoints con el precio por grabar páginas de datos sucias; además,
+   para asegurar la consistencia de la página de datos, la primera
+   modificación de la página de datos después de un checkpoint produce
+   el registro del contenido completo de la página, lo que incrementa la
+   salida al registro y su tamaño.
+  </para>
+
+  <para>
+   El postmaster lanza un proceso backend especial con frecuencia para
+   crear el siguiente checkpoint. Se crea un checkpoint cada
+   <varname>CHECKPOINT_SEGMENTS</varname> segmentos de log o cada
+   <varname>CHECKPOINT_TIMEOUT</varname> segundos, lo que llegue primero.
+   Los ajustes por defecto son 3 segmentos y 300 segundos respectivamente.
+   También es posible forzar el checkpoint usando el comando SQL
+   <command>CHECKPOINT</command>.
+  </para>
+
+  <para>
+   
+   El parámetro <varname>COMMIT_DELAY</varname> define cuantos 
+   microsegundos esperará el backend después de escribir una entrada en el 
+   registro con <function>LogInsert</function> y antes de realizar un
+   <function>LogFlush</function>. Este retardo permite a otros backends
+   añadir sus entradas al registro y tenerlos todos grabados físicamente 
+   con una sola sincronización del registro. No hay espera si no se 
+   habilita fsync o si hay menos de <varname>COMMIT_SIBLINGS</varname>
+   backends con transacciones activas; esto evita retardos cuando es
+   improbable que otros backends cierren transacciones próximamente.
+   Tenga en cuenta que en la mayoría de las plataformas la resolución de 
+   una petición de retardo es 10 milisegundos, por lo que cualquier valor
+   de <varname>COMMIT_DELAY</varname> entre 1 y 10000 microsegundos tendrá
+   el mismo efecto.
+  </para>
+
+  <para>
+   El parámetro <varname>WAL_SYNC_METHOD</varname> determina como Postgres
+   preguntará al kernel para forzar las actualizaciones WAL al disco. La 
+   opción más rápida es bastante dependiente de la plataforma. Tenga en 
+   cuenta que este parámetro es irrelevante si <varname>FSYNC</varname> se
+   ha puesto a off.
+  </para>
+
+  <para>
+   Asignar el parámetro <varname>WAL_DEBUG</varname> a cualquier valor
+   distinto de cero direccionará cualquier llamada a las funciones de
+   <acronym>WAL</acronym> <function>LogInsert</function> y
+   <function>LogFlush</function> a la salida de error estándar. En este
+   momento no hay diferencia entre el valor distinto de cero que se
+   asigne. Esta opción se reemplazará por un mecanismo más general en el
+   futuro.
+  </para>
+ </sect1>
+</chapter>
+
+<!-- Keep this comment at the end of the file
+Local variables:
+mode:sgml
+sgml-omittag:nil
+sgml-shorttag:t
+sgml-minimize-attributes:nil
+sgml-always-quote-attributes:t
+sgml-indent-step:1
+sgml-indent-data:t
+sgml-parent-document:nil
+sgml-default-dtd-file:"./reference.ced"
+sgml-exposed-tags:nil
+sgml-local-catalogs:("/usr/lib/sgml/catalog")
+sgml-local-ecat-files:nil
+End:
+-->

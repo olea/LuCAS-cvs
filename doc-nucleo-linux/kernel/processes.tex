@@ -1,0 +1,1008 @@
+%
+% Nota del Traductor:
+% Notice from the translator:
+%
+%	Esta es la traducción al Castellano (o Español) del fichero
+%	"processes.tex" que es el capítulo 4 de la versión 0.8-2 de la 
+%	guía "The Linux Kernel"
+%	El texto original en Inglés es de Dave Rusling de Julio del 1996
+%	Esta traducción se debe a:
+%	   Pedro Soria-Rodríguez <sorrodp@alum.wpi.edu> en Junio de 1998
+%	como parte del equipo de LuCAS <http://www.infor.es/lucas> que 
+%	traduce la guía completa y más documentos de Linux.
+%
+%
+%	This is the Spanish translation of the file "processes.tex" which
+%	is chapter 4 in version 0.8-2 of the document "The Linux Kernel"
+%	The original english text is by Dave Rusling on July 1996.
+%	The translation was done by:
+%	   Pedro Soria-Rodríguez <sorrodp@alum.wpi.edu>, June 1998
+%	as part of the LuCAS <http://www.infor.es/lucas> team that is
+%	translating the complete document, as well as other Linux docs.
+
+\chapter{Procesos}
+\label{processes-chapter}
+\ChapterDescription{
+Este capítulo describe qué es un proceso, y como el núcleo de Linux crea,
+gestiona y borra procesos en el sistema.
+}
+
+Los procesos llevan a cabo tareas en el sistema operativo.  Un programa es
+un conjunto de instrucciones de código máquina y datos guardados en disco en una
+imagen ejecutable y como tal, es una entidad pasiva;  podemos
+pensar en un proceso como un programa de computador en acción.
+
+\index{Procesos}
+Es una entidad dinámica, cambiando constantemente a medida que el procesador
+ejecuta las instrucciones de código máquina.  Un proceso también incluye el
+contador de programa y todos los registros de la CPU, así como las pilas del
+proceso que contienen datos temporales como parámetros de las rutinas,
+direcciones de retorno y variables salvadas.  El programa que se está
+ejecutando, o proceso, incluye toda la actividad en curso en el
+microprocesador.   Linux es un sistema multiproceso.  Los procesos son
+tareas independientes, cada una con sus propios derechos y responsabilidades.
+
+Si un proceso se desploma, no hará que otros procesos en el sistema fallen
+también.  Cada proceso se ejecuta en su propio espacio de dirección virtual
+y no puede haber interacciones con otros procesos excepto a través de
+mecanismos seguros gestionados por el núcleo.
+
+Durante la vida de un proceso, este hará uso de muchos recursos del sistema. 
+Usará las CPUs del sistema para ejecutar sus instrucciones y la memoria
+física del sistema para albergar al propio proceso y a sus datos.  El
+proceso abrirá y usará ficheros en los sistemas de ficheros y puede usar
+dispositivos del sistema directa o indirectamente.  Linux tiene que tener
+cuenta del proceso en sí y de los recursos de sistema que está usando  de
+manera que pueda gestionar este y otros procesos justamente.  No sería justo
+para los otros procesos del sistema si un proceso monopolizase la mayoría de
+la memoria física o las CPUs.
+
+El recurso más preciado en el sistema es la CPU; normalmente solo hay una. 
+Linux es un sistema operativo multiproceso.  Su objetivo es tener un proceso
+ejecutándose en cada CPU del sistema en todo momento, para maximizar la
+utilización de la CPU.  Si hay más procesos que CPUs (y normalmente así es),
+el resto de los procesos tiene que esperar a que una CPU quede libre para
+que ellos ejecutarse.
+El multiproceso es una idea simple; un proceso se ejecuta hasta que tenga
+que esperar, normalmente por algún recurso del sistema;  cuando obtenga
+dicho recurso, puede ejecutarse otra vez.  En un sistema uniproceso, por
+ejemplo \texttt{DOS}, la CPU estaría simplemente esperando quieta, y el
+tiempo de espera se desaprovecharía.
+En un sistema multiproceso se mantienen muchos procesos en memoria al mismo
+tiempo.  Cuando un proceso tiene que esperar, el sistema operativo le quita
+la CPU a ese proceso y se la da a otro proceso que se la merezca más.  El
+planificador se encarga de elegir el proceso más apropiado para ejecutar
+a continuación.  Linux usa varias estrategias de organización del tiempo de
+la CPU para asegurar un reparto justo.
+
+Linux soporta distintos formatos de ficheros ejecutables, ELF es uno, Java
+es otro, y todos se tienen que gestionar transparentemente.  El uso por
+parte de los procesos de las bibliotecas compartidas del sistema también ha de
+ser gestionado transparentemente.
+
+\section{Procesos de Linux}
+\index{Procesos}
+Para que Linux pueda gestionar los procesos en el sistema, cada proceso se
+representa por una estructura de datos \ds{task\_struct} \index{task\_struct
+estructura de datos} (las tareas (task) y los procesos son términos
+intercambiables en Linux).  El vector \ds{task} es una lista de punteros a
+cada estructura \ds{task\_struct} en el sistema.
+\SeeModule{include/\-linux/\-sched.h}
+Esto quiere decir que el máximo número de procesos en el sistema está
+limitado por el tamaño del vector \ds{task}; por defecto tiene 512 entradas. 
+A medida que se crean procesos, se crean nuevas estructuras
+\ds{task\_struct} a partir de la memoria del sistema y se añaden al vector
+\ds{task}.  Para encontrar fácilmente el proceso en ejecución, hay un
+puntero (\ds{current}) que apunta a este proceso.
+
+Linux soporta procesos de tiempo real así como procesos normales.  Estos
+procesos tienen que reaccionar muy rápidamente a sucesos externos (de ahí el
+término ``tiempo real'') y reciben un trato diferente del planificador. 
+La estructura \ds{task\_struct} es bastante grande y compleja, pero sus
+campos se pueden dividir en áreas funcionales:
+
+\begin{description}
+        \item [State] (Estado) A medida que un proceso se ejecuta, su {\em
+		estado} cambia según las circunstancias.  Los procesos en
+		Linux tienen los siguientes estados:
+		\footnote{\ReviewNotes{SWAPPING no se incluye porque no parece
+		que se use.}}
+		\begin{description}
+		\item [Running] (Ejecutándose) El proceso se está ejecutando
+			(es el proceso en curso en el sistema) o está listo
+			para ejecutarse (está esperando a ser asignado a una
+			de las CPUs del sistema).
+		\item [Waiting] (Esperando) El proceso está esperando algún
+			suceso o por algún recurso.  Linux diferencia dos
+			tipos de procesos; {\em interrumpibles} e {\em
+			ininterrumpibles}.  Los procesos en espera
+			interrumpibles pueden ser interrumpidos por señales
+			mientras que los ininterrumpibles dependen
+			directamente de sucesos de hardware y no se pueden
+			interrumpir en ningún caso.
+		\item [Stopped] (Detenido) EL proceso ha sido detenido,
+			normalmente porque ha recibido una señal.  Si se
+			están reparando errores en un proceso, este puede
+			estar detenido.
+		\item [Zombie] Es un proceso parado cuya estructura
+			\ds{task\_struct} permanece aún en el vector
+			\ds{task}.  Es, como su nombre indica, un proceso
+			muerto.
+		\end{description}
+
+	\item [Información de la Planificación de Tiempo de la CPU]  El
+		planificador necesita esta información para hacer una
+		decisión justa sobre qué proceso en el sistema se merece más
+		ejecutarse a continuación.
+
+	\item [Identificadores] Cada proceso en el sistema tiene un
+		identificador de proceso.  El identificador no es un índice
+		en el vector \ds{task}, es simplemente un número.  Cada
+		proceso también tiene identificadores de usuario y grupo,
+		que se usan para controlar el acceso de este proceso a los
+		ficheros y los dispositivos del sistema.
+
+	\item [Comunicación Entre Procesos] Linux soporta los mecanismos
+		clásicos de Unix\tm\ de IPC (Inter-Process Communication) de
+		señales, tuberías y semáforos y también los mecanismos de IPC
+		de System V de memoria compartida, semáforos y colas de
+		mensajes.  Los mecanismos de IPC soportados por Linux se
+		describen en el capítulo~\ref{IPC-chapter}.
+
+	\item [Nexos] En un sistema de Linux ningún proceso es independiente
+		de otro proceso.  Cada proceso en el sistema, excepto el
+		proceso inicial, tiene un proceso padre.  Los procesos
+		nuevos no se crean, se copian, o más bien {\em se clonan} de
+		un proceso existente.  Cada estructura \ds{task\_struct} que
+		representa un proceso mantiene punteros a su proceso padre y
+		sus hermanos (los procesos con el mismo proceso padre) así
+		como a sus propios procesos hijos.  Se puede ver las
+		relaciones entre los procesos en ejecución en un sistema
+		Linux con la orden \eg{pstree}:
+	\begin{verbatim}
+
+init(1)-+-crond(98)
+        |-emacs(387)
+        |-gpm(146)
+        |-inetd(110)
+        |-kerneld(18)
+        |-kflushd(2)
+        |-klogd(87)
+        |-kswapd(3)
+        |-login(160)---bash(192)---emacs(225)
+        |-lpd(121)
+        |-mingetty(161)
+        |-mingetty(162)
+        |-mingetty(163)
+        |-mingetty(164)
+        |-login(403)---bash(404)---pstree(594)
+        |-sendmail(134)
+        |-syslogd(78)
+        `-update(166)
+
+\end{verbatim}
+	Además, todos los procesos en el sistema también están en una doble
+	lista encadenada cuya raíz es la estructura \ds{task\_struct} del
+	proceso \texttt{init}.  Esta lista permite al núcleo de Linux
+	observar cada proceso del sistema.  Esto es necesario para soportar
+	órdenes como \eg{ps} o \eg{kill}.
+
+	\item [Tiempos y Temporizadores]  El núcleo mantiene conocimiento de
+	la hora de creación de los procesos así como el tiempo de CPU que
+	consume a lo largo de su vida.  En cada paso del reloj, el núcleo
+	actualiza la cantidad de tiempo en \dsni{jiffies}\index{jiffies} que
+	el proceso en curso ha usado en los modos sistema y usuario.  Linux
+	también soporta temporizadores {\em de intervalo} específicos a cada
+	proceso; los procesos pueden usar llamadas del sistema para instalar
+	temporizadores para enviarse señales a sí mismos cuando el
+	temporizador acaba.  Estos temporizadores pueden ser de una vez, o
+	periódicos.
+
+	\item [Sistema de Ficheros] Los procesos pueden abrir y cerrar
+	ficheros y la estructura \ds{task\_struct} de un proceso contiene
+	punteros a los descriptores de cada fichero abierto así como
+	punteros a dos nodos-i del VFS.  Cada nodo-i del VFS determina
+	singularmente un fichero o directorio dentro de un sistema de
+	ficheros y también provee un interfaz uniforme al sistema de
+	ficheros base.  El soporte de los sistemas de ficheros en Linux se
+	describe en el Capítulo~\ref{filesystem-chapter}.  El primer nodo-i
+	apunta a la raíz del proceso (su directorio inicial) y el segundo al
+	directorio en curso, o al directorio {\em pwd}.  {\em pwd} viene de
+	la orden de Unix\tm\ \eg{pwd}, {\em print working directory}, o {\em
+	imprimir el directorio de trabajo}.  Estos dos nodos-i de VFS ven
+	sus campos \dsni{count} incrementados para mostrar que hay uno o más
+	procesos haciendo referencia a ellos.  Por esta razón no se puede
+	borrar un directorio que un proceso tenga como su directorio {\em
+	pwd} (directorio de trabajo), o por la misma razón, uno de sus
+	subdirectorios.
+
+	\item [Memoria Virtual] La mayoría de los procesos tienen memoria
+	virtual (los hilos del núcleo y los demonios no tienen) y el núcleo
+	de Linux debe saber como se relaciona la memoria virtual con la
+	memoria física del sistema.
+
+	\item [Contexto Específico del Procesador]  Un proceso se puede ver
+	como la suma total del estado actual del sistema.  Cuando un proceso
+	se ejecuta, está utilizando los registros, las pilas, etc, del
+	procesador.  Todo esto es el contexto del procesador, y cuando se
+	suspende un proceso, todo ese contenido específico de la CPU se
+	tiene que salvar en la estructura \ds{task\_struct} del proceso. 
+	Cuando el planificador reinicia un proceso, su contexto
+	se pasa a la CPU para seguir ejecutándose.
+
+\end{description}
+
+\section{Identificadores}
+\index{Identificadores}
+\index{Identificadores de derechos}
+Linux, como todo Unix\tm\, usa identificadores de usuario y grupo para
+comprobar los derechos de acceso a ficheros e imágenes en el sistema.  Todos
+los ficheros en un sistema Linux tienen pertenencia y permisos.  Los
+permisos describen qué tipo de acceso tienen los usuarios del sistema a ese
+fichero o ese directorio.  Los permisos básicos son {\em lectura}, {\em escritura} y {\em ejecución}, y
+se asignan a tres clases de usuarios: el propietario del fichero, un grupo
+de usuarios y todos los usuarios del sistema.  Cada clase de usuarios puede
+tener diferentes permisos, por ejemplo un fichero puede tener permisos que
+permiten a su propietario leerlo y escribirlo, permiten al grupo del fichero
+leerlo solamente, y todos los otros usuarios del sistema no tienen ningún
+acceso en absoluto.
+
+\ReviewNotes{Expand and give the bit assignments (777).}
+
+Los grupos son la manera de Linux de asignar privilegios a ficheros y
+directorios para un grupo de usuarios en vez de a un solo usuario o a todos
+los los usuarios del sistema.  Se puede, por ejemplo, crear un grupo para
+todos los participantes en un proyecto de software y configurar los ficheros
+con el código fuente para que solo el grupo de programadores pueda leerlos y
+escribirlos.
+Un proceso puede pertenecer a varios grupos (el valor por defecto es un
+máximo de 32) y estos se mantienen en el vector de
+\dsni{grupos}\index{vector de grupos} en la estructura \ds{task\_struct} de
+cada proceso.  Si un fichero tiene derechos de acceso para uno de los grupos
+a los que pertenece un proceso, entonces ese proceso tiene los derechos de
+acceso a ese fichero.
+
+Hay cuatro pares de procesos y identificadores de grupo almacenados en la
+estructura \ds{task\_struct} de un proceso:
+
+\begin{description}
+	\item [uid, gid] Los identificadores de usuario (uid) y grupo (gid)
+		del usuario que el proceso usa para ejecutarse,
+
+	\item [uid y gid efectivos] Algunos programas cambian el uid y el
+		gid del proceso en ejecución a sus propios uid y gid (que
+		son atributos en el nodo-i del VFS que describe la imagen
+		ejecutable).  Estos programas se conocen como programas {\em
+		setuid} y son útiles porque es una manera de restringir el
+		acceso a algunos servicios, en particular aquellos que se
+		ejecutan por otro usuario, por ejemplo un demonio de red. 
+		Los uid y gid efectivos son los del programa setuid, y los
+		uid y gid no cambian.  El núcleo comprueba los uid y gid
+		efectivos cuando comprueba los derechos de acceso.
+
+	\item [uid y gid del sistema de ficheros]  Normalmente son los
+		mismos que los uid y gid efectivos y se usan para comprobar
+		los derechos de acceso al sistema de ficheros.  Hacen falta
+		para los sistemas de ficheros montados por NFS (Network File
+		System, o Sistema de Ficheros en Red), porque el servidor de
+		NFS en modo usuario necesita acceder a los ficheros como si
+		fuera un proceso particular.  En este caso, solo el los uid
+		y gid del sistema de ficheros se cambian (no los uid y gid
+		efectivos).  Esto evita una situación en la que un usuario
+		malicioso podría enviar una señal para terminar el servidor
+		de NFS.  Las señales de terminación se entregan a los
+		procesos con unos uid y gid efectivos particulares.
+
+	\item [uid y gid salvados] Estos son parte del estándar POSIX y los
+		usan los programas que cambian los uid y gid vía llamadas de
+		sistema.  Se usan para salvar los uid y gid reales durante
+		el periodo de tiempo que los uid y gid originales se han
+		cambiado.
+\end{description}
+
+\section{Planificación}
+\index{Planificación}
+Todos los procesos se ejecutan parcialmente en modo usuario y parcialmente
+en modo sistema.  La manera como el hardware soporta estos modos varía, pero
+en general hay un mecanismo seguro para pasar de modo usuario a modo sistema
+y de vuelta.  El modo usuario tiene muchos menos privilegios que el modo
+sistema.  Cada vez que un proceso hace una llamada de sistema, cambia de
+modo usuario a modo sistema y sigue ejecutándose.  Llegado este punto, el
+núcleo se está ejecutando por el proceso.  En Linux, un proceso no puede
+imponer su derecho sobre otro proceso que se esté ejecutando para ejecutarse
+él mismo.  Cada proceso decide dejar la CPU que está usando cuando tiene que
+esperar un suceso en el sistema.  Por ejemplo, un proceso puede estar
+esperando a leer un carácter de un fichero.  Esta espera sucede dentro de la
+llamada de sistema, en modo sistema; el proceso utiliza una función de una
+biblioteca para abrir y leer el fichero y la función, a su vez, hace una
+llamada de sistema para leer bytes del fichero abierto.  En este caso el
+proceso en espera será suspendido y se elegirá a otro proceso para
+ejecutarse.
+
+Los procesos siempre están haciendo llamadas de sistema y por esto necesitan
+esperar a menudo.  Aún así, si un proceso se ejecuta hasta que tenga que
+esperar, puede ser que llegue a usar una cantidad de tiempo de CPU
+desproporcionada y por esta razón Linux usa planificación con derecho
+preferente.  Usando esta técnica, se permite a cada proceso ejecutarse
+durante poco tiempo, 200 ms, y cuando ese tiempo ha pasado, otro proceso se
+selecciona para ejecutarse y el proceso original tiene que esperar un tiempo
+antes de ejecutarse otra vez.  Esa pequeña cantidad de tiempo se conoce como
+una {\em porción de tiempo} . \index{porción de tiempo}
+
+El {\em planificador}\index{planificador} tiene que elegir el proceso que
+más merece ejecutarse entre todos los procesos que se pueden ejecutar en el
+sistema.
+\SeeCode{schedule()}{kernel/\-sched.c}
+Un proceso ejecutable es aquel que esta esperando solamente a una CPU para
+ejecutarse.  Linux usa un algoritmo para planificar las prioridades
+razonablemente simple para elegir un proceso entre los procesos que hay en
+el sistema.
+Cuando ha elegido un nuevo proceso para ejecutar, el planificador salva el
+estado del proceso en curso, los registros específicos del procesador y
+otros contextos en la estructura de datos \ds{task\_struct}.  Luego restaura
+el estado del nuevo proceso (que también es específico a un procesador) para
+ejecutarlo y da control del sistema a ese proceso.  
+Para que el planificador asigne el tiempo de la CPU justamente entre los
+procesos ejecutables en el sistema, el planificador mantiene cierta información
+en la estructura \ds{task\_struct} de cada proceso:
+
+\begin{description}	
+	\item [policy] (política) Esta es la política de planificación que se
+		aplicará a este proceso.  Hay dos tipos de procesos en
+		Linux, normales y de tiempo real.  Los procesos de tiempo
+		real tienen una prioridad más alta que todos los otros.  Si
+		hay un proceso de tiempo real listo para ejecutarse, siempre
+		se ejecutara primero.  Los procesos de tiempo real pueden
+		tener dos tipos de \ds{políticas}: {\em round robin} (en
+		círculo) y {\em first in first out} (el primero en llegar es
+		el primero en salir).  En la planificación {\em round
+		robin}, cada proceso de tiempo real ejecutable se ejecuta
+		por turnos, y en la planificación {\em first in, first out}
+		cada proceso ejecutable se ejecuta en el orden que están en
+		la cola de ejecución y el orden no se cambia nunca.
+
+	\item [priority] (prioridad) Esta es la prioridad que el planificador dará a
+		este proceso.  También es la cantidad de tiempo (en
+		\dsni{jiffies}\index{jiffies}) que se permitirá ejecutar a
+		este proceso una vez que sea su turno de ejecución.  Se
+		puede cambiar la prioridad de un proceso mediante una
+		llamada de sistema y la orden \eg{renice}.
+
+	\item [rt\_priority] (prioridad de tiempo real)  Linux soporta
+		procesos de tiempo real y estos tienen una prioridad más
+		alta que todos los otros procesos en el sistema que no son
+		de tiempo real.  Este campo permite al planificador darle a
+		cada proceso de tiempo real una prioridad relativa.  La
+		prioridad del proceso de tiempo real se puede alterar
+		mediante llamadas de sistema.
+
+	\item [counter] (contador) Esta es la cantidad de tiempo (en
+		\dsni{jiffies}\index{jiffies}) que este se permite ejecutar
+		a este proceso.  Se iguala a \ds{priority} cuando el proceso
+		se ejecuta y se decrementa a cada paso de reloj.
+\end{description}
+
+El planificador se ejecuta desde distintos puntos dentro del núcleo.  Se
+ejecuta después de poner el proceso en curso en una cola de espera y también
+se puede ejecutar al finalizar una llamada de sistema, exactamente antes de
+que un proceso vuelva al modo usuario después de estar en modo sistema. 
+También puede que el planificador se ejecute porque el temporizador del sistema
+haya puesto el contador \dsni{counter} del proceso en curso a cero.
+Cada vez que el planificador se ejecuta, hace lo siguiente:
+
+\SeeCode{schedule()}{kernel/\-sched.c}
+
+\begin{description}
+	\item [trabajo del núcleo] El planificador ejecuta la parte baja
+		de los manejadores y procesos que el planificador pone en la
+		cola.  Estos hilos del núcleo se describen en el
+		capítulo~\ref{kernel-chapter}.
+
+	\item [Proceso en curso] El proceso en curso tiene que ser procesado
+		antes de seleccionar a otro proceso para ejecutarlo.
+
+		Si la política de planificación del proceso en curso es {\em
+		round robin} entonces el proceso se pone al final de la cola
+		de ejecución.
+
+		Si la tarea es \texttt{INTERRUMPIBLE} y ha recibido una
+		señal desde la última vez que se puso en la cola, entonces
+		su estado pasa a ser \texttt{RUNNING} (ejecutándose).
+
+		Si el proceso en curso a consumido su tiempo, si estado pasa
+		a ser \texttt{RUNNING} (ejecutándose).
+
+		Si el proceso en curso está \texttt{RUNNING} (ejecutándose),
+		permanecerá en ese estado.
+
+		Los procesos que no estén ni \texttt{RUNNING} (ejecutándose)
+		ni sean \texttt{INTERRUMPIBLE}s se quitan de la cola de
+		ejecución.  Esto significa que no se les considerará para
+		ejecución cuando el planificador busca un proceso para
+		ejecutar.
+
+	\item [Selección de un proceso]  El planificador mira los procesos
+		en la cola de ejecución para buscar el que más se merezca
+		ejecutarse.  Si hay algún proceso de tiempo real (aquellos
+		que tienen una política de planificación de tiempo real)
+		entonces estos recibirán un mayor peso que los procesos
+		ordinarios.  El peso de un proceso normal es su contador
+		\dsni{counter} pero para un proceso de tiempo real es su
+		contador \dsni{counter} más 1000.  Esto quiere decir que si
+		hay algún proceso de tiempo real que se pueda ejecutar en el
+		sistema, estos se ejecutarán antes que cualquier proceso
+		normal.  El proceso en curso, que ha consumido parte de su
+		porción de tiempo (se ha decrementado su contador
+		\dsni{counter}) está en desventaja si hay otros procesos con
+		la misma prioridad en el sistema; esto es lo que se desea. 
+		Si varios procesos tienen la misma prioridad, se elige el
+		más cercano al principio de la cola.  El proceso en curso se
+		pone al final de la cola de ejecución.  En un sistema
+		equilibrado con muchos procesos que tienen las mismas
+		prioridades, todos se ejecutarán por turnos.  Esto es lo que
+		conoce como planificación {\em Round Robin} (en círculo). 
+		Sin embargo, como los procesos normalmente tiene que esperar
+		a obtener algún recurso, el orden de ejecución tiende a
+		verse alterado.
+
+	\item [Cambiar procesos]  Si el proceso más merecedor de ejecutarse
+		no es el proceso en curso, entonces hay que suspenderlo y
+		poner el nuevo proceso a ejecutarse.  Cuando un proceso se
+		está ejecutando está usando los registros y la memoria
+		física de la CPU y del sistema.  Cada vez que el proceso
+		llama a una rutina le pasa sus argumentos en registros y
+		puede poner valores salvados en la pila, tales como la
+		dirección a la que regresar en la rutina que hizo la
+		llamada.  Así, cuando el planificador se ejecuta, se ejecuta
+		en el contexto del proceso en curso.  Estará en un modo
+		privilegiado (modo núcleo) pero aún así el proceso que se
+		ejecuta es el proceso en curso.  Cuando este proceso tiene
+		que suspenderse, el estado de la máquina, incluyendo el
+		contador de programa (program counter, PC) y todos los
+		registros del procesador se salvan en la estructura
+		\ds{task\_struct}.  A continuación se carga en el procesador
+		el estado del nuevo proceso.  Esta operación es dependiente
+		del sistema; diferentes CPUs llevan esta operación a cabo de
+		maneras distintas, pero normalmente el hardware ayuda de
+		alguna manera.
+
+		El cambio del contexto de los procesos se lleva a cabo al
+		finalizar el planificador.  Por lo tanto, el contexto
+		guardado para el proceso anterior es una imagen instantánea
+		del contexto del hardware del sistema tal y como lo veía ese
+		proceso al final del planificador.  Igualmente, cuando se
+		carga el contexto del nuevo proceso, también será una imagen
+		instantánea de cómo estaban las cosas cuando terminó el
+		planificador, incluyendo el contador de programa (program
+		counter, PC) de este proceso y los contenidos de los
+		registros.
+
+		Si el proceso anterior o el nuevo proceso en curso hacen uso
+		de la memoria virtual, entonces habrá que actualizar las
+		entradas en la tabla de páginas del sistema.  Una vez más,
+		esta operación es específica de cada arquitectura. 
+		Procesadores como el \axp, que usa tablas de traducción
+		Look-aside o entradas en caché de una tabla de páginas,
+		tiene que desechar el caché que pertenecía al proceso
+		anterior.
+\end{description}
+
+
+\subsection{Planificación en Sistemas Multiprocesador}
+
+\index{Planificación SMP}
+\index{Planificación en Sistemas Multiprocesador}
+
+Los sistemas con múltiples CPUs son más o menos poco comunes en el mundo de
+Linux, pero ya se ha hecho mucho trabajo para hacer de Linux un sistema
+operativo SMP (Symmetric Multi-Processing, Multi-Procesamiento Simétrico). 
+Es decir, un sistema capaz de distribuir el trabajo equilibradamente entre
+las CPUs del sistema.  El equilibrio se ve en el planificador más que en
+cualquier otro sitio.
+
+En un sistema multiprocesador se espera que todos los procesadores estén
+ocupados ejecutando procesos.  Cada uno ejecutará el planificador
+separadamente cuando el proceso en curso agota su porción de tiempo o tiene
+que esperar a algún recurso del sistema.
+Lo primero que hay que destacar en un sistema SMP es que no un solo 
+proceso ocioso en el sistema.  En un sistema monoprocesador el proceso ocioso
+es la primera tarea en el vector \ds{task}; en un sistema SMP hay un proceso
+ocioso por CPU, y puede que haya más de una CPU quieta.  Además hay un
+proceso en curso por CPU, de manera que un sistema SMP tiene que llevar
+cuenta de los procesos en curso y procesos ociosos por cada procesador.
+
+En un sistema SMP la estructura \ds{task\_struct} de cada proceso contiene
+el número del procesador en el que se está ejecutando (\ds{processor}) y el
+número del procesador del último procesador donde se ejecutó
+(\ds{last\_processor}).
+No hay ninguna razón que impida a un proceso ejecutarse en una CPU diferente
+cada vez que tiene que ejecutarse, pero Linux puede restringir un proceso a
+uno o más procesadores en el sistema utilizando una máscara
+(\ds{processor\_mask}).
+Si el bit N está encendido, entonces este proceso puede ejecutarse en el
+procesador N.  Cuando el planificador está eligiendo un nuevo proceso para
+ejecutar, no considerará aquellos procesos que no tengan el bit
+correspondiente al número de procesador encendido en su máscara
+\ds{processor\_mask}.  El planificador también da una ligera ventaja a un
+proceso que se haya ejecutado anteriormente en el mismo procesador porque
+normalmente supone mucho trabajo adicional el trasladar un proceso a otro
+procesador.
+
+
+\section{Ficheros}
+\index{Ficheros}
+\begin{figure}
+\begin{center}
+{\centering \includegraphics{kernel/files.eps} \par}
+\end{center}
+\caption{Los Ficheros de un Proceso}
+\label{files-figure}
+\end{figure}
+
+La figura~\ref{files-figure} muestra que hay dos estructuras de datos que
+describen información específica del sistema de ficheros para cada proceso
+del sistema.  La primera,  \ds{fs\_struct},
+\SeeModule{include/\-linux/\-sched.h}
+contiene punteros a los nodos-i del VFS de este proceso y su \ds{umask}.  La
+máscara \ds{umask} es el modo por defecto que se usará para crear nuevos
+ficheros, y se puede cambiar a través de llamadas de sistema.
+
+La segunda estructura, \ds{files\_struct}, contiene información sobre todos
+los ficheros que el proceso está usando actualmente.  Los programas leen de
+la {\em entrada estándar} y escriben a la {\em salida estándar}.  Cualquier
+mensaje de error debería dirigirse a {\em error estándar}.  Estas pueden ser
+ficheros, entrada/salida de terminal, o un dispositivo, pero en lo que al
+programa concierne, todos se tratan como si de ficheros se tratase.  Cada
+fichero tiene su propio descriptor y la estructura \ds{files\_struct}
+contiene punteros a estructuras de datos \ds{file}, hasta un máximo de 256,
+cada una de las cuales describe un fichero que este proceso está usando.
+El campo \dsni{f\_mode} describe el modo en que se creó el fichero; solo
+lectura, lectura y escritura, o solo escritura.  \dsni{f\_pos} indica la
+posición dentro del fichero donde se hará la próxima operación de lectura o
+escritura.  \dsni{f\_inode} apunta al nodo-i del VFS que describe el fichero
+y \dsni{f\_ops} es un puntero a un vector de direcciones de rutinas; una
+para cada función que se pueda realizar sobre un fichero.
+Por ejemplo, hay una función de escritura de datos.  Esta abstracción de la
+interfaz es muy potente y permite a Linux soportar una amplia variedad de
+tipos de ficheros.
+En Linux, las tuberías están implementadas usando este mecanismo como se
+verá más tarde.
+
+Cada vez que se abre un fichero, se usa un puntero \ds{file} libre en
+\ds{files\_struct} para apuntar a la nueva estructura \ds{file}.  Los
+procesos de Linux esperan que se abran tres descriptores de ficheros al
+comienzo.  Estos se conocen como {\em entrada estándar}, {\em salida
+estándar}, y {\em error estándar} y normalmente se heredan del proceso padre
+que creó este proceso.  Todo acceso a los ficheros se hace a través de
+llamadas de sistema estándar que pasan o devuelven descriptores de ficheros. 
+Estos descriptores son índices del vector \ds{fd} del proceso, de manera que
+{\em entrada estándar}, {\em salida estándar}, y {\em error estándar} tienen
+los descriptores de fichero 0, 1 y 2 respectivamente.  Cada vez que se
+accede al fichero, se usa las rutinas de operación sobre ficheros de la
+estructura \ds{file} junto con el nodo-i del VFS.
+
+
+\section{Memoria Virtual}
+\index{Proceso, Memoria Virtual del}
+\index{Memoria Virtual, Procesos}
+
+La memoria virtual de un proceso contiene el código ejecutable y datos de
+fuentes diversas.  Primero se carga la imagen del programa; por ejemplo, una
+orden como \eg{ls}.  Este comando, como toda imagen ejecutable, se compone
+de código ejecutable y de datos.  El fichero de imagen contiene toda la
+información necesaria para cargar el código ejecutable y datos asociados con
+el programa en la memoria virtual del proceso.  Segundo, los procesos pueden
+reservar memoria (virtual) para usarla durante su procesamiento, por ejemplo
+para guardar los contenidos de los ficheros que esté leyendo. La nueva
+memoria virtual reservada tiene que asociarse con la memoria virtual que el
+proceso ya posee para poder usarla.  En tercer lugar, los procesos de Linux
+usan bibliotecas de código común, como por ejemplo rutinas de manejo de
+ficheros.  No tendría sentido que cada proceso tenga su propia copia de la
+biblioteca, así pues Linux usa bibliotecas compartidas que varios procesos
+pueden usar al mismo tiempo.  El código y los datas de estas bibliotecas
+compartidas tienen que estar unidos al espacio virtual de direccionamiento
+de un proceso y también al espacio virtual de direccionamiento de los otros
+procesos que comparten la biblioteca.
+
+Un proceso no utiliza todo el código y datos contenidos en su memoria
+virtual dentro de un período de tiempo determinado.  La memoria virtual del
+proceso puede que tenga código que solo se usa en ciertas ocasiones, como la
+inicialización o para procesar un evento particular.  Puede que solo haya
+usado unas pocas rutinas de sus bibliotecas compartidas.  Sería superfluo
+cargar todo su código y datos en la memoria física donde podría terminar sin
+usarse.  El sistema no funcionaría eficientemente si multiplicamos ese gasto
+de memoria por el número de procesos en el sistema.   Para solventar el
+problema, Linux usa una técnica llamada {\em páginas en demanda} ({\em
+demand paging}) que sólo copia la memoria virtual de un proceso en la
+memoria física del sistema cuando el proceso trata de usarla.  De esta
+manera, en vez de cargar el código y los datos en la memoria física de
+inmediato, el núcleo de Linux altera la tabla de páginas del proceso,
+designando las áreas virtuales como existentes, pero no en memoria.  Cuando
+el proceso trata de acceder el código o los datos, el hardware del sistema
+generará una falta de página (page fault) y le pasará el control al núcleo
+para que arregle las cosas.  Por lo tanto, por cada área de memoria virtual
+en el espacio de direccionamiento de un proceso, Linux necesita saber de
+dónde viene esa memoria virtual y cómo ponerla en memoria para arreglar las
+faltas de página.
+
+
+\begin{figure}
+\begin{center}
+{\centering \includegraphics{kernel/process-vm.eps} \par}
+\end{center}
+\caption{La Memoria Virtual de un Proceso}
+\label{process-vm-figure}
+\end{figure}
+El núcleo de Linux necesita gestionar todas estas áreas de memoria virtual, y
+el contenido de la memoria virtual de cada proceso se describe mediante una
+estructura  \ds{mm\_struct} a la cual se apunta desde la estructura
+\ds{task\_struct} del proceso.
+La estructura \ds{mm\_struct} del proceso
+\index{estructura de datos mm\_struct}
+también contiene información sobre la imagen ejecutable cargada y un puntero
+a las tablas de páginas del proceso.  Contiene punteros a una lista de
+estructuras \ds{vm\_area\_struct}, cada una de las cuales representa un área
+de memoria virtual dentro del proceso.
+
+Esta lista enlazada está organizada en orden ascendiente, la
+figura~\ref{process-vm-figure} muestra la disposición en memoria virtual de
+un simple proceso junto con la estructura de datos del núcleo que lo
+gestiona.  Como estas áreas de memoria virtual vienen de varias fuentes,
+Linux introduce un nivel de abstracción en la interfaz haciendo que la
+estructura \ds{vm\_area\_struct} apunte a un grupo de rutinas de manejo de
+memoria virtual (via \ds{vm\_ops}).
+
+De esta manera, toda la memoria virtual de un proceso se puede gestionar de
+una manera consistente sin que importe las diferentes maneras de gestionar
+esa memoria por parte de distintos servicios de gestión.
+Por ejemplo, hay una rutina que se utiliza cuando el proceso trata de
+acceder la memoria y esta no existe, así es como se resuelven las faltas de
+página.
+
+El núcleo de Linux accede repetidamente al grupo de estructuras
+\ds{vm\_area\_struct} del proceso según crea nuevas áreas de memoria virtual
+para el proceso y según corrige las referencias a la memoria virtual que no
+está en la memoria física del sistema.  Por esta razón, el tiempo que se
+tarda en encontrar la estructura  \ds{vm\_area\_struct} correcta es un punto
+crítico para el rendimiento del sistema.  Para acelerar este acceso, Linux
+también organiza las estructuras \ds{vm\_area\_struct} en un árbol AVL
+(Adelson-Velskii and Landis).  El árbol está organizado de manera que cada
+estructura \ds{vm\_area\_struct} (o nodo) tenga sendos punteros a las
+estructuras \ds{vm\_area\_struct} vecinas de la izquierda y la derecha.  El
+puntero izquierdo apunta al nodo con una dirección inicial de memoria virtual menor
+y el puntero derecho apunta a un nodo con una dirección inicial mayor.
+Para encontrar el nodo correcto, Linux va a la raíz del árbol y sigue los
+punteros izquierdo y derecho de cada nodo hasta que encuentra la estructura
+\ds{vm\_area\_struct} correcta.  Por supuesto, nada es gratis y el insertar
+una nueva estructura \ds{vm\_area\_struct}  en el árbol supone un gasto
+adicional de tiempo.
+
+Cuando un proceso reserva memoria virtual, en realidad Linux no reserva
+memoria física para el proceso.  Lo que hace es describir la memoria virtual
+creando una nueva estructura \ds{vm\_area\_struct}.  Esta se une a la lista
+de memoria virtual del proceso.  Cuando el proceso intenta escribir a una
+dirección virtual dentro de la nueva región de memoria virtual, el sistema
+creará una falta de página.
+El procesador tratará de decodificar la dirección virtual, pero dado que no
+existe ninguna entrada de tabla de páginas para esta memoria, no lo
+intentará más, y creará una excepción de falta de página, dejando al núcleo
+de Linux la tarea de reparar la falta.  Linux mira a ver si la dirección
+virtual que se trató de usar está en el espacio de direccionamiento virtual
+del proceso en curso.  Si así es, Linux crea los PTEs apropiados y reserva
+una página de memoria física para este proceso.  Puede que sea necesario
+cargar el código o los datos del sistema de ficheros o del disco de
+intercambio dentro de ese intervalo de memoria física.  El proceso se puede
+reiniciar entonces a partir de la instrucción que causó la falta de página y
+esta vez puede continuar dado que memoria física existe en esta ocasión.
+
+
+\section{Creación de un Proceso}
+\index{Creación de Procesos}
+
+Cuando el sistema se inicia está ejecutándose en modo núcleo y en cierto
+sentido solo hay un proceso, el proceso inicial.
+Como todo proceso, el proceso inicial tiene el estado de la máquina
+representado por pilas, registros, etc.  Estos se salvan en la estructura de
+datos \ds{task\_struct} del proceso inicial cuando otros procesos del
+sistema se crean y ejecutan.
+Al final de la inicialización del sistema, el proceso inicial empieza un
+hilo del núcleo (llamado \texttt{init}) y a continuación se sienta en un
+bucle ocioso sin hacer nada.  Cuando no hay nada más que hacer, el
+planificador ejecuta este proceso ocioso.  La estructura \ds{task\_struct}
+del proceso ocioso es la única que se reserva dinámicamente, está definida
+estáticamente cuando se construye el núcleo y tiene el nombre, más bien
+confuso, de \ds{init\_task}.  
+
+El hilo del núcleo o proceso \texttt{init} tiene un identificador de proceso
+de 1, ya que es realmente el primer proceso del sistema.  Este proceso
+realiza algunas tareas iniciales del sistema (como abrir la consola del
+sistema y montar el sistema de ficheros raíz, y luego ejecuta el programa de
+inicialización del sistema.  Este puede ser uno de entre \fn{/etc/init},
+\fn{/bin/init} o \fn{/sbin/init}, dependiendo de su sistema. El programa
+\texttt{init} utiliza \fn{/etc/inittab} como un guión para crear nuevos
+procesos dentro del sistema.  Estos nuevos procesos pueden a su vez crear
+otros procesos nuevos.  Por ejemplo, el proceso \texttt{getty} puede crear
+un proceso \texttt{login} cuando un usuario intenta ingresar en el sistema. 
+Todos los procesos del sistema descienden del hilo del núcleo \texttt{init}.
+
+Los procesos nuevos se crean clonando procesos viejos, o más bien, clonando
+el proceso en curso.  Una nueva tarea se crea con una llamada de sistema
+({\em fork} o {\em clone})
+\SeeCode{do\_fork()}{kernel/\-fork.c}
+y la clonación ocurre dentro del núcleo en modo núcleo.  Al finalizar la
+llamada de sistema hay un nuevo proceso esperando a ejecutarse cuando el
+planificador lo seleccione.  Se reserva una estructura de datos
+\ds{task\_struct} nueva a partir de la memoria física del sistema con una o
+más páginas de memoria física para las pilas (de usuario y de núcleo) del
+proceso.  Se puede crear un nuevo identificador de proceso, uno que sea
+único dentro del grupo de identificadores de procesos del sistema.  Sin
+embargo, también es posible que el proceso clonado mantenga el identificador
+de proceso de su padre.  La nueva estructura \ds{task\_struct} se introduce
+en el vector \ds{task} y los contenidos de la estructura \ds{task\_struct}
+del proceso en curso se copian en la estructura \ds{task\_struct} clonada.
+
+En la clonación de procesos, Linux permite que los dos procesos compartan
+recursos en vez de tener dos copias separadas.  Esto se aplica a los
+ficheros, gestor de señales y memoria virtual  del proceso.  Cuando hay que
+compartir los recursos, sus campos \dsni{count} (cuenta) respectivos se
+incrementan de manera que Linux no los libere hasta que ambos procesos hayan
+terminado de usarlos.  De manera que, por ejemplo, si el proceso clonado ha
+de compartir su memoria virtual, su estructura \ds{task\_struct} contendrá
+un puntero a la estructura \ds{mm\_struct} del proceso original y  esa
+estructura \ds{mm\_struct} verá su campo \dsni{count} incrementado para
+mostrar el número de procesos que la están compartiendo en ese momento.
+
+La clonación de la memoria virtual de un proceso es bastante complicada. 
+Hay que generar un nuevo grupo de estructuras  \ds{vm\_area\_struct}, junto
+con sus estructuras  \ds{mm\_struct} correspondientes y las tablas de
+páginas del proceso clonado.  En este momento no se copia ninguna parte de
+la memoria virtual del proceso.   Hacer eso sería una tarea difícil y larga
+dado que parte de esa memoria virtual estaría en memoria física, parte en la
+imagen ejecutable que el proceso está usando, y posiblemente parte estaría
+en el fichero de intercambio.  En cambio, lo que hace Linux es usar una
+técnica llamada ``copiar al escribir'' que significa que la memoria virtual
+solo se copia cuando uno de los dos procesos trata de escribir a ella. 
+Cualquier parte de la memoria virtual que no se escribe, aunque se pueda, se
+compartirá entre los dos procesos sin que ocurra ningún daño.  La memoria de
+sólo lectura, por ejemplo el código ejecutable, siempre se comparte.  Para
+que ``copiar al escribir'' funcione, las áreas donde se puede escribir
+tienen sus entradas en la tabla de páginas marcadas como sólo lectura, y las
+estructuras \ds{vm\_area\_struct} que las describen se marcan como ``copiar
+al escribir''.  Cuando uno de los procesos trata de escribir a esta memoria
+virtual, una falta de página ocurrirá.  En este momento es cuando Linux hace
+una copia de la memoria y arregla las tablas de páginas y las estructuras de
+datos de la memoria virtual de los dos procesos.
+
+
+\section{Tiempos y Temporizadores}
+El núcleo tiene conocimiento de la hora de creación de un proceso así como
+del tiempo de CPU que consume durante su vida.  En cada paso del reloj el
+núcleo actualiza la cantidad de tiempo en \dsni{jiffies}\index{jiffies} que
+el proceso en curso ha consumido en modos sistema y usuario.
+
+Además de estos cronómetros de cuentas, Linux soporta temporizadores de
+{\em intervalo} específicos a cada proceso.
+\SeeModule{kernel/\-itimer.c}
+Un proceso puede usar estos temporizadores para enviarse a sí mismo varias
+señales cada vez que se terminen.
+Hay tres tipos de temporizadores de intervalo soportados:
+\begin{description}
+	\item [Reales] el temporizador señala el tiempo en tiempo real, y
+		cuando el temporizador a terminado, se envía una señal
+		\texttt{SIGALRM} al proceso.
+	\item [Virtuales] El temporizador solo señala el tiempo cuando el
+		proceso se está ejecutando y al terminar, envía una señal
+		\texttt{SIGVTALRM}.
+	\item [Perfil] Este temporizador señala el tiempo cuando el proceso
+		se ejecuta y cuando el sistema se está ejecutando por el
+		proceso.  Al terminar se envía la señal \texttt{SIGPROF}
+\end{description}
+
+Uno o todos los temporizadores de intervalo pueden estar ejecutándose y
+Linux mantiene toda la información necesaria en la estructura
+\ds{task\_struct} del proceso.  Se puede usar llamadas de sistema para
+configurar los temporizadores y para empezarlos, pararlos y leer sus valores
+en curso.
+Los temporizadores virtuales y de perfil se gestionan de la misma manera.
+\SeeCode{do\_it\_virtual()}{kernel/\-sched.c}
+\SeeCode{do\_it\_prof()}{kernel/\-sched.c}
+A cada paso del reloj, los temporizadores de intervalo del proceso en curso
+se decrementan y, si han terminado, se envía la señal apropiada.
+
+Los temporizadores de intervalo de tiempo real son algo diferentes.  Linux
+utiliza para estos el mecanismo de temporizador que se describe en el
+Capítulo~\ref{kernel-chapter}.    Cada proceso tiene su propia estructura
+\ds{timer\_list} y, cuando el temporizador de tiempo real está corriendo,
+esta se pone en la cola de la lista de temporizadores del sistema.  Cuando
+el temporizador termina, el gestor de la parte baja del temporizador lo
+quita de la cola y llama al gestor de los temporizadores de intervalo.
+\SeeCode{it\_real\_fn()}{kernel/\-itimer.c}
+Esto genera la señal \texttt{SIGALRM} y reinicia el temporizador de
+intervalo, añadiéndolo de nuevo a la cola de temporizadores del sistema.
+
+
+\section{Ejecución de Programas}
+\index{Ejecución de Programas}
+En Linux, como en Unix\tm, los programas y las órdenes se ejecutan
+normalmente por un intérprete de órdenes.  Un intérprete de órdenes es un
+proceso de usuario como cualquier otro proceso y se llama \texttt{shell}
+(concha, cáscara).
+\footnote{Imagínese una nuez: el núcleo es la parte comestible en el centro y
+la cáscara está alrededor, presentando una interfaz.}
+
+\index{Shells}
+\index{shells de órdenes}
+Hay muchos shells en Linux, algunos de los más populares son \texttt{sh},
+\texttt{bash} y \texttt{tcsh}.  Con la excepción de unas pocas órdenes
+empotradas, como \eg{cd} y \eg{pwd}, una orden es un fichero binario
+ejecutable.  Por cada orden introducida, el shell busca una imagen
+ejecutable con ese nombre en los directorios que hay en el {\em camino de
+búsqueda}, que están en la variable de entorno \texttt{PATH}
+Si se encuentra el fichero, se carga y se ejecuta.  El shell se clona a sí
+mismo usando el mecanismo {\em fork} descrito arriba y entonces el nuevo
+proceso hijo cambia la imagen binaria que estaba ejecutando, el shell, por
+los contenidos de la imagen ejecutable que acaba de encontrar.  Normalmente
+el shell espera a que la orden termine, o más bien a que termine el proceso
+hijo.  Se puede hacer que el shell se ejecute de nuevo poniendo el proceso
+hijo en el fondo tecleando \texttt{control-Z}, que causa que se envíe una
+señal \texttt{SIGSTOP} al proceso hijo, parándolo.  Entonces se puede usar
+la orden del shell \eg{bg} para ponerlo en el fondo, y el shell le envía una
+señal \texttt{SIGCONT} para que continúe, hasta que termine, o hasta que
+necesite entrada o salida del terminal.
+
+Un fichero ejecutable puede tener muchos formatos, o incluso ser un fichero
+de órdenes (script).  Los ficheros de órdenes se tienen que reconocer y hay
+que ejecutar el intérprete apropiado para ejecutarlos; por ejemplo
+\fn{/bin/sh} interpreta ficheros de órdenes.  Los ficheros de objeto
+ejecutables contienen código ejecutable y datos además de suficiente
+información para que el sistema operativo los cargue en memoria y los
+ejecute.  El formato de fichero objeto más usado en Linux es ELF pero, en
+teoría, Linux es lo suficientemente flexible para manejar casi cualquier
+formato de ficheros de objeto.
+
+\begin{figure}
+\begin{center}
+{\centering \includegraphics{kernel/binfmt.eps} \par}
+\end{center}
+\caption{Formatos Binarios Registrados}
+\label{binfmt-figure}
+\end{figure}
+Al igual que con los sistemas de ficheros, los formatos binarios soportados
+por Linux pueden estar incluidos en el núcleo en el momento de construir el
+núcleo o pueden estar disponibles como módulos.  El núcleo mantiene una
+lista de formatos binarios soportados (ver figura~\ref{binfmt-figure}) y
+cuando se intenta ejecutar un fichero, se prueba cada formato binario por
+turnos hasta que uno funcione.
+\SeeCode{do\_execve()}{fs/\-exec.c}
+Unos formatos muy comunes en Linux son \texttt{a.out} y \texttt{ELF}.  No es
+necesario cargar los ficheros ejecutables completamente en memoria; se usa
+una técnica conocida como carga en demanda\index{Carga en demanda}.  Cada
+parte de una imagen ejecutable se pone en memoria según se necesita.  Las
+partes en desuso pueden ser desechadas de la memoria.
+
+
+\subsection{ELF}
+\index{ELF}
+El formato de fichero objeto \texttt{ELF} (Executable and Linkable Format,
+Formato Ejecutable y ``Enlazable''), diseñado por Unix System Laboratories,
+se ha establecido firmemente como el formato más usado en Linux.  Aunque
+el rendimiento puede ser ligeramente inferior si se compara con otros
+formatos como \texttt{ECOFF} y \texttt{a.out}, se entiende que ELF es más
+flexible.  Los ficheros ejecutables ELF contienen código ejecutable, que a
+veces se conoce como {\em texto} y {\em datos}.
+En la imagen ejecutable hay unas tablas que describen cómo se debe colocar
+el programa en la memoria virtual del proceso.  Las imágenes linkadas
+estáticamente se construyen con el linker (\eg{ld}), o editor de enlaces,
+para crear una sola imagen que contiene todo el código y los datos
+necesarios para ejecutar esta imagen.  La imagen también especifica la
+disposición en memoria de esta imagen, y la dirección del primer código a
+ejecutar dentro de la imagen.
+
+\begin{figure}
+\begin{center}
+{\centering \includegraphics{kernel/elf.eps} \par}
+\end{center}
+\caption{El Formato de Ficheros Ejecutable ELF}
+\label{elf-figure}
+\end{figure}
+La figura~\ref{elf-figure} muestra la disposición de una imagen ejecutable
+ELF estática.
+\SeeModule{include/\-linux/\-elf.h}
+Es un simple programa en C que imprime ``hello world'' y termina.  La
+cabecera lo describe como una imagen ELF con dos cabeceras físicas
+(\dsni{e\_phnum} es 2) que empieza después de 52 bytes del principio del
+fichero imagen.  La primera cabecera física describe el código ejecutable en
+la imagen.  Está en la dirección virtual \hex{8048000} y tiene 65532 bytes. 
+Esto se debe a que es una imagen estática que contiene todo el código de la
+función \dsni{printf()} para producir el mensaje ``hello world''.  El punto
+de entrada de la imagen, la primera instrucción del programa, no está al
+comienzo de la imagen, sino en la dirección virtual \hex{8048090}
+(\dsni{e\_entry}).  El código empieza inmediatamente después de la segunda
+cabecera física.  Esta cabecera física describe los datos del programa y se
+tiene que cargar en la memoria virtual a partir de la dirección
+\hex{8059BB8}.  Estos datos se pueden leer y escribir.  Se dará cuenta que
+el tamaño de los datos en el fichero es 2200 bytes (\dsni{p\_filesz})
+mientras que su tamaño en memoria es 4248 bytes.  Esto se debe a que los
+primeros 2200 bytes contienen datos pre-inicializados y los siguientes 2048
+bytes contienen datos que el código ejecutable inicializará.
+
+Cuando Linux carga una imagen ejecutable ELF en el espacio de
+direccionamiento virtual del proceso, la imagen no se carga en realidad.
+\SeeCode{do\_load\_\\elf\_binary()}{fs/\-binfmt\_elf.c}
+Lo que hace es configurar las estructuras de datos de la memoria virtual, el
+árbol \ds{vm\_area\_struct} del proceso y sus tablas de páginas.
+Cuando el programa se ejecuta, se originarán faltas de página que harán que
+el código y los datos del programa se cargarán en la memoria física.  Las
+partes del programa que no se usen no se cargarán en memoria.
+Una vez que el cargador del formato binario ELF ha comprobado que la
+imagen es una imagen ejecutable ELF válida,  borra de la memoria virtual del
+proceso la imagen ejecutable que el proceso tenía hasta ahora.  Como este
+proceso es una imagen clonada ({\em todos} los procesos lo son), esta imagen
+anterior es el programa que el proceso padre estaba ejecutando, como por
+ejemplo un intérprete de órdenes como \texttt{bash}.
+La eliminación de la antigua imagen ejecutable desecha las estructuras de
+datos de la memoria virtual anterior y reinicia las tablas de páginas del
+proceso.
+Además, también se eliminan los gestores de señales que se hubiesen
+establecido y se cierran los ficheros que estuviesen abiertos.  Después de
+esta operación el proceso está listo para recibir la nueva imagen
+ejecutable.  La información que se coloca en la estructura \ds{mm\_struct}
+del proceso es la misma independientemente del formato de la imagen
+ejecutable.
+Hay punteros al comienzo y al final del código y los datos de la imagen. 
+Estos valores se averiguan cuando se leen los encabezamientos físicos de la imagen
+ejecutable ELF y a la vez que se hacen corresponder las secciones del programa que
+describen al espacio de direccionamiento virtual del proceso.  En ese
+momento también se establecen las estructuras \ds{vm\_area\_struct} y se
+modifican las tablas de páginas de proceso.  La estructura \ds{mm\_struct}
+también contiene punteros a los parámetros que hay que pasar al programa y a
+las variables de entorno de este proceso.
+
+
+\subsubsection{Bibliotecas ELF Compartidas}
+\index{Bibliotecas ELF Compartidas}
+\index{Bibliotecas Compartidas, ELF}
+Una imagen enlazada dinámicamente, por otra parte, no contiene todo el
+código y datos necesarios para ejecutarse.  Parte de esos datos están en las
+bibliotecas compartidas que se enlazan con la imagen cuando esta se ejecuta. 
+El enlazador dinámico también utiliza las tablas de la biblioteca ELF
+compartida cuando la biblioteca compartida se enlaza con la imagen al
+ejecutarse esta.  Linux utiliza varios enlazadores dinámicos, \fn{ld.so.1},
+\fn{libc.so.1} y \fn{ld-linux.so.1}, todos se encuentran en \fn{/lib}.
+Las bibliotecas contienen código que se usa comúnmente como subrutinas del
+lenguaje.  Sin enlaces dinámicos, todos los programas necesitarían su
+propia copia de estas bibliotecas y haría falta muchísimo más espacio en
+disco y en memoria virtual.  Al usar enlaces dinámicos, las tablas de la
+imagen ELF tienen información sobre cada rutina de biblioteca usada.  La
+información indica al enlazador dinámico cómo encontrar la rutina en una
+biblioteca y como enlazarla al espacio de direccionamiento del programa.
+
+\ReviewNotes{Do I need more detail here, worked example?}
+
+\subsection{Ficheros de Guión}
+\index{Ficheros de Guión}
+Los ficheros de guión son ficheros ejecutables que precisan un intérprete
+para ejecutarse.  Existe una amplia variedad de intérpretes disponibles para
+Linux; por ejemplo, \eg{wish}, \eg{perl} y shells de órdenes como \eg{tcsh}. 
+Linux usa la convención estándar de Unix\tm\ de que la primera línea de un
+fichero de guión contenga el nombre del intérprete.  Así pues, un fichero
+de guión típico comenzaría así:
+\begin{verbatim}
+#!/usr/bin/wish
+\end{verbatim}
+El cargador binario de ficheros de guión intenta encontrar el intérprete
+para el guión.
+\SeeCode{do\_load\_script()}{fs/\-binfmt\_script.c}
+Esto se hace intentando abrir el fichero ejecutable que se menciona en la
+primera línea del fichero de guión.
+Si se puede abrir, se usa el puntero a su nodo-i del VFS y usarse para
+interpretar el fichero guión.
+El nombre del fichero de guión pasa a ser el parámetro cero (el primer
+parámetro) y todos los otros parámetros se trasladan un puesto arriba (el
+primero original pasa a ser el segundo, etc).
+La carga del intérprete se hace de la misma manera que Linux carga todos los
+ficheros ejecutables.
+Linux prueba cada formato binario por turnos hasta que uno funcione.  Esto
+significa que en teoría se podrían unir varios intérpretes y formatos
+binarios para convertir al gestor de formatos binarios de Linux en una pieza
+de software muy flexible.

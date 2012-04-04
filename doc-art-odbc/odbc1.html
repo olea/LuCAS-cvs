@@ -1,0 +1,699 @@
+<html>
+<head>
+<title> ODBC para Servidor de Bases de Datos PostGreSQL </title>
+</head>
+<body>
+<hr>
+<h1> ODBC para Servidor de Bases de Datos PostGreSQL ( I )</h1>
+<p>
+<b>Autor:</b> <a href="http://www.dit.upm.es/~jantonio">
+	<i>Juan Antonio Martinez Casta&ntilde;o</i></a><br>
+<b>E-mail:</b> <a href="mailto:jantonio@drake.dit.upm.es">
+	<i> jantonio@drake.dit.upm.es</i></a><br>
+<hr>
+<p>
+<a name="indice">
+<h3><u> Indice:</u></h3>
+<ol>
+	<li><a href="#entradilla">Presentaci&oacute;n</a>
+	<li><a href="#introduccion">Introducci&oacute;n</a>
+	<li><a href="#instalacion">Instalaci&oacute;n de PostGreSQL</a>
+	<li><a href="#odbc">Un primer paseo por el API ODBC</a>
+	<li><a href="#iodbc">El API ODBC en Linux</a>
+	<li><a href="#conclusion">Conclusiones</a>
+	<li><a href="#referencias">Referencias</a>
+</ol>
+</a>
+<hr>
+
+<a name="entradilla">
+<h3> <u>Presentaci&oacute;n</u> </h3>
+</a>
+	Una vez demostrado que como servidor de ficheros Linux no tiene 
+rival, y que como servidor de InterNet no tiene nada que envidiar a los
+grandes sistemas, hoy vamos a tratar un otro apartado en el que linux se
+desenvuelve sin problemas: el de los servidores de bases de datos para
+redes de PC's<br>
+<p>
+<hr>
+
+<a name="introduccion">
+<h3> <u>Introducci&oacute;n</u> </h3>
+</a>
+
+	Los usuarios de MS-Windows en entornos ofim&aacute;ticos se encuentran con
+frecuencia con el problema del acceso remoto a bases de datos. Efectivamente
+MS-Dos y Windows nunca fueron pensados como sistemas de red. Incluso, cuando
+no hubo mas remedio, las soluciones no dejaron de ser sino un parche... Del
+mismo modo las bases de datos eran locales, con soluciones propietarias.
+<p>
+	Por otro lado, los grandes sistemas llevan trabajando desde hace 
+a&ntilde;os con servidores de bases de datos. Accesos concurrentes, 
+transacciones, bloqueos, <i>rollback</i>, etc, son procesos largamente 
+conocidos y estudiados. El acceso de la informatica personal a las redes 
+locales trajo al mundo ofim&aacute;tico los mismos problemas a los que 
+los grandes mainframes se hab&iacute;an enfrentado hacia a&ntilde;os. 
+Solo hab&iacute;a un problema: El sistema operativo. En efecto: todas 
+las aplicaciones desarrolladas part&iacute;ian de la base de un sistema 
+operativo monotarea monousuario, sin servicios de red, y casi sin 
+ning&uacute;n tipo de control de acceso a los recursos. Incluso en la 
+actualidad, Windows 95 tiene problemas con el accesso a recursos entre 
+aplicaciones ( o si no, probad a abrir un documento con Word97 y 
+-sin cerrar el documento- abriendo una ventana de MS-Dos intentad hacer 
+alguna operaci&oacute;n con dicho documento.  !!Haced primero un backup!! )
+<p>
+	Los primeros intentos de acceso concurrente a bases de datos desde PC's
+se realizan mediante recursos de compartici&oacute;n de archivos. Se utilizan 
+los controles de acceso de NetBIOS para salvaguardar la consistencia de 
+datos...  falta todav&iacute;a un paso: el convertir los programas de 
+gesti&oacute;n de bases de datos a una arquitectura cliente-servidor, 
+donde un proceso maestro es el que controla cada petici&oacute;n de acceso 
+a la base de datos, y nuestro dBase, Paradox o Access no son sino 
+user-interfaces de visualizacion de datos.  
+<p>
+Tenemos pues diferentes enfoques, en funci&oacute;n de la separaci&oacute;n 
+entre la aplicaci&oacute;n y los ficheros de datos y de la relaci&oacute;n que 
+se establece entre ellos:
+<ul>
+	<li> Cliente y servidor son la misma aplicaci&oacute;n, siendo los 
+	  datos referidos a un fichero con formato propietario, y usado 
+	  &eacute;ste en monousuario. Ejemplo: un usuario que crea y maneja 
+	  un fichero de dBase
+	<li> Cliente y servidor son la misma aplicaci&oacute;n, pero los 
+	  datos son compartidos a trav&eacute;s del sistema de ficheros.
+	  Ejemplo: una red de usuarios de dbase que acceden via NetBIOS a
+	  mismo fichero de datos
+	<li> El Cliente constituye un <i>user interface</i>, pero los datos 
+          provienen de una database "gen&eacute;rica", residente en la 
+	  misma maquina, y que son accedidos a traves de un driver que 
+          convierte los datos de la database en algo que el cliente entiende: 
+          por ejemplo, cuando desde Access, vinculamos una base de datos con 
+          otra escrita, por ejemplo en dBase
+	<li> Cuando el v&iacute;nculo no se realiza no a traves del sistema 
+          de ficheros sino con un servidor remoto, via red local, tenemos 
+          un sistema servidor de bases de datos.
+</ul>
+¿C&oacute;mo se establecen estos v&iacute;nculos? En los grandes sistemas, 
+y en las redes UNIX, desde el primer momento los clientes son aplicaciones 
+independientes del servidor, hablan su lenguaje y se entienden de t&uacute; 
+a t&uacute; con &eacute;l. En sistemas basados en MS-Dos ( ej. Windows ) 
+se hace necesario el proveer un interfaz entre la aplicaci&oacute;n y 
+los servidores. Del mismo modo, en los sistemas UNIX todo el mundo habla 
+el mismo lenguaje de bases de datos -SQL-, mientras que los PC's est&aacute;n 
+plagados de soluciones propietarias, en funci&oacute;n de la aplicaci&oacute;n 
+y del fabricante. Se hace pues necesaria una arquitectura en capas para 
+realizar las siguientes tareas:
+<ul>
+	<li> Una capa para que la aplicaci&oacute;n sea capaz de hablar 
+          con el Sistema Operativo a trav&eacute;s de un API com&uacute;n
+	<li> Una capa en el Sistema Operativo que se encarga de discernir el
+	  tipo de acceso - a sistema de ficheros, a databases de otro
+	  proveedor, a un servidor remoto...- y de invocar al driver adecuado
+	<li> Un driver que se encarga del acceso a los datos, y de su 
+	  conversi&oacute;n al API com&uacute;n del sistema operativo
+	<li> Si el acceso se efect&uacute;a v&iacute;a red local hacia un 
+	  servidor remoto, todav&iacute;a hace falta una capa nueva en el 
+          lado del servidor: la que convierte las peticiones del cliente 
+	  al API de programaci&oacute;n que este provee.
+</ul>	
+Para conseguir esta funcionalidad Microsoft defini&oacute; en su d&iacute;a
+un API denominado <b>Open DataBase Conectivity ( ODBC )</b>. Toda 
+aplicaci&oacute;n de bases de datos que se precie para el mundo Windows 
+debe ser capaz de implementar y manejar el API de acceso a la base de datos 
+<p>
+Microsoft ha hecho p&uacute;blico el API de programaci&oacute;n por lo que
+-en teor&iacute;a- cualquiera puede escribir un driver ODBC, las aplicaciones 
+de databases que hablen ODBC puedan comunicarse con un servidor, bien sea 
+local, remoto, fichero, aplicaci&oacute;n o incluso otro programa de bases 
+de datos que se est&eacute; ejecutando en la misma m&aacute;quina ( esta es 
+la teor&iacute;a. Microsoft, siguiendo su pol&iacute;tica habitual, tiene 
+la mala costumbre de saltarse sus propios est&aacute;ndares, y algunas 
+aplicaciones suyas manejan extensiones al ODBC propias y no documentadas... )
+<p>
+Rizando el rizo, y puesto que ODBC es un estandard "de facto", el cliente
+de la base de datos no tiene siquiera por que ser un sistema de Microsoft.
+De hecho, existe un proyecto de colaboraci&oacute;n en la comunidad InterNet 
+para proveer a los sistemas UNIX de un API de acceso ODBC unificado para sus
+bases de datos. Uno podr&iacute;a preguntarse c&uacute;al es el sentido de 
+todo esto, pues SQL tiene ya un API definido, y todos los UNIX saben hablar 
+en SQL, pero se entiende f&aacute;cilmente si pensamos que si el API de 
+acceso a la base de datos es el mismo en Windows y en UNIX, el trabajo de 
+<i>porting</i> se reduce considerablemente. Es mucho mas f&aacute;cil convencer 
+a los desarrolladores de bases de datos en Windows para que porten a Linux 
+sus aplicaciones si se les proporciona el mismo API de programaci&oacute;n, 
+de manera que solo tengan que teclear "make"
+<p>
+<table>
+<tr><th width="40%">
+	<table border> 
+	<tr><th>
+	ODBC no es sino un API de conectividad entre aplicaciones
+	de bases de datos cliente y servidor. Dicho API esta organizado en 
+	varias capas: de aplicacion, de sistema, y de acceso. 
+	</th></tr>
+	</table>
+</th><td> </td><td> </td></tr>
+</table>
+<p>
+	En resumen: ODBC no es sino un API de conectividad entre aplicaciones
+de bases de datos cliente y servidor. Dicho API esta organizado en varias 
+capas: de aplicacion, de sistema, y de acceso. 
+<p>
+	Hemos dividido este tema en dos partes: 
+<ul>
+	<li>En este art&iacute;culo, hacemos una peque&ntilde;a 
+	introducc&oacute;on al API ODBC, y emprendemos la instalaci&oacute;n 
+	de una de las bases de datos mas conocidas en el mundo Linux:
+	<b>PostGreSQL</b>, asi como de las bibliotecas y drivers de ODBC para 
+        UNIX. 
+	<li>En el pr&oacute;ximo n&uacute;mero de <b>LINUX ACTUAL</b>, haremos 
+	una descripci&oacute;n mas detallada del API de ODBC, incluyendo 
+	ejemplos que podemos compilar y ejecutar desde Linux, y emprenderemos 
+	la tarea de utilizar una base de datos remota desde sistemas MS-Windows 
+	conectados en red con nuestro servidor. En breve, nuestro jefe ya no
+	tendr&aacute; m&aacute;s excusas para mantener un servidor NT en la
+	oficina... ;-)
+</ul>
+<p>
+Todos los ejemplos, gr&aacute;ficos y listados de estos art&iacute;culos 
+han sido realizados con <b>PostGreSQL 6.3.2</b> en una Sparc-SLC con RedHat 4.2 
+SparcLinux y un Pentium 166MMX con Linux RedHat 5.0 , Windows 95 OSR2 y 
+Office 97, conectados en red. En el CD-Rom se incluyen los fuentes y paquetes 
+instalables de las &uacute;ltimas <i>releases</i> oficiales de los programas 
+que aqu&iacute; se explican, existentes en el momento de escribir el articulo
+<p>
+<hr>
+<p>
+<a name="instalacion">
+<h3><u>Instalaci&oacute;n de PostGreSQL-6.3.2 bajo Linux</u></h3>
+</a>
+
+En el n&uacute;mero 2 de <b>Linux Actual</b> se describi&oacute; la 
+instalaci&oacute;n de <b>MySQL</b> como servidor de bases de datos. En este 
+art&iacute;culo se describe la instalaci&oacute;n de <b>PostGreSQL 6.3.2</b>, 
+con lo que los lectores tendr&aacute;n as&iacute; ocasi&oacute;n de poder 
+establecer criterios para seleccionar su servidor favorito.
+<p>
+Si utilizamos una distribuci&oacute;n tipo RedHat tendremos 
+los siguientes paquetes:
+<dl>
+<dd>
+<table>
+<tr><td>postgresql-6.3.2-3.i386.rpm</td>
+<td>Paquete b&aacute;sico</td></tr>
+<tr><td>postgresql-devel-6.3.2-3.i386.rpm</td>
+<td>API de programaci&oacute;n PostGreSQL</td></tr>
+<tr><td>postgresql-clients-6.3.2-3.i386.rpm</td>
+<td>Clientes bajo Linux</td></tr>
+<tr><td>postgresql-data-6.3.2-3.i386.rpm</td>
+<td>Templates para bases de datos</td></tr>
+<tr><td>postgresql-jdbc-6.3.2-3.i386.rpm</td>
+<td>Interfaz con Java Database Conectivity (JDBC)</td></tr>
+<tr><td>postgresql-perl-6.3.2-3.i386.rpm</td>
+<td>Interfaz con Perl</td></tr>
+</table>
+</dl>
+Para instalarlos, no tendremos m&aacute;s que montar el CDROM y ejecutar:<br>
+<pre>
+root@cochito:/mnt/cdrom# rpm -v -i ${path_to_rpms}/postgresql*i386.rpm
+</pre>
+<p>
+En el caso de que ya tengamos una versi&oacute;n pre-instalada, es recomendable
+hacer el upgrade a &eacute;sta, por lo que deberemos a&ntilde;adir la 
+opci&oacute;n <i>--upgrade</i> a la l&iacute;nea de comandos
+<p>
+En el caso de que no dispongamos de las utilidades de paqueter&iacute;a rpm, 
+procederemos a coger el paquete .tar.gz y compilarlo. Para ello procederemos
+de la siguiente forma:
+<ol>
+<li> Creamos un usuario "<i>postgres</i>" bajo cuyo <i>uid</i> se 
+   ejecutar&aacute; todo el software de gesti&oacute;n de la database. 
+   ! Bajo ning&uacute;n concepto ejecutaremos nunca dicho software con 
+   permisos de root !. Asimismo creamos el directorio de spool donde 
+   se van a guardar las databases del sistema:
+<pre>
+[root@sparky /root]# grep postgres /etc/passwd /etc/group
+/etc/passwd:postgres:!:100:101:PostGreSQL Server:/var/lib/pgsql:/bin/bash
+/etc/group:postgres::101:
+[root@sparky /root]# ls -la /var/lib/pgsql  
+total 3
+drwxr-xr-x   2 postgres postgres     1024 May 23 20:40 .
+drwxr-xr-x   8 root     root         1024 May 23 20:13 ..
+-rw-r--r--   1 postgres postgres       18 May 23 20:40 .bash_history
+</pre>
+
+<li> Como <b>root</b> descomprimimos el paquete en el directorio deseado. 
+   ( normalmente <i>/usr/local/src</i> ).
+
+<li> En el caso de que ya tuvi&eacute;ramos una versi&oacute;n de 
+   <b>PostGreSQL</b> instalada anteriormente, deberemos hacer un <i>backup</i> 
+   de las bases de datos existentes en el sistema. Remitimos al lector a los 
+   ficheros <i>"INSTALL"</i> que acompa&ntilde;an al paquete
+
+<li> Ejecutamos:
+<pre>
+[root@sparky /usr/local/src/postgresql-6.3.2/src]# ./configure 
+[root@sparky /usr/local/src/postgresql-6.3.2/src]# make
+</pre>
+
+<li> Es posible que deseemos modificar alguno de los par&aacute;metros de 
+   compilacion El comando <i>"configure --help"</i> y la documentaci&oacute;n 
+   nos indican las diversas opciones. Especial menci&oacute;n merecen las 
+   opciones <i>"--template", "--php"</i>, y <i>"--perl"</i>. 
+   Consultar el fichero <i>INSTALL</i> para escoger los par&aacute;metros 
+   adecuados.
+
+<li> El programa deber&iacute;a compilar sin problemas. Una vez finalizada la 
+   compilaci&oacute;n <i>"make install"</i> nos instalar&aacute; 
+   <b>PostGreSQL</b> en los directorios escogidos. <br>
+   En el caso de que no hayamos desactivado expresamente su 
+   generacis&oacute;on, se habr&aacute; creado la librer&iacute;a 
+   <i>libpq.so.x.x</i> . Deberemos a&ntilde;adir en el fichero 
+   <i>/etc/ld.so.conf</i> el path donde la hayamos instalado, y acto seguido 
+   ejecutaremos <i>ldconfig</i> para actualizar el cache del cargador de 
+   librer&iacute;as din&aacute;micas
+
+<li> En los ficheros <i>/etc/profile.d/postgresql.sh</i> y 
+   <i>/etc/profile.d/postgresql.csh</i>  instalamos los paths y las variables
+   de entorno apropiadas: 
+<pre>
+[root@sparky /root]# cat /etc/profile.d/postgresql.sh
+PATH=$PATH:/usr/local/pgsql/bin
+MANPATH=$MANPATH:/usr/local/pgsql/man
+PGLIB=/usr/local/pgsql/lib
+PGDATA=/var/lib/pgsql/data
+export PATH MANPATH PGLIB PGDATA
+
+[root@sparky /root]# cat /etc/profile.d/postgresql.csh
+setenv PATH $PATH:/usr/local/pgsql/bin
+setenv MANPATH $MANPATH:/usr/local/pgsql/man
+setenv PGLIB /usr/local/pgsql/lib
+setenv PGDATA /var/lib/pgsql/data
+</pre>
+<li> Creamos los "esqueletos" de la database. Para ello hacemos 
+   <i>"su - postgres"</i> y ejecutamos <i>"initdb"</i>
+
+<li> configuramos adecuadamente los ficheros de control de <b>PostGreSQL</b>, 
+   especialmente el fichero de control de accesos <i>pg_hba.conf</i> . De 
+   nuevo, nos remitimos al manual.. 
+
+<li> El manual recomienda, antes de empezar a trabajar, ejecutar los programas
+   de testing. Para ello deberemos arrancar el servidor en modo test, y 
+   ejecutar <i>make</i> en el directorio de testing. ( Leer fichero 
+   <i>INSTALL</i> ) 
+
+<li> Finalmente, creamos el fichero <i>/etc/rc.d/init.d/postgresql</i> y 
+   configuramos con el <i>"runlevel editor"</i> el arranque en <i>power-on</i>
+   del servidor de la base de datos. El listado 1 nos muestra un ejemplo de 
+   script de arranque para RedHat-5.0:
+<p>
+<table border>
+<tr><td><pre>
+#! /bin/sh
+# chkconfig: 345 85 15
+# description:  Starts and stops the PostgreSQL 
+#		backend daemon that handles
+#               all database requests.
+
+# Source function library.
+. /etc/rc.d/init.d/functions
+
+# Get config.
+. /etc/sysconfig/network
+
+# Check that networking is up.
+# Pretty much need it for postmaster.
+[ ${NETWORKING} = "no" ] && exit 0
+
+[ -f /usr/bin/postmaster ] || exit 0
+
+# See how we were called.
+case "$1" in
+  start)
+        echo -n "Starting postgresql service: "
+        su postgres -c \
+		'/usr/bin/postmaster -S -i -D/var/lib/pgsql'
+        sleep 1
+        pid=`pidof postmaster`
+        echo -n "postmaster [$pid]"
+        touch /var/lock/subsys/postmaster
+        echo
+        ;;
+  stop)
+        echo -n "Stopping postgresql service: "
+        killproc postmaster
+        sleep 2
+        rm -f /var/lock/subsys/postmaster
+        echo
+        ;;
+  status)
+        status postmaster
+        ;;
+  restart)
+        $0 stop
+        $0 start
+        ;;
+  *)
+        echo "Usage: postgres.init {start|stop|status|restart}"
+        exit 1
+esac
+
+exit 0
+</pre></td></tr>
+<tr><th> Listado 1: fichero de arranque en power-on de PostGreSQL</th></tr>
+</table>
+<p>
+
+<li> Arrancamos el sistema con <i>"/etc/rc.d/init.d/postgresql start"</i>
+
+<li> Como usuario "<i>postgres</i>" vamos a crear una cuenta de acceso para i
+   poder trabajar con el servidor de base de datos. Estas cuentas son 
+   exclusivas de la base de datos, y no hacen referencia a usuarios reales 
+   del sistema, aunque es bastante com&uacute;n tener una cuenta generica 
+   "<i>sqluser</i>" sin login, para uso exclusivo de <b>PostGreSQL</b>. 
+   Esto lo haremos con el comando
+<pre>
+[postgres@sparky:/var/lib/pgsql]$ createuser sqluser
+</pre>
+   El programa <i>createuser</i> nos ir&aacute; preguntando por los diversos 
+   privilegios de dicho usuario, su <i>uid</i> ( que -de nuevo-, no tiene por
+   qu&eacute; coincidir con el de un usuario real, aunque as&iacute; sea en 
+   nuestro ejemplo ). Los diversos ficheros de configuraci&oacute;n, 
+   indicar&aacute;n qu&eacute; usuarios tienen permiso para hacer qu&eacute; 
+   cosas. De nuevo, para una descripci&oacute;n detallada, nos remitimos al
+   manual<br>
+	En el caso de que nuestra base de datos vaya a ser utilizada desde
+   el servidor de Web, mediante <b>PHP</b>, deberemos a&ntilde;adir un nuevo
+   usuario "<i>nobody</i>", con el mismo <i>userid</i> y <i>groupid</i> que el
+   usuario real. Recordemos que el servidor <b>Apache</b> se ejecuta como dicho
+   usuario
+
+<li> Si estabamos realizando un <i>upgrade</i>, &eacute;ste es el momento 
+   de hacer un <i>restore</i> de las diversas databases que tuvi&eacute;ramos 
+   procedentes de una <i>release</i> anterior
+
+<li> Creamos una base de datos para "jugar". El sistema trae ya una database
+   generica "template1" pero ya se sabe que Murphy anda suelto, y no esta
+   de m&aacute;s un poco de precauci&oacute;n. La denominaremos "odbctest"
+<pre>
+[postgres@sparky:/var/lib/pgsql]$ createdb odbctest
+</pre>
+<table>
+<tr><td width="40%">
+   <table border><tr><th>
+   El Concepto de base de datos relacional va m&aacute;s alla de la simple
+   tabla: una RDB engloba tablas, indices, operadores, funciones, etc, bajo
+   un nombre com&uacute;n, definiendo las interrelaciones entre los diversos
+   elementos de dicha base de datos
+   </th></tr></table>
+</td><td> </td><td> </td></tr>
+</table>
+   El concepto de base de datos en <b>PostGreSQL</b>, y en general en todas 
+   las bases de datos relacionales es mucho mas amplio que el tradicional de 
+   conjunto de registros, cada uno con "n" campos de diversos tipos. 
+   Aqu&iacute; por database se entiende una agrupaci&oacute;n de objetos, 
+   tales como tablas, indices, funciones operadores, etc, bajo un nombre 
+   com&uacute;n<br>
+   Ahora, dentro de la database "odbctest" vamos a crear una tabla con la que
+   trabajar. Por el momento vamos a obviar la sintaxis SQL, dejandola para un
+   articulo posterior, y vamos a introducir ciegamente los datos. Al final
+   del articulo se indican referencias sobre manuales de SQL, ( si los lectores
+   lo estiman oportuno, incluiremos en <b>Linux Actual</b> una serie sobre 
+  dicho lenguaje ). Simplemente indicar que PostGreSQL se acompa&ntilde;a de un 
+   interfaz de entrada directa de comandos SQL, denominado <i>psql</i>, que 
+   utilizaremos para introducir los datos en la database. El listado 2 muestra 
+   los datos que introduciremos en la database: 
+   <p>
+   <table border>
+<tr><td>
+<pre>
+create table telefonos (
+	nombre	char(25),
+	direccion char(40),
+	telefono  int
+);
+
+insert into telefonos 
+    values ( 'E.T.S.I.Teleco','C. Universitaria s/n',5495700 );
+insert into telefonos 
+    values ( 'Linux Actual','Alfonso Gomez 42',3040622 );
+insert into telefonos 
+    values ( 'Juan Antonio','Mi Casa',12345678 );
+insert into telefonos 
+    values ( 'Emergencias','Comunidad de Madrid',112 );
+</pre>
+</td></tr>
+<tr><th>
+Listado 2: programa de ejemplo de creacion de base de datos
+</th></tr>
+   </table>
+   <p>
+   Para aquellos que no quieran introducir a mano los comandos, se incluye 
+   dicho listado en el CDROM, de manera, que en lugar de teclearlo, se puede 
+   cargar directamente desde <i>psql</i> con la secuencia de escape <i>\i</i> 
+   (include file)
+<pre>
+[postgres@sparky:/var/lib/pgsql]$ psql odbctest
+Welcome to the POSTGRESQL interactive sql monitor:
+  Please read the file COPYRIGHT for copyright terms of POSTGRESQL
+  
+  type \? for help on slash commands
+  type \q to quit
+  type \g or terminate with semicolon to execute query
+You are currently connected to the database: odbctest
+
+odbctest=> \i /path/to/cdrom/sample/sql/include/file/telefonos.sql
+create table telefonos (
+        nombre  char(25),
+        direccion char(40),
+        telefono  int
+);
+CREATE
+
+insert into telefonos
+        values ( 'E.T.S.I.Teleco','C. Universitaria s/n',5495700 );
+INSERT 17584 1
+insert into telefonos
+        values ( 'Linux Actual','Alfonso Gomez 42',3040622 );
+INSERT 17585 1
+insert into telefonos
+        values ( 'Juan Antonio','Mi Casa',12345678 );
+INSERT 17586 1
+insert into telefonos
+        values ( 'Emergencias','Comunidad de Madrid',112 );
+INSERT 17587 1
+
+EOF
+odbctest=> select nombre,direccion from telefonos 
+	where telefono=5495700;
+nombre                   |direccion                               
+-------------------------+----------------------------------------
+E.T.S.I.Teleco           |Ciudad Universitaria s/n                
+(1 row)
+odbctest=> \q
+[postgres@sparky:/var/lib/pgsql]$
+</pre>
+<li> Ya tenemos nuestro servidor de databases instalado y funcionando, y hemos
+creado una peque&ntilde;a base de datos para empezar a trabajar. A 
+continuaci&oacute;n se describir&aacute; c&oacute;mo instalar las 
+librer&iacute;as ODBC y el driver ODBC para <b>PostGreSQL</b> en Linux, 
+haciendo previamente una breve introducci&oacute;n al funcionamiento del 
+API ODBC.
+</ol>
+<p>
+<hr>
+<p>
+<a name="odbc">
+<h3><u> Un primer paseo por el API de ODBC</u></h3>
+</a>
+
+Antes de emprender la instalaci&oacute;n de ODBC es preciso aclarar algunos 
+conceptos de funcionamiento del API de ODBC.
+<p>
+Como hemos explicado en la introduci&oacute;n, ODBC es un API de interfaz entre 
+clientes de bases de datos y servidores de bases de datos. La figura 1 ilustra
+este esquema: 
+<p>
+<table>
+<tr><td>
+<img src="odbc_api.gif" alt="Estructura del API ODBC" width="512" height="256">
+</td</tr>
+<tr><th>
+figura 1: Estructura en capas del API ODBC
+</th></tr>
+</table>
+<p>
+La primera capa constituye la librer&iacute;a del API que utilizan las 
+diversas aplicaciones que "hablan" ODBC. Microsoft proporciona para sus 
+sistemas el fichero <i>ODBC32.DLL</i>, que contienen el API y el interfaz 
+con el sistema operativo, permitiendo a los desarrolladores de controladores 
+ODBC inclu&iacute;r dicha librer&iacute;a en sus distribuciones ( de la 
+misma manera que para la DLL de controles Visual Basic VBRUN.DLL ). Para 
+sistemas UNIX, el proyecto FreeODBC, ha desarrollado su propia librer&iacute;a 
+GPL <i>libodbc.so.x.x</i> que es totalmente compatible con las especificaciones 
+descritas por Microsoft 
+<p>
+El administrador de or&iacute;genes de datos es el responsable del "rutado" de
+peticiones de ODBC desde la librer&iacute;a hasta los controladores. Para ello
+se discriminan tres tipos de or&iacute;genes de datos: de usuario, de archivo 
+y de sistema. Esta nomenclatura es motivo frecuente de confusi&oacute;n: cuando
+desde Windows se abre desde el panel de control el men&uacute; de 
+"controladores ODBC" se encuentra con esta clasificaci&oacute;n, y cuando 
+abre cada una de las ventanas se encuentra con los mismos contenidos... 
+Vamos a explicarlo un poco:
+<ul>
+<li> Los or&iacute;genes de datos de usuario, realmente se refieren a las 
+  operaciones que realiza el usuario con su base de datos desde la 
+  aplicaci&oacute;n nativa para la que han sido desarrollados, y sin 
+  realizar ning&uacute;n tipo de compartici&oacute;n con otros usuarios. En 
+  cristiano: cuando se trabaja con MS-Access, y no compartes la base de 
+  datos ( en UNIX y en Win-NT esta disgresi&oacute;n tiene sentido; 
+  en Win95 es cuando menos discutible ) 
+<li> Cuando se comparte la base de datos mediante un servidor de ficheros 
+  compartiendo f&iacute;sicamente los datos almacenados en un fichero 
+  determinado hablamos de or&iacute;genes de datos de archivo. Este 
+  m&eacute;todo permite, por ejemplo a un usuario de dBase manejar una 
+  database de MS-Access, o bien que varios usuarios puedan compartir 
+  una misma database
+<li> Cuando no se comparte un fichero, sino que se trabaja con la database a
+  trav&eacute;s de un sistema cliente-servidor, hablamos de un origen de 
+  datos de sistema.
+<li>Las aplicaciones ofim&aacute;ticas mas comunes, ofrecen drivers para 
+  or&iacute;genes de datos de usuario y de archivo, para permitir a los 
+  usuarios el poder trabajar, importar y exportar datos entre diversas 
+  aplicaciones de gesti&oacute;n. Las aplicaciones de servidores de bases 
+  de datos, por contra, proporcionan drivers para or&iacute;genes de datos 
+  de sistema <br>
+  <b>PostODBC</b> y los drivers de <b>PostGreSQL</b> para iODBC pertenecen a 
+  esta &uacute;ltima categor&iacute;a
+</ul>
+<p>
+Por &uacute;ltimo, cada origen de datos tiene asociado un controlador, 
+que act&uacute;a de "pasarela" entre el API y el acceso f&iacute;sico a 
+los datos
+<p>
+<hr>
+<p>
+<a name="iodbc">
+<h3><u>El API de ODBC en Linux</u></h3>
+</a>
+<p>
+Llegados a este punto preguntamos: ¿Cómo funciona de cara al programador
+la librer&iacute;a ODBC?. La respuesta es rid&iacute;culamente sencilla: 
+el API ODBC consiste en un interfaz que implementa un m&eacute;todo de 
+pasar peticiones en lenguaje SQL a trav&eacute;s de una serie de funciones. 
+Con ODBC podemos:
+<ul>
+<li> Obtener un puntero de descripci&oacute;n del entorno de programacion 
+     ( algo parecido al <i>XOpenDisplay()</i> de X-Windows )
+<li> Crear punteros de conexi&oacute;n, especificando origen de datos y 
+     controlador
+<li> Efectuar conexiones con la database (en nuestro lenguaje: abrir un socket)
+<li> Crear punteros de peticiones SQL ( b&aacute;sicamente, obtener 
+     estructuras de datos que nos permitan insertar nuestras peticiones )
+<li> Ejecutar peticiones sobre la base de datos
+<li> Recoger resultados de nuestras peticiones
+<li> Liberar y cerrar todos los recursos previamente asignados
+</ul>
+En la pr&aacute;ctica, ni todas las aplicaciones, ni todos los controladores de
+or&iacute;genes de datos son capaces de gestionar todas las funcionalidades
+previstas por el API. Por ello se establecen los denominados "niveles de
+conformidad SQL" en la aplicaci&oacute;n as&iacute; como "niveles de 
+conformidad del controlador", que permiten al administrador de or&iacute;genes 
+de datos saber qu&eacute; puede hacer tanto con el driver como con la 
+aplicaci&oacute;n.
+<p>
+Remitimos al lector a la literatura indicada en las referencias para
+buscar las especificaciones y descripciones de cada nivel de compatibilidad
+<p>
+<table>
+<tr><td width="40%">
+   <table border><tr><th>
+   El proyecto <b>FreeODBC</b> ha desarrollado una librer&iacute;a, denominada 
+   iODBC, que cumple con las especificaciones del API ODBC 2.0 de Microsoft, 
+   y que integra las funciones de API y de administrador de or&iacute;genes 
+   de datos.
+   </th></tr></table>
+</td><td> </td><td> </td></tr>
+</table>
+¿C&oacute;mo se aplica &eacute;sto en sistemas UNIX? El proyecto 
+<b>FreeODBC</b> ha desarrollado una librer&iacute;a, denominada iODBC, que 
+cumple con las especificaciones del API ODBC 2.0 de Microsoft, y que integra 
+las funciones de API y de administrador de or&iacute;genes de datos. Cada 
+servidor de bases de datos provee un driver que hace las funciones de 
+controlador de or&iacute;genes de datos y de origen de datos de sistema 
+espec&iacute;fico de cada servidor de bases de datos. <br>
+Existe un fichero <i>${HOME}/.iodbc.ini</i>, que indica a la librer&iacute;a 
+<i>libodbc.so.x.x</i>, los controladores de que dispone cada sistema, y 
+c&oacute;mo se accede a ellos. Todo el interfaz esta implementado mediante 
+librer&iacute;as din&aacute;micas. El resultado de todo esto, es que el 
+programador se encuentra con un API virtualmente id&eacute;ntico al que se 
+encontrar&iacute;a si estuviera trabajando en una maquina M$-Windows
+<p>
+En el CD-Rom que se acompaña a esta revista, bajo el directorio 
+<i>odbc/iodbc</i> encontramos los siguientes ficheros:
+<p>
+<ul>
+<li> <i>iodbc-2.12.shar.Z</i>  C&oacute;digo fuente de la librer&iacute;a 
+del API de ODBC para UNIX proveniente del Proyecto <b>FreeODBC</b>
+<li> <i>pgodbc-0.03.tgz</i>    C&oacute;digo fuente del driver UNIX para 
+conectar el API iODBC con el servidor <b>PostGreSQL</b>
+</ul>
+<p>
+Buceando por las paginas web, podremos encontrar drivers de iODBC para casi
+todas las bases de datos disponibles en Linux. De hecho, Los desarrolladores
+de iODBC han decidido inclu&iacute;r en sus nuevas releases todos los drivers 
+de aquellas bases de datos que libremente los provean, incluyendo adem&aacute;s
+de serie la pasarela JDBC-ODBC.
+<p>
+<hr>
+<p>
+<a name="conclusion">
+<h3><u>Conclusi&oacute;n</u></h3>
+</a>
+<p>
+En este primer art&iacute;culo dedicado a la conectividad ODBC, se han
+introducido los conceptos b&aacute;sicos de dicho sistema. Asimismo hemos 
+aprendido a instalar y configurar Uno de los servidores de bases de datos 
+m&aacute;s conocidos: <b>PostGreSQL</b>, as&iacute; como los drivers y 
+librer&iacute;as ODBC para UNIX. 
+<p>
+En el pr&oacute;ximo n&uacute;mero de <b>Linux Actual</b>, 
+profundizaremos en el API de ODBC, dando algunos ejemplos de 
+programaci&oacute;n, y se explicar&aacute; la forma en que debemos instalar 
+los drivers ODBC para <b>PostGreSQL</b> en sistemas Microsoft Windows-3.XX 
+y Windows-95, con ejemplos de utilizaci&oacute;n desde MS-Access-97.
+
+<p>
+<hr>
+<p>
+<a name="referencias">
+<h3><u>Referencias</u></h3>
+</a>
+<ul>
+<li>PostGreSQL:<br>
+ http://www.postgresql.org<br>
+ http://postgres95.vnet.net
+
+<li>MySQL:<br>
+ http://www.tcx.se
+
+<li>Referencias sobre SQL:<br>
+ - "The Practical SQL handbook" Bowman, Emerson y Damovsky<br>
+  ISBN 0-201-44787-8 Addison-Wesley 1997<br>
+ - "A guide to the SQL Standard" Date y Darwen<br>
+  ISBN 0-201-96426-0 Addison-Wesley 1997
+
+<li>PostGreSQL ODBC:<br>
+ http://www.magenet.com/postodbc<br>
+ http://postgres95.vnet.net/postodbc
+
+<li>iODBC:<br>
+ "The FreeODBC Pages" http://users.ids.net/~bjepson/freeODBC/
+
+<li>ODBC y JDBC:<br>
+ "Gestion de Bases de Datos en Internet" Frami&ntilde;an y Le&oacute;n<br>
+  ISBN 84-415-0208-0 Anaya Multimedia
+</ul>
+</body>
+</html>

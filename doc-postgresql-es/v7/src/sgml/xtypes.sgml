@@ -1,0 +1,148 @@
+<Chapter Id="xtypes">
+<Title>Extendiendo <Acronym>SQL</Acronym>: Tipos</Title>
+<Para>
+     Como se mencionó anteriormente, hay dos clases de tipos
+     en <ProductName>Postgres</ProductName>: tipos base (definidos en un lenguaje de programación)
+     y tipos compuestos (instancias).
+     Los ejemplos en esta sección hasta los de índices de interfaz se pueden
+     encontrar en <FileName>complex.sql</FileName> y <FileName>complex.c</FileName>.  Los ejemplos compuestos
+     están en <FileName>funcs.sql</FileName>.
+</Para>
+
+<Sect1>
+<Title>Tipos Definidos por el Usuario</Title>
+
+<Sect2>
+<Title>Funciones Necesarias para un Tipo Definido por el Usuario</Title>
+<Para>
+     Un tipo definido por el usuario debe tener siempre funciones de entrada
+     y salida. Estas funciones determinan cómo aparece el tipo
+     en las cadenas (para la entrada por el usuario y la salida para
+     el usuario) y cómo se organiza el tipo en memoria. La 
+     función de entrada toma una cadena de caracteres delimitada por null
+     como su entrada y devuelve la representación interna (en memoria)
+     del tipo. La función de salida toma la representación interna
+     del tipo y devuelve una cadena de caracteres delimitada por null.
+     Suponga que queremos definir un tipo complejo que representa
+     números complejos. Naturalmente, elegimos representar un
+     complejo en memoria como la siguiente estructura en <Acronym>C</Acronym>:      
+   
+<ProgramListing>
+         typedef struct Complex {
+             double      x;
+             double      y;
+         } Complex;
+</ProgramListing>
+     y una cadena de la forma (x, y) como la representación externa
+     de la cadena.
+     Estas funciones normalmente no son difíciles de escribir, especialmente
+     la función de salida. Sin embargo, hay varios puntos a recordar:    
+
+<ItemizedList>
+<ListItem>
+<Para>  Al definir su representación externa (cadena),
+            recuerde que al final debe escribir un
+            parser completo y robusto para esa representación
+            como su función de entrada!
+       
+<ProgramListing>
+                Complex *
+                complex_in(char *str)
+                {
+                    double x, y;
+                    Complex *result;
+                    if (sscanf(str, " ( %lf , %lf )", &amp;x, &amp;y) != 2) {
+                        elog(WARN, "complex_in: error in parsing
+                        return NULL;
+                    }
+                    result = (Complex *)palloc(sizeof(Complex));
+                    result-&gt;x = x;
+                    result-&gt;y = y;
+                    return (result);
+                }
+</ProgramListing>
+
+            La función de salida puede ser sencillamente:
+<ProgramListing>
+                char *
+                complex_out(Complex *complex)
+                {
+                    char *result;
+                    if (complex == NULL)
+                        return(NULL);
+                    result = (char *) palloc(60);
+                    sprintf(result, "(%g,%g)", complex-&gt;x, complex-&gt;y);
+                    return(result);
+                }
+</ProgramListing>
+</Para>
+</ListItem>
+<ListItem>
+<Para>  Debería intentar hacer las funciones de entrada y
+            salida inversas la una a la otra. Si no lo hace,
+            tendrá problemas serios cuando necesite
+            volcar sus datos en un fichero y después leerlos
+            (por ejemplo, en la base de datos de otra persona 
+            en otra computadora). Este es un problema particularmente
+            común cuando hay números en punto flotante de por medio.
+</Para>
+</ListItem>
+</ItemizedList>
+</para>
+<Para>
+     Para definir el tipo <Acronym>complejo</Acronym>, necesitamos crear las
+     dos funciones definidas por el usuario complex_in y complex_out
+     antes de crear el tipo:
+
+<ProgramListing>
+         CREATE FUNCTION complex_in(opaque)
+            RETURNS complex
+            AS 'PGROOT/tutorial/obj/complex.so'
+            LANGUAGE 'c';
+
+         CREATE FUNCTION complex_out(opaque)
+            RETURNS opaque
+            AS 'PGROOT/tutorial/obj/complex.so'
+            LANGUAGE 'c';
+
+         CREATE TYPE complex (
+            internallength = 16,
+            input = complex_in,
+            output = complex_out
+         );
+</ProgramListing>
+</Para>
+
+<Para>
+     Como se discutió antes, <ProductName>Postgres</ProductName> soporta totalmente vectores (o arrays) de 
+     tipos base. Además, <ProductName>Postgres</ProductName> soporta vectores de
+     tipos definidos por el usuario también. Cuando usted define un tipo,
+     <ProductName>Postgres</ProductName> automáticamente proporciona soporte para vectores de
+     ese tipo. Por razones históricas, el tipo vector tiene
+     el mismo nombre que el tipo definido por el usuario con el 
+     carácter subrayado _ antepuesto. 
+     Los tipos compuestos no necesitan ninguna función definida sobre
+     ellos, dado que el sistema ya comprende cómo son por dentro.
+</Para>
+</sect2>
+<Sect2>
+<Title>Objetos Grandes</Title>
+
+<Para>
+     Los tipos discutidos hasta este punto son todos objetos
+     "pequeños" -- esto es, son menores que 8KB en tamaño.
+<Note>
+<Para>
+ 1024 longwords == 8192 bytes.  De hecho, el tipo debe ser considerablemente menor que 8192 bytes,
+ dado que las páginas y tuplas de sobrecarga de <ProductName>Postgres</ProductName>
+ deben caber en esta limitación de 8KB también.
+ El valor real que cabe depende de la arquitectura de la máquina.
+</Para>
+</Note>
+     Si usted necesita un tipo más grande para algo como un sistema
+     de recuperación de documentos o para almacenar bitmaps, necesitará 
+     usar la interfaz de grandes objetos de <ProductName>Postgres</ProductName>.
+</para>
+</Sect2>
+</Sect1>
+</Chapter>

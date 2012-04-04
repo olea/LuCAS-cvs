@@ -1,0 +1,272 @@
+'\" t
+.\" Don't change the first line, it tells man that tbl is needed.
+.\" This man page copyright 1998 by Andi Kleen. Subject to the GPL.
+.\" This manpage copyright 1998 by Andi Kleen. Subject to the GPL.
+.\" Based on the original comments from Alexey Kuznetsov
+.\" $Id: netlink.7,v 1.2 2005/02/21 15:12:14 pepin.jimenez Exp $
+.\"
+.\" Translated on Sat Jul 3 1999 by Juan Piernas <piernas@ditec.um.es>
+.\"
+.TH NETLINK  7 "27 abril 1999" "Página man de Linux" "Manual del Programador de Linux"
+.SH NOMBRE
+netlink, PF_NETLINK \- Comunicación entre el núcleo y el usuario.
+.SH SINOPSIS
+.nf
+.\" XXX
+.B #include <asm/types.h>
+.br
+.B #include <sys/socket.h>
+.br
+.B #include <linux/netlink.h> 
+.br
+.PP
+.BI "netlink_socket = socket(PF_NETLINK, " socket_type ", " netlink_family ); 
+.SH DESCRIPCIÓN
+Netlink se utiliza para transferir información entre los módulos del núcleo
+y los procesos del espacio de usuario. Consiste en una interfaz basada en
+conectores estándares para los procesos de usuario y una API del núcleo
+interna para los módulos del núcleo. La interfaz del núcleo interna no se
+documenta en esta página de manual. También existe una interfaz netlink
+obsoleta mediante dispositivos de caracteres netlink. Esta interfaz no se
+documenta aquí y sólo se proporciona por compatibilidad hacia atrás.
+
+Netlink es un servicio orientado a datagramas. Tanto
+.B SOCK_RAW 
+como
+.B SOCK_DGRAM
+son valores válidos para
+.IR socket_type .
+Sin embargo, el protocolo netlink no distingue entre conectores de datagrama
+y conectores directos (raw).
+
+.I netlink_family
+selecciona el módulo del núcleo o el grupo netlink con el que comunicarse.
+Las familias netlink asignadas actualmente son:
+.TP
+.B NETLINK_ROUTE
+Recibe actualizaciones de enrutamiento y puede usarse para modificar la
+tabla de enrutamiento de IPv4 (vea
+.BR rtnetlink (7)).
+.TP
+.B NETLINK_FIREWALL 
+Recibe paquetes enviados por el código del cortafuegos de IPv4.
+.TP
+.B NETLINK_ARPD
+Para gestionar la tabla ARP en el espacio de usuario.
+.TP
+.B NETLINK_ROUTE6
+Recibe y envía actualizaciones a la tabla de enrutamiento de IPv6.
+.TP
+.B NETLINK_IP6_FW
+Para recibir los paquetes que no pasarón las comprobaciones del cortafuegos
+de IPv6 (actualmente no implementado).
+.TP
+.BR NETLINK_TAPBASE ... NETLINK_TAPBASE+15
+Son las instancias del dispositivo
+.BR ethertap .
+El dispositivo ethertap es un pseudodispositivo de tunel de red que permite
+simular un manejador ethernet desde el espacio de usuario.
+.TP
+.B NETLINK_SKIP
+Reservado para ENskip.
+.TP
+.B NETLINK_USERSOCK
+Reservado para futuros protocolos en el espacio de usuario.
+.PP
+Los mensajes netlink consisten en un flujo de bytes con una o más cabeceras
+.B nlmsghdr
+y sus cargas útiles asociadas.
+Para los mensajes multiparte, la primera cabecera y las siguientes tienen
+activa la opción
+.BR NLM_F_MULTI ,
+excepto la última cabecera, que tiene el tipo
+.BR NLMSG_DONE .
+El flujo de bytes sólo debería ser accedido con las macros estándares
+.BR NLMSG_* .
+Vea
+.BR netlink (3). 
+
+Netlink no es un protocolo fiable. Intenta hacerlo lo mejor que puede para
+entregar un mensaje en su destino (o destinos), pero puede perder mensajes
+cuando no hay suficiente memoria o se produce cualquier otro error. Para una
+transferencia fiable, el emisor puede solicitar un reconocimiento del receptor
+activando la opción
+.BR NLM_F_ACK .
+Un reconocimiento es un paquete
+.B NLMSG_ERROR 
+cuyo campo de error vale 0. La propia aplicación debe generar
+reconocimientos para los mensajes recibidos. El núcleo intenta enviar un
+mensaje
+.B NLMSG_ERROR
+para cualquier paquete que falle. Un proceso de usuario también debería seguir
+estas convenciones.
+
+Cada familia netlink tiene un conjunto de 32 grupos multidestino
+(mutlicast).
+Cuando se llama a
+.BR bind (2)
+sobre el conector, se debe configurar el campo
+.B nl_groups
+de
+.B sockaddr_nl
+como una máscara de bits de los grupos que se desea escuchar.
+El valor por omisión para este campo es cero, lo que significa que no se
+recibirán multidestinos.
+
+Un conector puede enviar un mensajes con varios destinos a cualquiera de los
+grupos multidestino, asignando a
+.B nl_groups
+una máscara de bits de los grupos a los que desea enviar cuando llama a
+.BR sendmsg (2) 
+o hace un
+.BR connect (2).
+Sólo los usuarios con un identificador de usuario efectivo 0 o la capacidad
+.B CAP_NET_ADMIN
+pueden enviar a o escuchar de un grupo netlink multidestino.
+Cualquier respuesta a un mensaje recibido por un grupo multidestino se debe
+enviar de regreso al pid emisor y al grupo multidestino.
+
+.RS
+.nf
+.ta 4 13 25
+struct nlmsghdr
+{
+	__u32	nlmsg_len;	/* Longitud del mensaje incluyendo
+			   la cabecera */
+	__u16	nlmsg_type;	/* Contenido del mensaje */
+	__u16	nlmsg_flags;	/* Opciones adicionales */
+	__u32	nlmsg_seq;	/* Número de secuencia */
+	__u32	nlmsg_pid;	/* PID del proceso que abrió el conector */
+};
+
+
+struct nlmsgerr
+{
+	int	error;	/* número de error negativo o 0
+			   para reconocimientos */ 
+	struct nlmsghdr msg;	/* cabecera del mensaje que
+			   provocó el error */ 
+};
+.ta
+.fi
+.RE
+
+Después de cada
+.B nlmsghdr
+viene la carga útil.
+.B nlmsg_type
+puede ser uno de los tipos de mensajes estándares:
+.TP
+.B NLMSG_NOOP
+Se va a ignorar el mensaje.
+.TP
+.B NLMSG_ERROR
+El mensaje indica un error y la carga útil contiene una estructura
+.IR nlmsgerr . 
+.TP
+.B NLMSG_DONE
+El mensaje termina un mensaje multiparte.
+.\" 2.1.130 no parece usarlo.
+.\" .B NLMSG_OVERRUN
+.\" se han perdido los datos.
+.PP
+Una familia netlink normalmente especifica más tipos de mensajes. Vea las
+páginas de manual adecuadas para ello. Por ejemplo,
+.BR rtnetlink (7)
+para 
+.IR NETLINK_ROUTE .
+
+.TS 
+tab(:) allbox; 
+c s 
+l l.
+Bits de opciones estándares en nlmsg_flags
+NLM_F_REQUEST:Poner en todos los mensajes de solicitud
+NLM_F_MULTI:T{
+El mensaje es parte de un mensaje multiparte terminado mediante
+.B 
+NLMSG_DONE
+.\" XXX describe that
+T}
+NLM_F_ACK:Responder con un reconocimiento en caso de éxito
+NLM_F_ECHO:Hacer eco de esta solicitud
+.TE
+
+.TS
+tab(:) allbox;
+c s 
+l l.
+Bits de opciones adicionales para peticiones GET
+NLM_F_ROOT:T{
+Devolver la tabla completa en lugar de una única entrada.
+T}
+NLM_F_MATCH:Todavía no implementado. 
+NLM_F_ATOMIC:Devolver una copia instantánea atómica de la tabla.
+NLM_F_DUMP:Todavía no documentado.
+.TE
+
+.TS
+tab(:) allbox;
+c s
+l l.
+Bits de opciones adicionales para peticiones NEW
+NLM_F_REPLACE:Reemplazar un objeto existente.
+NLM_F_EXCL:No reemplazar si el objeto ya existe.
+NLM_F_CREATE:Crear un objeto sin no existe ya.
+NLM_F_APPEND:Añadir al final de la lista de objetos.
+.TE
+
+Dese cuenta que NLM_F_ATOMIC requiere CAP_NET_ADMIN o derechos de
+superusuario.
+
+.SH FORMATOS DE LAS DIRECCIONES
+La estructura
+.B sockaddr_nl
+describe un cliente netlink en el espacio de usuario o en el núcleo. Una
+sockaddr_nl puede ser o bien unidestino (envío a un único igual) o bien un
+envío a grupos netlink (nl_groups distinto de 0).
+
+.RS
+.nf
+struct sockaddr_nl
+{
+    sa_family_t nl_family;    /* AF_NETLINK */
+    unsigned short nl_pad;    /* cero */
+    pid_t       nl_pid;       /* PID del proceso */
+    __u32       nl_groups;    /* Máscara de grupos
+                                 mutlidirección */
+};
+.fi
+.RE
+
+.B nl_pid 
+es el PID del proceso propietario del conector destinatario o 0 si el destino está en el
+núcleo.
+.B nl_groups 
+es una máscara de bits con cada bit representando a un número de grupo
+netlink.
+.\" XXX describir qué es eso. 
+
+.SH FALLOS
+Esta página de manual no está completa.
+
+.SH OBSERVACIONES
+Normalmente es mejor usar netlink mediante
+.B libnetlink
+que mediante la interfaz de bajo nivel del núcleo.
+
+.SH VERSIONES
+La interfaz de conectores netlink es una nueva característica de la versión
+2.2 de Linux.
+
+La versión 2.0 de Linux soportaba una interfaz netlink más primitiva basada
+en dispositivos (que todavía está disponible por compatibilidad). Esta
+interfaz obsoleta no se describe aquí.
+
+.SH VÉASE TAMBIÉN
+.BR cmsg (3),
+.BR rtnetlink (7),
+.BR netlink (3)
+.PP
+ftp://ftp.inr.ac.ru/ip-routing/iproute2* 
+para libnetlink

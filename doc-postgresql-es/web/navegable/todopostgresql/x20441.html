@@ -1,0 +1,312 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<HTML
+><HEAD
+><TITLE
+>Notificación Asíncrona</TITLE
+><META
+NAME="GENERATOR"
+CONTENT="Modular DocBook HTML Stylesheet Version 1.59"><LINK
+REL="HOME"
+TITLE="PostgreSQL"
+HREF="postgres.html"><LINK
+REL="UP"
+TITLE="libpq"
+HREF="libpq-chapter.html"><LINK
+REL="PREVIOUS"
+TITLE="Ruta Rápida"
+HREF="x20429.html"><LINK
+REL="NEXT"
+TITLE="Funciones Asociadas con el Comando COPY"
+HREF="x20477.html"></HEAD
+><BODY
+CLASS="SECT1"
+BGCOLOR="#FFFFFF"
+TEXT="#000000"
+LINK="#0000FF"
+VLINK="#840084"
+ALINK="#0000FF"
+><DIV
+CLASS="NAVHEADER"
+><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TH
+COLSPAN="3"
+ALIGN="center"
+>PostgreSQL</TH
+></TR
+><TR
+><TD
+WIDTH="10%"
+ALIGN="left"
+VALIGN="bottom"
+><A
+HREF="x20429.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="80%"
+ALIGN="center"
+VALIGN="bottom"
+>libpq</TD
+><TD
+WIDTH="10%"
+ALIGN="right"
+VALIGN="bottom"
+><A
+HREF="x20477.html"
+>Siguiente</A
+></TD
+></TR
+></TABLE
+><HR
+ALIGN="LEFT"
+WIDTH="100%"></DIV
+><DIV
+CLASS="SECT1"
+><H1
+CLASS="SECT1"
+><A
+NAME="AEN20441"
+>Notificación Asíncrona</A
+></H1
+><P
+><SPAN
+CLASS="PRODUCTNAME"
+>PostgreSQL</SPAN
+> soporta notificación asíncrona a través de los
+comandos LISTEN y NOTIFY.  Un servidor registra su interés en una condición de 
+notificación particular con el comando LISTEN (y puede dejar de escuchar con el
+comando UNLISTEN). Todos los servidores que están escuchando una condición de 
+notificación particular recibirán la notificación asíncronamente cuando cualquier
+servidor ejecute un NOTIFY de ese nombre de condición. El servidor que realiza la 
+notificación no pasará ninguna otra información particular a los servidores que
+están escuchando.  Por ello, cualquier dato que deba ser comunicado se transfiere 
+habitualmente a través de una relación de base de datos. También habitualmente el 
+nombre de la condición es el mismo de la relación asociada, pero no sólo no es 
+necesario, sino que tampoco lo es que exista ninguna relación asociada.</P
+><P
+>Las aplicaciones <TT
+CLASS="FILENAME"
+>libpq</TT
+> emiten los comandos LISTEN y UNLISTEN
+como consultas SQL ordinarias. Subsiguientemenet, la llegada de mensajes NOTIFY
+se puede detectar llamando a PQnotifies().
+
+<P
+></P
+><UL
+><LI
+><P
+><TT
+CLASS="FUNCTION"
+>PQnotifies</TT
+>
+          Devuelve la siguiente noficación de una lista de mensajes de notificación
+          aún no manipulados recibidos desde el servidor. Devuelve NULL si no hay
+          notificaciones pendientes. Una vez se devuelve una notificación con
+          PQnotifies, esta se considera manipulada y se borrará de la lista de
+          notificaciones.
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="90%"
+><TR
+><TD
+><PRE
+CLASS="SYNOPSIS"
+>PGnotify* PQnotifies(PGconn *conn);
+
+typedef struct PGnotify {
+    char relname[NAMEDATALEN];       /* nombre de la relación */
+                                     /* que contiene los datos */
+    int  be_pid;                     /* identificador del proceso servidor */
+} PGnotify;</PRE
+></TD
+></TR
+></TABLE
+>
+Tras procesar un objeto PGnotify devuelto por <TT
+CLASS="FUNCTION"
+>PQnotifies</TT
+>,
+asegurese de liberarlo con <TT
+CLASS="FUNCTION"
+>free()</TT
+> para impedir pérdidas de 
+memoria.</P
+><DIV
+CLASS="NOTE"
+><P
+></P
+><TABLE
+CLASS="NOTE"
+WIDTH="90%"
+BORDER="0"
+><TR
+><TD
+WIDTH="25"
+ALIGN="CENTER"
+VALIGN="TOP"
+><IMG
+SRC="./stylesheet-images/note.gif"
+HSPACE="5"
+ALT="Nota"></TD
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+><P
+> En <SPAN
+CLASS="PRODUCTNAME"
+>PostgreSQL</SPAN
+> 6.4 y posteriores,
+ el <TT
+CLASS="LITERAL"
+>be_pid</TT
+> corresponde al servidor que realiza la notificación,
+ mientras que en versiones anteriores era siempre el <SPAN
+CLASS="ACRONYM"
+>PID</SPAN
+> del
+ propio servidor.</P
+></TD
+></TR
+></TABLE
+></DIV
+></LI
+></UL
+></P
+><P
+>La segunda muestra de programa da un ejemplo del uso de la notificación asíncrona.</P
+><P
+><TT
+CLASS="FUNCTION"
+>PQnotifies()</TT
+> actualmente no lee datos del servidor; únicamente
+devuelve mensajes previamente absorvidos por otra función 
+<TT
+CLASS="APPLICATION"
+>libpq</TT
+>. En versiones previas de
+<TT
+CLASS="APPLICATION"
+>libpq</TT
+>, la única forma de asegurar la recepción a tiempo 
+de mensajes NOTIFY era emitir constantemente consultas, incluso vacías, y comprobar
+entonces <TT
+CLASS="FUNCTION"
+>PQnotifies()</TT
+> tras cada <TT
+CLASS="FUNCTION"
+>PQexec()</TT
+>.
+Aunque esto funcionaba, se menospreciaba como una forma de malgastar poder de 
+proceso.</P
+><P
+>Una forma mejor de comprobar los mensajes NOTIFY cuando no se dispone de consultas 
+utilizables es hacer una llamada <TT
+CLASS="FUNCTION"
+>PQconsumeInput()</TT
+>, 
+y comprobar entonces <TT
+CLASS="FUNCTION"
+>PQnotifies()</TT
+>.
+Se puede usar
+<TT
+CLASS="FUNCTION"
+>select</TT
+>(2) para esperar la llegada de datos del servidor, 
+no utilizando en este caso potencia de <SPAN
+CLASS="ACRONYM"
+>CPU</SPAN
+> a menos que se
+tenga algo que hacer. Nótese que esta forma funcionará correctamente mientras 
+utilice usted <TT
+CLASS="FUNCTION"
+>PQsendQuery</TT
+>/<TT
+CLASS="FUNCTION"
+>PQgetResult</TT
+>
+o símplemente <TT
+CLASS="FUNCTION"
+>PQexec</TT
+> para las consultas. Debería usted, sin
+embargo, recordar comprobar <TT
+CLASS="FUNCTION"
+>PQnotifies()</TT
+>
+tras cada
+<TT
+CLASS="FUNCTION"
+>PQgetResult</TT
+> o <TT
+CLASS="FUNCTION"
+>PQexec</TT
+> para comprobar si ha
+llegado alguna notificación durante el procesado de la consulta.</P
+></DIV
+><DIV
+CLASS="NAVFOOTER"
+><HR
+ALIGN="LEFT"
+WIDTH="100%"><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+><A
+HREF="x20429.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="postgres.html"
+>Inicio</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+><A
+HREF="x20477.html"
+>Siguiente</A
+></TD
+></TR
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+>Ruta Rápida</TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="libpq-chapter.html"
+>Subir</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+>Funciones Asociadas con el Comando COPY</TD
+></TR
+></TABLE
+></DIV
+></BODY
+></HTML
+>

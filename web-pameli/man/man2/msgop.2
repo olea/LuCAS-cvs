@@ -1,0 +1,361 @@
+.\" Copyright 1993 Giorgio Ciucci <giorgio@crcc.it>
+.\"
+.\" Permission is granted to make and distribute verbatim copies of this
+.\" manual provided the copyright notice and this permission notice are
+.\" preserved on all copies.
+.\"
+.\" Permission is granted to copy and distribute modified versions of this
+.\" manual under the conditions for verbatim copying, provided that the
+.\" entire resulting derived work is distributed under the terms of a
+.\" permission notice identical to this one
+.\" 
+.\" Since the Linux kernel and libraries are constantly changing, this
+.\" manual page may be incorrect or out-of-date.  The author(s) assume no
+.\" responsibility for errors or omissions, or for damages resulting from
+.\" the use of the information contained herein.  The author(s) may not
+.\" have taken the same level of care in the production of this manual,
+.\" which is licensed free of charge, as they might when working
+.\" professionally.
+.\" 
+.\" Formatted or processed versions of this manual, if unaccompanied by
+.\" the source, must acknowledge the copyright and authors of this work.
+.\"
+.\" Modified Tue Oct 22 16:40:11 1996 by Eric S. Raymond <esr@thyrsus.com>
+.\" Translated into Spanish, Mon Jan 12 1998, Gerardo Aburruzaga García
+.\" <gerardo.aburruzaga@uca.es>
+.\"
+.TH MSGOP 2 "22 octubre 1996" "Linux 2.0.32" "Manual del Programador de Linux"
+.SH NOMBRE
+msgop \- operaciones con mensajes
+.SH SINOPSIS
+.nf
+.B
+# include <sys/types.h>
+.br
+.B
+# include <sys/ipc.h>
+.br
+.B
+# include <sys/msg.h>
+.fi
+.sp
+.BI "int msgsnd ( int " msqid ,
+.BI "struct msgbuf *" msgp ,
+.BI "int " msgsz ,
+.BI "int " msgflg " )"
+.sp
+.BI "int msgrcv ( int " msqid ,
+.BI "struct msgbuf *" msgp ,
+.BI "int " msgsz ,
+.BI  "long " msgtyp ,
+.BI "int " msgflg " )"
+.SH DESCRIPCIÓN
+Para enviar o recibir un mensaje, el proceso llamador aloja una
+estructura como la siguiente:
+.sp
+.B
+	struct msgbuf {
+.br
+.B
+		long	mtype;	
+/* tipo de msj., debe ser > 0 */
+.br
+.B
+		char	mtext[1];	
+/* datos del mensaje */
+.br
+.B
+	};
+.sp
+pero con un vector
+.B mtext
+de tamaño
+.IR msgsz ,
+un valor entero no negativo.
+El miembro de la estructura
+.B mtype
+debe tener un valor entero estrictamente positivo que puede ser
+empleado por el proceso receptor para la selección de mensaje
+(vea la sección sobre
+.BR msgrcv ).
+.PP
+El proceso llamador debe tener permiso de acceso de escritura para
+enviar, y de lectura para recibir un mensaje en la cola.
+.PP
+La llamada al sistema
+.B msgsnd
+encola una copia del mensaje apuntado por el argumento
+.I msgp
+en la cola de mensaje cuyo identificador se especifica por el valor
+del argumento \fImsqid\fP.
+.PP
+El argumento
+.I msgflg
+especifica el comportamiento de la llamada al sistema si el poner en
+la cola el nuevo mensaje necesitara más de
+.B msg_q 
+bytes en la cola.
+Si
+.B IPC_NOWAIT
+está definido, el mensaje no será enviado y la llamada al sistema
+falla regresando con el valor
+.BR EAGAIN
+puesto en \fBerrno\fP.
+De otro modo, el proceso se suspende hasta que la condición de la
+suspensión deje de existir (en cuyo caso el mensaje es enviado y la
+llamada al sistema acaba con éxito),
+o la cola se borra (en cuyo caso la llamada al sistema falla con
+el valor
+.BR EIDRM
+en \fBerrno\fP),
+o el proceso recibe una señal que ha de ser capturada (en cuyo caso la
+llamada al sistema falla con
+.BR EINTR
+en \fBerrno\fP).
+.PP
+Tras la terminación con éxito de la llamada, la estructura de datos de
+la cola de mensajes se actualiza como sigue:
+.IP
+.B msg_lspid
+toma el valor del PID del proceso llamador.
+.IP
+.B msg_qnum
+se incrementa en una unidad.
+.IP
+.B msg_stime
+toma el valor de la hora actual.
+.PP
+La llamada al sistema
+.B msgrcv
+lee un mensaje de la cola de mensajes especificada por
+.I msqid
+y lo guarda en la estructura
+.B msgbuf
+apuntada por el argumento \fImsgp\fP,
+borrando de la cola, en caso de éxito, el mensaje leído.
+.PP
+El argumento
+.I msgsz
+especifica el tamaño máximo en bytes para el miembro
+.B mtext
+de la estructura apuntada por el argumento \fImsgp\fP.
+Si el texto del mensaje tiene una longitud mayor de
+.IR msgsz ,
+entonces si el argumento
+.I msgflg
+contiene
+.BR MSG_NOERROR ,
+el texto del mensaje se truncará (y la parte truncada se perderá), y
+si no, el mensaje no se borra de la cola y la llamada al sistema falla
+regresando y poniendo el valor
+.BR E2BIG 
+en \fBerrno\fP.
+.PP
+El argumento
+.I msgtyp
+especifica el tipo de mensaje pedido como se muestra a continuación:
+.IP
+Si
+.I msgtyp
+es
+.BR 0 ,
+entonces se lee el mensaje en la parte frontal de la cola.
+.IP
+Si
+.I msgtyp
+es mayor que
+.BR 0 ,
+entonces se lee el primer mensaje en la cola del tipo
+.I msgtyp
+si
+.B MSG_EXCEPT
+no está contenido en el argumento \fImsgflg\fP,
+de otro modo se lee el primer mensaje en la cola de tipo distinto a
+\fImsgtyp\fP.
+.IP
+Si
+.I msgtyp
+es menor que 
+.BR 0 ,
+entonces se leerá el primer mensaje en la cola con el tipo más bajo
+menor o igual al valor absoluto de \fImsgtyp\fP.
+.PP
+El argumento
+.I msgflg
+continene ninguna, una o más (engarzándolas con el operador OR) de
+entre las siguientes opciones:
+.IP
+.B IPC_NOWAIT
+Para retorno inmediato si no hay en la cola ningún mensaje del tipo
+pedido. La llamada al sistema falla con el valor
+.BR ENOMSG 
+en errno.
+.IP
+.B MSG_EXCEPT
+Empleado con
+.I msgtyp
+mayor que
+.B 0
+para leer el primer mensaje en la cola con tipo de mensaje diferente de
+.IR msgtyp .
+.IP
+.B MSG_NOERROR
+Para truncar el texto del mensaje si es mayor que
+.I msgsz
+bytes.
+.PP
+Si no hay disponible un mensaje del tipo pedido e
+.B IPC_NOWAIT
+no está contenido en
+.IR msgflg ,
+el proceso llamador se bloquea hasta que ocurra una de las siguientes
+condiciones: 
+.IP
+Un mensaje del tipo deseado se ponga en la cola.
+.IP
+La cola de mensajes se borre del sistema.
+En tal caso la llamada al sistema falla con el valor
+.BR EIDRM 
+en \fBerrno\fP.
+.IP
+El proceso llamador reciba una señal que ha de ser capturada.
+En tal caso la llamada al sistema falla con el valor
+.BR EINTR 
+en \fBerrno\fP.
+.PP
+Tras la terminación con éxito, la estructura de datos de la cola de
+mensajes se actualiza como sigue:
+.IP
+.B msg_lrpid
+toma el valor del PID del proceso llamador.
+.IP
+.B msg_qnum
+se decrementa en una unidad.
+.IP
+.B msg_rtime
+toma el valor de la hora actual.
+.SH "VALOR DEVUELTO"
+En caso de fallo ambas funciones devuelven
+.B \-1
+con
+.B errno
+indicando el error,
+en caso contrario
+.B msgsnd
+devuelve
+.B 0
+y
+.B msgrvc
+devuelve el número de bytes realmente copiados en el vector \fBmtext\fP.
+.SH ERRORES
+Si
+.B msgsnd
+falla, cuando la función regresa,
+.B errno
+cogerá uno de entre los siguientes valores:
+.TP 11
+.B EAGAIN
+El mensaje no puede ser enviado debido al límite para la cola de
+.B msg_q
+bytes, e
+.B IPC_NOWAIT
+estaba contenido en
+.IR mgsflg .
+.TP
+.B EACCES
+El proceso llamador no tiene permisos de escritura en la cola de mensajes.
+.TP
+.B EFAULT
+La dirección apuntada por
+.I msgp
+no es accesible.
+.TP
+.B EIDRM
+La cola de mensajes fue borrada.
+.TP
+.B EINTR
+Durmiendo a la espera de una condición de cola de mensajes llena, el
+proceso recibió una señal que tuvo que ser capturada.
+.TP
+.B EINVAL
+Valor inválido para \fImsqid\fP, o  valor no positivo de \fImtype\fP, o
+valor inválido para
+.I msgsz
+(menor que 0 ó mayor que el valor del sistema
+.BR MSGMAX ).
+.TP
+.B ENOMEM
+El sistema no tiene bastante memoria para hacer una copia del 
+.BR msgbuf 
+suministrado.
+.PP
+Si
+.B msgrcv
+falla, cuando la función regresa,
+.B errno
+tomará uno de entre los valores siguientes:
+.TP 11
+.B E2BIG
+La longitud del texto del mensaje es mayor que
+.I msgsz
+y
+.B MSG_NOERROR
+no está contenido en
+.IR msgflg .
+.TP
+.B EACCES
+El proceso llamador no tiene permiso de lectura en la cola de mensajes.
+.TP
+.B EFAULT
+La dirección apuntada por
+.I msgp
+no es accesible.
+.TP
+.B EIDRM
+Mientras el proceso estaba durmiento en espera de recibir un mensaje,
+la cola de mensajes fue borrada.
+.TP
+.B EINTR
+Mientras el proceso estaba durmiento en espera de recibir un mensaje,
+el proceso recibió una señal que tuvo que ser capturada.
+.TP
+.B EINVAL
+Valor ilegal de \fImsgqid\fP, o
+.I msgsz
+menor que
+.BR 0 .
+.TP
+.B ENOMSG
+.B IPC_NOWAIT
+estaba contenido en
+.I msgflg
+y no existía ningún mensaje del tipo requerido en la cola de mensajes.
+.SH OBSERVACIONES
+Los siguientes son límites del sistema que afectan a la llamada al sistema
+.B msgsnd :
+.TP 11
+.B MSGMAX
+Tamaño máximo para un texto de mensaje: la implementación pone esta
+valor a 4080 bytes.
+.TP
+.B MSGMNB
+Tamaño máximo predeterminado en bytes de una cola de mensaje: depende
+de la política seguida en el sistema. El super\-usuario puede
+incrementar el tamaño de una cola de mensajes más allá de 
+.B MSGMNB
+a través de la llamada al sistema 
+.B msgctl .
+.PP
+La implementación no tiene límites intrínsecos para el número máximo,
+del sistema, de cabeceras de mensaje
+.RB ( MSGTQL )
+ni para el tamaño máximo, del sistema, en bytes, de la zona común de mensajes
+.RB ( MSGPOOL ).
+.SH "CONFORME A"
+SVr4, SVID.
+.SH "VÉASE TAMBIÉN"
+.BR ipc (5),
+.BR msgctl (2),
+.BR msgget (2),
+.BR msgrcv (2),
+.BR msgsnd (2)

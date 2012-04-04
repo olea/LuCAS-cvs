@@ -1,0 +1,522 @@
+.\"
+.\" Traducido por Pedro Pablo Fábrega pfabrega@arrakis.es
+.\" Fuertemente modificado por  Paul Russell Marzo 1997
+.\" <Paul.Russell@rustcorp.com.au>
+.\" 
+.\" Basado en la página de manual de ipfwadm de Jos Vos <jos@xos.nl> (véase README)
+.\"
+.\"	Este programa es software libre; puede redistribuirlo y/o modificarlo
+.\"	bajo los términos de la Licencia Pública General GNU como publica
+.\"	la Free Software Foundation; bien la versión 2 dela licencia, o
+.\"	(a su elección) cualquier versión posterior.
+.\"
+.\"	Este programa se distribuye con la esperanza de ser útil
+.\"	pero SIN NINGUNA GARANTÍA; sin incluso la garantía implícita
+.\"	MERCANTIL o de ADECUACIÓN PARA UN DETERMINADO PROPÓSITO. Véase la
+.\"	Licencia Pública General GNU para más detalles.
+.\"
+.\"	Debería recibir una copia de la Licencia Pública General GNU
+.\"	con este programa; si no es así, escriba a la Free Software
+.\"	Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+.\"
+.\"
+.TH IPCHAINS 8 "8 Febrero 1998" "" ""
+.SH NAME
+ipchains \- IP administración de cortafuegos
+.SH SINOPSIS
+.BR "ipchains -[ADC] " "cadena especificación-de-regla [opciones]"
+.br
+.BR "ipchains -[RI] " "cadena numero-regla especificación-de-regla [opciones]"
+.br
+.BR "ipchains -D " "cadena numero-regla [opciones]"
+.br
+.BR "ipchains -[LFZNX] " "[cadena] [opciones]"
+.br
+.BR "ipchains -P " "cadena objetivo [opciones]"
+.br
+.BR "ipchains -M " "[ -L | -S ] [opciones]"
+.SH DESCRIPCIÓN
+.B Ipchains
+se usa para configurar, mantener e inspeccioar las reglas de cortafuegos
+IP del núcleo Linux. Estas reglas se pueden dividir en 4 categorías
+diferentes: la cadena de entrada IP, la cadena de salida IP, la cadena
+de reenvío IP y las cadenas definidas por el usuario.
+
+Para cada una de estas categorías se mantiene una tabla de reglas
+separada, cualquiera de las cuales podría remitir a una de las cadenas
+definidas por el usuario.
+
+Váease
+.IR ipfw (4)
+para más detalles.
+.SH OBJETIVOS
+Una regla de cortafuegos especifica citerios para un paquete y un objetivo.
+Si el paquete no concuerda se examina la siguiente regla de la cadena; si
+concuerda, la siguiente regla se especifica por el valor del objetivo, que
+puede ser el nombre de una cadena definida por el usuario o uno de los
+valores especiales
+.IR ACCEPT ,
+.IR DENY ,
+.IR REJECT ,
+.IR MASQ ,
+.I REDIRECT
+o
+.IR RETURN .
+.sp 0.5
+.I ACCEPT 
+significa dejar pasar el paquete.
+.I DENY
+significa tirar el paquete al suelo (denegar).
+.I REJECT 
+significa lo mismo que denegar, pero más educado y fácil de depurar, ya que
+devuelve en mensaje ICMP al remitente indicando que el paquete fue elliminado.
+(Observe que
+.I DENY 
+y
+.I REJECT 
+son lo mismo para paquetes ICMP).
+.sp 0.5
+.I MASQ
+es sólo legal para reenvío y cadenas definidas por el usuario, y sólo se
+puede usar cuando el núcleo está compilado con
+.B CONFIG_IP_MASQUERADE
+definida.
+Con esto, los paquetes se enmascaran como si estuvieran originados desde
+el host local. Más aún, los paquetes devueltos serán reconocidos y
+desenmascarados automáticamente y entonces pasados a la cadena de
+reenvío.
+.sp 0.5
+.I REDIRECT
+es sólo legal para las cadenas de entrada y definidas por el usuario, y sólo
+se puede usar cuando en núcleo linux está compilado con
+.B CONFIG_IP_TRANSPARENT_PROXY
+definido.
+Con esto, los paquetes se redirigen al socket local, incluso si son enviados
+a un host remoto. Si el puerto de redirección especificado es 0, que es el
+valor por defecto, el puerto objetivo de un paquete se usa como puerto de
+redirección. Cuando se usa este objetivo, se puede suministrar un argumento
+extra, el número de puerto.
+.sp 0.5
+Si se llega al final de una cadena definida por el usuario, o se
+concuerda con una regla con objetivo
+.IR RETURN ,
+se examina la siguiente regla de la cadena previa (llamada). Si se llega
+al final de una cadena predefinida o se concuerda con una regla de la cadena
+predefinida con el objetivo
+.I RETURN
+el objetivo especificado por la política de la cadena determina el
+destino del paquete.
+.SH OPCIONES
+Las opciones que reconoce
+.B ipchains
+se pueden dividir en varios grupos diferentes.
+.SS MANDATOS
+Estas opciones indican la acción específica que hay que realizar; sólo
+se puede especificar una de ellas en la línea de mandatos, salvo que
+más abajo se especifique lo contrario. En todas las versiones largas
+de los nombres de mandatos y nombres de opciones, sólo es necesario
+especificar suficientes letras para asegurarse de que
+.B ipchains
+puede distinguirla de las otras opciones.
+.TP
+.BR "-A, --append"
+Añade una o más reglas al final de la cadena seleccionada.
+Cuando los nombres origen y/o destino se resuelven a más de
+una dirección, se añade una nueva regla para cada posible
+combinación de dirección.
+.TP
+.BR "-D, --delete"
+Elimina una o más reglas de la cadena seleccionada. Hay dos versiones de
+este comando: la regla se puede especificar como el número de la
+cadena (empezando en 1 para la primera regla) o como una regla que
+concuerde.
+.TP
+.B "-R, --replace"
+Sustituye una regla de la cadena seleccionada. Si los nombres origen
+y/o destino se resuelven a múltiples direcciones, el mandato fallará.
+Las reglas se numeran comenzando por 1.
+.TP
+.B "-I, --insert"
+Inserta una o más reglas en la cadena seleccionada con el
+número indicado de regla. Así, si la regla tiene el número 1
+la regla o reglas se insertan al principio de la cadena.
+.TP
+.B "-L, --list"
+Muestra todas las reglas de la cadena seleccionada. Si no hay cadena
+seleccionada, se listan todas las cadenas. Es legal especificar la opción
+.B -Z
+(cero) también, en cuyo caso no se puede especificar cadena.
+La salida exacta está determinada por los otros argumentos indicados.
+.TP
+.B "-F, --flush"
+Vacía la cadena seleccionada. Es equivalente a borrar todas las
+reglas una a una.
+.TP
+.B "-Z, --zero"
+Pone a cero los contadores de octetos y paquetes de todas las cadenas. Es legal
+specificar la opción
+.B "-L, --list"
+(list) también, para ver los contadores inmediatamente antes de que sean borrados;
+si se hace esto no se puede indicar una cadena específica.
+(Esto mostrará y borrará
+.IR todo ).
+.TP
+.B "-N, --new-chain"
+Crea una nueva cadena definida por el usuario con el nombre dado. No puede haber un
+objetivo con ese nombre existente.
+.TP
+.B "-X, --delete-chain"
+Borra la cadena definida por el usuario especificada. No pueden haber referencias
+a la cadena (si hay tiene que borrar o sustituir las referidas reglas antes de
+poder borrar la cadena). Si no se dan argumentos, intentará eliminar todas las
+cadenas no predefinidas.
+.TP
+.B "-P, --policy"
+Fija la política para la cadena con un destino dado. Véase la sección
+.B OBJETIVOS
+para los objetivos legles. Sólo las cadenas no definidas por el usuario
+pueden tener políticas, y ni las cadenas predefinidas ni las definidas
+por el usuario pueden ser objetivos de política.
+.TP
+.B "-M, --masquerading"
+Esta opción permite ver las conexiones enmascaradas actualmente (en
+conjunción con la opción
+.BR -L )
+o fija los parámetros de enmascaramiento del núcleo (con la opción
+.BR -S ).
+.TP
+.BI "-S, --set tcp tcpfin udp"
+Cambia los plazos de tiempo (timeouts) usados para enmascaramiento
+Este comando siempre toma 3 parámetros, que representan los valores de los
+temporizadores (en segundos) para sesiones TCP, sesiones TCP tras recibir
+un paquete FIN, y paquetes UDP respectivamente.
+Un valor de temporizador 0 significa que se conserva el valor
+correspondiente de la entrada. Esta opción sólo está permitida en
+combinación con la bandera
+.BR -M .
+.TP
+.B "-C, --check"
+Verifica el paquete dado con la regla seleccionada. Es extremadamente
+útil para comprobar, ya que se usan las mismas rutinas del núcleo
+para verificar paquetes "reales" se usan para verificar este
+paquete. Se puede usar para verificar cadenas definidas por el usuario
+y cadenas predefinidas. Los mismos argumentos que se usan para
+especificar reglas de cortafuegos son los que se usan para construir
+el paquete el paquete que se quiere comprobar. En particular son
+obligatorias las banderas
+.B -s
+(origen),
+.B -d 
+(destino),
+.B -p 
+(protocolo) y
+.B -i 
+(interfaz).
+.TP
+.B -h
+Ayuda.
+Da una descripción (actualmente breve) de la sintaxis del mandato.
+.SS PARÁMETROS
+Los siguientes parámetros afectan las especificaciones de reglas (como
+se usan en los mandatos add, delete, replace, append y check).
+.TP
+.BI "-p, --protocol" "[!] protocol"
+El protocolo de la regla del paquete que se quiere verificar.
+El protocolo especificado puede ser  uno de los siguientes:
+.IR tcp ,
+.IR udp ,
+.I icmp
+o
+.IR all ,
+o puede ser un valor numérico, que representa uno de estos
+protocolos u otro diferente. También está permitido un protocolo de
+nombre de /etc/protocols.
+Un argumento "!" antes del protocolo invierte el test. El número cero es
+equivalente a
+.IR all .
+Protocolo
+.I all
+concordará con cualquier protocolo y es tomado por defecto cuando se omite
+esta opción.
+.I All
+no se puede usar en combinación con el mandato check.
+.TP
+.BR "-s, --source " "[!] \fIdirección/máscara\fP] [!] [\fIpuerto[:puerto]\fP]"
+Especificación de origen.
+.I Dirección
+puede ser un nombre de host, un nombre de red o una simple dirección IP.
+La
+.I máscara
+puede ser una máscara de red o un simple número que especifique el número de
+unos (1) a la izquierda en la máscara de red.
+Así, una máscara de
+.I 24
+es equivalente a
+.IR 255.255.255.0 .
+Un argumento "!" antes de la especificación de dirección invierto el sentido
+de la dirección.
+.sp 0.5
+El origen puede incluir especificaciones de puertos o tipo ICMP. Esto puede
+ser bien un nombre de servicio, un número de puerto, un tipo numérico ICMP o
+uno de los nombres de tipo ICMP mostrados por el mandato
+.BR "ipchains -h icmp" .
+Observe que muchos de estos nombres ICMP se refieren al tipo y código, lo que
+significa que un código ICMP tras la bandera
+.B -d
+es ilegal. En el resto de este párrafo, un
+.I port
+significa bien una especificación de puerto o un tipo ICMP. Se puede especificar
+un rango usando el formato
+.IR puerto : puerto .
+Si se omite el primer puerto se supone "0"; si se omite el último, se supone
+"65535".
+.sp 0.5
+Los puertos se pueden especificar sólo en combinación con los protocolos
+.IR tcp ,
+.I udp
+o
+.I icmp
+Un "!" antes de la especificación de puerto invierte el sentido. Cuando se especifica el
+mandato check, se requiere sólo un puerto, y si se especifica la bandera
+.B -f 
+(fragmento) no se permiten puertos. La bandera
+.B --src
+es un alias para esta opción.
+.TP
+.BR "--source-port " "[!] [\fIpuerto[:puerto]\fP]"
+Esto permite separar las especificaciones del puerto origen o
+rango de puertos. Véase la descripción anterior de la bandera
+.B -s
+para más detalles. La bandera
+.B --sport
+es un alias de esta opción.
+.TP
+.BR "-d, --destination " "[!] \fIdirección\fP[/\fImáscara\fP] [!] [\fIpuerto[:puerto]\fP]"
+Especificación de destino.
+Véase la descripción de la bandera
+.B -s
+(origen) para una detallada descripción de la sintaxis. Para ICMP, que no tiene puertos
+un "puerto destino" se refiere a un código numérico ICMP. La bandera
+.B --dst
+es un alias de esta opción.
+.TP
+.BR "--destination-port " "[!] [\fIpuerto[:puerto]\fP]"
+Esto permite separar especificacioens de puertos. Véase la descripción de la bandera
+.B -s
+para los detalles. la bandera
+.B --dport
+es un alias de esta opción.
+.TP
+.BR "--icmp-type " "[!] nombre-de tipo"
+Esto permite especificaciones de tipo ICMP
+This allows specification of the ICMP type (use la opción
+.B "-h icmp"
+para ver los nombres de tipo ICMP válidos). Con frecuencia es más conveniente
+añadirlo a las especificacones de destino.
+.TP
+.BR "-j, --jump " "\fIobjetivo\fP"
+Esto especifica el objetivo de la regla; i.e., qué hacer con el paquete si
+concuerda con la regla. El objetivo puede ser una cadena definida por el
+usuario (no en la que está la regla) o uno de los objetivos especiales que
+decide el destino del paquete de forma inmediata. Si omitimos esta opción
+en una regla, entonces la concordancia no tendrá efecto sobre el destino del paquete,
+pero se incremnetarán los contadores de la regla.
+.TP
+.BI "-i, --interface " "[!] nombre"
+Nombre opcional de un interfaz a través del cual se reciben los paquetes,
+o mediante el cual salen los paquetes se envían. Cuando se omite esta opción
+se supone una cadena vacía, que tiene un significado especial, y
+concordará con cualquier nombre de interfaz. Cuando se usa el
+argumento "!" antes del nombre de interfaz, se invierte el sentido. Si el
+nombre de interfaz termina en un "+" entonces concordará cualquier nombre de
+interfaz que empiece con ese nombre.
+.TP
+.B "[!] " "-f, --fragment"
+Esto significa que la regla sólo se refiere al segundo o siguientes fragmentos de
+paquetes fragmentados. Como no hay forma de indicar los puertos origen y destino
+de tales paquetes (o tipo ICMP), esos paquetes, tales paquetes no verificarán
+ninguna regla que los especifique. Cuando el argumento "!" precede a la bandera
+-f, se invierte el sentido.
+.SS "OTRAS OPCIONES"
+Se pueden especificar las siguientes opciones adicionales:
+.TP
+.BI "-b, --bidirectional"
+Modo bidireccional.
+La regla concordará con los paquetes IP en ambas direcciones; esto tiene los
+mismos efectos que repetir la regla cambiando origen y destino.
+.TP
+.BI "-v, --verbose"
+Salida documentada.
+Esta opción hace que el mantato list muestre la driección del interfaz,
+las opciones de la regla (si hay) y las máscaras TOS. Los contadores
+también se muestran con los sufijos 'K', 'M' o 'G' para multiplicadores
+1000, 1,000,000 y 1,000,000,000 respectivamente (pero vea la
+bandera
+.B -x
+para cambiar esto). Cuando  se usa en combinación con
+.BR -M ,
+la información relativa a los núeros de secuencia delta también se mostrarán.
+Para añadir, insertar, borrar y sustituir, esto hace que se muestre
+inforamción detallada sobre la regla.
+.TP
+.BI "-n, --numeric"
+Salida numérica
+Las direcciones IP y los números de puertos se imprimirán en formato
+numérico. Por defecto, el programa intentará mostrarlos como nombres de
+hosts, nombres de redes o servicios (cuando sea aplicable).
+.TP
+.BI "-l, --log"
+Activa el registro del núcleo de los paquetes que concuerden. Cuando
+esta opción está activa para una regla, el núcleo Linux imprimirá
+cierta información de todos los paquetes que concuerden (como la
+mayoría de los campos de cabeceras IP) mediante
+.IR printk ().
+.TP
+.BI "-o, --output" " [tamaño-máximo]"
+Copia los paquetes al dispositivo espacio de usuario. Esto es
+en la actualidad principalmente para desarrolladores que quieren jugar
+con efectos de cortafuegos en su espacio. El argumento opcional
+tamaño-máximo se puede usar para limitar el máximo número de bytes del
+paquete que se van a copiar. Esta opción sólo es válida si el núcleo
+se ha compilado con
+CONFIG_IP_FIREWALL_NETLINK
+activo.
+.TP
+.BI "-m, --mark" " valor-marca"
+Marca paquetes concordados. Los paquetes se pueden marcar con un valor entero
+sin signo de 32 bits que (algún día) puede cambiar su manejo interno. Si
+no es un "kernel hacker" no es probable que tenga que preocuparse por esto.
+Si la cadena
+.I valor-marca
+empieza con + o -, este valor se añade o resta del valor actual del
+valor de marca de paquetes (que empieza  en cero).
+.TP
+.BI "-t, --TOS" " andmask xormask"
+Máscara usada para modificar el campo TOS de la cabecera IP. Cuando un
+paquete concuerda con una regla, a su campo TOS, priemero se hace un
+and con la primera máscara y al resultado de esto se le hace un xor
+con la segunda máscara. Las máscaras se tiene que especificar como
+valores hexadecimales de 8-bit. Como el LSB del campo TOS debe quedar
+inalterado (RFC 1349), los valores TOS, que hicieran que se alterase,
+se rechazan, como es cualquier regla que siempre ponga más que el bit TOS.
+Las reglas que podrían poner múltiples bits TOS para ciertos paquetes
+originan avisos (enviados a stdout) que se pueden ignorar si sabe que
+paquetes con valores TOS nuncan alcanzarán esta regla. Obviamente
+manipular el TOS es un gesto sin sentido si el objetivo de la regla es
+.I DENY
+o
+.IR REJECT .
+.TP
+.BI "-x, --exact"
+Expande números.
+Muestra el valor exacto de los contadores de bytes y paquetes en lugar de
+sólo los números redondeados en K (múltiplos de 1000)
+M (múltiplos de 1000K) o G (múltiplss de 1000M). Esta opción sólo es relevante
+para el mandato
+.BR -L .
+.TP
+.BI "[!] -y, --syn"
+Sólo concuerda con paquetes TCP con el bit SYN activo y los bits
+ACK y FIN limpios. Tales paquetes se usan para las solicitudes
+de inicio de conexión TCP; por ejemplo, bloqueando tales paquetes
+entrantes en un interfaz, prevendrá las conexiones TCP, pero las
+conexioenes salientes no se verán afectadas. Esta opción sólo
+tiene sentido cuando el tipo de protocolo está como TCP. Si la
+bandera  "!" flag precede al "-y", el sentido de la opción se
+invierte.
+.SH FICHEROS
+.I /proc/net/ip_fwchains
+.br
+.I /proc/net/ip_masquerade
+.SH BUGS
+No hay forma de reiniciar los contadores de paquetes y bytes en una única
+cadena. Es una limitación del núcleo.
+.PP
+No se realiza la detección de bucles en ipchains; los paquetes en un
+bucle se eliminan y se registran, pero esto será lo primero que
+encontrará sobre esto si accidentalmente crea un bucle.
+.PP
+La explicación de qué efectos tiene marcar un paquete es vaga
+intencianlamente hasta que se publique la documentación del núcleo que describe las
+rutinas de secuenciación de paquetes del núcleo.
+.PP
+No hay forma de poner a cero los contadores de política (i.e. las
+cadenas predefinidas).
+.SH FALLOS
+Este
+.B ipchains
+es muy diferente al ipfwadm by Jos Vos, ya que usa los nuevos árboles
+de cortafuegos IP. Su funcionalidad incluye ipfwadm, y hay normalmente
+una aplicación 1:1 de los mandatos. Hay, sin embargo, algunos cambios
+con los que debería tener cuidado.
+.PP
+Los fragmentos se manejan de diferente forma. Todos los fragmentos tras
+el primero usado se dejan pasar (que normalmente es seguro); ahora se
+pueden filtrar. Esto significa que probablemente añadirá una regla específica
+para aceptar fragmentos si los está convirtiendo. También busque las
+antiguas reglas de contabilidad que verifican los puertos origen y destino
+de 0xFFFF (0xFF para paquetes ICMP) que era la anterior forma de
+contabilizar los fragmentos.
+.PP
+La reglas de contabilidad ahora simplemente están integradas en las
+cadenas de entrada y salidad; puede simular el anterior comportamiento
+como:
+.br
+ ipchains -N acctin
+.br
+ ipchains -N acctout
+.br
+ ipchains -N acctio
+.br
+ ipchains -I input -j acctio
+.br
+ ipchains -I input -j acctin
+.br
+ ipchains -I output -j acctio
+.br
+ ipchains -I output -j acctout
+.br
+Esto crea tres cadenas definidas
+.IR acctin ,
+.I acctout
+y
+.IR acctio ,
+que son para contener cualquier regla de contabilidad (estas reglas
+se deberían especificar sin una bandera
+.B -j
+para  que los paquetes simplemente lo pasen sin perjudicar nada).
+.PP
+A 
+.I MASQ
+o
+.I REDIRECT
+objetivos encontrados por el núcleo fuera de lugar (i.e. no durante
+una regla de reenvío o de entrada respectivamente) ocasionarán un
+mensaje a syslog  y que el paquete sea descartado.
+.PP
+El anterior comportamiento de concordancias con SYN y ACK (que era
+previamente ignorado para paquetes no TCP) ha cambiado; la opción SYN
+no es válida para reglas no específicas TCP.
+.PP
+La opción de concordancia ACK (
+.BR -k )
+ya no se soporta; la combinación de
+.B !
+y
+.B -y
+proporcionan la equivalencia).
+.PP
+Ahora es ilegal especificar una máscara TOS que acitve o modifique
+el bit TOS menos significativo; previamente las máscaras TOS eran
+modificadas silenciosamente por el núcleo si intentaban hacer esto.
+.PP
+La bandera
+.B -b
+ahora se gestiona simplemente insertando o borrando un par de reglas, una con
+las especificaciones de origen y destino intercambiadas.
+.PP
+No hay forma de especificar un interfaz por dirección: use su nombre.
+.SH VÉASE TAMBIÉN
+ipfw(4)
+.SH AUTOR
+Rusty Russell <Paul.Russell@rustcorp.com.au>

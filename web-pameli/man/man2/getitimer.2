@@ -1,0 +1,147 @@
+.\" Copyright 7/93 by Darren Senn <sinster@scintilla.santa-clara.ca.us>
+.\" Based on a similar page Copyright 1992 by Rick Faith
+.\" May be freely distributed
+.\" Modified Tue Oct 22 00:22:35 EDT 1996 by Eric S. Raymond <esr@thyrsus.com>
+.\" Modified 19 Dec 1997 Miguel Gil (mgilgar@usa.net)
+.\"
+.TH GETITIMER 2 "5 agosto 1993" "Linux 0.99.11" "Manual del programador de Linux"
+.SH NOMBRE
+getitimer, setitimer \- obtiene/asigna el valor de un temporizador
+.SH SINOPSIS
+.PD 0
+.HP
+.B #include <sys/time.h>
+.sp
+.HP
+.B int getitimer(int
+.IB which ,
+.B struct itimerval
+.BI * value );
+.HP
+.B int setitimer(int
+.IB which ,
+.B const struct itimerval
+.BI * value ,
+.B struct itimerval
+.BI * ovalue );
+.PD
+.SH DESCRIPCIÓN
+El sistema proporciona a cada proceso 3 temporizadores, los cuales se decrementan
+en distintas escalas de tiempo.  Cuando ha pasado el intervalo de tiempo definido en el temporizador, se envía una señal al 
+proceso, y el temporizador (potencialmente) vuelve a empezar.
+.TP 1.5i
+.B ITIMER_REAL
+se decrementa en tiempo real, y envía
+.B SIGALRM
+al expirar.
+.TP
+.B ITIMER_VIRTUAL
+se decrementa solo cuando el proceso esta ejecutándose, y envía
+.B SIGVTALRM
+al expirar.
+.TP
+.B ITIMER_PROF
+se decrementa tanto cuando el proceso 
+esta ejecutándose como cuando el 
+sistema esta trabajando en nombre 
+del proceso.
+ Asociado con
+.BR ITIMER_VIRTUAL ,
+este temporizador suele usarse para analizar el tiempo consumido por la aplicación en el espacio de usuario y en espacio del nucleo
+.B SIGPROF
+es enviado al expirar.
+.LP
+Los valores del temporizador estan definidos en los siguientes tipos de datos:
+.PD 0
+.RS .5i
+.nf
+struct itimerval {
+    struct timeval it_interval; /* valor próximo */
+    struct timeval it_value;    /* valor actual */
+};
+struct timeval {
+    long tv_sec;                /* segundos */
+    long tv_usec;               /* microsegundos */
+};
+.fi
+.RE
+.PD
+.LP
+.BR Getitimer (2)
+rellena la estructura indicada por
+.I value
+con el valor actual para el temporizador especificado por
+.I which
+(uno de estos: 
+.BR ITIMER_REAL ,
+.BR ITIMER_VIRTUAL ,
+o
+.BR ITIMER_PROF ).
+El elemento
+.B it_value
+es inicializado a la cantidad de tiempo que le falta al temporizador, o cero si el temporizador
+esta deshabilitado. De forma similar, 
+.B it_interval
+es iniciazliado a un valor por defecto.
+.BR Setitimer (2)
+inicializa el temporizador especificado al valor en
+.IR value .
+Si
+.I ovalue
+no es cero, el antiguo valor del temporizador es almacenado alli.
+.LP
+Los temporizadore se decrementan desde
+.I it_value
+a cero, generan una señal, y se inicializan a
+.IR it_interval .
+Un temporizador al que se le asigna el valor cero
+.RI ( it_value
+es cero o el temporizador expira y 
+.I it_interval
+es cero) finaliza.
+.LP
+.I tv_sec
+y
+.I tv_usec
+son significativos en la determinación de la duración del temporizador.
+.LP
+Los temporizadores nunca expiran antes del tiempo especificado,
+lo hacen un tiempo constante poco después, dependiente
+de la resolución del temporizador del sistema (actualmente 10ms).  En el momento de la expiración, una
+señal será generada y el temporizador será inicializado.  Si el temporizador expira
+mientrás el proceso esta activo (siempre cierto para
+.BR ITIMER_VIRT )
+la señal será enviada inmediatamente al generarse.  De otra modo el
+envio será aplazado hasta un tiempo después dependiente de la carga de trabajo del sistema.
+.LP
+.SH "VALOR DEVUELTO"
+En caso de éxito, devuelve 0. En caso de error, devuelve , \-1  y
+.I errno
+es asignada apropiadamente.
+.SH ERRORES
+.TP
+.B EFAULT
+.I value
+o
+.I ovalue
+no son punteros válidos.
+.TP
+.B EINVAL
+.I which
+no es uno de
+.BR ITIMER_REAL ,
+.BR ITIMER_VIRT ,
+o
+.BR ITIMER_PROF .
+.SH "CONFORME A"
+SVr4, 4.4BSD (Esta llamada al sistema apareció por primera vez en 4.2BSD).
+.SH "VÉASE TAMBIÉN"
+.BR gettimeofday (2),
+.BR sigaction (2),
+.BR signal (2).
+.SH FALLOS
+En Linux, la generación y envio de una señal son acciones distintas, y
+para cada señal solo se permite un evento. Es, por lo tanto, posible que en condiciones extremas de sobrecarga,
+.B ITIMER_REAL
+expire antes de que la señal de una anterior expiración haya sido enviada.
+La segunda señal, en esta situación, será perdida.

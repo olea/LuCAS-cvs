@@ -1,0 +1,303 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<HTML
+><HEAD
+><TITLE
+>Examples</TITLE
+><META
+NAME="GENERATOR"
+CONTENT="Modular DocBook HTML Stylesheet Version 1.59"><LINK
+REL="HOME"
+TITLE="Guia del Programador de PostgreSQL"
+HREF="programmer.html"><LINK
+REL="UP"
+TITLE="Server Programming Interface"
+HREF="spi.html"><LINK
+REL="PREVIOUS"
+TITLE="Visibility of Data Changes"
+HREF="x3287.html"><LINK
+REL="NEXT"
+TITLE="Objetos Grandes"
+HREF="largeobjects.html"></HEAD
+><BODY
+CLASS="SECT1"
+BGCOLOR="#FFFFFF"
+TEXT="#000000"
+LINK="#0000FF"
+VLINK="#840084"
+ALINK="#0000FF"
+><DIV
+CLASS="NAVHEADER"
+><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TH
+COLSPAN="3"
+ALIGN="center"
+>Guia del Programador de PostgreSQL</TH
+></TR
+><TR
+><TD
+WIDTH="10%"
+ALIGN="left"
+VALIGN="bottom"
+><A
+HREF="x3287.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="80%"
+ALIGN="center"
+VALIGN="bottom"
+>Server Programming Interface</TD
+><TD
+WIDTH="10%"
+ALIGN="right"
+VALIGN="bottom"
+><A
+HREF="largeobjects.html"
+>Siguiente</A
+></TD
+></TR
+></TABLE
+><HR
+ALIGN="LEFT"
+WIDTH="100%"></DIV
+><DIV
+CLASS="SECT1"
+><H1
+CLASS="SECT1"
+><A
+NAME="AEN3292"
+>Examples</A
+></H1
+><P
+>   This example of SPI usage demonstrates the visibility rule.
+   There are more complex examples in in src/test/regress/regress.c and
+in contrib/spi.</P
+><P
+>   This is a very simple example of SPI usage. The procedure execq accepts
+an SQL-query in its first argument and tcount in its second, executes the
+query using SPI_exec and returns the number of tuples for which the query
+executed:
+
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>#include "executor/spi.h"	/* this is what you need to work with SPI */
+
+int execq(text *sql, int cnt);
+
+int
+execq(text *sql, int cnt)
+{
+	int ret;
+	int proc = 0;
+	
+	SPI_connect();
+	
+	ret = SPI_exec(textout(sql), cnt);
+	
+	proc = SPI_processed;
+	/*
+	 * If this is SELECT and some tuple(s) fetched -
+	 * returns tuples to the caller via elog (NOTICE).
+	 */
+	if ( ret == SPI_OK_SELECT &#38;&#38; SPI_processed &#62; 0 )
+	{
+		TupleDesc tupdesc = SPI_tuptable-&#62;tupdesc;
+		SPITupleTable *tuptable = SPI_tuptable;
+		char buf[8192];
+		int i;
+		
+		for (ret = 0; ret &#60; proc; ret++)
+		{
+			HeapTuple tuple = tuptable-&#62;vals[ret];
+			
+			for (i = 1, buf[0] = 0; i &#60;= tupdesc-&#62;natts; i++)
+				sprintf(buf + strlen (buf), " %s%s",
+					SPI_getvalue(tuple, tupdesc, i),
+					(i == tupdesc-&#62;natts) ? " " : " |");
+			elog (NOTICE, "EXECQ: %s", buf);
+		}
+	}
+
+	SPI_finish();
+
+	return (proc);
+}</PRE
+></TD
+></TR
+></TABLE
+></P
+><P
+>   Now, compile and create the function:
+
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>create function execq (text, int4) returns int4 as '...path_to_so' language 'c';</PRE
+></TD
+></TR
+></TABLE
+>
+
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>vac=&#62; select execq('create table a (x int4)', 0);
+execq
+-----
+    0
+(1 row)
+
+vac=&#62; insert into a values (execq('insert into a values (0)',0));
+INSERT 167631 1
+vac=&#62; select execq('select * from a',0);
+NOTICE:EXECQ:  0 &#60;&#60;&#60; inserted by execq
+
+NOTICE:EXECQ:  1 &#60;&#60;&#60; value returned by execq and inserted by upper INSERT
+
+execq
+-----
+    2
+(1 row)
+
+vac=&#62; select execq('insert into a select x + 2 from a',1);
+execq
+-----
+    1
+(1 row)
+
+vac=&#62; select execq('select * from a', 10);
+NOTICE:EXECQ:  0 
+
+NOTICE:EXECQ:  1 
+
+NOTICE:EXECQ:  2 &#60;&#60;&#60; 0 + 2, only one tuple inserted - as specified
+
+execq
+-----
+    3            &#60;&#60;&#60; 10 is max value only, 3 is real # of tuples
+(1 row)
+
+vac=&#62; delete from a;
+DELETE 3
+vac=&#62; insert into a values (execq('select * from a', 0) + 1);
+INSERT 167712 1
+vac=&#62; select * from a;
+x
+-
+1                &#60;&#60;&#60; no tuples in a (0) + 1
+(1 row)
+
+vac=&#62; insert into a values (execq('select * from a', 0) + 1);
+NOTICE:EXECQ:  0 
+INSERT 167713 1
+vac=&#62; select * from a;
+x
+-
+1
+2                &#60;&#60;&#60; there was single tuple in a + 1
+(2 rows)
+
+--   This demonstrates data changes visibility rule:
+
+vac=&#62; insert into a select execq('select * from a', 0) * x from a;
+NOTICE:EXECQ:  1 
+NOTICE:EXECQ:  2 
+NOTICE:EXECQ:  1 
+NOTICE:EXECQ:  2 
+NOTICE:EXECQ:  2 
+INSERT 0 2
+vac=&#62; select * from a;
+x
+-
+1
+2
+2                &#60;&#60;&#60; 2 tuples * 1 (x in first tuple)
+6                &#60;&#60;&#60; 3 tuples (2 + 1 just inserted) * 2 (x in second tuple)
+(4 rows)             ^^^^^^^^ 
+                     tuples visible to execq() in different invocations</PRE
+></TD
+></TR
+></TABLE
+></P
+></DIV
+><DIV
+CLASS="NAVFOOTER"
+><HR
+ALIGN="LEFT"
+WIDTH="100%"><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+><A
+HREF="x3287.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="programmer.html"
+>Inicio</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+><A
+HREF="largeobjects.html"
+>Siguiente</A
+></TD
+></TR
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+>Visibility of Data Changes</TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="spi.html"
+>Subir</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+>Objetos Grandes</TD
+></TR
+></TABLE
+></DIV
+></BODY
+></HTML
+>

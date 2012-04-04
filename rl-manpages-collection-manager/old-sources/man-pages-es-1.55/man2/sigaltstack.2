@@ -1,0 +1,196 @@
+.\" Copyright (c) 2001, Michael Kerrisk (mtk16@ext.canterbury.ac.nz)
+.\"
+.\" Permission is granted to make and distribute verbatim copies of this
+.\" manual provided the copyright notice and this permission notice are
+.\" preserved on all copies.
+.\"
+.\" Permission is granted to copy and distribute modified versions of this
+.\" manual under the conditions for verbatim copying, provided that the
+.\" entire resulting derived work is distributed under the terms of a
+.\" permission notice identical to this one
+.\"
+.\" Since the Linux kernel and libraries are constantly changing, this
+.\" manual page may be incorrect or out-of-date.  The author(s) assume no
+.\" responsibility for errors or omissions, or for damages resulting from
+.\" the use of the information contained herein.
+.\"
+.\" Formatted or processed versions of this manual, if unaccompanied by
+.\" the source, must acknowledge the copyright and authors of this work.
+.\"
+.\" aeb, various minor fixes
+.\" 
+.\" Translated by Jorge Rodriguez Garcia (A.K.A. Tiriel) <tiriel@users.sourceforge.net>
+.\"
+.TH SIGALTSTACK 2 2001-09-27 "Linux 2.4" "Manual del Programador de Linux"
+.SH NOMBRE
+sigaltstack - definir y/u obtener el contexto de la pila de señales
+.SH SINOPSIS
+.B #include <signal.h>
+.sp
+.BI "int sigaltstack(const stack_t *" ss ", stack_t *" oss );
+.SH DESCRIPCIÓN
+\fBsigaltstack\fP permite a un proceso definir un nuevo contexto de pila de señales alternativas
+y/o recoger el estado de una pila de señales alternativas existente. Una pila
+de señales alternativas se usa durante la ejecución de un manejador de señales
+si el establecimiento de ese manejador (ver
+.BR sigaction (2))
+lo solicita.
+
+La secuencia normal de eventos para usar una pila de señales alternativas
+es la siguiente:
+.TP
+1.
+Reservar un área de memoria para ser utilizada por la pila de
+señales alternativas.
+.TP
+2.
+Utilizar \fBsigaltstack\fP para informar al sistema de la existencia y
+la localización de la pila de señales alternativas.
+.TP
+3.
+Cuando se establece un manejador de señales usando \fBsigaction\fP,
+informar al sistema de que el manejador de señales debería ser ejecutado
+en la pila de señales alternativas, especificando la bandera \fBSA_ONSTACK\fP.
+.P
+El argumento \fIss\fP se usa para especificar una nueva
+pila de señales alternativas, mientras que el argumento \fIoss\fP
+se usa para recoger información sobre la pila de señales
+alternativas actualmente establecida.
+Si estamos interesados en realizar sólo una
+de estas tareas, entonces el otro argumento se puede especificar como NULL.
+Cada uno de estos argumentos es una estructura del tipo siguiente:
+.sp
+.RS
+.nf
+typedef struct {
+    void  *ss_sp;     /* Dirección de la base de la pila */
+    int    ss_flags;  /* Banderas */
+    size_t ss_size;   /* Numero de bytes en la pila */
+} stack_t;
+.fi
+.RE
+
+Para establecer una nueva pila de señales alternativas,
+\fIss.ss_flags\fP se inicializa a cero, \fIss.ss_sp\fP y
+\fIss.ss_size\fP especifican la dirección de comienzo y el
+tamaño de la pila.
+La constante \fBSIGSTKSZ\fP se define para ser suficientemente
+grande para cubrir el requerimiento de tamaño habitual en una
+pila de señales alternativas, y la constante \fBMINSIGSTKSZ\fP
+define el tamaño mínimo requerido para ejecutar un manejador de señales.
+
+Para deshabilitar una pila existente, se especifica \fIss.ss_flags\fP
+como \fBSS_DISABLE\fP. En este caso, los campos restantes en
+\fIss\fP se ignoran.
+
+Si \fIoss\fP no es NULL, entonces se utiliza para devolver información sobre
+la pila de señales alternativas que estaba en usa antes de la llamada
+a \fBsigaltstack\fP.
+Los campos \fIoss.ss_sp\fP y \fIoss.ss_size\f devuelven la dirección
+de comienzo y el tamaño de esa pila.
+El \fIoss.ss_flags\fP puede devolver cualquiera de los siguientes valores:
+
+.TP
+.B SS_ONSTACK
+El proceso está actualmente ejecutándose en la pila
+de señales alternativas. (Nótese que no es posible
+cambiar la pila de señales alternativas si el proceso
+está ejecutándose en ella.)
+.TP
+.B SS_DISABLE
+La pila de señales alternativas está actualmente deshabilitada.
+
+.SH "VALOR DEVUELTO"
+\fBsigaltstack\fP devuelve 0 en caso de éxito, o \-1 en caso de error, con
+\fIerrno\fP definido para indicar el error.
+
+.SH ERRORES
+.TP
+.B ENOMEM
+El tamaño especificado para la nueva pila de señales alternativas
+(\fIss.ss_size\fP) era menor que \fBMINSTKSZ\fP.
+.TP
+.B EFAULT
+Ya sea \fIss\fP o \fIoss\fP no es NULL y apunta a un área
+fuera del espacio de direcciones del proceso.
+.TP
+.B EPERM
+Hubo un intento de cambiar la pila de señales alternativas
+mientras estaba activa (p.e.: el proceso ya estaba ejecutándose
+en la pila de señales alternativas actual).
+.TP
+.B EINVAL
+\fIss\fP no es NULL y el campo \fPss_flags\fP contiene
+un valor distinto de cero y de SS_DISABLE.
+
+.SH OBSERVACIONES
+El código siguiente muestra el uso de \fBsigaltstack\fP:
+
+.RS
+.nf
+stack_t ss;
+
+ss.ss_sp = malloc(SIGSTKSZ);
+if (ss.ss_sp == NULL)
+    /* Manejar error */;
+ss.ss_size = SIGSTKSZ;
+ss.ss_flags = 0;
+if (sigaltstack(&ss, NULL) == -1)
+    /* Manejar error */;
+.fi
+.RE
+.P
+Establecer una pila de señales alternativas es útil si un proceso
+espera agotar su pila estándar.
+Esto puede ocurrir, por ejemplo, porque la pila crezca tanto
+que se encuentre con el montículo, que crece hacia arriba, o que
+alcance un límite establecido por una llamada a \fBsetrlimit(RLIMIT_STACK, &rlim)\fP.
+Si la pila estándar se agota, el kernel envía al proceso
+una señal \fBSIGSEGV\fP.
+En estas circunstancias, la única manera de captar esta señal
+es en una pila de señales alternativas.
+.P
+En la mayoría de las arquitecturas aceptadas por Linux, las pilas
+crecen hacia abajo. \fBsigaltstack\fP reconoce automáticamente
+la dirección de crecimiento.
+.P
+Las funciones llamadas desde un manejador de señales que se 
+ejecute en una pila de señales alternativas también usará la
+pila de señales alternativas.
+(Esto también es aplicable a cualesquiera manejadores invocados para
+otras señales mientras el proceso se está ejecutando en la pila de
+señales alternativas.)
+De manera diferente a la pila estándar, el sistema no extiende
+automáticamente la pila de señales alternativas.
+Exceder el tamaño reservado de la pila de señales alternativas
+conlleva resultados impredecibles.
+.P
+Una llamada exitosa a \fBexecve\fP elimina cualquier pila de
+señales alternativas existente.
+.P
+\fBsigaltstack\fP sustituye la antigua llamada \fBsigstack\fP.
+Para la compatibilidad hacia atrás, glibc también ofrece \fBsigstack\fP.
+Todas las aplicaciones nuevas deberían ser usadas usando \fBsigaltstack\fB.
+
+.SH HISTORIA
+BSD 4.2 tenía una llamada al sistema \fIsigstack\fP(). Usaba
+una estructura ligeramente diferente, y como una desventaja mayor,
+el llamador debía saber la dirección de crecimiento de la pila.
+
+.SH "CONFORME A"
+SUSv2, SVr4, POSIX 1003.1-2001.
+
+.SH "VÉASE TAMBIÉN"
+.BR sigaction (2),
+.BR setrlimit (2),
+.BR execve (2),
+.BR sigsetjmp (3),
+.BR siglongjmp (3),
+.BR signal (7)
+
+.SH "HISTORIA"
+BSD 4.2 tenía una llamada al sistema \fIsigstack\fP(). Usaba
+una estructura ligeramente diferente, y como una desventaja mayor,
+el llamador debía saber la dirección de crecimiento de la pila.
+
+Traducción realizada por Jorge Rodriguez Garcia (A.K.A. Tiriel) <tiriel@users.sourceforge.net>

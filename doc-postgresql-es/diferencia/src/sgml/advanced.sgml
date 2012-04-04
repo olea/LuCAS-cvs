@@ -1,0 +1,297 @@
+<!--
+$Header: /home/cvs/lucas/doc-postgresql-es/diferencia/src/sgml/advanced.sgml,v 1.2 2001/10/08 17:33:21 rssantos Exp $
+-->
+
+ <chapter id="advanced">
+  <title>Advanced <productname>Postgres</productname> <acronym>SQL</acronym> Features</title>
+
+  <para>
+   Having covered the basics  of  using
+   <productname>Postgres</productname> <acronym>SQL</acronym>  to
+   access your data, we will now discuss those features of
+   <productname>Postgres</productname> that distinguish  it  from  conventional  data
+   managers.   These  features  include  inheritance, time
+   travel and non-atomic  data  values  (array-  and  
+   set-valued attributes).
+   Examples   in   this  section  can  also  be  found  in
+   <filename>advance.sql</filename> in the tutorial directory.
+   (Refer to <xref linkend="QUERY"> for how to use it.)
+  </para>
+
+  <sect1 id="inheritance">
+   <title>Inheritance</title>
+
+   <para>
+    Let's create two tables. The capitals  table  contains
+    state  capitals  that  are also cities. Naturally, the
+    capitals table should inherit from cities.
+
+    <programlisting>
+CREATE TABLE cities (
+    name            text,
+    population      real,
+    altitude        int     -- (in ft)
+);
+
+CREATE TABLE capitals (
+    state           char(2)
+) INHERITS (cities);
+    </programlisting>
+
+    In this case, a row  of  capitals  <firstterm>inherits</firstterm>  all
+    columns (name,  population,  and altitude) from its
+    parent, cities.  The type  of  the  column name  is
+    <type>text</type>,  a  native  <productname>Postgres</productname>
+    type  for variable length
+    ASCII strings.  The type of the column population is
+    <type>real</type>,  a  type for single precision
+    floating point numbers.  State capitals have  an  extra
+    column, state, that shows their state.
+    In <productname>Postgres</productname>,
+    a  table  can inherit from zero or more other tables,
+    and a query can reference either  all  rows  of  a
+    table  or  all  rows  of  a  tables plus all of its
+    descendants.
+
+    <note>
+     <para>
+      The inheritance hierarchy is a  directed  acyclic graph.
+     </para>
+    </note>
+   </para>
+
+   <para>
+    For example, the  following  query finds the  names  of  all  cities,
+    including  state capitals, that are located at an altitude 
+    over 500ft:
+
+    <programlisting>
+SELECT name, altitude
+    FROM cities
+    WHERE altitude &gt; 500;
+    </programlisting>
+
+    which returns:
+
+    <programlisting>
++----------+----------+
+|name      | altitude |
++----------+----------+
+|Las Vegas | 2174     |
++----------+----------+
+|Mariposa  | 1953     |
++----------+----------+
+|Madison   | 845      |
++----------+----------+
+    </programlisting>
+   </para>
+
+   <para>
+    On the other hand, the  following  query  finds
+    all  the cities that are not state capitals and
+    are situated at an altitude of 500ft or higher:
+
+    <programlisting>
+SELECT name, altitude
+    FROM ONLY cities
+    WHERE altitude &gt; 500;
+
++----------+----------+
+|name      | altitude |
++----------+----------+
+|Las Vegas | 2174     |
++----------+----------+
+|Mariposa  | 1953     |
++----------+----------+
+    </programlisting>         
+   </para>
+
+   <para>
+    Here the <quote>ONLY</quote> before cities indicates that the query should
+    be  run over only the cities table, and not tables below cities in the
+    inheritance hierarchy.  Many of the  commands  that  we
+    have  already discussed -- <command>SELECT</command>,
+    <command>UPDATE</command> and <command>DELETE</command> --
+    support this <quote>ONLY</quote> notation.
+   </para>
+
+   <note>
+    <title>Deprecated</title> 
+    <para>
+     In previous versions of <productname>Postgres</productname>, the
+     default was not to get access to child tables. This was found to
+     be error prone and is also in violation of SQL99. Under the old
+     syntax, to get the sub-tables you append "*" to the table name.
+     For example
+<programlisting>
+SELECT * from cities*;
+</programlisting>
+     You can still explicitly specify scanning child tables by appending
+     "*", as well as explicitly specify not scanning child tables by
+     writing <quote>ONLY</quote>.  But beginning in version 7.1, the default
+     behavior for an undecorated table name is to scan its child tables
+     too, whereas before the default was not to do so.  To get the old
+     default behavior, set the configuration option
+     <literal>SQL_Inheritance</literal> to off, e.g.,
+<programlisting>
+SET SQL_Inheritance TO OFF;
+</programlisting>
+     or add a line in your <filename>postgresql.conf</filename> file.
+    </para>
+   </note>
+  </sect1>
+
+  <sect1 id="non-atomic-values">
+   <title>Non-Atomic Values</title>
+
+   <para>
+    One  of  the tenets of the relational model is that the
+    columns of a table are atomic.
+    <productname>Postgres</productname> does not
+    have  this  restriction; columns can themselves contain 
+    sub-values that can be  accessed  from  the  query
+    language.   For example, you can create columns that
+    are arrays of base types.
+   </para>
+
+   <sect2>
+    <title>Arrays</title>
+
+    <para>
+     <productname>Postgres</productname> allows columns of a
+     row to be defined
+     as  fixed-length  or  variable-length multi-dimensional
+     arrays. Arrays of any base type  or  user-defined  type
+     can  be created. To illustrate their use, we first create a 
+     table with arrays of base types.
+
+     <programlisting>
+CREATE TABLE SAL_EMP (
+    name            text,
+    pay_by_quarter  integer[],
+    schedule        text[][]
+);
+     </programlisting>
+    </para>
+
+    <para>
+     The above query will create a table named SAL_EMP  with
+     a  <firstterm>text</firstterm>  string (name), a one-dimensional
+     array of <firstterm>integer</firstterm>
+     (pay_by_quarter),  which  represents   the   employee's
+     salary by quarter and a two-dimensional array of
+     <firstterm>text</firstterm>
+     (schedule),  which  represents  the  employee's  weekly
+     schedule.   Now  we  do  some  <firstterm>INSERT</firstterm>s;
+     note that when
+     appending to an array, we  enclose  the  values  within
+     braces  and  separate  them  by commas.  If you know
+     <firstterm>C</firstterm>,
+     this is not unlike the syntax for  initializing  structures.
+
+     <programlisting>
+INSERT INTO SAL_EMP
+    VALUES ('Bill',
+    '{10000, 10000, 10000, 10000}',
+    '{{"meeting", "lunch"}, {}}');
+
+INSERT INTO SAL_EMP
+    VALUES ('Carol',
+    '{20000, 25000, 25000, 25000}',
+    '{{"talk", "consult"}, {"meeting"}}');
+     </programlisting>
+
+     By  default,  <productname>Postgres</productname>  uses  the
+     "one-based" numbering
+     convention for arrays -- that is, an array  of  n  elements
+     starts with array[1] and ends with array[n].
+     Now,  we  can  run  some queries on SAL_EMP.  First, we
+     show how to access a single element of an  array  at  a
+     time.   This query retrieves the names of the employees
+     whose pay changed in the second quarter:
+
+     <programlisting>
+SELECT name
+    FROM SAL_EMP
+    WHERE SAL_EMP.pay_by_quarter[1] &lt;&gt;
+    SAL_EMP.pay_by_quarter[2];
+
++------+
+|name  |
++------+
+|Carol |
++------+
+     </programlisting>
+    </para>
+
+    <para>
+     This query retrieves  the  third  quarter  pay  of  all
+     employees:
+     
+     <programlisting>
+SELECT SAL_EMP.pay_by_quarter[3] FROM SAL_EMP;
+
+
++---------------+
+|pay_by_quarter |
++---------------+
+|10000          |
++---------------+
+|25000          |
++---------------+
+     </programlisting>
+    </para>
+
+    <para>
+     We  can  also  access  arbitrary slices of an array (subarrays)
+     by specifying both lower and upper bounds for
+     each subscript.  This query  retrieves  the  first  item  on
+     Bill's schedule for the first two days of the week.
+
+     <programlisting>
+SELECT SAL_EMP.schedule[1:2][1:1]
+    FROM SAL_EMP
+    WHERE SAL_EMP.name = 'Bill';
+
++-------------------+
+|schedule           |
++-------------------+
+|{{"meeting"},{""}} |
++-------------------+
+     </programlisting>
+    </para>
+   </sect2>
+  </sect1>
+
+  <sect1 id="more-advanced">
+   <title>More Advanced Features</title>
+
+   <para>
+    <productname>Postgres</productname> has many features not touched
+    upon in this
+    tutorial introduction, which has been oriented toward newer users of
+    <acronym>SQL</acronym>.
+    These are discussed in more detail in both the User's and
+    Programmer's Guides.
+   </para>
+
+  </sect1>
+
+ </chapter>
+
+<!-- Keep this comment at the end of the file
+Local variables:
+mode:sgml
+sgml-omittag:nil
+sgml-shorttag:t
+sgml-minimize-attributes:nil
+sgml-always-quote-attributes:t
+sgml-indent-step:1
+sgml-indent-data:t
+sgml-parent-document:nil
+sgml-default-dtd-file:"./reference.ced"
+sgml-exposed-tags:nil
+sgml-local-catalogs:("/usr/lib/sgml/catalog")
+sgml-local-ecat-files:nil
+End:
+-->

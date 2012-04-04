@@ -1,0 +1,338 @@
+ <chapter id="dfunc">
+  <title id="dfunc-title">Enlazando funciones de carga dinámica</title>
+
+  <para>
+
+<!--
+.SH "Compilando funciones C de carga dinámica"
+.PP
+Los diferentes sitemas operativos requieren distintos procedimientos para compilar
+ficheros fuentes de C, a fin de que Postgres pueda cargarlos dinámicamente. En esta
+sección se discuten las opciones de compilación y carga necesarias para cada sistema.
+.PP
+Bajo Linux ELF, los ficheros objeto pueden ser generados mediente el atributo de 
+compilación -fpic.
+.PP
+Bajo Ultrix, todos los ficheros objeto que se desea que cargue Postgres de modo dinámico
+han de ser compilados usando
+.IR /bin/cc
+con la opción \*(lq-G 0\*(rq habilitada.  El nombre del fichero objeto en la cláusula 
+.IR as
+Debería terminar en \*(lq.o\*(rq.
+.PP
+Bajo HP-UX, DEC OSF/1, AIX y SunOS 4, todos los ficheros objeto han de ser convertidos a
+.IR "bibliotecas compartidas"
+usando el cargador de ficheros objeto propios del sistema operativo,
+.IR ld(1).
+.PP
+Bajo HP-UX, un fichero objeto ha de ser compilado usando el compilador de C nativo de HP-UX,
+.IR /bin/cc ,
+con los indicadores \*(lq+z\*(rq y \*(lq+u\*(rq flags activados.  El primer indicador convierte
+el fichero objeto en \*(lqposition-independiente del código\*(rq (PIC); el segundo elimina 
+algunas restricciones de alineación que normalmente requiere la arquitectura PA-RISC. El 
+fichero objeto debe ser convertido en una biblioteca compartida usando el cargador de HP-UX,
+.IR /bin/ld .
+Las líneas de comando para compilar un fichero fuente en C, \*(lqfoo.c\*(rq, son del tipo:
+.nf
+cc <other flags> +z +u -c foo.c
+ld <other flags> -b -o foo.sl foo.o
+.fi
+El nombre del fichero objeto en la 
+.BR as
+cláusula debe terminar en
+\*(lq.sl\*(rq.
+.PP
+Es necesario un paso más en versiones de HP-UX anteriores a la 9.00. Si 
+El fichero de cabecera de Postgres
+.nf
+include/c.h
+.fi
+no se incluye en el código fuente, entonces la linea siguiente debe ser 
+añadida al principio de cada fichero fuente:
+.nf
+#pragma HP_ALIGN HPUX_NATURAL_S500
+.fi
+Sin embargo, esta linea no debe aparecer en programas compilados bajo HP-UX
+9.00 o posteriores.
+.PP
+Bajo DEC OSF/1, un fichero objeto debe compilarse y después convertirse en una
+biblioteca compartida usando el cargador de OSF/1,
+.IR /bin/ld .
+En este caso, el línea de ordenes es del tipo:
+.nf
+cc <other flags> -c foo.c
+ld <other flags> -shared -expect_unresolved '*' -o foo.so foo.o
+.fi
+El nombre del fichero objeto en la 
+.BR as
+clausula ha de terminar en \*(lq.so\*(rq.
+.PP
+Bajo SunOS 4, un fichero objeto debe ser compilado y después convertido en una 
+biblioteca usando el cargador de SunOS 4,
+.IR /bin/ld .
+La linea de comandos es similar a:
+.nf
+cc <other flags> -PIC -c foo.c
+ld <other flags> -dc -dp -Bdynamic -o foo.so foo.o
+.fi
+El fichero objeto en la 
+.BR as
+clausula ha de terminar en \*(lq.so\*(rq.
+.PP
+Bajo AIX, los ficheros objeto se compilan normalmente, pero la construcción de 
+la biblioteca compartida requiere un par de pasos adicionales. Primero, ha de 
+crearse el fichero objeto:
+.nf
+cc <other flags> -c foo.c
+.fi
+Después ha de crearse un fichero de símbolos \*(lqexports\*(rq para el fichero objeto:
+.nf
+mkldexport foo.o `pwd` > foo.exp
+.fi
+Finalmente, puede crear la biblioteca compartida:
+.nf
+ld <other flags> -H512 -T512 -o foo.so -e _nostart \e
+   -bI:.../lib/postgres.exp -bE:foo.exp foo.o \e
+   -lm -lc 2>/dev/null
+.fi
+Debería consultar el Manual de Usuario de Postgres para una explicación de este procedimiento.
+-->
+
+   Después de crear y registrar una función definida por el usuario, el trabajo está 
+   prácticamente terminado.<productname>Postgres</productname>, sim embargo debe cargar
+   el fichero de código objeto (e.g., a <literal>.o</literal>, o una biblioteca compartida)
+   que implemente esa funcuín. Como se ha mencionado anteriormente, <productname>Postgres</productname>
+   carga el código en tiempo de ejecución, a medida que es necesario. A fin de permitir
+   que el código sea cargado dinámicamente, puede tener que compilar y enlazar este código
+   de algún modo especial. esta sección explica brevemente como realizar la compilación y 
+   el enlazado necesario antes de que pueda cargar sus funciones en un servidor <productname>Postgres</productname>
+   en ejecución. Nótese que este proceso ha cambiado respecto al de la versión 4.2.
+  </para>
+
+<!--
+   <tip>
+    <para>
+     El antiguo mecanismo de carga dinámica de <productname>Postgres</productname> requería
+     un conocimiento profundo de los formatos del codigo ejecutable, situación y alineación
+     de instrucciones ejecutables en memoria, etc, por parte de la persona que escribía el 
+     cargador dinámico. Tales cargadores tendían a ser lentos y llenos de fallos. Desde la 
+     versión 4.2, el mecanismo de carga dinámica de <productname>Postgres</productname> ha
+     sido reescrito para usar el macanismo de carga dinámico proporcionado por el sistema 
+     operativo. Este enfoque es generalmente más rápido, más fiable y más portable que el 
+     mecanismo de carga dinámico anterior. La razón de ésto es que casi todas las modernas
+     versiones de Unix usan un mecanismo de carga dinámica para implementar las bibliotecas 
+     compartidas, por lo que proporcionan un mecanismo rápido y fiable. Por otra parte, los 
+     ficheros objeto  han de ser postprocesados ligeramente antes de que puedan ser cargados 
+     por <productname>Postgres</productname>. Esperamos que el mayor incremento en la velocidad
+     y fiablididad compensen el ligero decremento en la comodidad. 
+    </para>
+   </tip>
+  </para>
+-->
+
+  <para>
+   Debe estar preparado para leer (y releer, y re-releer) las páginas de manual del compilador
+   de C, cc(1), y del enlazador, ld(1), por si necesita información específica. Además, los 
+   paquetes de prueba de regresión del directorio <filename>PGROOT/src/regress</filename> 
+   contienen varios ejemplos de estwe proceso. Si comprende lo que realizan estas pruebas, no 
+   debería tener ningún problema.
+  </para>
+
+  <para>
+   La siguiente terminología se usará más adelante:
+
+   <itemizedlist>
+    <listitem>
+     <para>
+      <firstterm>Carga dinámica (Dynamic loading)</firstterm>
+      el lo que <productname>Postgres</productname> hace con un fichero objeto. El fichero 
+      objeto se copia en el servidor <productname>Postgres</productname> en ejecución, y las 
+      funciones y variables del fichero quedan disponibles para las funciones de los procesos 
+      <productname>Postgres</productname>. <productname>Postgres</productname> hace ésto 
+      usando el mecanismo de carga dinámica proporcionado por el sistema operativo.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      <firstterm>Configuracion de la carga y enlazado (Loading and link editing)</firstterm>
+      es lo que usted hace con un fichero objeto a fin de producir otro tipo de fichero objeto 
+      (por ejemplo, un programa ejecutable o una biblioteca compartida). Esto se realiza por 
+      medio del programa de configuración de enlazado, ld(1).
+     </para>
+    </listitem>
+   </itemizedlist>
+  </para>
+
+  <para>
+   Las siguientes restricciones generales y notas se aplican también al texto siguiente:
+   <itemizedlist>
+    <listitem>
+     <para>
+      Las rutas dadas a la orden para crear la función deben ser absolutas (es decir, han de 
+      empezar con "/"), y referirse a directorios visibles para la máquina en la que se está 
+      ejecutando el servidor <productname>Postgres</productname>.
+
+      <tip>
+       <para>
+        Las rutas relativas tambien funcionan, pero hay que terner en cuenta que serían  
+        relativas al directorio donde reside la base de datos (que es generalmente invisible 
+        para las aplicaciones finales). Obviamente, no tiene sentido hacer la ruta relativa 
+        al directorio en el que el usuario inicial la aplicacion final, dado que el servidor 
+        puede estar ejecutándose en una máquina distinta.
+       </para>
+      </tip>
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      El usuario <productname>Postgres</productname> debe ser capaz de recorrer la ruta dada 
+      a la orden de creación de la función, y ser capaz de leer el fichero objeto. Esto es 
+      así porque el servidor <productname>Postgres</productname> se ejecuta como usuario 
+      <productname>Postgres</productname>, no como el usuario que inicia el proceso final. 
+      (Hacer el fichero el el directorio de nivel superior no leible y/o no ejecutable para 
+      el usuario "postgres" es un error extremadamente común.)
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Los nombre de simbolos definidos en los fichero objetos no deben estar en conflicto 
+      entre sí, ni con los simbolos definidos en <productname>Postgres</productname> .
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      El compilador de C GNU normalmente no dispone de las opciones especiales necesarias para 
+      usar la interfase del cargador dinámico del systema. En caso de que esto ocurra, ha de 
+      usarse el compilador de C que venga con el sistema operativo.
+     </para>
+    </listitem>
+   </itemizedlist>
+  </para>
+
+  <sect1>
+   <title><acronym>ULTRIX</acronym></title>
+
+   <para>
+    Es muy facil escribir ficheros objeto de carga dinámica bajo ULTRIX. ULTRIX no tiene 
+    ningún mecanismo para bibliotecas compartidas, y por lo tanto, no plantea restricciones 
+    a la interfase del cargador dinámico. Por otra parte, tendremos que (re)escribir un 
+    cargador dinámico no portable, y no podremos usar verdaderas bibliotecas compartidas. 
+    Bajo ULTRIX, la unica restriccion es que debe producir cada fichero objeto con la opcion 
+    -G 0. (Nótese que es trata del número 0, no del literal "o"). Por ejemplo:
+    <programlisting>
+# simple ULTRIX example
+% cc -G 0 -c foo.c
+    </programlisting>
+    produce un fichero objeto llamado foo.o que puede ser cargado dinámicamente en <productname>Postgres</productname> .
+    No ha de realizarse carga o enlazado adicional.
+   </para>
+  </sect1>
+
+  <sect1>
+   <title><acronym>DEC OSF/1</acronym></title>
+
+   <para>
+    Bajo DEC OSF/1, puede convertir cualquier fichero objeto en un objeto compartido, 
+    ejecutando el comando ld con las adecuadas opciones. La orden es del estilo de:
+    <programlisting>
+# simple DEC OSF/1 example
+% cc -c foo.c
+% ld -shared -expect_unresolved '*' -o foo.so foo.o
+    </programlisting>
+
+    El objeto compartido resultante puede entonces ser cargado en <productname>Postgres</productname>.
+    Cuando especifique el nombre del fichero objeto para la orden de creación, ha de dar el 
+    nombre del fichero objeto compartido (termiando en .so) en lugar de el del fichero objeto 
+    normal.
+
+    <tip>
+     <para>
+      En realidad, <productname>Postgres</productname>. no se preocupa del nombre del fichero, 
+      mientras sea un fichero objeto compartido. Si prefiere denominar el nombre del fichero 
+      compartido con la extensión .o, esto estará bien para <productname>Postgres</productname>, 
+      siempre que se asegura de que se envia el nombre correcto al comando de creación. En otras 
+      palabras, ha de ser consistente. Sin embargo, desde un punto de vista práctico, no 
+      recomendamos esta práctica, dado que puede acabar confundiéndole respecto a que ficheros 
+      han sido convertidos en objetos compartidos, y que ficheros no. Por ejmplo, es muy dificil 
+      escribir Makefiles para realizar un enlace automático, si tanto los ficheros objeto, como 
+      los objetos compartidos tienen la extensión .o
+     </para>
+    </tip>
+
+    ¡Si el fichero que especifica no es un objeto compartido, la aplicación final se colgará!
+   </para>
+  </sect1>
+
+  <sect1>
+   <title>
+    <acronym>SunOS 4.x</acronym>, <acronym>Solaris 2.x</acronym> y
+    <acronym>HP-UX</acronym></title>
+
+   <para>
+    Bajo SunOS 4.x, Solaris 2.x y HP-UX, los ficheros objetos pueden crearse complando el código 
+    fuente con parametros especiales del compilador, con lo que se produce una biblioteca 
+    compartida.
+    Los pasos necesarios en HP-UX son como sigue. El parametro +z hace que el compilador de C de 
+    HP-UX produzca el denominado "Codigo independiente de la posición", ("Position Independent 
+    Code", PIC), y el parametro +u elimina algunas restricciones que normalmente son necesarias 
+    en la arquitectura PA-RISC. El fichero objeto ha de convertirse en una biblioteca compartida 
+    usando el editor de enlazado  de HP-UX, con la opcion -b. Todo esto suena complicado, pero 
+    en realidad es mu simple, dado que los comandos para hacer todo esto son:
+    <programlisting>
+# simple HP-UX example
+% cc +z +u -c foo.c
+% ld -b -o foo.sl foo.o
+    </programlisting>
+   </para>
+
+   <para>
+    Como los ficheros .so mencionados en la anterior subsección, hay que indicarle a la orden 
+    de creación de funciones que fichero es el que hay que cargar (por ejemplo, puede darle la 
+    localización de la biblioteca compartida, o fichero .sl). Bajo SunOS 4.x es algo así:
+    <programlisting>
+# simple SunOS 4.x example
+% cc -PIC -c foo.c
+% ld -dc -dp -Bdynamic -o foo.so foo.o
+    </programlisting>
+
+    y bajo Solaris 2.x es:
+    <programlisting>
+# simple Solaris 2.x example
+% cc -K PIC -c foo.c
+% ld -G -Bdynamic -o foo.so foo.o
+    </programlisting>
+    o
+    <programlisting>
+# simple Solaris 2.x example
+% gcc -fPIC -c foo.c
+% ld -G -Bdynamic -o foo.so foo.o
+    </programlisting>
+   </para>
+
+   <para>
+    Cuando enlace bibliotecas compartidas, puede tener que especificar bibliotecas compartidas 
+    adicionales (normalemente bibliotecas de sistema, como las bibliotecas de C y matemáticas) 
+    en la linea de ordenes de ld
+   </para>
+  </sect1>
+ </chapter>
+
+<!-- Keep this comment at the end of the file
+Local variables:
+mode: sgml
+sgml-omittag:nil
+sgml-shorttag:t
+sgml-minimize-attributes:nil
+sgml-always-quote-attributes:t
+sgml-indent-step:1
+sgml-indent-data:t
+sgml-parent-document:nil
+sgml-default-dtd-file:"./reference.ced"
+sgml-exposed-tags:nil
+sgml-local-catalogs:"/usr/lib/sgml/CATALOG"
+sgml-local-ecat-files:nil
+End:
+-->

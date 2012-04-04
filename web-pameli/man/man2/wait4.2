@@ -1,0 +1,186 @@
+.\" Hey Emacs! This file is -*- nroff -*- source.
+.\"
+.\" (c) 1993 by Thomas Koenig (ig25@rz.uni-karlsruhe.de)
+.\"
+.\" Permission is granted to make and distribute verbatim copies of this
+.\" manual provided the copyright notice and this permission notice are
+.\" preserved on all copies.
+.\"
+.\" Permission is granted to copy and distribute modified versions of this
+.\" manual under the conditions for verbatim copying, provided that the
+.\" entire resulting derived work is distributed under the terms of a
+.\" permission notice identical to this one
+.\" 
+.\" Since the Linux kernel and libraries are constantly changing, this
+.\" manual page may be incorrect or out-of-date.  The author(s) assume no
+.\" responsibility for errors or omissions, or for damages resulting from
+.\" the use of the information contained herein.  The author(s) may not
+.\" have taken the same level of care in the production of this manual,
+.\" which is licensed free of charge, as they might when working
+.\" professionally.
+.\" 
+.\" Formatted or processed versions of this manual, if unaccompanied by
+.\" the source, must acknowledge the copyright and authors of this work.
+.\" License.
+.\"
+.\" Modified Sat Jul 24 13:32:44 1993 by Rik Faith (faith@cs.unc.edu)
+.\" Modified Mon Jun 23 14:09:52 1997 by aeb - add EINTR.
+.\" Modified Tue Jul  7 12:26:42 1998 by aeb - changed return value wait3
+.\" Translation revised Sat Oct  2 1998 by Juan Piernas <piernas@ditec.um.es>
+.\"
+.TH WAIT4 2  "23 junio 1997" "Linux" "Manual del Programador de Linux"
+.SH NOMBRE
+wait3, wait4 \- esperan la terminación de un proceso, al estilo BSD
+.SH SINOPSIS
+.nf
+.B #define _USE_BSD
+.B #include <sys/types.h>
+.B #include <sys/resource.h>
+.B #include <sys/wait.h>
+.sp 2
+.BI "pid_t wait3(int *" "status" ", int " options ","
+.BI "      struct rusage *" rusage ")"
+.sp
+.BI "pid_t wait4(pid_t " pid ", int *" status ", int " options ,
+.BI "      struct rusage *" rusage ")"
+.fi
+.SH DESCRIPCIÓN
+La función
+.B wait3
+suspende la ejecución del proceso actual hasta que finalice un hijo
+o hasta que se produzca una señal cuya acción sea finalizar el proceso
+actual o llamar a una función manejadora de señales. Si un hijo ha terminado
+ya cuando se realiza la llamada (lo que se conoce como proceso "zombie"), la
+función regresa inmediatamente. Todos los recursos del sistema utilizados
+por el hijo son liberados.
+
+La función
+.B wait4
+suspende la ejecución del proceso actual hasta que un hijo, especificado por
+el argumento
+.IR pid ,
+haya terminado o hasta que se produzca una señal cuya acción sea finalizar el
+proceso actual o llamar a una función manejadora de señales.
+Si el hijo especificado por
+.I pid
+ha terminado cuando se realiza la llamada (lo que se conoce como
+proceso "zombie"), la función regresa inmediatamente. Todos los recursos del
+sistema utilizados por el hijo son liberados.
+
+El valor de
+.I pid
+puede ser uno de los siguientes:
+.IP "< \-1"
+lo que significa que espera por cualquier proceso hijo cuyo ID de grupo es
+igual al valor absoluto de
+.IR pid .
+.IP \-1
+que significa que espera por cualquier proceso hijo; esto es equivalente a
+llamar a
+.BR wait3 .
+.IP 0
+que significa esperar por cualquier proceso hijo cuyo ID de grupo es igual
+al del proceso invocador.
+.IP "> 0"
+que significa esperar por el proceso hijo cuyo ID es igual a
+.IR pid .
+.PP
+El valor de
+.I options
+es un OR de cero o más de las siguientes constantes:
+.TP
+.B WNOHANG
+que significa volver inmediatamente si no hay hijo por el que esperar.
+.TP
+.B WUNTRACED
+que significa volver porque hay hijos que están parados (estado stop), y de
+cuyo estado no se ha recibido notificación.
+.PP
+Si
+.I status
+no es
+.BR NULL ,
+.B wait3
+o
+.B wait4
+almacenan información de estado en la memoria apuntada por
+.IR status .
+.PP
+Este estado puede ser evaluado con las siguientes macros (que toman como
+argumento el propio buffer (un \fBint\fR) \(em ¡no un puntero al buffer!):
+.TP
+.BI WIFEXITED( status )
+es distinto de cero si el hijo terminó normalmente.
+.TP
+.BI WEXITSTATUS( status )
+evalúa los ocho bits menos significativos del código de retorno del hijo que
+terminó, que pueden haber sido activados como un argumento en la llamada a la
+función
+.B exit()
+o como un argumento para un
+.B return
+en el programa principal. Esta macro sólo puede ser evaluada si
+.B WIFEXITED
+devolvió un valor distinto de cero.
+.TP
+.BI WIFSIGNALED( status )
+devuelve "true" si el proceso hijo terminó a causa de una señal no capturada.
+.TP
+.BI WTERMSIG( status )
+devuelve el número de la señal que causó el final del proceso hijo. Esta macro
+sólo puede ser evaluada si
+.B WIFSIGNALED
+devolvió un valor distinto de cero.
+.TP
+.BI WIFSTOPPED( status )
+devuelve "true" si el proceso hijo que provocó el retorno está actualmente
+parado; esto sólo es posible si la llamada se hizo usando
+.BR WUNTRACED .
+.TP
+.BI WSTOPSIG( status )
+devuelve el número de la señal que provocó la parada del proceso hijo. Esta
+macro sólo puede ser evaluada si
+.B WIFSTOPPED
+devolvió un valor distinto de cero.
+
+Si
+.I rusage
+no es
+.BR NULL ,
+se rellenará la estructura
+.BR struct rusage ,
+según se define en
+.IR <sys/resource.h> ,
+con información contable. Ver
+.BR getrusage (2)
+para más detalles.
+.SH "VALOR DEVUELTO"
+El ID del proceso hijo que terminó, \-1 en caso de error (en particular,
+cuando no existe un proceso hijo, por el que no esperamos, del tipo
+especificado) o cero si se utilizó
+.B WNOHANG
+y no había ningún hijo disponible todavía. En los dos últimos casos
+.I errno
+será activado convenientemente.
+.SH "ERRORES"
+.TP
+.B ECHILD
+No existe un proceso hijo como el especificado y por el que no esperamos.
+.TP
+.B ERESTARTSYS
+si no se activó
+.B WNOHANG
+y se capturó una señal no bloqueada o una
+.BR SIGCHLD .
+Este error es devuelto por la llamada al sistema.
+El interfaz de la biblioteca no permite devolver
+.BR ERESTARTSYS ,
+pero devolverá
+.BR EINTR .
+.SH "CONFORME A"
+SVr4, POSIX.1
+.SH "VÉASE TAMBIÉN"
+.BR signal (2),
+.BR getrusage (2),
+.BR wait (2),
+.BR signal (7)

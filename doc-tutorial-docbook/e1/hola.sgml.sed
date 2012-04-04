@@ -1,0 +1,35 @@
+<![CDATA[
+<!DOCTYPE book PUBLIC "-//OASIS//DTD DocBook V4.1//EN">
+<book lang="es">
+  <chapter>
+    <title>Hola</title>
+    <para>Esta es la introducción</para>
+    <!-- Un primer comentario -->
+    <sect1>
+      <title>Sección Única</title>
+      <para>Y hasta dice algo</para>
+      <sect2>
+	<title>Primera subsección</title>
+	<para>Nada de que hablar</para>
+      </sect2>
+      <sect2>
+	<title>Segunda subsección</title>
+	<para>Nada que decir</para>
+      </sect2>
+    </sect1>
+  </chapter>
+  <chapter>
+    <title>Mundo</title>
+    <para>Esta es otra introducción</para>
+    <sect1>
+      <!-- Un comentario en la primera sección, del segundo capítulo -->
+      <title>Primer título</title>
+      <para>Algo que decir</para>
+    </sect1>
+    <sect1>
+      <title>Segundo título</title>
+      <para>Más que decir</para>
+    </sect1>
+  </chapter>
+</book>
+]]>

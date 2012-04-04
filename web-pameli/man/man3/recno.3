@@ -1,0 +1,228 @@
+.\" Copyright (c) 1990, 1993
+.\"	The Regents of the University of California.  All rights reserved.
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions
+.\" are met:
+.\" 1. Redistributions of source code must retain the above copyright
+.\"    notice, this list of conditions and the following disclaimer.
+.\" 2. Redistributions in binary form must reproduce the above copyright
+.\"    notice, this list of conditions and the following disclaimer in the
+.\"    documentation and/or other materials provided with the distribution.
+.\" 3. All advertising materials mentioning features or use of this software
+.\"    must display the following acknowledgement:
+.\"	This product includes software developed by the University of
+.\"	California, Berkeley and its contributors.
+.\" 4. Neither the name of the University nor the names of its contributors
+.\"    may be used to endorse or promote products derived from this software
+.\"    without specific prior written permission.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+.\" ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+.\" ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+.\" FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+.\" DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+.\" OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+.\" HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+.\" LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+.\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+.\" SUCH DAMAGE.
+.\"
+.\"	@(#)recno.3	8.5 (Berkeley) 8/18/94
+.\"
+.\" Translated into Spanish on Tue Apr 12 1999 by
+.\"	Juan Piernas Cánovas <piernas@ditec.um.es>
+.\"
+.TH RECNO 3 "18 Agosto 1994"
+.UC 7
+.SH NOMBRE
+recno \- método de acceso a bases de datos con registros numerados
+.SH SINOPSIS
+.nf
+.ft B
+#include <sys/types.h>
+#include <db.h>
+.ft R
+.fi
+.SH DESCRIPCIÓN
+La ruinta
+.IR dbopen
+es la interfaz de biblioteca para los ficheros de bases de datos. Uno de los
+formatos de fichero soportados es el de los ficheros con registros numerados
+(que llamaremos regnum). La descripción general de los métodos de
+acceso a bases de datos se encuentra en la página de manual de 
+.IR dbopen (3);
+esta página de manual sólo describe información específica de regnum.
+.PP
+La estructura de datos de registros numerados está formada por registros
+de longitud o fija o variable almacenados en un formato de fichero plano,
+accedido por el número lógico de registro.
+La existencia del registro número cinco implica la existencia de los
+registros del 1 al 5, y la eliminación del registro número 1 hace
+que el registro número 5 sea renumerado al registro número 4, de la
+misma manera que el cursor se desplazará un registro hacia abajo si se
+encuentra posicionado después del registro número 1.
+.PP
+La estructura de datos específica del método de acceso regnum proporcionada
+a
+.I dbopen
+se define en el fichero cabecera <db.h> como sigue:
+.PP
+typedef struct {
+.RS
+u_long flags;
+.br
+u_int cachesize;
+.br
+u_int psize;
+.br
+int lorder;
+.br
+size_t reclen;
+.br
+u_char bval;
+.br
+char *bfname;
+.RE
+} RECNOINFO;
+.PP
+Los elementos de esta estructura se definen de la siguiente manera:
+.TP
+flags
+El valor de las opciones se especifica mediante una operación
+.IR O -lógica
+de cualquiera de los siguientes valores:
+.RS
+.TP
+R_FIXEDLEN
+Los registros son de longitud fija, no delimitados por bytes.
+El elemento
+.I reclen
+de la estructura especifica la longitud del registro y el elemento
+.I bval
+de la estructura se usa como carácter de relleno.
+Todos los registros, insertados en la base de datos, cuya longitud es más
+pequeña que
+.I reclen
+bytes, se completan automáticamente con el carácter
+.IR bval .
+.TP
+R_NOKEY
+En la interfaz especificada por
+.IR dbopen ,
+la recuperación secuencial de registros rellena tanto la clave del invocador
+como las estructuras de datos.
+Si se especifica la opción R_NOKEY, no se necesitarán las rutinas con
+.I cursor
+para rellenar la estructura de la clave.
+Esto permite a las aplicaciones recuperar registros al final de los ficheros
+sin leer todos los registros que intervienen.
+.TP
+R_SNAPSHOT
+Esta opción exige que se tome una instantanea del fichero cuando se llame a
+.IR dbopen ,
+en lugar de permitir que cualquier registro sin modificar sea leído del
+fichero original.
+.RE
+.TP
+cachesize
+Tamaño máximo sugerido, en bytes, de la memoria caché.
+Este valor
+.B sólo
+es consultivo y el método de acceso reservará más memoria antes que fallar.
+Si
+.I cachesize
+es 0 (no se especifica un tamaño) se usa una caché por defecto.
+.TP
+psize
+El método de acceso regnum almacena las copias residentes en memoria de sus
+registros en un árbolB (btree).
+Este valor es el tamaño (en bytes) de las páginas usadas para nodos del
+árbol.
+Si
+.I psize
+es 0 (no se especifica un tamaño de página) se selecciona un tamaño de página
+basado en el tamaño de bloque de E/S del sistema de ficheros subyacente.
+Véase
+.IR btree (3)
+para más información.
+.TP
+lorder
+El orden de los bytes para los enteros de los metadatos almacenados en la
+base de datos. El número debería representar el orden como un entero; por
+ejemplo, el orden `el byte de mayor peso el último' (orden ascendente)
+sería el número 4321.
+Si
+.I lorder
+es 0 (no se especifica un orden) se utiliza el orden del anfitrión actual.
+.TP
+reclen
+El tamaño de un registro de tamaño fijo.
+.TP
+bval
+El byte delimitador a usar para marcar el final de un registro para los
+registros de tamaño variable, y el carácter de relleno para los registros de
+tamaño fijo.
+Si no se especifica un valor, se utilizan caracteres `nueva línea' 
+(``\en'') para marcar el final de los registros de longitud variable y los
+registros de longitud fija se completan con espacios.
+.TP
+bfname
+El método de acceso regnum almacena las copias residentes en memoria de sus
+registros en un árbolB.
+Si bfname no es NULL, especifica el nombre de un fichero árbolB, 
+como si se especificara el nombre de fichero para una llamadada a dbopen de
+un fichero árbolB.
+.PP
+La parte de datos del par clave/datos usado por el método de acceso regnum
+es la misma que la de los otros métodos de acceso.
+La clave es diferente.
+El campo
+.I data
+de la clave debería ser un puntero a una posición de memoria del tipo
+.IR recno_t ,
+tal y como se define en el fichero cabecera <db.h>.
+Normalmente, este tipo es el tipo entero sin signo más grande disponible
+para la implementación.
+El campo
+.I size
+de la clave debería ser el tamaño de ese tipo.
+.PP
+Ya que puede no haber ningún metadato asociado con los ficheros subyacentes
+del método de acceso regnum, cualquier cambio realizado a los valores por
+defecto (por ejemplo, a la longitud de los registros de tamaño fijo o al
+valor del separador de bytes) se debe especificar explícitamente cada vez
+que se abra el fichero.
+.PP
+En la interfaz especificada por
+.IR dbopen ,
+el uso de la interfaz
+.I put
+para crear un nuevo registro provocará la creación de varios registros
+vacíos si el número de registro es mayor, en más de uno, que el número del
+mayor registro actualmente en la base de datos.
+.SH ERRORES
+Las rutinas del método de acceso
+.I regnum
+pueden fallar y asignar a
+.I errno
+cualquiera de los errores especificados para la rutina de biblioteca
+.IR dbopen (3)
+o el siguiente:
+.TP
+[EINVAL]
+Se ha intentado añadir un registro a una base de datos de registros de
+tamaño fijo que s demasiado grande para caber.
+.SH "VÉASE TAMBIÉN"
+.IR btree (3)
+.IR dbopen (3),
+.IR hash (3),
+.IR mpool (3),
+.sp
+.IR "Document Processing in a Relational Database System" ,
+Michael Stonebraker, Heidi Stettner, Joseph Kalash, Antonin Guttman,
+Nadene Lynn, Memorandum No. UCB/ERL M82/32, May 1982.
+.SH FALLOS
+Sólo se soportan los órdenes de bytes ascedente (el byte de mayor peso el
+último) y descendente (el byte de menor peso el último).

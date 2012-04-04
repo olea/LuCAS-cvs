@@ -1,0 +1,197 @@
+\chapter{El código fuente del núcleo de Linux}
+\label{sources-chapter}
+\ChapterDescription{
+En este capítulo trataremos de explicarle cómo buscar ciertas funciones del núcleo en el propio código fuente.
+}
+
+La lectura de este libro no exige un conocimiento profundo de la programación en lenguaje 'C' ni tampoco la disponibilidad de una copia del código fuente de Linux. Sin embargo, será interesante ejercitar los conocimientos adquiridos mirando el código fuente para así comprender mejor cómo funciona internamente Linux. Este capítulo da una visión general del código fuente, en lo que respecta a cómo está organizado y en qué puntos debe mirarse para buscar alguna cosa concreta.
+
+\section*{Dónde obtener el código fuente de Linux}
+Todas las distribuciones conocidas ({\textsf Craftworks}, {\textsf Debian}, \textsf{Slackware}, \textsf{Red Hat}, etcétera) incluyen como opción las fuentes del núcleo de Linux. Normalmente, el binario que corre en su máquina ha sido construido con esas fuentes. Debido a la naturaleza del propio sistema operativo, esas fuentes estarán seguramente {\it obsoletas}, por lo que lo más interesante será obtener la última versión de uno de los servidores de Internet mencionados en el apéndice~\ref{www-appendix}. El código fuente es mantenido en \fn{ftp://ftp.cs.helsinki.fi} y en cualquier {\it réplica} suya. Esto hace al servidor de Helsinki el más actualizado, pero en otros servidores como el del MIT o el de Sunsite encontraremos seguramente las mismas versiones que en el primero.
+
+Si no dispone de acceso a la Red, aun dispone de muchos CD ROM con copias de lo que esos servidores ofrecen en cada momento, a un precio muy razonable. Algunos fabricantes ofrecen un servicio de suscripción con los que puede obtener actualizaciones cada cierto tiempo (incluso cada mes). Otro lugar interesante para buscar es en su grupo local de usuarios.
+
+Las versiones del código fuente de Linux se numeran de una manera simple. Todo núcleo con un número de versión par (tal como \texttt{2.0.30}) es un núcleo {\it estable}, y si el número de versión es impar (como \texttt{2.1.42}) se trata de una versión de {\it desarrollo}. En este libro nos basamos en el código fuente de la versión estable \texttt{2.0.30}. Las versiones de desarrollo están a la última en cuanto a características generales y soporte de dispositivos. Aunque pueden ser {\it inestables}, y por lo tanto no ser lo que usted necesita, es muy importante que la comunidad de usuarios los prueben. Recuerde, en caso de usar núcleos de desarrollo, hacer {\em siempre} copias de respaldo por si fuera necesario recuperarse de alguna {\it catástrofe}.
+
+Cuando se publica un cambio en el núcleo, éste se distribuye en forma de {\it parche}. La utilidad \eg{patch} se puede utilizar para aplicar parches que editan ficheros del código fuente. Por ejemplo, si tenemos instalado el núcleo 2.0.29 y queremos pasar a la versión 2.0.30, no tenemos que borrar la antigua y obtener toda la nueva versión (que pueden ser decenas de {\it megabytes}). En su lugar, podemos obtener el parche de la 2.0.30, mucho más pequeño, y aplicarlo sobre la 2.0.29 con el comando:
+\begin{verbatim}
+
+$ cd /usr/src/linux
+$ patch -p1 < patch-2.0.30
+\end{verbatim}
+Esto guarda también, por seguridad, copias de cada fichero modificado. Un buen sitio donde podemos buscar parches (oficiales y {\it no oficiales}) es en el servidor \fn{http://www.linuxhq.com}.
+
+\section*{Organización del Código Fuente}
+En el directorio principal del árbol del código fuente,
+\fn{/usr/\-src/\-linux}, podemos unos cuantos directorios:
+\begin{description}
+	\item [arch] El subdirectorio \fn{arch} contiene todo el código
+	específico de una arquitectura. Dentro hay más subdirectorios, uno
+	por cada arquitectura soportada. Por ejemplo, \fn{i386} o \fn{alpha}.
+	\item [include] El directorio \fn{include} contiene casi todos los
+	ficheros que se necesitan incluir durante la compilación del
+	código. También contiene diversos subdirectorios, incluyendo uno
+	por cada arquitectura soportada. El subdirectorio \fn{include/asm}
+	es realmente un enlace simbólico al que corresponda para la
+	arquitectura, como \fn{include/\-asm-i386}. Para cambiar de
+	arquitectura hay que editar el fichero {\tt Makefile} del núcleo y
+	volver a ejecutar el programa de configuración del núcleo.
+	\item [init] Este directorio incluye el código de iniciación del
+	núcleo, y es un buen sitio donde mirar para comenzar a entender
+	cómo funciona el mismo.
+    \item [mm] Aquí está todo el código de gestión de memoria
+	independiente de la arquitectura. La parte dependiente estará bajo
+	 \fn{arch/\-*/\-mm/}, como por ejemplo \fn{arch/\-i386/\-mm/\-fault.c}.
+    \item [drivers] Todos los manejadores de dispositivos se
+	encuentran aquí. A su vez se divide en clases de controlador, como
+	\fn{block} para los dispositivos {\it de bloques}.
+    \item [ipc] Este directorio contiene todo el código para la
+	comunicación entre procesos.
+    \item [modules] Este directorio se utiliza para montar los {\it
+	módulos} cuando sea necesario.
+    \item [fs] Contiene todo el código para el sistema de ficheros. A
+	su vez se divide en subdirectorios, uno para cada sistema de
+	ficheros soportado, como \fn{vfat} y \fn{ext2}.
+	\item [kernel] Aquí tenemos el código principal del núcleo. Una
+	vez más, aquella parte específica para una arquitectura se
+	encontrará en \fn{arch/\-*/\-kernel}.
+	\item [net] Código para trabajo con redes.
+	\item [lib] Aquí se encuentran librerías necesarias para el
+	núcleo. De nuevo, hay librerías que son dependientes de la
+	arquitectura, y se encontrarán en \fn{arch/\-*/\-lib/}.
+	\item [scripts] En este directorio se encuentran los {\it scripts}
+	(tipo \eg{awk} o \eg{tk}) que son necesarios para configurar o
+	compilar el núcleo.
+\end{description}
+
+\section*{Dónde empezar a mirar}
+Cuando nos enfrentamos a consultar el código de un programa tan grande
+como el núcleo de Linux, en general no sabremos por dónde
+empezar. Todo se muestra como una gran cadena de la que no se ve su
+principio o final. Muchas veces comenzamos a estudiar el código y
+mirando aquí y allá acabamos olvidando qué estábamos buscando. En los
+siguientes párrafos le daremos unas ideas sobre los puntos del
+código fuente donde puede encontrar respuestas a sus dudas.
+
+\subsection*{Arranque e inicialización del sistema}
+En un sistema basado en Intel, el núcleo comienza a ejecutarse cuando
+lo carga y le pasa el control un programa como loadlin.exe o
+LILO. Esta parte puede verse en
+\fn{arch/\-i386/\-kernel/\-head.S}. Este programa inicial realiza
+ciertas preparaciones propias de la arquitectura y a continuación
+salta a la rutina \fn{main()} del fichero \fn{init/\-main.c}.
+
+\subsection*{Gestión de la Memoria}
+Esta parte se encuentra principalmente en \fn{mm} pero la parte más
+específica de cada arquitectura la encontraremos en
+\fn{arch/\-*/\-mm}. El código de tratamiento de fallo de página se
+encuentra en \fn{mm/\-memory.c}, y la parte correspondiente al mapeado
+de la memoria y la cache de páginas se encuentra en
+\fn{mm/\-filemap.c}. La cache de buffer se detalla en
+\fn{mm/\-buffer.c} y la cache del intercambio ({\it swap}), en
+\fn{mm/\-swap\_state.c} y \fn{mm/\-swapfile.c}.
+
+\subsection*{El núcleo}
+La parte común a todas las arquitecturas está en \fn{kernel}, y la
+parte específica de cada una de ellas, en \fn{arch/\-*/\-kernel}. El
+planificador lo encontramos en \fn{kernel/\-sched.c} y el código para
+creación de procesos, en \fn{kernel/\-fork.c}. La parte de bajo nivel de
+los manejadores se encuentra en \fn{include/\-linux/\-interrupt.h}. La
+estructura de datos \ds{task\_struct} se localiza en
+\fn{include/\-linux/\-sched.h}.
+
+\subsection*{PCI}
+El pseudo-controlador de PCI se encuentra en
+\fn{drivers/\-pci/\-pci.c}, con las definiciones especificadas en
+\fn{include/\-linux/\-pci.h}. Cada arquitectura tiene una parte
+específica al correspondiente BIOS de PCI: los \axp\ se tratan en
+\fn{arch/\-alpha/\-kernel/\-bios32.c}.
+
+\subsection*{Comunicación entre procesos}
+Todo ello está en \fn{ipc}. Los objetos del IPC de Unix Sistema
+V tienen una estructura \ds{ipc\_perm} y puede encontrarse en
+\fn{include/\-linux/\-ipc.h}. Los mensajes de Sistema V se implementan
+en  \fn{ipc/\-msg.c}, la memoria compartida en \fn{ipc/\-shm.c} y los
+semáforos en \fn{ipc/\-sem.c}. Las tuberías se implementan en
+\fn{ipc/\-pipe.c}.
+
+\subsection*{Tratamiento de interrupciones}
+El código de tratamiento de interrupciones es en su mayor parte propio
+de cada microprocesador (y prácticamente distinto en cada
+plataforma). El código correspondiente a Intel (en un PC) está en
+\fn{arch/\-i386/\-kernel/\-irq.c} y las definiciones necesarias se
+declaran en \fn{include/\-asm-i386/\-irq.h}.
+
+\subsection*{Controladores de dispositivo}
+El grueso del código fuente de Linux lo forman los controladores de
+dispositivos. Todos ellos se encuentran bajo el directorio
+\fn{drivers}, a su vez organizados según su tipo, en otros subdirectorios:
+\begin{description}
+	\item [/block] Aquí están los dispositivos de bloque, como los
+	discos IDE (en \fn{ide.c}). Si queremos ver cómo los dispositivos
+	pueden contener sistemas de ficheros e inicializarse, miraremos en
+	la función \fn{device\_setup()} de
+	\fn{drivers/\-block/\-genhd.c}. Aquí, no solo se preparan discos:
+	también la red si es necesario (por ejemplo, cuando queremos
+	montar sistemas de ficheros \fn{nfs}). Los dispositivos de bloques
+	incluyen a los discos IDE y SCSI.
+
+	\item [/char] En este directorio se pueden encontrar los
+	dispositivos de carácter tales como los \fn{ttys}, los puertos serie o
+	el ratón.
+
+	\item [/cdrom] Aquí se encuentra todo el código referente a
+	CDROMs {\it especiales} (como la interfaz con CD de
+	SoundBlaster). Nótese que el controlador del CD tipo IDE/ATAPI
+	se encuentra junto a los demás controladores IDE
+	(\fn{drivers/\-block/\-ide-cd.c}) y que el encargado de los CD
+	SCSI se encuentra en el fichero \fn{scsi.c} de \fn{drivers/\-scsi}.
+
+	\item [/pci] Aquí encontraremos el código fuente del
+    pseudo-controlador de PCI. Es un buen sitio para ver cómo el
+    subsistema PCI es mapeado e iniciado. El código específico para el
+    PCI de \axp\ se encuentra en
+    \fn{arch/\-alpha/\-kernel/\-bios32.c}.
+
+	\item [/scsi] Este es el lugar donde encontraremos todo lo
+	referente al SCSI así como los diferentes controladores SCSI
+	existentes y soportados en Linux.
+
+	\item [/net] En este directorio debemos mirar para buscar los
+	controladores de tarjetas de red. Por ejemplo, el controlador de
+	la tarjeta de red DECChip 21040 (PCI) se encuentra en \fn{tulip.c}.
+
+	\item [/sound] Aquí se implementa todo lo relacionado con las
+	diferentes tarjetas de sonido.
+
+\end{description}
+
+\subsection*{Sistemas de Ficheros}
+Las fuentes para el sistema \texttt{EXT2} están en el directorio
+\fn{fs/\-ext2/\-}, residiendo las definiciones necesarias en
+\fn{include/\-linux/\-ext2\_fs.h, ext2\_fs\_i.h} y
+\fn{ext2\_fs\_sb.h}. Las estructuras de datos correspondientes al
+Sistema de Ficheros Virtual (VFS) se declaran en
+\fn{include/\-linux/\-fs.h} y el código está en \fn{fs/\-*}. La
+implementación de la cache de buffer se reparte entre el archivo
+\fn{fs/\-buffer.c} y el demonio \texttt{update}.
+
+\subsection*{Redes}
+El código para el tema de las redes se encuentra en \fn{net} y los
+ficheros de inclusión correspondientes en \fn{include/\-net}
+principalmente. El código para los sockets BSD está en
+\fn{net/\-socket.c} y el correspondiente a los sockets de IP versión
+4, en \fn{net/\-ipv4/\-af\_inet.c}. El código de soporte de protocolo
+genérico (incluyendo las rutinas de manejo de \ds{sk\_buff}) está en
+\fn{net/\-core} y la parte correspondiente a TCP/\-IP en
+\fn{net/\-ipv4}. Los controladores de las tarjetas de red están en
+\fn{drivers/\-net}.
+
+\subsection*{Módulos}
+Para usar módulos, parte del código va incluido en el núcleo, y parte
+en el paquete de los \fn{módulos}. El código del núcleo va todo él en
+\fn{kernel/\-modules.c}, declarándose las estructuras y los mensajes
+del demonio \texttt{kerneld} en \fn{include/\-linux/\-module.h} e
+\fn{include/\-linux/\-kerneld.h}, respectivamente. Si desea conocer la
+estructura de un fichero objeto \texttt{ELF}, deberá mirar en
+\fn{include/\-linux/\-elf.h}.

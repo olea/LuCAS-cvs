@@ -1,0 +1,214 @@
+Traducción de David Martínez Moreno <ender@rediris.es>
+10 Noviembre 2000 - Proyecto NuLies (http://nulies.hispalinux.es/)
+
+Resumen rápido
+--------------
+
+cd /usr/src/linux/scripts/ksymoops
+make ksymoops
+./ksymoops < el_oops_en_cuestion.txt
+
+y mande la salida de eso al encargado de mantener la parte del núcleo que 
+parezca estar relacionada con el problema. No se preocupe demasiado de 
+contactar con la persona equivocada. Si está confuso, mándelo a la 
+persona responsable del código al que se refiere. Si el oops sucede de 
+manera repetida intente describir cómo recrearlo. Eso vale incluso más 
+que el oops.
+
+  Si está completamente desconcertado sobre a quién mandar el informe, 
+mándelo a linux-kernel@vger.rutgers.edu. Gracias por su ayuda para hacer 
+Linux tan estable como sea humanamente posible.
+
+¿Dónde está el_oops.txt?
+------------------------
+
+Normalmente el texto del Oops se lee de los buffers del núcleo mediante 
+klogd y lo manipula syslogd, el cual lo escribe en un fichero de registro, 
+típicamente /var/log/messages (depende de /etc/syslog.conf). Algunas veces 
+es klogd el que muere, en cuyo caso puede ejecutar dmesg > fichero para 
+leer los datos de los buffers del núcleo y grabarlos. O puede hacer 
+cat >/proc/kmsg > fichero, sin embargo tendrá que interrumpir el flujo de 
+datos: kmsg es un "fichero infinito". Si la máquina se ha estropeado tanto 
+que no puede introducir órdenes o el disco no está disponible entonces 
+tiene tres opciones:-
+
+(1) Copie a mano el texto de la pantalla y escribirlo después de que la 
+    máquina haya reiniciado. Lioso, pero es la única opción si no tenía 
+    planeado el accidente.
+
+(2) Arranque con la consola en puerto serie (vea 
+    Documentation/serial-console.txt), ejecute un módem nulo en una segunda 
+    máquina y caoture la salida allí usando su programa de comunicaciones 
+    favorito. Minicom va bien.
+
+(3) Parchee el núcleo con uno de los parches de volcado, o "crash dump 
+    patches" Éstos salvan los datos en un disquete o rom de vídeo o una 
+    partición de intercambio. Ninguno de ellos son parches estándar del 
+    núcleo así que tendrá que encontrarlos y aplicarlos por sí mismo. 
+    Busque en los archivos del núcleo kmsgdump, lkcd y oops+smram.
+
+No importa cómo capture la salida de los registros, déle el fichero 
+resultante a ksymoops junto con los /proc/ksyms y /proc/modules del 
+momento del accidente. /var/log/ksymoops puede ser útil para capturar 
+este último, man ksymoops para más detalles.
+
+
+Información completa
+--------------------
+
+De: Linus Torvalds <torvalds@cs.helsinki.fi>
+
+Cómo seguirle la pista a un Oops.. [originalmente un correo a linux-kernel]
+
+  Realmente el truco está en tener 5 años de experiencia con esos molestos 
+mensajes de oops ;-)
+
+  Actualmente, hay cosas que pueden hacer esto más sencillo. Yo tengo dos 
+aproximaciones distintas:
+
+	gdb /usr/src/linux/vmlinux
+	gdb> disassemble <función_culpable>
+
+  Esta es la forma fácil de encontrar el problema, al menos si el informe 
+del fallo (o bug-report) está bien hecho (como éste lo estaba): pasearse por 
+ksymoops para conseguir la información de cuál es la función y el 
+desplazamiento (offset) en la función en la que sucedió.
+
+  Oh, también ayuda si el informe se hace con un núcleo que está compilado 
+con el mismo compilador y con configuraciones parecidas.
+
+  La otra opción es desensamblar la parte "Code:" del informe del fallo:
+ksymoops lo hará también con las herramientas correctas (y la nueva 
+versión de ksymoops), pero si no tiene las herramientas puede simplemente 
+hacer un programa tonto:
+
+	char str[] = "\xXX\xXX\xXX...";
+	main(){}
+
+y compilarlo con gcc -g y entonces hacer "disassemble str" (donde las "XX" 
+son los valores devueltos por el Oops - puede hacer un cortar-y-pegar y 
+reemplazar los espacios por "\x" - eso es lo que yo hago; soy demasiado 
+vago para escribir un programa que automatice esto del todo).
+
+  Finalmente, si quiere ver de dónde viene el código, puede hacer
+
+	cd /usr/src/linux
+	make fs/buffer.s 	# o cualquiera que sea el fichero que ha fallado
+
+y entonces se hará una idea mucho mejor de lo que está pasando que 
+desensamblando con gdb.
+
+  Ahora, el truco está en combinar todos los datos que tiene: las fuentes 
+en C (y un conocimiento general de lo que _deberían_ hacer), el listado 
+en ensamblador y el desensamblado del código (y además el registro del 
+volcado que también habrá obtenido del mensaje del "oops" - puede ser 
+útil ver _a dónde_ apuntaban los punteros corruptos, y cuando tienes el 
+listado en ensamblador también puedes comparar los otros registros con 
+cualesquiera expresiones en C para los que fueron usados).
+
+  Esencialmente, mire simplemente lo que no coincida (en este caso fue el 
+desensamblado de "Code" lo que no se correspondía con lo que el compilador 
+generó). Después necesitará encontrar _por qué_ no cuadran. A menudo es 
+simple - ve que el código tiene un puntero a NULL y entonces revisa el 
+código y se pregunta cómo ha aparecido el puntero a NULL ahí, y si es 
+válido que lo sea o no cotejándolo...
+
+  Ahora, si a alguien se le ocurre que esto consume mucho tiempo y que 
+requiere una cierta concentración, está en lo cierto. Es por lo que yo a 
+menudo ignoro cualquier informe de panic que no lleve la información de 
+la tabla de símbolos, etc. revisada: simplemente es demasiado duro 
+revisarlo (tengo algunos programas que buscan patrones específicos en el 
+segmento de código del núcleo, y a veces he sido capaz de revisar esa 
+clase de panics también, pero eso realmente requiere un muy buen 
+conocimiento del núcleo para ser capaz de escoger las líneas correctas, 
+etc...)
+
+  _A veces_ sucede que simplemente veo la secuencia de código 
+desensamblado del panic, y sé inmediatamente de dónde proviene. Ahí es 
+cuando me doy cuenta asustado que llevo haciendo esto demasiado tiempo ;-)
+
+		Linus
+
+
+---------------------------------------------------------------------------
+Notas para el trazado de Oops con klogd:
+
+  Para ayudar a Linus y los otros desarrolladores del núcleo se ha 
+incorporado una ayuda sustancial en klogd para procesar fallos de 
+protección. Para tener el soporte completo para la resolución de 
+direcciones se debe usar como mínimo la versión 1.3-p13 del paquete 
+sysklogd.
+
+  Cuando aparece un fallo de protección el demonio klogd automáticamente 
+traslada direcciones importantes en los mensajes de registro del 
+núcleo a sus equivalentes simbólicos. Este mensaje traducido del 
+núcleo es enviado a través de cualquiera que sea el mecanismo de 
+información y registro que esté usando klogd. El mensaje de fallo de 
+protección se puede entonces extraer simplemente de los ficheros de 
+mensajes y enviado a los desarrolladores del núcleo.
+
+  klogd realiza dos tipos de resolución de direcciones. La primera es 
+traducción estática y la segunda es traducción dinámica. La traducción 
+estática usa el fichero System.map de manera casi igual que hace 
+ksymoops. Para hacer traducción estática el demonio klogd debe ser 
+capaz de encontrar un fichero con un mapa del sistema en el momento 
+del arranque del demonio. Vea la página de man de klogd para encontrar 
+información de cómo klogd busca ficheros de mapas.
+
+  La traducción dinámica es importante cuando se usan módulos cargables 
+en el núcleo. Ya que la memoria para los módulos está asignada de las 
+reservas (pools) de memoria dinámica del núcleo, no hay una posición 
+fija para ya sea el comienzo del módulo o para las funciones y símbolos 
+en el núcleo.
+
+  El núcleo soporta llamadas al sistema que permiten a un programa 
+determinar qué módulos están cargados y cuál es su posición en memoria. 
+Usando estas llamadas al sistema el demonio klogd construye una tabla 
+de símbolos que puede usarse para depurar un fallo de protección que 
+suceda en un módulo cargable del núcleo.
+
+  Como mínimo klogd devolverá el nombre del módulo que ha generado el 
+fallo de protección. Puede haber información simbólica adicional si 
+el desarrollador del módulo cargable decidió exportar información de 
+símbolos del módulo.
+
+  Ya que el entorno del módulo del núcleo puede ser dinámico ha de 
+existir un mecanismo para notificar al demonio klogd cuando hay un 
+cambio en el entorno de un módulo. Hay opciones de línea de comandos 
+disponibles que permiten a klogd indicar al demonio que se esté 
+ejecutando en ese momento que la información de símbolos ha de 
+refrescarse. Vea la página de klogd para más información.
+
+  Se incluye un parche con la distribución de sysklogd que modifica el 
+paquete modules-2.0.0 para avisar automáticamente a klogd cuando se 
+cargue o descargue un módulo. La aplicación de este parche provee un 
+apoyo excepcional para depurar fallos de protección que sucedan con 
+los módulos cargables del núcleo.
+
+  Lo siguiente es un ejemplo de un fallo de protección en un módulo 
+cargable procesado por klogd:
+---------------------------------------------------------------------------
+Aug 29 09:51:01 blizard kernel: Unable to handle kernel paging request at virtual address f15e97cc
+Aug 29 09:51:01 blizard kernel: current->tss.cr3 = 0062d000, %cr3 = 0062d000
+Aug 29 09:51:01 blizard kernel: *pde = 00000000
+Aug 29 09:51:01 blizard kernel: Oops: 0002
+Aug 29 09:51:01 blizard kernel: CPU:    0
+Aug 29 09:51:01 blizard kernel: EIP:    0010:[oops:_oops+16/3868]
+Aug 29 09:51:01 blizard kernel: EFLAGS: 00010212
+Aug 29 09:51:01 blizard kernel: eax: 315e97cc   ebx: 003a6f80   ecx: 001be77b   edx: 00237c0c
+Aug 29 09:51:01 blizard kernel: esi: 00000000   edi: bffffdb3   ebp: 00589f90   esp: 00589f8c
+Aug 29 09:51:01 blizard kernel: ds: 0018   es: 0018   fs: 002b   gs: 002b   ss: 0018
+Aug 29 09:51:01 blizard kernel: Process oops_test (pid: 3374, process nr: 21, stackpage=00589000)
+Aug 29 09:51:01 blizard kernel: Stack: 315e97cc 00589f98 0100b0b4 bffffed4 0012e38e 00240c64 003a6f80 00000001 
+Aug 29 09:51:01 blizard kernel:        00000000 00237810 bfffff00 0010a7fa 00000003 00000001 00000000 bfffff00 
+Aug 29 09:51:01 blizard kernel:        bffffdb3 bffffed4 ffffffda 0000002b 0007002b 0000002b 0000002b 00000036 
+Aug 29 09:51:01 blizard kernel: Call Trace: [oops:_oops_ioctl+48/80] [_sys_ioctl+254/272] [_system_call+82/128] 
+Aug 29 09:51:01 blizard kernel: Code: c7 00 05 00 00 00 eb 08 90 90 90 90 90 90 90 90 89 ec 5d c3 
+---------------------------------------------------------------------------
+
+Dr. G.W. Wettstein           Oncology Research Div. Computing Facility
+Roger Maris Cancer Center    INTERNET: greg@wind.rmcc.com
+820 4th St. N.
+Fargo, ND  58122
+Phone: 701-234-7556
+

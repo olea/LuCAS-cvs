@@ -1,0 +1,247 @@
+#!/usr/bin/perl -w
+
+
+# tex2db v0.9 
+# Convert TeX documents to DocBook V3.1, however imperfectly.
+# This script was used to convert Ori Pomerantz's <<Linux Kernel Module
+#  Programming Guide>> from mpg.tex to mpg.db.
+# See http://www.andamooka.org/index.pl?section=lkmpg for the output.
+#
+#
+# (C) 2000 David Sweet <dsweet@andamooka.org>
+#
+#    Copyright (C) <year>  <name of author>
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+############################
+# You can use higher versions of DocBook by changing the <!DOCTYPE line
+#  below.  To use the XML version you'll need to change this script to
+#  print out all lowercase tags.  For example, <emphasis> instead of
+#  <Emphasis>
+#
+#
+
+my $pre=<<EOT;
+<!DOCTYPE book PUBLIC "-//OASIS//DTD DocBook XML V4.1.2//EN"
+                  "http://www.oasis-open.org/docbook/xml/4.1.2/docbookx.dtd">
+
+<book>  
+ <bookinfo>
+EOT
+    ;
+
+# preamble
+@target = ("title", "years", "author");
+$abston = 0;
+$abstract="";
+while ($line = <>)
+{
+    last if $line =~ /\\begin\{document\}/;
+
+    chomp $line;
+
+    if ($abston)
+    {
+	$abstract .= $line if $line !~ /^\\[^\\]/;
+	$abston = 0 if $line =~ /\}$/;
+	next;
+    }
+
+    if ($line =~ /^%/)
+    {
+	$pre .= "<!-- $line -->\n";
+    }
+    elsif ($line =~ /\\newcommand\{\\(.+?)\}\{(.+?)\}/)
+    {
+	$commands{$1}=$2;
+    }
+    elsif ($line =~ /^\\abstract/)
+    {
+	$abston = 1;
+    }
+    else
+    {
+	foreach my $targ (@target)
+	{
+	    if ($line =~ /\\$targ\{(.+?)\}/)
+	    {
+		$t = $1;
+		if ($t =~ /.*\\(.+)/)
+		{
+		    $stuff{$targ} = $commands{$1};
+		}
+		else
+		{
+		    $stuff{$targ} = $t;
+		}
+	    }
+	}
+    }
+}
+
+$abstract = substr ($abstract,0,length($abstract)-1);
+$abstract =~ s/\\\\/\n<\/para>\n<para>\n/gs;
+$abstract = "<abstract>\n<para>".$abstract;
+$abstract .= "\n<\/para></abstract>\n";
+
+if ($stuff{author} =~ /^\s*?(.+?)\s+?(.+?)/)
+{
+    $stuff{firstname} = $1;
+    $stuff{lastname} = $2;
+}
+
+$pre.= "<title>$stuff{title}</title>\n" if $stuff{title};
+if ($stuff{author})
+{
+    $pre.= "<author>";
+    $pre .= "<firstName>$stuff{firstname}</firstName>" if $stuff{firstname};
+    $pre.= "<surname>$stuff{lastname}</surname>" if $stuff{lastname};
+#    print "<email>$commands{myemail}</email>\n" if $commands{'myemail'};
+#    print "<author><othername>$stuff{author}</othername>\n";
+    $pre .= "<otherName>$stuff{author}</othername" if !$stuff{firstname} && !$stuff{lastname};
+    $pre .= "</author>\n";
+    $pre .= "<copyright><year>$stuff{years}</year><holder>$stuff{author}</holder></copyright>\n" if $stuff{years};
+    #  steal this info
+
+}
+
+$pre .= "$abstract\n" if $abstract;
+
+$pre .= "</bookinfo>\n";
+
+while (<>)
+{
+    if (/^%/) # comments
+    {
+	chomp $_;
+	$_ =  "<!-- $_ -->\n";
+    }
+    else
+    {   
+      # Good to do this before adding SGML tags!
+      s/\$<\$/&lt;/gs;
+      s/\$>\$/&gt;/gs;
+      s/</&lt;/gs;
+      s/>/&gt;/gs;
+      s/&/&amp;/gs;
+    }
+    $content .= $_;
+
+
+}
+
+
+# substitute macros
+foreach (keys %commands)
+{
+    $content =~ s/\\$_/$commands{$_}/gs;
+}
+
+
+# Start inside and work our way out.
+
+$_ = $content;
+
+
+$_ = $pre . $_;
+
+
+# Unsupported tags
+s/\\(huge|large|appendix|bigskip|normalsize|newpage|tableofcontents|makeindex|maketitle|noindent|small)//gs;  # zero parameters
+s/\\(input|markboth|pagenumbering|pagestyle|vspace)\{[\\\w\s\d\.]+?\}(\{[\\\w\s\d\.]+?\}|)//gs; # one or two parameters
+s/addcontentsline\{[\\\w\d\.]+?\}\{[\\\w\d\.]+?\}\{[\\\w\d\.]+?\}//gs; # three parameters
+s/\\(setlength|setcounter|)\{[\\\w\d\.]+?\}{[\-\\\w\d\.]+?\}//gs;
+s/\\vskip[\s\d\w]+?\n//gs;
+
+s/\\\///gs;  # don't know what that is... maybe a mistake
+s/\\#/#/gs;
+s/\\~/~/gs;
+s/\\_/\_/gs;  # underscores before the next change!
+s/\\([\w\d ]+)\\/<emphasis>$1<\/emphasis>/g; # italicized words
+s/\\dots/\.\.\./gs;
+
+s/\{\\tt\s(.+?)\}/<command>$1<\/command>/gs;
+s/\{\\em\s(.+?)\}/<emphasis>$1<\/emphasis>/gs;
+s/\{\\bf\s(.+?)\}/<emphasis>$1<\/emphasis>/gs;
+s/\{\\sc\s(.+?)\}/$1/gs;  # What does this do?
+s/\\cparam\{(.+?)\}/<parameter>$1<\/parameter>/gs;
+s/\\textsl\{(.+?)\}/<emphasis>$1<\/emphasis>/gs;  # Could be translated better
+
+s/\\centerline\{(.+?)\}/$1/gs;
+
+s/\\ref\{(.+?)\}/<xref linkend=\"$1\">/g;
+s/\\index\{(.+?)\}/<indexterm><primary>$1<\/primary><\/indexterm>/gs;
+s/\\footnote\{(.+?)\}/\n<footnote>\n$1\n<\/footnote>\n/gs;
+
+
+
+1 while (s/\\item\{(.+?)\}(.+?)\\(item|end\{)/<listitem>\n$1$2<\/listitem>\n\n\\$3/s);
+1 while (s/\\item(.+?)\\(item|end\{)/<listitem>\n$1<\/listitem>\n\n\\$2/s);
+#s/\\begin\{enumerate\}(.+?)\\end\{enumerate\}/<orderedList>$1<\/orderedList>/gs;
+s/\\begin\{enumerate\}(.+?)\\end\{enumerate\}/<para><orderedList>$1<\/orderedList><\/para>/gs;
+s/\\begin\{itemize\}(.+?)\\end\{itemize\}/<para><itemizedlist>$1<\/itemizedlist><\/para>/gs;
+s/\\begin\{verbatim\}(.+?)\\end\{verbatim\}/<programlisting>$1<\/programlisting>/gs;
+s/\\begin\{quote\}(.+?)\\end\{quote\}/<blockquote>$1<\/blockquote>/gs;
+s/\\begin\{tscreen\}(.+?)\\end\{tscreen\}/<literallayout>$1<\/literallayout>/gs;
+
+
+1 while (s/\\subsection\{(.+?)\}(.+?)(\\subsection|\\section|\\chapter)/\n<sect2 id=\"\L$1\E\">\n<title>$1<\/title>\n$2\n<\/sect2>\n$3/s);  # subsections
+
+1 while (s/\\section\{(.+?)\}\\label\{(.+?)\}(.+?)(\\section|\\chapter)/\n<sect1 id=\"$2\">\n<title>$1<\/title>\n$3\n<\/sect1>\n$4/s); # sections
+
+1 while(s/\\chapter\{(.+?)\}\\label\{(.+?)\}(.+?)\\chapter/\n<chapter id=\"$2\">\n<title>$1<\/title>\n$3<\/chapter>\\chapter/s);  # chapters
+
+# Sometimes unsupported...
+s/\\(label)//gs;  # zero parameters
+
+
+# A little cleanup
+s/<emphasis>([\w\.\-]+?)<\/emphasis>\s+?(<In.+?)<programlisting>/<para>\n<programlisting>\n<citetitle>$1<\/citetitle>\n$2/sg;
+s/(<\/programlisting>)/$1\n<\/para>/gs;
+
+# ...then find the paragraphs
+
+s/<(\/title)>\s+(([\w\d]|<emphasis|<command|<indexterm).+?)(\n\n|<\/(sect|chapter))/<$1>\n<para>\n$2\n<\/para>\n$4/gs;
+
+1 while (s/<\/para>\s+(([\w\d]|<emphasis|<command).+?)(\n\n|<\/(sect|chapter))/<\/para>\n<para>\n$1\n<\/para>\n$3/gs);
+
+s/<(isttem|footnote|blockquote)>\s+(([\[\w\d]|<emphasis|<command).+?)(<\/listitem|<\/footnote|<\/blockquote)/<$1>\n<para>\n$2\n<\/para>\n$4/gs;
+
+s/<\/bookinfo>(.+?)<chapter/<\/bookinfo><preface><title>preface<\/title>\n<para>\n$1<\/para><\/preface><chapter/sg;
+
+$content = $_;
+#$content =~ s/\n\n+?([^\n].+?)\n\n/\n<para>$1<\/para>\n/sg;
+
+
+# remove spaces from id's
+while ($content =~ /id\=\"([^\"]+?\s.+?)\"/)
+{
+    
+    my $t = $1;
+    $t =~ s/\s/-/g;
+    $content =~ s/id\=\"([^\"]+?\s.+?)\"/id\=\"$t\"/;
+}
+
+
+# Don't forget those URLs!
+$content =~ s/((ftp|gopher|http):\/\/.+?)\s/<ulink url=\"$1\">$1<\/ulink>/gs;
+$content =~ s/\\\\//gs;  # remove those \\'s
+
+$content =~ s/\\end\{document\}/<\/book>/s;
+
+print $content;
+
+

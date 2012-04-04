@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+
+<appendix id="make-deleteHomedirectory">
+	<title>Script para la creación/eliminación de los homes de los usuarios</title>
+
+	<para>Cuando se añaden/borran usuarios en la base de datos de <acronym>LDAP</acronym>
+	no se crea el directorio destinado a almacenar sus archivos personales
+	(el directorio <emphasis>HOME</emphasis>). La aplicación
+	<acronym>LDAP</acronym> Account Manager (ver el
+	<xref linkend="ldap-account-manager-instalacion-conf"/> para más información)
+	adjunta un script destinado a la creación/eliminación de los directorios
+	home de los usuarios: <application>lamdaemon.pl</application>; pero en esta
+	documentación no se hará uso del mismo.</para>
+
+	<para>En su lugar se ha creado el siguiente script, que ha de ser ejecutado
+	como usuario root cada vez que se cree un nuevo usuario, sobre todo si este
+	está destinado a hacer uso de Samba (la creación del directorio
+	home cuando se accede a la shell ya está solucionado: vea la
+	<xref linkend="openldap-autentificacion-usuarios-configuracion-pam-common-session"/>
+	para más detalles):</para>
+
+	<note><para>El script no está pensado para sistemas en producción, simplemente
+	es un ejemplo utilizado para facilitar la creación de esta documentación.</para></note>
+
+	<warning><para>Tenga mucho cuidado con el uso del siguiente script, ya que
+	añade y borra, ¡sin preguntar!, los homes de los usuarios en relación
+	al estado de la base de datos de usuarios <acronym>LDAP</acronym>.</para>
+
+	<para>Su comportamiento es el siguiete:</para>
+
+	<itemizedlist>
+		<listitem>
+			<para>Crea el directorio home y copia el contenido del directorio
+			<filename class="directory">/etc/skel</filename>, de aquellos usuarios
+			que no tengan creado su directorio home.</para>
+		</listitem>
+		<listitem>
+			<para>Borra, sin preguntar ni hacer una copia de seguridad,
+			los homes de los usuarios que ya no existan en la base de datos
+			<acronym>LDAP</acronym>, pero aun posean un directorio home
+			en el sistem.</para>
+		</listitem>
+	</itemizedlist></warning>
+
+	<note><para>Este script se ha basado en los scripts creados
+	por J. Vriesman y Jesús Roncero Franco para la elaboración de los
+	siguientes documentos, respectivamente:</para>
+
+	<itemizedlist>
+		<listitem>
+			<para><ulink url="http://jeroen.protheus.com/postfix-courier-ldap-howto.html">http://jeroen.protheus.com/postfix-courier-ldap-howto.html</ulink></para>
+		</listitem>
+		<listitem>
+			<para><ulink url="http://bulma.net/body.phtml?nIdNoticia=2013">http://bulma.net/body.phtml?nIdNoticia=2013</ulink></para>
+		</listitem>
+	</itemizedlist>	</note>
+
+<programlisting><![CDATA[#!/bin/sh
+#
+# Copyright (C) 2004 Sergio González González <sergio.gonzalez@hispalinux.es>
+# 
+# Depends on:
+#               - ldapsearch
+#
+# Based on http://jeroen.protheus.com/postfix-courier-ldap-howto.html
+# (c) J.Vriesman
+#
+# and
+#
+# Based on http://bulma.net/body.phtml?nIdNoticia=2013
+# (c) Jesús Roncero Franco
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+#
+# This script manage the home directories of LDAP users (make the new users home
+# directory and delete the non-existent users home directory)
+
+
+
+# Password to bind to ldap server
+systempass="********"  
+# Bind dn
+binddn="cn=admin,dc=gsr,dc=pt" 
+# Acount leave
+accountleave="ou=people,dc=gsr,dc=pt" 
+# ldap host
+ldaphost="gsr.pt"
+# skel directory
+skel="/etc/skel/"
+# Home leave (without final slash: '/')
+homeleave="/home/samba/users"
+
+
+usernames=`ldapsearch -h $ldaphost -x -w $systempass -D "$binddn" \
+                      -b "$accountleave" uid | grep "^[^#]" | grep "^[^dn]" \
+                      | grep uid | awk '{ print $2 }'`
+
+# create personal home directories
+
+for username in $usernames
+do
+  homedirectory=`ldapsearch -h $ldaphost -x -w $systempass -D "$binddn" \
+                            -b "$accountleave" "(uid=$username)" homeDirectory \
+                            | grep "^[^#]" | grep homeDirectory \
+                            | awk '{ print $2 }'`
+
+  group=`ldapsearch -h $ldaphost -x -w $systempass -D "$binddn" \
+                    -b "$accountleave" "(uid=$username)" gidNumber \
+                    | grep "^[^#]" | grep gidNumber \
+                    | awk '{ print $2 }'`
+
+  if [ ! -d $homedirectory ] && [ ! -z $homedirectory ]
+  then
+
+    cp -a $skel $homedirectory
+    chown -R $username.$group $homedirectory
+  fi
+
+done
+
+# delete personal home directories
+
+for username in `ls $homeleave`
+do
+  name=`ldapsearch -h $ldaphost -x -w $systempass -D "$binddn" \
+                   -b "$accountleave" "(homeDirectory=$homeleave/$username)" uid \
+                   | grep "^[^#]" | grep "uid:" | awk '{ print $2 }'`
+
+  if [ -z $name ]
+  then
+    rm -rf $homeleave/$username
+  fi
+done]]></programlisting>
+</appendix>

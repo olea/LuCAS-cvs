@@ -1,0 +1,1891 @@
+<Chapter Id="pgtcl">
+<Title>pgtcl - Librería de Enlace TCL</Title>
+
+<Para>
+<literal>pgtcl</literal> es un paquete tcl para programas que interactúen con backends de <ProductName>Postgres</ProductName>
+Hace que la mayoría de las funciones de <literal>libpq</literal> estén disponibles para scripts de tcl.
+</Para>
+
+<Para>
+Este paquete fue originalmente escrito por Jolly Chen.
+</Para>
+
+<Sect1 id="libpgtcl-commands">
+<Title>Comandos</Title>
+
+<Para>
+<TABLE TOCENTRY="1">
+<TITLE>Comandos <literal>pgtcl</literal></TITLE>
+<TGROUP COLS="2">
+<THEAD>
+  <ROW>
+    <ENTRY>Comando</ENTRY>
+    <ENTRY>Descripción</ENTRY>
+  </ROW>
+</THEAD>
+<TBODY>
+  <ROW>
+    <ENTRY>pg_connect</ENTRY>
+    <ENTRY>abre una conexión al servidor backend</ENTRY>
+  </ROW>
+  <ROW>
+    <ENTRY>pg_disconnect</ENTRY>
+    <ENTRY>cierra una conexión</ENTRY>
+  </ROW>
+  <ROW>
+    <ENTRY>pg_conndefaults</ENTRY>
+    <ENTRY>obtiene las opciones de conexión y sus valores por defecto</ENTRY>
+  </ROW>
+  <ROW>
+    <ENTRY>pg_exec</ENTRY>
+    <ENTRY>envía una consulta al backend</ENTRY>
+  </ROW>
+  <ROW>
+    <ENTRY>pg_result</ENTRY>
+    <ENTRY>manipula los resultados de una consulta</ENTRY>
+  </ROW>
+  <ROW>
+    <ENTRY>pg_select</ENTRY>
+    <ENTRY>hace un bucle sobre el resultado de una declaración SELECT</ENTRY>
+  </ROW>
+  <ROW>
+    <ENTRY>pg_listen</ENTRY>
+    <ENTRY>establece una rellamada mensajes NOTIFY</ENTRY>
+  </ROW>
+
+  <ROW>
+    <ENTRY>pg_lo_creat</ENTRY>
+    <ENTRY>crea un objeto grande</ENTRY>
+  </ROW>
+  <ROW>
+    <ENTRY>pg_lo_open</ENTRY>
+    <ENTRY>abre un objeto grande</ENTRY>
+  </ROW>
+  <ROW>
+    <ENTRY>pg_lo_close</ENTRY>
+    <ENTRY>cierra un objeto grande</ENTRY>
+  </ROW>
+  <ROW>
+    <ENTRY>pg_lo_read</ENTRY>
+    <ENTRY>lee un objeto grande</ENTRY>
+  </ROW>
+  <ROW>
+    <ENTRY>pg_lo_write</ENTRY>
+    <ENTRY>escribe un objeto grande</ENTRY>
+  </ROW>
+  <ROW>
+    <ENTRY>pg_lo_lseek</ENTRY>
+    <ENTRY>busca y se coloca sobre una posición en un objeto grande</ENTRY>
+  </ROW>
+  <ROW>
+    <ENTRY>pg_lo_tell</ENTRY>
+    <ENTRY>devuelve la posición de un objeto grande sobre la que se está</ENTRY>
+  </ROW>
+  <ROW>
+    <ENTRY>pg_lo_unlink</ENTRY>
+    <ENTRY>borra un objeto grande</ENTRY>
+  </ROW>
+  <ROW>
+    <ENTRY>pg_lo_import</ENTRY>
+    <ENTRY>importa un fichero Unix a un objeto grande</ENTRY>
+  </ROW>
+  <ROW>
+    <ENTRY>pg_lo_export</ENTRY>
+    <ENTRY>exporta un objeto grande a un fichero Unix</ENTRY>
+  </ROW>
+</TBODY>
+</TGROUP>
+</TABLE>
+</Para>
+
+<Para>
+Estos comandos se describen en otras páginas más adelante.
+</Para>
+
+<Para>
+Las rutinas pg_lo* son interfaces a las características de objetos grandes de
+<ProductName>Postgres</ProductName>.
+Las funciones han sido diseñadas para imitar a las funciones del sistema análogas en el sistema de ficheros de Unix. Las rutinas pg_lo* deberían usarse dentro de un bloque transaccional BEGIN/END porque el descripor de fichero devuelto por pg_lo_open sólo es válido para la transacción en curso. pg_lo_import y pg_lo_export DEBEN ser usados en un bloque de transacción BEGIN/END.
+</Para>
+
+</Sect1>
+
+<Sect1 id="libpgtcl-examples">
+<Title>Ejemplos</Title>
+
+<Para>
+He aquí un pequeño ejemplo de cómo usar las rutinas:
+
+<ProgramListing>
+# getDBs :
+#   get the names of all the databases at a given host and port number
+#   with the defaults being the localhost and port 5432
+#   return them in alphabetical order
+proc getDBs { {host "localhost"} {port "5432"} } {
+    # datnames is the list to be result
+    set conn [pg_connect template1 -host $host -port $port]
+    set res [pg_exec $conn "SELECT datname FROM pg_database ORDER BY datname"]
+    set ntups [pg_result $res -numTuples]
+    for {set i 0} {$i < $ntups} {incr i} {
+	lappend datnames [pg_result $res -getTuple $i]
+    }
+    pg_result $res -clear
+    pg_disconnect $conn
+    return $datnames
+}
+</ProgramListing>
+
+</Para>
+</Sect1>
+
+<Sect1 id="libpgtcl-ref">
+<Title>Información de referencia de comandos pgtcl</Title>
+
+<REFENTRY ID="PGTCL-PGCONNECT">
+<REFMETA>
+<REFENTRYTITLE>pg_connect</REFENTRYTITLE>
+<REFMISCINFO>PGTCL - Administracion de Conexion</REFMISCINFO>
+</REFMETA>
+<REFNAMEDIV>
+<REFNAME>pg_connect
+</REFNAME>
+<REFPURPOSE>abre una conexión al servidor backend
+</REFPURPOSE>
+<INDEXTERM ID="IX-PGTCL-PGCONNECT-1"><PRIMARY>pgtcl</PRIMARY><SECONDARY>connecting</SECONDARY></INDEXTERM>
+<INDEXTERM ID="IX-PGTCL-PGCONNECT-2"><PRIMARY>pg_connect</PRIMARY></INDEXTERM>
+</REFNAMEDIV>
+<REFSYNOPSISDIV>
+<REFSYNOPSISDIVINFO>
+<DATE>1997-12-24</DATE>
+</REFSYNOPSISDIVINFO>
+<SYNOPSIS>
+pg_connect -conninfo <REPLACEABLE CLASS="PARAMETER">opcionesConexion</REPLACEABLE>
+pg_connect <REPLACEABLE CLASS="PARAMETER">nombreDb</REPLACEABLE> <OPTIONAL>-host <REPLACEABLE CLASS="PARAMETER">nombreHost</REPLACEABLE></OPTIONAL>
+  <OPTIONAL>-port <REPLACEABLE
+  CLASS="PARAMETER">numeroPuerto</REPLACEABLE></OPTIONAL> <OPTIONAL>-tty <REPLACEABLE
+  CLASS="PARAMETER">pqtty</REPLACEABLE></OPTIONAL>
+  <OPTIONAL>-options <REPLACEABLE
+  CLASS="PARAMETER">argumentosOpcionalesBackend</REPLACEABLE></OPTIONAL>
+</SYNOPSIS>
+
+<REFSECT2 ID="R2-PGTCL-PGCONNECT-1">
+<REFSECT2INFO>
+<DATE>1998-10-07</DATE>
+</REFSECT2INFO>
+<TITLE>Inputs (estilo nuevo)
+</TITLE>
+<VARIABLELIST>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">opcionesConexion</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>Una cadena de opciones de conexión, cada una escrita de la forma palabraClave = valor.
+Se puede encontrar una lista de opciones válidas en la entrada del manual de <filename>libpq</filename>
+<function>PQconnectdb</>
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+</VARIABLELIST>
+</REFSECT2>
+
+<REFSECT2 ID="R2-PGTCL-PGCONNECT-2">
+<REFSECT2INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT2INFO>
+<TITLE>Inputs (estilo viejo)
+</TITLE>
+<VARIABLELIST>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">nombreBD</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>Especifica un nombre válido de base de datos.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+  <OPTIONAL>-host <REPLACEABLE CLASS="PARAMETER">nombreHost</REPLACEABLE></OPTIONAL>
+</TERM>
+<LISTITEM>
+<PARA>Especifica el nombre de dominio del servidor backend para <REPLACEABLE CLASS="PARAMETER">nombreBD</REPLACEABLE>.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+  <OPTIONAL>-port <REPLACEABLE CLASS="PARAMETER">numeroPuerto</REPLACEABLE></OPTIONAL>
+</TERM>
+<LISTITEM>
+<PARA>Especifica el número de puerto IP del servidor backend para <REPLACEABLE CLASS="PARAMETER">nombreBD</REPLACEABLE>.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+  <OPTIONAL>-tty <REPLACEABLE CLASS="PARAMETER">pqtty</REPLACEABLE></OPTIONAL>
+</TERM>
+<LISTITEM>
+<PARA>Especifica el fichero o el tty (terminal) para mostrar los resultados de depuración provenientes del backend.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+  <OPTIONAL>-options <REPLACEABLE CLASS="PARAMETER">argumentosOpcionalesBackend</REPLACEABLE></OPTIONAL>
+</TERM>
+<LISTITEM>
+<PARA>Especifica opciones para el servidor de backend para <REPLACEABLE CLASS="PARAMETER">nombreBD</REPLACEABLE>.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+</VARIABLELIST>
+</REFSECT2>
+
+<REFSECT2 ID="R2-PGTCL-PGCONNECT-3">
+<REFSECT2INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT2INFO>
+<TITLE>Outputs
+</TITLE>
+<VARIABLELIST>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">dbHandle</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>
+Si toda ha ido bien, se devuelve un handle para una conexión de base de datos.
+Los handles comienzan con el prefijo "pgsql".
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+</VARIABLELIST>
+</REFSECT2>
+</REFSYNOPSISDIV>
+
+<!-- ********************************************************** -->
+
+<REFSECT1 ID="R1-PGTCL-PGCONNECT-1">
+<REFSECT1INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT1INFO>
+<TITLE>Descripción
+</TITLE>
+<PARA><FUNCTION>pg_connect</FUNCTION> abre una conexión al backend de
+<ProductName>Postgres</ProductName>.
+</Para>
+
+<para>
+Existen dos versiones de la sintaxis. En la vieja, cada posible opción tiene un switch en la declaración de pg_connect. En la nueva forma, se utiliza un string como opción que contiene múltiples valores. Vea <FUNCTION>pg_conndefaults</FUNCTION> para encontrar información sobre las opciones disponibles en la nueva sintaxis.
+</PARA>
+</REFSECT1>
+<REFSECT1 ID="R1-PGTCL-PGCONNECT-2">
+<TITLE>Uso
+</TITLE>
+<PARA>XXX thomas 1997-12-24
+</PARA>
+</REFSECT1>
+</REFENTRY>
+
+<REFENTRY ID="PGTCL-PGDISCONNECT">
+<REFMETA>
+<REFENTRYTITLE>pg_disconnect</REFENTRYTITLE>
+<REFMISCINFO>PGTCL - Administracion de Conexion</REFMISCINFO>
+</REFMETA>
+<REFNAMEDIV>
+<REFNAME>pg_disconnect
+</REFNAME>
+<REFPURPOSE>cierra una conexión al servidor backend
+</REFPURPOSE>
+<INDEXTERM ID="IX-PGTCL-PGDISCONNECT-1"><PRIMARY>pgtcl</PRIMARY><SECONDARY>connecting</SECONDARY></INDEXTERM>
+<INDEXTERM ID="IX-PGTCL-PGDISCONNECT-2"><PRIMARY>pg_connect</PRIMARY></INDEXTERM>
+</REFNAMEDIV>
+<REFSYNOPSISDIV>
+<REFSYNOPSISDIVINFO>
+<DATE>1997-12-24</DATE>
+</REFSYNOPSISDIVINFO>
+<SYNOPSIS>
+pg_disconnect <REPLACEABLE CLASS="PARAMETER">dbHandle</REPLACEABLE>
+</SYNOPSIS>
+
+<REFSECT2 ID="R2-PGTCL-PGDISCONNECT-1">
+<REFSECT2INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT2INFO>
+<TITLE>Inputs
+</TITLE>
+<VARIABLELIST>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">dbHandle</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>Especifica un handle de base de datos válido.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+</VARIABLELIST>
+</REFSECT2>
+
+<REFSECT2 ID="R2-PGTCL-PGDISCONNECT-2">
+<REFSECT2INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT2INFO>
+<TITLE>Outputs
+</TITLE>
+<VARIABLELIST>
+<VARLISTENTRY>
+<TERM>
+  Ninguno
+</TERM>
+<LISTITEM>
+<PARA>
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+</VARIABLELIST>
+</REFSECT2>
+</REFSYNOPSISDIV>
+
+<REFSECT1 ID="R1-PGTCL-PGDISCONNECT-1">
+<REFSECT1INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT1INFO>
+<TITLE>Descripción
+</TITLE>
+<PARA><FUNCTION>pg_disconnect</FUNCTION> cierra una conexión al backend de  <ProductName>Postgres</ProductName>.
+</PARA>
+</REFSECT1>
+
+</REFENTRY>
+
+
+
+
+<REFENTRY ID="PGTCL-PGCONNDEFAULTS">
+<REFMETA>
+<REFENTRYTITLE>pg_conndefaults</REFENTRYTITLE>
+<REFMISCINFO>PGTCL - Administracion de Conexion</REFMISCINFO>
+</REFMETA>
+<REFNAMEDIV>
+<REFNAME>pg_conndefaults
+</REFNAME>
+<REFPURPOSE>obtiene información sobre los parámetros de la conexión por defecto
+</REFPURPOSE>
+<INDEXTERM ID="IX-PGTCL-PGCONNDEFAULTS-1"><PRIMARY>pgtcl</PRIMARY><SECONDARY>connecting</SECONDARY></INDEXTERM>
+<INDEXTERM ID="IX-PGTCL-PGCONNDEFAULTS-2"><PRIMARY>pg_conndefaults</PRIMARY></INDEXTERM>
+</REFNAMEDIV>
+<REFSYNOPSISDIV>
+<REFSYNOPSISDIVINFO>
+<DATE>1998-10-07</DATE>
+</REFSYNOPSISDIVINFO>
+<SYNOPSIS>
+pg_conndefaults
+</SYNOPSIS>
+
+<REFSECT2 ID="R2-PGTCL-PGCONNDEFAULTS-1">
+<REFSECT2INFO>
+<DATE>1998-10-07</DATE>
+</REFSECT2INFO>
+<TITLE>Inputs
+</TITLE>
+<PARA>
+Ninguno
+</PARA>
+</REFSECT2>
+
+<REFSECT2 ID="R2-PGTCL-PGCONNDEFAULTS-2">
+<REFSECT2INFO>
+<DATE>1998-10-07</DATE>
+</REFSECT2INFO>
+<TITLE>Outputs
+</TITLE>
+<VARIABLELIST>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">option list</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>
+El resultado es una lista que describe las opciones posibles de conexión y sus valores por defecto. Cada entrada en la lista es una sub-lista del formato siguiente:
+</Para>
+<para>
+	 {optname label dispchar dispsize value}
+</Para>
+<Para>
+donde optname se utiliza como opción en
+<FUNCTION>pg_connect -conninfo</FUNCTION>.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+</VARIABLELIST>
+</REFSECT2>
+</REFSYNOPSISDIV>
+
+<REFSECT1 ID="R1-PGTCL-PGCONNDEFAULTS-1">
+<REFSECT1INFO>
+<DATE>1998-10-07</DATE>
+</REFSECT1INFO>
+<TITLE>Descripción
+</TITLE>
+
+<para>
+<FUNCTION>pg_conndefaults</FUNCTION> devuelve información sobre las opciones de conexión disponibles en 
+<FUNCTION>pg_connect -conninfo</FUNCTION> y el valor por defecto actual de cada opción.
+</PARA>
+</REFSECT1>
+<REFSECT1 ID="R1-PGTCL-PGCONNDEFAULTS-2">
+<TITLE>Uso
+</TITLE>
+<PARA>pg_conndefaults
+</PARA>
+</REFSECT1>
+</REFENTRY>
+
+<REFENTRY ID="PGTCL-PGEXEC">
+<REFMETA>
+<REFENTRYTITLE>pg_exec</REFENTRYTITLE>
+<REFMISCINFO>PGTCL - Query Processing</REFMISCINFO>
+</REFMETA>
+<REFNAMEDIV>
+<REFNAME>pg_exec
+</REFNAME>
+<REFPURPOSE>
+envía un string con una consulta al backend
+</REFPURPOSE>
+<INDEXTERM ID="IX-PGTCL-PGEXEC-1"><PRIMARY>pgtcl</PRIMARY><SECONDARY>connecting</SECONDARY></INDEXTERM>
+<INDEXTERM ID="IX-PGTCL-PGEXEC-2"><PRIMARY>pg_connect</PRIMARY></INDEXTERM>
+</REFNAMEDIV>
+<REFSYNOPSISDIV>
+<REFSYNOPSISDIVINFO>
+<DATE>1997-12-24</DATE>
+</REFSYNOPSISDIVINFO>
+<SYNOPSIS>
+pg_exec <REPLACEABLE CLASS="PARAMETER">dbHandle</REPLACEABLE> <REPLACEABLE CLASS="PARAMETER">stringConsulta</REPLACEABLE>
+</SYNOPSIS>
+
+<!-- ********************************************************** -->
+
+<REFSECT2 ID="R2-PGTCL-PGEXEC-1">
+<REFSECT2INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT2INFO>
+<TITLE>Inputs
+</TITLE>
+<VARIABLELIST>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">dbHandle</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>Especifiva un handle válido para una base de datos.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">stringConsulta</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>Especifica una consulta SQL válida.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+</VARIABLELIST>
+</REFSECT2>
+
+<REFSECT2 ID="R2-PGTCL-PGEXEC-2">
+<REFSECT2INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT2INFO>
+<TITLE>Outputs
+</TITLE>
+<VARIABLELIST>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">handleResultado</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>
+Se devolverá un error Tcl si Pgtcl no pudo obtener respuesta del backend. De otro modo, se crea un objeto consulta como respuesta y se devuelve un handle para él. Este handle puede ser pasado a <FUNCTION>pg_result</FUNCTION>
+para obtener los resultados de la consulta.</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+</VARIABLELIST>
+</REFSECT2></REFSYNOPSISDIV>
+
+<REFSECT1 ID="R1-PGTCL-PGEXEC-1">
+<REFSECT1INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT1INFO>
+<TITLE>Description
+</TITLE>
+<PARA>
+<FUNCTION>pg_exec</FUNCTION> presenta una consulta al backend de <ProductName>Postgres</ProductName> y devuelve un resultado. El resultado de la consulta se encarga de manejar el comienzo con el handle de la conexión y añade un punto un número como resultado.</Para>
+
+<PARA>
+Tenga en cuenta que la falta de un error Tcl no es una prueba de que la consulta ha tenido éxito! Un mensaje de error devuelto por el backend será procesado como resultado de una consulta con un aviso de fallo, no generándose un error Tcl en pg_exec.
+</PARA>
+</REFSECT1>
+</refentry>
+
+<REFENTRY ID="PGTCL-PGRESULT">
+<REFMETA>
+<REFENTRYTITLE>pg_result</REFENTRYTITLE>
+<REFMISCINFO>PGTCL - Query Processing</REFMISCINFO>
+</REFMETA>
+<REFNAMEDIV>
+<REFNAME>pg_result
+</REFNAME>
+<REFPURPOSE>
+obtiene información sobre el resultado de una consulta
+</REFPURPOSE>
+<INDEXTERM ID="IX-PGTCL-PGRESULT-1"><PRIMARY>pgtcl</PRIMARY><SECONDARY>connecting</SECONDARY></INDEXTERM>
+<INDEXTERM ID="IX-PGTCL-PGRESULT-2"><PRIMARY>pg_connect</PRIMARY></INDEXTERM>
+</REFNAMEDIV>
+<REFSYNOPSISDIV>
+<REFSYNOPSISDIVINFO>
+<DATE>1997-12-24</DATE>
+</REFSYNOPSISDIVINFO>
+<SYNOPSIS>
+pg_result <REPLACEABLE CLASS="PARAMETER">handleResult</REPLACEABLE> <REPLACEABLE CLASS="PARAMETER">opcionResult</REPLACEABLE>
+</SYNOPSIS>
+<REFSECT2 ID="R2-PGTCL-PGRESULT-1">
+<REFSECT2INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT2INFO>
+<TITLE>Inputs
+</TITLE>
+<VARIABLELIST>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">handleResult</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>
+  Es el handle para el resultado de una consulta.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">opcionResult</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>
+Especifica una de las varias posibles opciones.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+</VARIABLELIST>
+
+<REFSECT3>
+<TITLE>Opciones</TITLE>
+
+<VARIABLELIST>
+<VARLISTENTRY>
+<TERM>
+-status  
+</TERM>
+<LISTITEM>
+<PARA>
+el estado del resultado.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+-error
+</TERM>
+<LISTITEM>
+<PARA>
+el mensaje de error, si el estado indica error; de otro modo, un string vacío.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+-conn
+</TERM>
+<LISTITEM>
+<PARA>
+la conexión que produjo el resultado.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+-oid
+</TERM>
+<LISTITEM>
+<PARA>
+si el comando fue un INSERT, el tuplo del OID insertado; de otro modo un string vacío.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+-numTuples
+</TERM>
+<LISTITEM>
+<PARA>
+el número de tuplos devueltos por la consulta.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+-numAttrs
+</TERM>
+<LISTITEM>
+<PARA>
+el número de atributos en cada tuplo.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+-assign nombreArray
+</TERM>
+<LISTITEM>
+<PARA>
+asigna el resultado a un array, usando la forma (numTuplo,nombreAtributo).
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+-assignbyidx nombreArray ?appendstr?
+</TERM>
+<LISTITEM>
+<PARA>
+asigna los resultado a un array usando el primer atributo del valor y el resto de nombres de atributos como claves. Si appendstr es pasado, entonces es añadido a cada clave. Brevemente, todos excepto el primer campo de cada tuplo son almacenados en un array, usando una nomenclatura del tipo (valorPrimerCampo,nombreCampoAppendStr).
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+-getTuple numeroTuplo
+</TERM>
+<LISTITEM>
+<PARA>
+devuelve los campos del tuplo indicado en una lista. Los números de tuplo empiezan desde cero.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+-list VarName
+</TERM>
+<LISTITEM>
+<PARAM>
+asigna los resultados a una lista de listas.
+</PARAM>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+-tupleArray numeroTuplo nombreArray
+</TERM>
+<LISTITEM>
+<PARA>
+almacena los campos del tuplo en el array nombreArray, indexados por nombres de campo. Los número de tuplo empiezan desde cero.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+-attributes
+</TERM>
+<LISTITEM>
+<PARA>
+devuelve una lista con los nombre de los atributos del tuplo.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+-lAttributes
+</TERM>
+<LISTITEM>
+<PARA>
+devuelve una lista de sub-listas {nombre tipo tamaño} por cada atributo del tuplo.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+-clear 
+</TERM>
+<LISTITEM>
+<PARA>
+elimina el objeto consulta resultante.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+</VARIABLELIST>
+</REFSECT3>
+</REFSECT2>
+
+<REFSECT2 ID="R2-PGTCL-PGRESULT-2">
+<REFSECT2INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT2INFO>
+<TITLE>Outputs
+</TITLE>
+<PARA>
+el resultado depende de la opción elegida, como se describió más arriba.
+</PARA>
+</REFSECT2></REFSYNOPSISDIV>
+
+<REFSECT1 ID="R1-PGTCL-PGRESULT-1">
+<REFSECT1INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT1INFO>
+<TITLE>Descripción
+</TITLE>
+<PARA>
+<FUNCTION>pg_result</FUNCTION> devuelve información acerca del resultado de una consulta creada por un <FUNCTION>pg_exec</FUNCTION> anterior.
+</Para>
+
+<para>
+Puede mantener el resultado de una consulta en tanto en cuanto lo necesite, pero cuando haya terminado con él asegúrese de liberarlo ejecutando <FUNCTION>pg_result -clear</FUNCTION>. clear. De otro modo, tendrá un "agujero" en la memoria y Pgtcl mostrará mensajes indicando que ha creado demasiados objetos consulta.
+</PARA>
+</REFSECT1>
+</REFENTRY>
+
+<!-- ********************************************************** -->
+
+<REFENTRY ID="PGTCL-PGSELECT">
+<REFMETA>
+<REFENTRYTITLE>pg_select</REFENTRYTITLE>
+<REFMISCINFO>PGTCL - Query Processing</REFMISCINFO>
+</REFMETA>
+<REFNAMEDIV>
+<REFNAME>pg_select
+</REFNAME>
+<REFPURPOSE>
+hace un bucle sobre el resultado de una declaración SELECT
+</REFPURPOSE>
+<INDEXTERM ID="IX-PGTCL-PGSELECT-1"><PRIMARY>pgtcl</PRIMARY><SECONDARY>connecting</SECONDARY></INDEXTERM>
+<INDEXTERM ID="IX-PGTCL-PGSELECT-2"><PRIMARY>pg_connect</PRIMARY></INDEXTERM>
+</REFNAMEDIV>
+<REFSYNOPSISDIV>
+<REFSYNOPSISDIVINFO>
+<DATE>1997-12-24</DATE>
+</REFSYNOPSISDIVINFO>
+<SYNOPSIS>
+pg_select <REPLACEABLE CLASS="PARAMETER">handleBD</REPLACEABLE> <REPLACEABLE CLASS="PARAMETER">stringConsulta</REPLACEABLE>
+  <REPLACEABLE CLASS="PARAMETER">varArray</REPLACEABLE> <REPLACEABLE CLASS="PARAMETER">procConsulta</REPLACEABLE>
+</SYNOPSIS>
+
+<REFSECT2 ID="R2-PGTCL-PGSELECT-1">
+<REFSECT2INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT2INFO>
+<TITLE>Inputs
+</TITLE>
+<VARIABLELIST>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">handleBD</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>Especifica un handle válido para una base de datos.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">stringConsulta</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>Especifica una consulta SQL select válida.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">varArray</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>Un array de variables para los tuplos devueltos.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">procConsulta</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>Procedimiento que se ha ejecutado sobre cada tuplo encontrado.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+</VARIABLELIST>
+
+</REFSECT2>
+
+<REFSECT2 ID="R2-PGTCL-PGSELECT-2">
+<REFSECT2INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT2INFO>
+<TITLE>Outputs
+</TITLE>
+<VARIABLELIST>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">handleResult</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>
+   el resultado devuelto es un mensaje de error o un handle para un resultado de consulta.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+</VARIABLELIST>
+</REFSECT2></REFSYNOPSISDIV>
+
+<REFSECT1 ID="R1-PGTCL-PGSELECT-1">
+<REFSECT1INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT1INFO>
+<TITLE>Description
+</TITLE>
+<PARA>
+<FUNCTION>pg_select</FUNCTION> pg_select envía una consulta SELECT al backend de 
+<ProductName>Postgres</ProductName> , y ejecuta una porción de código que se le ha pasado por cada tuplo en el resultado de la consulta. 
+  El <REPLACEABLE CLASS="PARAMETER">stringConsulta</REPLACEABLE>
+  debe ser una declaración SELECT. Cualquier otra cosa devuelve un error. La variable <REPLACEABLE CLASS="PARAMETER">varArray</REPLACEABLE>
+  es un nombre de array usado en el bucle. Por cada tuplo,
+  <REPLACEABLE CLASS="PARAMETER">varArray </REPLACEABLE> arrayVar se rellena con los valores del campo tuplo usando los nombres de campo como índices del array. A partir de aquí   <REPLACEABLE CLASS="PARAMETER">procConsulta</REPLACEABLE>
+  se ejecuta.
+</PARA>
+</REFSECT1>
+
+<REFSECT1 ID="R1-PGTCL-PGSELECT-2">
+<TITLE>Uso
+</TITLE>
+<PARA>
+Esto funcionaría si la tabla "table" tiene los campos "control" y "name" (y tal vez otros campos):
+<ProgramListing>
+	pg_select $pgconn "SELECT * from table" array {
+		puts [format "%5d %s" array(control) array(name)]
+	}
+</ProgramListing>
+</PARA>
+</REFSECT1>
+
+</REFENTRY>
+
+<!-- ********************************************************** -->
+
+<REFENTRY ID="PGTCL-PGLISTEN">
+<REFMETA>
+<REFENTRYTITLE>pg_listen</REFENTRYTITLE>
+<REFMISCINFO>PGTCL - Asynchronous Notify</REFMISCINFO>
+</REFMETA>
+<REFNAMEDIV>
+<REFNAME>pg_listen
+</REFNAME>
+<REFPURPOSE>fija o cambia una rellamada para los mensajes NOTIFY asíncronos
+</REFPURPOSE>
+<INDEXTERM ID="IX-PGTCL-PGLISTEN-1"><PRIMARY>pgtcl</PRIMARY><SECONDARY>notify</SECONDARY></INDEXTERM>
+<INDEXTERM ID="IX-PGTCL-PGLISTEN-2"><PRIMARY>notify</PRIMARY></INDEXTERM>
+</REFNAMEDIV>
+<REFSYNOPSISDIV>
+<REFSYNOPSISDIVINFO>
+<DATE>1998-5-22</DATE>
+</REFSYNOPSISDIVINFO>
+<SYNOPSIS>
+pg_listen <REPLACEABLE CLASS="PARAMETER">dbHandle</REPLACEABLE> <REPLACEABLE CLASS="PARAMETER">notifyName</REPLACEABLE> <REPLACEABLE CLASS="PARAMETER">comandoRellamada</REPLACEABLE>
+</SYNOPSIS>
+
+<REFSECT2 ID="R2-PGTCL-PGLISTEN-1">
+<REFSECT2INFO>
+<DATE>1998-5-22</DATE>
+</REFSECT2INFO>
+<TITLE>Inputs
+</TITLE>
+<VARIABLELIST>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">dbHandle</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>Especifica un handle de base de datos válido.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">notifyName</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>Especifica el nombre de la notificación para empezar o parar de escuchar.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">comandoRellamada</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>Si este parámetro se pasa con un valor no vacío, proporciona el comando a ejecutar cuando una notificación válida llegue.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+</VARIABLELIST>
+</REFSECT2>
+
+<REFSECT2 ID="R2-PGTCL-PGLISTEN-2">
+<REFSECT2INFO>
+<DATE>1998-5-22</DATE>
+</REFSECT2INFO>
+<TITLE>Outputs
+</TITLE>
+<VARIABLELIST>
+<VARLISTENTRY>
+<TERM>
+  Ninguno
+</TERM>
+<LISTITEM>
+<PARA>
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+</VARIABLELIST>
+</REFSECT2>
+</REFSYNOPSISDIV>
+
+<REFSECT1 ID="R1-PGTCL-PGLISTEN-1">
+<REFSECT1INFO>
+<DATE>1998-5-22</DATE>
+</REFSECT1INFO>
+<TITLE>Description
+</TITLE>
+<PARA><FUNCTION>pg_listen</FUNCTION> pg_listen crea, cambia o cancela una petición para escuchar mensajes NOTIFY asíncronos desde el backend de <ProductName>Postgres</ProductName>. Con un parámetro comandoRellamada, la petición se establecerá o el string de comando de una petición existente será reemplazada . Sin ningún parámetro comandoRellamada, se cancelará una petición anterior.
+</PARA>
+
+<para>
+Después de que se establezca una petición <FUNCTION>pg_listen</FUNCTION>, el string de comando especificado se ejecutará cuando un mensaje NOTIFY que lleve el nombre dado llegue desde el backend. Esto ocurre cuando cualquier aplicación cliente de <ProductName>Postgres</ProductName> muestra un comando NOTIFY haciendo referencia a ese nombre. (Nótese que puede ser, aunque no obligatoriamente, el de una relación existente en la base de datos). 
+El string de comando se ejecuta desde el loop de espera de Tcl. Este es el estado de espera normal de una aplicación escrita con Tk. En shells que no son Tk Tcl, puede ejecutar <FUNCTION>update</FUNCTION> o <FUNCTION>vwait</FUNCTION>  para provocar que se introduzca el loop de espera.
+</Para>
+
+<para>
+No debería invocar las declaraciones SQL LISTEN o UNLISTEN directamente cuando esté usando <FUNCTION>pg_listen</FUNCTION>. Pgtcl se encarga de poner en marcha esas declaraciones por usted. Pero si usted quiere enviar un mensaje NOTIFY, invoque la declaración SQL NOTIFY usando <FUNCTION>pg_exec</FUNCTION>.
+</PARA>
+</REFSECT1>
+
+</REFENTRY>
+
+<!-- ********************************************************** -->
+
+<REFENTRY ID="PGTCL-PGLOCREAT">
+<REFMETA>
+<REFENTRYTITLE>pg_lo_creat</REFENTRYTITLE>
+<REFMISCINFO>PGTCL - Large Objects</REFMISCINFO>
+</REFMETA>
+<REFNAMEDIV>
+<REFNAME>pg_lo_creat
+</REFNAME>
+<REFPURPOSE>crea un objeto grande
+</REFPURPOSE>
+<INDEXTERM ID="IX-PGTCL-PGLOCREAT-1"><PRIMARY>pgtcl</PRIMARY><SECONDARY>creating</SECONDARY></INDEXTERM>
+<INDEXTERM ID="IX-PGTCL-PGLOCREAT-2"><PRIMARY>pg_lo_creat</PRIMARY></INDEXTERM>
+</REFNAMEDIV>
+<REFSYNOPSISDIV>
+<REFSYNOPSISDIVINFO>
+<DATE>1997-12-24</DATE>
+</REFSYNOPSISDIVINFO>
+<SYNOPSIS>
+pg_lo_creat <REPLACEABLE CLASS="PARAMETER">conn</REPLACEABLE> <REPLACEABLE CLASS="PARAMETER">modo</REPLACEABLE>
+</SYNOPSIS>
+
+<REFSECT2 ID="R2-PGTCL-PGLOCREAT-1">
+<REFSECT2INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT2INFO>
+<TITLE>Inputs
+</TITLE>
+<VARIABLELIST>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">conn</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>Especifica una conexión válida a una base de datos.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">modo</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>Especifica el modo de acceso para el objeto grande.</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+</VARIABLELIST>
+</REFSECT2>
+
+<REFSECT2 ID="R2-PGTCL-PGLOCREAT-2">
+<REFSECT2INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT2INFO>
+<TITLE>Outputs
+</TITLE>
+<VARIABLELIST>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">idObjeto</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>
+Es el oid (id del objeto) del objeto grande creado.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+</VARIABLELIST>
+</REFSECT2>
+</REFSYNOPSISDIV>
+
+<REFSECT1 ID="R1-PGTCL-PGLOCREAT-1">
+<REFSECT1INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT1INFO>
+<TITLE>Descripción
+</TITLE>
+<PARA><FUNCTION>pg_lo_creat</FUNCTION> crea un objeto grande de inversión (Inversion Large Object).
+</PARA>
+</REFSECT1>
+<REFSECT1 ID="R1-PGTCL-PGLOCREAT-2">
+<TITLE>Uso
+</TITLE>
+<PARA>
+modo puede ser cualquier agrupación con OR de INV_READ, INV_WRITE e INV_ARCHIVE. El carácter delimitador de OR es "|". 
+<ProgramListing>
+[pg_lo_creat $conn "INV_READ|INV_WRITE"]
+</ProgramListing>
+</PARA>
+</REFSECT1>
+</REFENTRY>
+
+<!-- ********************************************************** -->
+
+<REFENTRY ID="PGTCL-PGLOOPEN">
+<REFMETA>
+<REFENTRYTITLE>pg_lo_open</REFENTRYTITLE>
+<REFMISCINFO>PGTCL - Large Objects</REFMISCINFO>
+</REFMETA>
+<REFNAMEDIV>
+<REFNAME>pg_lo_open
+</REFNAME>
+<REFPURPOSE>abre un objeto grande
+</REFPURPOSE>
+<INDEXTERM ID="IX-PGTCL-PGLOOPEN-1"><PRIMARY>pgtcl</PRIMARY><SECONDARY>opening</SECONDARY></INDEXTERM>
+<INDEXTERM ID="IX-PGTCL-PGLOOPEN-2"><PRIMARY>pg_lo_open</PRIMARY></INDEXTERM>
+</REFNAMEDIV>
+<REFSYNOPSISDIV>
+<REFSYNOPSISDIVINFO>
+<DATE>1997-12-24</DATE>
+</REFSYNOPSISDIVINFO>
+<SYNOPSIS>
+pg_lo_open <REPLACEABLE CLASS="PARAMETER">conn</REPLACEABLE> <REPLACEABLE CLASS="PARAMETER">idObjeto</REPLACEABLE> <REPLACEABLE CLASS="PARAMETER">modo</REPLACEABLE>
+</SYNOPSIS>
+
+<REFSECT2 ID="R2-PGTCL-PGLOOPEN-1">
+<REFSECT2INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT2INFO>
+<TITLE>Inputs
+</TITLE>
+<VARIABLELIST>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">conn</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>Especifica una conexión válida a una base de datos.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">idObjeto</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>Especifica un oid válido para un objeto grande.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">modo</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>Especifica el modo de acceso para el objeto grande.</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+</VARIABLELIST>
+</REFSECT2>
+
+<REFSECT2 ID="R2-PGTCL-PGLOOPEN-2">
+<REFSECT2INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT2INFO>
+<TITLE>Outputs
+</TITLE>
+<VARIABLELIST>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">fd</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>
+Un descriptor de fichero para usar posteriormente en rutinas pg_lo*.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+</VARIABLELIST>
+</REFSECT2>
+</REFSYNOPSISDIV>
+
+<REFSECT1 ID="R1-PGTCL-PGLOOPEN-1">
+<REFSECT1INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT1INFO>
+<TITLE>Descripción
+</TITLE>
+<PARA><FUNCTION>pg_lo_open</FUNCTION> abre un objeto grande de inversión (Inversion Large Object).
+</PARA>
+</REFSECT1>
+<REFSECT1 ID="R1-PGTCL-PGLOOPEN-2">
+<TITLE>Uso
+</TITLE>
+<PARA>
+modo puede ser "r", "w" o "rw".
+</PARA>
+</REFSECT1>
+</REFENTRY>
+
+<!-- ********************************************************** -->
+
+<REFENTRY ID="PGTCL-PGLOCLOSE">
+<REFMETA>
+<REFENTRYTITLE>pg_lo_close</REFENTRYTITLE>
+<REFMISCINFO>PGTCL - Large Objects</REFMISCINFO>
+</REFMETA>
+<REFNAMEDIV>
+<REFNAME>pg_lo_close
+</REFNAME>
+<REFPURPOSE>cierra un objeto grande</REFPURPOSE>
+<INDEXTERM ID="IX-PGTCL-PGLOCLOSE-1"><PRIMARY>pgtcl</PRIMARY><SECONDARY>closing</SECONDARY></INDEXTERM>
+<INDEXTERM ID="IX-PGTCL-PGLOCLOSE-2"><PRIMARY>pg_lo_close</PRIMARY></INDEXTERM>
+</REFNAMEDIV>
+<REFSYNOPSISDIV>
+<REFSYNOPSISDIVINFO>
+<DATE>1997-12-24</DATE>
+</REFSYNOPSISDIVINFO>
+<SYNOPSIS>
+pg_lo_close <REPLACEABLE CLASS="PARAMETER">conn</REPLACEABLE> <REPLACEABLE CLASS="PARAMETER">fd</REPLACEABLE>
+</SYNOPSIS>
+
+<REFSECT2 ID="R2-PGTCL-PGLOCLOSE-1">
+<REFSECT2INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT2INFO>
+<TITLE>Inputs
+</TITLE>
+<VARIABLELIST>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">conn</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>Especifica una conexión válidad a una base de datos.</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">fd</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>
+Un descriptor de fichero para ser usado posteriormente en rutinas pg_lo*.</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+</VARIABLELIST>
+</REFSECT2>
+
+<REFSECT2 ID="R2-PGTCL-PGLOCLOSE-2">
+<REFSECT2INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT2INFO>
+<TITLE>Outputs
+</TITLE>
+<PARA>Ninguno</PARA>
+</REFSECT2>
+</REFSYNOPSISDIV>
+
+<REFSECT1 ID="R1-PGTCL-PGLOCLOSE-1">
+<REFSECT1INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT1INFO>
+<TITLE>Descripción
+</TITLE>
+<PARA><FUNCTION>pg_lo_close</FUNCTION> cierra un objeto grande de inversión (Inversion Large Object).
+</PARA>
+</REFSECT1>
+<REFSECT1 ID="R1-PGTCL-PGLOCLOSE-2">
+<TITLE>Uso
+</TITLE>
+<PARA>
+</PARA>
+</REFSECT1>
+</REFENTRY>
+
+<!-- ********************************************************** -->
+
+<REFENTRY ID="PGTCL-PGLOREAD">
+<REFMETA>
+<REFENTRYTITLE>pg_lo_read</REFENTRYTITLE>
+<REFMISCINFO>PGTCL - Large Objects</REFMISCINFO>
+</REFMETA>
+<REFNAMEDIV>
+<REFNAME>pg_lo_read
+</REFNAME>
+<REFPURPOSE>lee un objeto grande
+</REFPURPOSE>
+<INDEXTERM ID="IX-PGTCL-PGLOREAD-1"><PRIMARY>pgtcl</PRIMARY><SECONDARY>reading</SECONDARY></INDEXTERM>
+<INDEXTERM ID="IX-PGTCL-PGLOREAD-2"><PRIMARY>pg_lo_read</PRIMARY></INDEXTERM>
+</REFNAMEDIV>
+<REFSYNOPSISDIV>
+<REFSYNOPSISDIVINFO>
+<DATE>1997-12-24</DATE>
+</REFSYNOPSISDIVINFO>
+<SYNOPSIS>
+pg_lo_read <REPLACEABLE CLASS="PARAMETER">conn</REPLACEABLE> <REPLACEABLE CLASS="PARAMETER">fd</REPLACEABLE> <REPLACEABLE CLASS="PARAMETER">bufVar</REPLACEABLE> <REPLACEABLE CLASS="PARAMETER">len</REPLACEABLE>
+</SYNOPSIS>
+
+<REFSECT2 ID="R2-PGTCL-PGLOREAD-1">
+<REFSECT2INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT2INFO>
+<TITLE>Inputs
+</TITLE>
+<VARIABLELIST>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">conn</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>Especifica una conexión válida a una base de datos.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">fd</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>
+Descriptor de fichero para el objeto grande tomado de pg_lo_open.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">bufVar</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>Especifica una variable de buffer válida para contener el segmento del objeto grande.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">len</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>Especifica el tamaño máximo permitido para el segmento del objeto grande.</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+</VARIABLELIST>
+</REFSECT2>
+
+<REFSECT2 ID="R2-PGTCL-PGLOREAD-2">
+<REFSECT2INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT2INFO>
+<TITLE>Outputs
+</TITLE>
+<PARA>Ninguno</PARA>
+</REFSECT2>
+</REFSYNOPSISDIV>
+
+<REFSECT1 ID="R1-PGTCL-PGLOREAD-1">
+<REFSECT1INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT1INFO>
+<TITLE>Descripción
+</TITLE>
+<PARA><FUNCTION>pg_lo_read</FUNCTION> lee la mayor parte de los bytes de <REPLACEABLE CLASS="PARAMETER">len</REPLACEABLE> y lo copia a la variable <REPLACEABLE CLASS="PARAMETER">bufVar</REPLACEABLE>.
+</PARA>
+</REFSECT1>
+<REFSECT1 ID="R1-PGTCL-PGLOREAD-2">
+<TITLE>Uso
+</TITLE>
+<PARA>
+<REPLACEABLE CLASS="PARAMETER">bufVar</REPLACEABLE> debe ser un nombre de variable válido.
+</PARA>
+</REFSECT1>
+</REFENTRY>
+
+<!-- ********************************************************** -->
+
+<REFENTRY ID="PGTCL-PGLOWRITE">
+<REFMETA>
+<REFENTRYTITLE>pg_lo_write</REFENTRYTITLE>
+<REFMISCINFO>PGTCL - Large Objects</REFMISCINFO>
+</REFMETA>
+<REFNAMEDIV>
+<REFNAME>pg_lo_write
+</REFNAME>
+<REFPURPOSE>escribe un objeto grande
+</REFPURPOSE>
+<INDEXTERM ID="IX-PGTCL-PGLOWRITE-1"><PRIMARY>pgtcl</PRIMARY><SECONDARY>writing</SECONDARY></INDEXTERM>
+<INDEXTERM ID="IX-PGTCL-PGLOWRITE-2"><PRIMARY>pg_lo_write</PRIMARY></INDEXTERM>
+</REFNAMEDIV>
+<REFSYNOPSISDIV>
+<REFSYNOPSISDIVINFO>
+<DATE>1997-12-24</DATE>
+</REFSYNOPSISDIVINFO>
+<SYNOPSIS>
+pg_lo_write <REPLACEABLE CLASS="PARAMETER">conn</REPLACEABLE> <REPLACEABLE CLASS="PARAMETER">fd</REPLACEABLE> <REPLACEABLE CLASS="PARAMETER">buf</REPLACEABLE> <REPLACEABLE CLASS="PARAMETER">len</REPLACEABLE>
+</SYNOPSIS>
+
+<REFSECT2 ID="R2-PGTCL-PGLOWRITE-1">
+<REFSECT2INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT2INFO>
+<TITLE>Inputs
+</TITLE>
+<VARIABLELIST>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">conn</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>Especifica una conexión válida a una base de datos.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">fd</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>
+Descriptor de fichero para el objeto grande tomado de pg_lo_open.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">buf</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>Especifica una variable string válida para escribir en el objto grande.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">len</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>Especifica el tamaño máximo del string a escribir.</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+</VARIABLELIST>
+</REFSECT2>
+
+<REFSECT2 ID="R2-PGTCL-PGLOWRITE-2">
+<REFSECT2INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT2INFO>
+<TITLE>Outputs
+</TITLE>
+<PARA>Ninguno</PARA>
+</REFSECT2>
+</REFSYNOPSISDIV>
+
+<REFSECT1 ID="R1-PGTCL-PGLOWRITE-1">
+<REFSECT1INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT1INFO>
+<TITLE>Descripción
+</TITLE>
+<PARA><FUNCTION>pg_lo_write</FUNCTION> escribe la mayor parte de <REPLACEABLE CLASS="PARAMETER">len</REPLACEABLE> bytes a un objeto desde una variable <REPLACEABLE CLASS="PARAMETER">buf</REPLACEABLE>.
+</PARA>
+</REFSECT1>
+<REFSECT1 ID="R1-PGTCL-PGLOWRITE-2">
+<TITLE>Usage
+</TITLE>
+<PARA>
+<REPLACEABLE CLASS="PARAMETER">buf</REPLACEABLE> deber ser ser el string a escribir, no el nombre de la variable.
+</PARA>
+</REFSECT1>
+</REFENTRY>
+
+<!-- ********************************************************** -->
+
+<REFENTRY ID="PGTCL-PGLOLSEEK">
+<REFMETA>
+<REFENTRYTITLE>pg_lo_lseek</REFENTRYTITLE>
+<REFMISCINFO>PGTCL - Large Objects</REFMISCINFO>
+</REFMETA>
+<REFNAMEDIV>
+<REFNAME>pg_lo_lseek
+</REFNAME>
+<REFPURPOSE>busca una posición en un objeto grande
+</REFPURPOSE>
+<INDEXTERM ID="IX-PGTCL-PGLOLSEEK-1"><PRIMARY>pgtcl</PRIMARY><SECONDARY>positioning</SECONDARY></INDEXTERM>
+<INDEXTERM ID="IX-PGTCL-PGLOLSEEK-2"><PRIMARY>pg_lo_lseek</PRIMARY></INDEXTERM>
+</REFNAMEDIV>
+<REFSYNOPSISDIV>
+<REFSYNOPSISDIVINFO>
+<DATE>1997-12-24</DATE>
+</REFSYNOPSISDIVINFO>
+<SYNOPSIS>
+pg_lo_lseek <REPLACEABLE CLASS="PARAMETER">conn</REPLACEABLE> <REPLACEABLE CLASS="PARAMETER">fd</REPLACEABLE> <REPLACEABLE CLASS="PARAMETER">offset</REPLACEABLE> <REPLACEABLE CLASS="PARAMETER">whence</REPLACEABLE>
+</SYNOPSIS>
+
+<REFSECT2 ID="R2-PGTCL-PGLOLSEEK-1">
+<REFSECT2INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT2INFO>
+<TITLE>Inputs
+</TITLE>
+<VARIABLELIST>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">conn</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>Especifica una conexión válida a una base de datos.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">fd</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>
+Descriptor de fichero para el objeto tomado de pg_lo_open.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">offset</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>Especifica un offset en bytes en base cero.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">whence</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA> whence puede ser "SEEK_CUR", "SEEK_END" o "SEEK_SET" </PARA>
+</LISTITEM>
+</VARLISTENTRY>
+</VARIABLELIST>
+</REFSECT2>
+
+<REFSECT2 ID="R2-PGTCL-PGLOLSEEK-2">
+<REFSECT2INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT2INFO>
+<TITLE>Outputs
+</TITLE>
+<PARA>Ninguno</PARA>
+</REFSECT2>
+</REFSYNOPSISDIV>
+
+<REFSECT1 ID="R1-PGTCL-PGLOLSEEK-1">
+<REFSECT1INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT1INFO>
+<TITLE>Descripción
+</TITLE>
+<PARA><FUNCTION>pg_lo_lseek</FUNCTION> se posiciona en <REPLACEABLE CLASS="PARAMETER">offset</REPLACEABLE> bytes desde el comienzo,fin o actual posición de un objeto grande.
+</PARA>
+</REFSECT1>
+<REFSECT1 ID="R1-PGTCL-PGLOLSEEK-2">
+<TITLE>Uso
+</TITLE>
+<PARA>
+<REPLACEABLE CLASS="PARAMETER">whence</REPLACEABLE> 
+puede ser "SEEK_CUR", "SEEK_END", o "SEEK_SET".
+</PARA>
+</REFSECT1>
+</REFENTRY>
+
+<!-- ********************************************************** -->
+
+<REFENTRY ID="PGTCL-PGLOTELL">
+<REFMETA>
+<REFENTRYTITLE>pg_lo_tell</REFENTRYTITLE>
+<REFMISCINFO>PGTCL - Large Objects</REFMISCINFO>
+</REFMETA>
+<REFNAMEDIV>
+<REFNAME>pg_lo_tell
+</REFNAME>
+<REFPURPOSE>devuelve la posición actual de búsqueda de un objeto grande
+</REFPURPOSE>
+<INDEXTERM ID="IX-PGTCL-PGLOTELL-1"><PRIMARY>pgtcl</PRIMARY><SECONDARY>positioning</SECONDARY></INDEXTERM>
+<INDEXTERM ID="IX-PGTCL-PGLOTELL-2"><PRIMARY>pg_lo_tell</PRIMARY></INDEXTERM>
+</REFNAMEDIV>
+<REFSYNOPSISDIV>
+<REFSYNOPSISDIVINFO>
+<DATE>1997-12-24</DATE>
+</REFSYNOPSISDIVINFO>
+<SYNOPSIS>
+pg_lo_tell <REPLACEABLE CLASS="PARAMETER">conn</REPLACEABLE> <REPLACEABLE CLASS="PARAMETER">fd</REPLACEABLE>
+</SYNOPSIS>
+
+<REFSECT2 ID="R2-PGTCL-PGLOTELL-1">
+<REFSECT2INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT2INFO>
+<TITLE>Inputs
+</TITLE>
+<VARIABLELIST>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">conn</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>Especifica una conexión válida a una base de datos.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">fd</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>
+Descriptor de fichero del objeto tomado de pg_lo_open.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+</VARIABLELIST>
+</REFSECT2>
+
+<REFSECT2 ID="R2-PGTCL-PGLOTELL-2">
+<REFSECT2INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT2INFO>
+<TITLE>Outputs
+</TITLE>
+<VARIABLELIST>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">offset</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>Un offset en bytes en base zero adecuado para <Function>pg_lo_lseek</Function>.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+</VARIABLELIST>
+</REFSECT2>
+</REFSYNOPSISDIV>
+
+<REFSECT1 ID="R1-PGTCL-PGLOTELL-1">
+<REFSECT1INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT1INFO>
+<TITLE>Description
+</TITLE>
+<PARA><FUNCTION>pg_lo_tell</FUNCTION> devuelve la posición de búsqueda actual a <REPLACEABLE CLASS="PARAMETER">offset</REPLACEABLE> en bytes desde el comienzo del objeto grande.
+</PARA>
+</REFSECT1>
+<REFSECT1 ID="R1-PGTCL-PGLOTELL-2">
+<TITLE>Uso
+</TITLE>
+<PARA>
+</PARA>
+</REFSECT1>
+</REFENTRY>
+
+<!-- ********************************************************** -->
+
+<REFENTRY ID="PGTCL-PGLOUNLINK">
+<REFMETA>
+<REFENTRYTITLE>pg_lo_unlink</REFENTRYTITLE>
+<REFMISCINFO>PGTCL - Large Objects</REFMISCINFO>
+</REFMETA>
+<REFNAMEDIV>
+<REFNAME>pg_lo_unlink
+</REFNAME>
+<REFPURPOSE>borra un objeto grande
+</REFPURPOSE>
+<INDEXTERM ID="IX-PGTCL-PGLOUNLINK-1"><PRIMARY>pgtcl</PRIMARY><SECONDARY>delete</SECONDARY></INDEXTERM>
+<INDEXTERM ID="IX-PGTCL-PGLOUNLINK-2"><PRIMARY>pg_lo_unlink</PRIMARY></INDEXTERM>
+</REFNAMEDIV>
+<REFSYNOPSISDIV>
+<REFSYNOPSISDIVINFO>
+<DATE>1997-12-24</DATE>
+</REFSYNOPSISDIVINFO>
+<SYNOPSIS>
+pg_lo_unlink <REPLACEABLE CLASS="PARAMETER">conn</REPLACEABLE> <REPLACEABLE CLASS="PARAMETER">idObjeto</REPLACEABLE>
+</SYNOPSIS>
+
+<REFSECT2 ID="R2-PGTCL-PGLOUNLINK-1">
+<REFSECT2INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT2INFO>
+<TITLE>Inputs
+</TITLE>
+<VARIABLELIST>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">conn</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>Especifica una conexión válida a una base de datos.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">idObjeto</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>
+Es el identificador para un objeto grande.
+XXX Es esto igual que idObjetos en otras llamadas?? - thomas 1998-01-11
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+</VARIABLELIST>
+</REFSECT2>
+
+<REFSECT2 ID="R2-PGTCL-PGLOUNLINK-2">
+<REFSECT2INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT2INFO>
+<TITLE>Outputs
+</TITLE>
+<PARA>
+Ninguno
+</PARA>
+</REFSECT2>
+</REFSYNOPSISDIV>
+
+<REFSECT1 ID="R1-PGTCL-PGLOUNLINK-1">
+<REFSECT1INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT1INFO>
+<TITLE>Descripción
+</TITLE>
+<PARA><FUNCTION>pg_lo_unlink</FUNCTION> borra el objeto grande especificado.
+</PARA>
+</REFSECT1>
+<REFSECT1 ID="R1-PGTCL-PGLOUNLINK-2">
+<TITLE>Uso
+</TITLE>
+<PARA>
+</PARA>
+</REFSECT1>
+</REFENTRY>
+
+<!-- ********************************************************** -->
+
+<REFENTRY ID="PGTCL-PGLOIMPORT">
+<REFMETA>
+<REFENTRYTITLE>pg_lo_import</REFENTRYTITLE>
+<REFMISCINFO>PGTCL - Large Objects</REFMISCINFO>
+</REFMETA>
+<REFNAMEDIV>
+<REFNAME>pg_lo_import
+</REFNAME>
+<REFPURPOSE>importa un objeto grande desde un fichero Unix
+</REFPURPOSE>
+<INDEXTERM ID="IX-PGTCL-PGLOIMPORT-1"><PRIMARY>pgtcl</PRIMARY><SECONDARY>import</SECONDARY></INDEXTERM>
+<INDEXTERM ID="IX-PGTCL-PGLOIMPORT-2"><PRIMARY>pg_lo_import</PRIMARY></INDEXTERM>
+</REFNAMEDIV>
+<REFSYNOPSISDIV>
+<REFSYNOPSISDIVINFO>
+<DATE>1997-12-24</DATE>
+</REFSYNOPSISDIVINFO>
+<SYNOPSIS>
+pg_lo_import <REPLACEABLE CLASS="PARAMETER">conn</REPLACEABLE> <REPLACEABLE CLASS="PARAMETER">nombreFichero</REPLACEABLE>
+</SYNOPSIS>
+
+<REFSECT2 ID="R2-PGTCL-PGLOIMPORT-1">
+<REFSECT2INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT2INFO>
+<TITLE>Inputs
+</TITLE>
+<VARIABLELIST>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">conn</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>Especifica una conexión válida a una base de datos.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">nombreFichero</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>
+El nombre del fichero Unix.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+</VARIABLELIST>
+</REFSECT2>
+
+<REFSECT2 ID="R2-PGTCL-PGLOIMPORT-2">
+<REFSECT2INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT2INFO>
+<TITLE>Outputs
+</TITLE>
+<PARA>
+Ninguno XXX Devuelve esto un idObjeto? Es lo mismo que idObjeto en otras llamadas? thomas - 1998-01-11
+</PARA>
+</REFSECT2>
+</REFSYNOPSISDIV>
+
+<REFSECT1 ID="R1-PGTCL-PGLOIMPORT-1">
+<REFSECT1INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT1INFO>
+<TITLE>Descripción
+</TITLE>
+<PARA><FUNCTION>pg_lo_import</FUNCTION> lee el fichero especificado y pone el contenido del mismo en un objeto grande.
+</PARA>
+</REFSECT1>
+<REFSECT1 ID="R1-PGTCL-PGLOIMPORT-2">
+<TITLE>Uso
+</TITLE>
+<PARA>
+  <Function>pg_lo_import</Function> debe ser llamado dentro de un bloque de transacción BEGIN/END.
+</PARA>
+</REFSECT1>
+</REFENTRY>
+
+<!-- ********************************************************** -->
+
+<REFENTRY ID="PGTCL-PGLOEXPORT">
+<REFMETA>
+<REFENTRYTITLE>pg_lo_export</REFENTRYTITLE>
+<REFMISCINFO>PGTCL - Large Objects</REFMISCINFO>
+</REFMETA>
+<REFNAMEDIV>
+<REFNAME>pg_lo_export
+</REFNAME>
+<REFPURPOSE>exporta un objeto grande a un fichero Unix
+</REFPURPOSE>
+<INDEXTERM ID="IX-PGTCL-PGLOEXPORT-1"><PRIMARY>pgtcl</PRIMARY><SECONDARY>export</SECONDARY></INDEXTERM>
+<INDEXTERM ID="IX-PGTCL-PGLOEXPORT-2"><PRIMARY>pg_lo_export</PRIMARY></INDEXTERM>
+</REFNAMEDIV>
+<REFSYNOPSISDIV>
+<REFSYNOPSISDIVINFO>
+<DATE>1997-12-24</DATE>
+</REFSYNOPSISDIVINFO>
+<SYNOPSIS>
+pg_lo_export <REPLACEABLE CLASS="PARAMETER">conn</REPLACEABLE> <REPLACEABLE CLASS="PARAMETER">idObjeto</REPLACEABLE> <REPLACEABLE CLASS="PARAMETER">nombreFichero</REPLACEABLE>
+</SYNOPSIS>
+
+<REFSECT2 ID="R2-PGTCL-PGLOEXPORT-1">
+<REFSECT2INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT2INFO>
+<TITLE>Inputs
+</TITLE>
+<VARIABLELIST>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">conn</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>Especifica una conexión válida a una base de datos.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">idObjeto</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>
+Identificador del objeto grande.
+XXX Es igual a idObjeto en otras llamadas?? thomas - 1998-01-11
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+<VARLISTENTRY>
+<TERM>
+  <REPLACEABLE CLASS="PARAMETER">nombreFichero</REPLACEABLE>
+</TERM>
+<LISTITEM>
+<PARA>
+Nombre del fichero Unix.
+</PARA>
+</LISTITEM>
+</VARLISTENTRY>
+</VARIABLELIST>
+</REFSECT2>
+
+<REFSECT2 ID="R2-PGTCL-PGLOEXPORT-2">
+<REFSECT2INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT2INFO>
+<TITLE>Outputs
+</TITLE>
+<PARA>
+Ninguno.
+XXX Devuelve un idObjeto? Es esto igual a idObjeto en otras llamadas? thomas - 1998-01-11
+</PARA>
+</REFSECT2>
+</REFSYNOPSISDIV>
+
+<REFSECT1 ID="R1-PGTCL-PGLOEXPORT-1">
+<REFSECT1INFO>
+<DATE>1997-12-24</DATE>
+</REFSECT1INFO>
+<TITLE>Descripción
+</TITLE>
+<PARA><FUNCTION>pg_lo_export</FUNCTION> escribe el objeto grande especificado en un fichero Unix.
+</PARA>
+</REFSECT1>
+<REFSECT1 ID="R1-PGTCL-PGLOEXPORT-2">
+<TITLE>Uso
+</TITLE>
+<PARA>
+  <Function>pg_lo_export</Function> debe ser llamado dentro de un bloque de transacción BEGIN/END.
+</PARA>
+</REFSECT1>
+</REFENTRY>
+
+</Sect1>
+</Chapter>

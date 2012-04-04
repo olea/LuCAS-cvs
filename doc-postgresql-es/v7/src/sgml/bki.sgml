@@ -1,0 +1,224 @@
+<!--
+$Header: /home/cvs/lucas/doc-postgresql-es/v7/src/sgml/bki.sgml,v 1.3 2002/01/11 23:55:54 emaldonadog Exp $
+-->
+
+<chapter id="bki">
+<title>Interfaces de Servidor <acronym>BKI</acronym></title>
+
+<para>
+Los ficheros de interfaces de servidor(<acronym>BKI</acronym>) son scripts en un lenguaje especial
+que sirven de entrada para los servidores de <productname>Postgres</productname> que se ejecutan 
+en un modo especial <quote>bootstrap</quote>, lo que permite realizar 
+funciones de base de datos sin que exista todavia el sistema de la base de datos. Los ficheros 
+<acronym>BKI</acronym> pueden por lo tanto utilizarse para crear el sistema de base de datos por primera vez
+(y probáblemente no valen para otra cosa).
+
+<application>initdb</application> usa ficheros <acronym>BKI</acronym> para hacer parte de su trabajo
+cuando está creando un nuevo juego de bases de datos. Los ficheros de entrada utilizados por 
+<application>initdb</application> los crea como parte de la creación e instalación de 
+<productname>Postgres</productname> un programa llamado <filename>genbki.sh</filename> a partir 
+de algunos ficheros de cabeceras C especialmente formateados en el árbol fuente. Los ficheros 
+<acronym>BKI</acronym> creados se llaman <filename>global.bki</filename> (por "global catalogs") y
+<filename>template1.bki</filename> (por los catalogos inicialmente almacenados en la base template1
+y luego duplicados en cada base de datos creada) y normalmente se instalan en el subdirectorio
+<filename>share</filename> del árbol de la instalación.
+</para>
+
+<para>
+Se puede encontrar información relacionada en la documentación de .
+</para>
+
+<sect1 id="bki-format">
+<title>Formato del Fichero <acronym>BKI</acronym></title>
+
+<para>
+Esta sección describe como interpreta los ficheros <acronym>BKI</acronym> el servidor de 
+<productname>Postgres</productname>. Esta descripción será más fácil de entender si se tiene a mano
+el fichero <filename>global.bki</filename> como ejemplo. Debería también estudiar el código fuente
+de <application>initdb</application> para tener una idea de cómo se invoca al servidor.
+</para>
+
+<para>
+La entrada de BKI consiste en una secuencia de comandos. Lo comandos se componen de una serie de indicadores
+dependiendo de la sintaxis del comando. Los indicadores usualmente se separan por espacios en blanco, 
+pero esto no es necesario si no hay ambigüedad. No hay un separador de comandos especial. El siguiente 
+indicador que sintácticamente no puede seguir al anterior comando empieza uno nuevo (habitualmente se 
+deberían colocar en una nueva línea, por claridad). Los indicadores pueden ser ciertas palabras claves,
+caracteres especiales (paréntesis, comas, etc), números, o cadenas entre comillas dobles. Todo es
+sensible a las mayúsculas.
+</para>
+
+<para>
+Las líneas que empiezan con un <literal>#</literal> se ignoran.
+</para>
+</sect1>
+
+<sect1 id="bki-commands">
+<title>Comandos de BKI</title>
+
+<variablelist>
+<varlistentry>
+<term>
+open <replaceable class="parameter">tablename</replaceable>
+</term>
+<listitem>
+<para>
+Abre la tabla llamada 
+<replaceable class="parameter">tablename</replaceable>
+para futuras manipulaciones.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term>
+close <optional><replaceable class="parameter">tablename</replaceable></optional>
+</term>
+<listitem>
+<para>
+Cierra la tabla abierta llamada 
+<replaceable class="parameter">tablename</replaceable>.
+Se genera un error si 
+<replaceable class="parameter">tablename</replaceable>
+no está actualmente abierta. Si no aparece <replaceable class="parameter">tablename</replaceable>, 
+entonces la tabla que actualmente está abierta se cierra.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term>
+create <replaceable class="parameter">tablename</replaceable>
+       (<replaceable class="parameter">name1</replaceable>=
+       <replaceable class="parameter">type1</replaceable>
+       <optional>,
+       <replaceable class="parameter">name2</replaceable>=
+       <replaceable class="parameter">type2</replaceable>,... </optional>)
+</term>
+<listitem>
+<para>
+Crea una tabla llamada
+<replaceable class="parameter">tablename</replaceable>
+con los elementos marcados entre paréntesis.
+</para>
+<para>
+El <replaceable>tipo</replaceable> no tiene porqué ser el tipo que tendrá en SQL, que se determina
+por el catálogo del sistema <structname>pg_attribute</strucname> . El tipo aquí se utiliza básicamente para
+reservar espacio de almacenamiento. Se permiten los siguientes tipos: <type>bool</type>,
+<type>bytea</type>, <type>char</type> (1 byte),  <type>name</type>, <type>int2</type>,
+<type>int2vector</type>, <type>int4</type>, <type>regproc</type>, <type>text</type>, 
+<type>oid</type>, <type>tid</type>, <type>xid</type>, <type>cid</type>, <type>oidvector</type>,
+ <type>smgr</type>, <type>_int4</type> (array), <type>_aclitem</type> (array).
+Los tipos vector también se pueden indicar escribiendo <literal>[]</literal> tras el nombre del tipo
+de elemento.
+</para>
+
+<note>
+<para>
+La tabla sólo será creada en el disco, no se registrará automáticamente en los catálogos del sistema,
+y por lo tanto no será accesible hasta que se inserten las filas adecuadas en 
+<structname>pg_class</structname>,<structname>pg_attribute</structname>, etc.
+</para>
+</note>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term>
+insert <optional>OID = <replaceable class="parameter">oid_value</replaceable></optional> 
+(<replaceable class="parameter">value1</replaceable> 
+<replaceable class="parameter">value2</replaceable> ...)
+</term>
+<listitem>
+<para>
+Inserta una nueva fila en la tabla abierta usando <replaceable class="parameter">value1</replaceable>,
+<replaceable class="parameter">value2</replaceable>,
+etc., para sus valores de columna y 
+<replaceable class="parameter">oid_value</replaceable>
+como OID.  Si <replaceable class="parameter">oid_value</replaceable>
+es <quote>0</quote> (cero) o se omite la cláusula, se utiliza el siguiente OID disponible. 
+</para>
+<para>
+Se pueden insertar valores NULL especificando la palabra especial <literal>_null_</literal>. Los valores 
+que incluyan espacios en blanco se deberían incluir entre comillas dobles.
+</para>
+</listitem>
+</varlistentry>
+
+   <varlistentry>
+    <term>
+     declare <optional>unique</optional> index <replaceable
+     class="parameter">indexname</replaceable> on <replaceable
+     class="parameter">tablename</replaceable> using <replaceable
+     class="parameter">amname</replaceable> (<replaceable
+     class="parameter">opclass1</replaceable> <replaceable
+     class="parameter">name1</replaceable> <optional>, ...</optional>)
+    </term>
+
+    <listitem>
+     <para>
+      Crea un índice llamado<replaceable
+      class="parameter">indexname</replaceable> en la tabla llamada
+      <replaceable class="parameter">tablename</replaceable> utilizando el
+      método de acceso <replaceable class="parameter">amname</replaceable>.
+      Los campos del índice se llaman <replaceable
+      class="parameter">name1</replaceable>, <replaceable
+      class="parameter">name2</replaceable> etc., y las clases de operadores
+      para usar son <replaceable
+      class="parameter">opclass1</replaceable>, <replaceable
+      class="parameter">opclass2</replaceable> etc., respectivamente..
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term>build indices</term>
+
+    <listitem>
+     <para>
+      Construir los índices que se han declarado previamente.
+     </para>
+    </listitem>
+   </varlistentry>
+  </variablelist>
+
+</variablelist>
+
+ <sect1 id="bki-example">
+  <title>Ejemplo</title>
+
+  <para>
+   La siguiente secuencia de comandos creará la tabla 
+   <literal>test_table</literal> con las columnas
+   <literal>cola</literal> y <literal>colb</literal> de tipos 
+   <type>int4</type> y <type>text</type>, respectivamente, e inserta
+   dos filas en la tabla.
+<programlisting>
+create test_table (cola = int4, colb = text)
+open test_table
+insert OID=421 ( 1 "value1" )
+insert OID=422 ( 2 _null_ )
+close test_table
+</programlisting>
+  </para>
+ </sect1>
+</chapter>
+
+
+<!-- Keep this comment at the end of the file
+Local variables:
+mode:sgml
+sgml-omittag:nil
+sgml-shorttag:t
+sgml-minimize-attributes:nil
+sgml-always-quote-attributes:t
+sgml-indent-step:1
+sgml-indent-data:t
+sgml-parent-document:nil
+sgml-default-dtd-file:"./reference.ced"
+sgml-exposed-tags:nil
+sgml-local-catalogs:("/usr/lib/sgml/catalog")
+sgml-local-ecat-files:nil
+End:
+-->
+

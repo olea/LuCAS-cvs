@@ -1,0 +1,380 @@
+.\" Copyright 1993 Giorgio Ciucci (giorgio@crcc.it)
+.\"
+.\" Permission is granted to make and distribute verbatim copies of this
+.\" manual provided the copyright notice and this permission notice are
+.\" preserved on all copies.
+.\"
+.\" Permission is granted to copy and distribute modified versions of this
+.\" manual under the conditions for verbatim copying, provided that the
+.\" entire resulting derived work is distributed under the terms of a
+.\" permission notice identical to this one
+.\" 
+.\" Since the Linux kernel and libraries are constantly changing, this
+.\" manual page may be incorrect or out-of-date.  The author(s) assume no
+.\" responsibility for errors or omissions, or for damages resulting from
+.\" the use of the information contained herein.  The author(s) may not
+.\" have taken the same level of care in the production of this manual,
+.\" which is licensed free of charge, as they might when working
+.\" professionally.
+.\" 
+.\" Formatted or processed versions of this manual, if unaccompanied by
+.\" the source, must acknowledge the copyright and authors of this work.
+.\"
+.\" Translated Sat Jul  6 15:29:23 1996 by Diego Novillo (diego@cs.ualberta.ca)
+.\"
+.\" Revised Thu May 21 00:57:02 1998 by
+.\"    Rafael Godínez (1ragodin@rigel.deusto.es)
+.TH IPC 5 "1 Noviembre 1993" "Linux 0.99.13" "Manual del Programador de Linux" 
+.SH NOMBRE
+ipc \- Mecanismos de comunicación entre procesos del System V
+.SH SINOPSIS
+.nf
+.B
+# include <sys/types.h>
+.B
+# include <sys/ipc.h>
+.B
+# include <sys/msg.h>
+.B
+# include <sys/sem.h>
+.B
+# include <sys/shm.h>
+.SH DESCRIPCIÓN
+Esta página del manual hace referencia a la implementación en Linux de los
+mecanismos de comunicación entre procesos del System V (IPC, InterProcess
+Communication): colas de mensajes, conjuntos de semáforos y segmentos de
+memoria compartida.
+En la siguiente descripción, la palabra
+.B recurso
+se refiere a la instancia de uno de dichos mecanismos.
+.SS Permisos de Acceso a Recursos
+Para cada recurso el sistema utiliza una estructura de datos común de tipo
+.BR "struct ipc_perm"
+para almacenar información necesaria para determinar permisos al ejecutar
+una operación ipc.
+La estructura
+.BR ipc_perm ,
+definida en el fichero de cabecera
+.I <sys/ipc.h>
+incluye los siguientes miembros:
+.sp
+.B
+	ushort cuid;	
+/* id del usuario creador */
+.br
+.B
+	ushort cgid;	
+/* id de grupo del usuario creador */
+.br
+.B
+	ushort uid;
+/* id del usuario dueño */
+.br
+.B
+	ushort gid;
+/* id de grupo del usuario dueño */
+.br
+.B
+	ushort mode;
+/* permisos de lectura/escritura */
+.PP
+El miembro
+.B mode
+de la estructura
+.B ipc_perm
+define, con los 9 bits más bajos, los persmisos de acceso al recurso para
+cualquier proceso que realice una llamada ipc al sistema.  Los permisos se
+interpretan de la siguiente manera:
+.sp
+.nf
+	0400	Lectura para el usuario.
+	0200	Escritura para el usuario.
+.sp .5
+	0040	Lectura para el grupo.
+	0020	Escritura para el grupo.
+.sp .5
+	0004	Lectura para otros.
+	0002	Escritura para otros.
+.fi
+.PP
+Los bits 0100, 0010 y 0001 (bits de ejecución) no se utilizan.
+Además,
+"write" (permiso de escritura)
+se interpreta efectivamente como
+"alter" (permiso de alteración)
+para un conjunto de semáforos.
+.PP
+El mismo fichero de cabecera del sistema también define las siguientes
+constantes simbólicas:
+.TP 14
+.B IPC_CREAT
+Crea la entrada si la clave no existe.
+.TP
+.B IPC_EXCL
+Falla si la clave existe.
+.TP
+.B IPC_NOWAIT
+Devuelve error si la petición debe esperar.
+.TP
+.B IPC_PRIVATE
+Clave privada.
+.TP
+.B IPC_RMID
+Elimina el recurso.
+.TP
+.B IPC_SET
+Establece opciones del recurso.
+.TP
+.B IPC_STAT
+Obtiene opciones del recurso.
+.PP
+Nótese que 
+.B IPC_PRIVATE
+es de tipo
+.B key_t, 
+mientras que las otras constantes simbólicas son campos señalizadores que
+pueden combinarse usando operaciones 'or' en una variable de tipo
+.BR int .
+.SS Colas de Mensajes
+Una cola de mensajes se identifica unívocamente usando un número entero
+positivo 
+.RI "(llamado " msqid )
+y tiene una estructura de datos asociada de tipo
+.BR "struct msquid_ds" ,
+definida en
+.IR <sys/msg.h> .
+La estructura contiene los siguientes miembros:
+.sp
+.B
+	struct ipc_perm msg_perm;
+.br
+.B
+	ushort msg_qnum; 
+/* número de mensajes en cola */
+.br
+.B
+	ushort msg_qbytes; 
+/* máximo número de bytes en cola */
+.br
+.B
+	ushort msg_lspid; 
+/* pid última llamada a msgsnd */
+.br
+.B
+	ushort msg_lrpid; 
+/* pid última llamada a msgrcv */
+.br
+.B
+	time_t msg_stime; 
+/* hora última llamada a msgsnd */
+.br
+.B
+	time_t msg_rtime; 
+/* hora última llamada a msgrcv */
+.br
+.B
+	time_t msg_ctime; 
+/* hora del último cambio */
+.TP 11
+.B msg_perm
+.B ipc_perm
+estructura que especifica los permisos de acceso a la cola de mensajes.
+.TP
+.B msg_qnum
+Número actual de mensajes en la cola de mensajes.
+.TP
+.B msg_qbytes
+Máximo número de bytes permitidos en el texto del mensaje en la cola de
+mensajes.
+.TP
+.B msg_lspid
+ID del proceso que ejecutó la última llamada a
+.BR msgsnd .
+.TP
+.B msg_lrpid
+ID del proceso que ejecutó la última llamada a
+.BR msgrcv .
+.TP
+.B msg_stime
+Hora de la última llamada a
+.BR msgsnd .
+.TP
+.B msg_rtime
+Hora de la última llamada a
+.BR msgrcv .
+.TP
+.B msg_ctime
+Hora de la última llamada que cambió un miembro de la estructura
+.BR msqid_ds .
+.SS Conjuntos de Semáforos
+Un conjunto de semáforos se identifica unívocamente usando un número entero
+positivo 
+.RI "(llamado " semid )
+y tiene asociada la siguiente estructura de datos de tipo
+.BR "struct semid_ds" ,
+definida en
+.IR <sys/sem.h> .
+La estructura contiene los siguientes campos:
+.sp
+.B
+	struct ipc_perm sem_perm;
+.br
+.B
+	time_t sem_otime; 
+/* hora de la última operación */
+.br
+.B
+	time_t sem_ctime; 
+/* hora del último cambio */
+.br
+.B
+	ushort sem_nsems; 
+/* cantidad de semáforos en el conjunto */
+.TP 11
+.B sem_perm
+.B ipc_perm
+estructura que especifica los permisos de acceso al conjunto de semáforos.
+.TP
+.B sem_otime
+Hora de la última llamada a
+.B semop.
+.TP
+.B sem_ctime
+Hora de la última llamada a
+.B semctl
+que cambió un miembro de la estructura anterior o un miembro de algún
+semáforo del conjunto.
+.TP
+.B sem_nsems
+Cantidad de semáforos en el conjunto.
+Cada semáforo en el conjunto se accede usando un entero positivo en el
+rango
+.B 0
+a
+.BR sem_nsems\-1 .
+.PP
+Un semáforo es una estructura de datos de tipo
+.B "struct sem"
+que contiene los siguientes miembros:
+.TP 21
+.B
+	ushort semval; 
+/* valor del semáforo */
+.TP
+.B
+	short sempid; 
+/* pid para la última operación */
+.TP
+.B
+	ushort semncnt; 
+/* cantidad de semval esperando a ser incrementados */
+.TP
+.B
+	ushort semzcnt; 
+/* cantidad de semáforos esperando cuyo semval = 0 */
+.PP
+.TP 11
+.B semval
+Valor del semáforo: un entero no negativo.
+.TP
+.B sempid
+ID del último proceso que realizó una operación de semáforo sobre este
+semáforo.
+.TP
+.B semncnt
+Cantidad de procesos suspendidos esperando que 
+.B semval
+aumente.
+.TP
+.B semznt
+Cantidad de procesos suspendidos esperando que
+.B semval
+se haga cero.
+.SS Segmentos de Memoria Compartida
+Un segmento de memoria compartida se identifica unívocamente mediante un
+número entero positivo
+.RI "(llamado " shmid )
+y tiene una estructura de datos asociada de tipo
+.BR "struct shmid_ds" ,
+definida en
+.IR <sys/shm.h> .
+La estructura contiene los siguiente miembros:
+.sp
+.B
+	struct ipc_perm shm_perm;
+.br
+.B
+	int shm_segsz;		
+/* Tamaño del segmento */
+.br
+.B
+	ushort shm_cpid;	
+/* pid del creador */
+.br
+.B
+	ushort shm_lpid;	
+/* pid de la última operación */
+.br
+.B
+	short shm_nattch;	
+/* cantidad actual de conexiones */
+.br
+.B
+	time_t shm_atime;	
+/* hora de la última conexion */
+.br
+.B
+	time_t shm_dtime;	
+/* hora última desconexión */
+.br
+.B
+	time_t shm_ctime;	
+/* hora del último cambio */
+.TP 11
+.B shm_perm
+.B ipc_perm
+estructura que especifica los permisos de acceso al segmento de memoria
+compartida.
+.TP
+.B shm_segsz
+Tamaño en bytes del segmento de memoria compartida.
+.TP
+.B shm_cpid
+ID del proceso que creo el segmento de memoria compartida.
+.TP
+.B shm_lpid
+ID del último proceso que ejecutó una llamada del sistema
+.B shmat
+o
+.BR shmdt .
+.TP
+.B shm_nattch
+Cantidad de conexiones activas actualmente para este segmento de memoria
+compartida.
+.TP
+.B shm_atime
+Hora de la última llamada a
+.BR shmat .
+.TP
+.B shm_dtime
+Hora de la última llamada a 
+.BR shmdt .
+.TP
+.B shm_ctime
+Hora de la última llamada a 
+.B shmctl
+que cambió
+.BR shmid_ds .
+.SH "VÉASE TAMBIÉN"
+.BR ftok (3),
+.BR msgctl (2),
+.BR msgget (2),
+.BR msgrcv (2),
+.BR msgsnd (2),
+.BR semctl (2),
+.BR semget (2),
+.BR semop (2),
+.BR shmat (2),
+.BR shmctl (2),
+.BR shmget (2),
+.B shmdt (2).

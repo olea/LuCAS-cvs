@@ -1,0 +1,234 @@
+
+Este fichero describe la estrategia a seguir para cargar dinámicamente
+módulos en el núcleo de Linux. No es una descripción ténica del interior de
+un módulo: simplemente muestra un ejemplo de cómo compilar y utilizar los
+módulos.
+
+Nota: Debería asegurarse de que las modutils-X.Y.Z.tar.gz que está
+utilizando son las más recientes para este núcleo. Los números "X.Y.Z"
+reflejan la versión de núcleo que era más reciente en el momento del 
+lanzamiento del paquete modutils. Algunos paquetes modutils no tienen
+en cuenta las nuevas características modulares a las que dan soporte
+los nuevos núcleos. La versión requerida en la actualidad se encuentra en el
+fichero /usr/src/linux/Documentation/Changes.
+
+* * * NOTA * * *
+El núcleo ha cambiado para eliminar el soporte de kerneld y utilizar el
+nuevo soporte kmod.  Recuerde esto al leer este fichero.  Kmod hace
+exactamente lo mismo que kerneld, pero no necesita de ningún programa
+externo (lea Documentation/kmod.txt)
+
+Comenzando...
+-------------
+
+En cualquier caso, el primer paso es compilar el núcleo, tal y como se
+explica en el fichero linux/README. Normalmente se realiza así:
+
+	make menuconfig o make xconfig
+	make dep
+	make clean
+	make bzImage o make bzlilo
+
+En "make menuconfig" o "make xconfig", usted selecciona lo que desea incluir
+como partes "residentes" en el núcleo y qué características desea tener
+disponibles como módulos cargables. Deberá seleccionar como mínimo un juego
+de partes "residentes" que se necesitan para arrancar:
+
+	El sistema de ficheros de su partición raíz
+	Un controlador scsi, pero busque más abajo una lista de módulos SCSI
+	Soporte para un disco duro normal
+	Soporte para red (CONFIG_NET)
+	Soporte para TCP/IP (CONFIG_INET), ¡pero sin controladores!
+	
+	además de todas esas cosas sin las cuales no puede vivir...
+
+El juego de módulos está incrementándose constantemente, y podrá seleccionar
+la opción "m" en "make menuconfig" o "make xconfig" para todas las
+características que el núcleo actual pueda ofrecer como módulos cargables.
+
+También tiene la posibilidad de crear módulos que no dependan tanto de la
+versión del núcleo.  Esta opción puede seleccionarse durante la
+configuración (make menuconfig o make xconfig) habilitando la opción
+"Establecer la información de versión en todos los símbolos de los módulos"
+(CONFIG_MODVERSIONS), y es muy útil en las versiones de núcleos "estables",
+tales como los núcleos de las series 1.2, 2.0 y 2.2.
+Si tiene módulos que están basados en código fuente no incluido en los
+códigos fuente oficiales del núcleo, seguro que le gustará esta opción...
+
+Este es un ejemplo de los módulos cargables incluidos en los códigos fuente
+del núcleo:
+
+	La mayoría de los sistemas de ficheros:
+		minix, msdos, umsdos, sysv, isofs, hpfs, smbfs, nfs
+	Soporte SCSI de medio nivel (requerido por los controladores scsi de 
+                alto y bajo nivel)
+	La mayoría de controladores SCSI de bajo nivel: aha1542, in2000
+	Todos los controladores SCSI de alto nivel: disk, tape, cdrom, 
+		generic.
+	La mayoría de los controladores ethernet: (demasiados para dar una
+		lista de ellos, lea el fichero
+				./Documentation/networking/net-modules.txt)
+	La mayoría de los controladores CDROM:
+		aztcd:     Aztech,Orchid,Okano,Wearnes
+		cm206:     Philips/LMS CM206
+		gscd:      Goldstar GCDR-420
+		mcd, mcdx: Mitsumi LU005, FX001
+		optcd:     Optics Storage Dolphin 8000AT
+		sjcd:      Sanyo CDR-H94A
+		sbpcd:     Matsushita/Panasonic CR52x, CR56x, CD200,
+		           Longshine LCS-7260, TEAC CD-55A
+		sonycd535: Sony CDU-531/535, CDU-510/515
+
+	Muchos módulos de la sección misc, como:
+		lp: impresora en línea
+		binfmt_elf: cargador elf
+		binfmt_java: cargador java
+		isp16: interfaz cdrom
+		serial: el interfaz serie (tty)
+
+Una vez que haya compilado el núcleo, puede crear los módulos tecleando:
+
+	make modules
+
+Esto compilará todos los módulos y actualizará el directorio linux/modules.
+En este directorio podrá encontrar un juego de enlaces simbólicos, apuntando
+a varios ficheros objeto situados en el árbol de directorios del núcleo.
+Una vez que ha creado sus módulos, también debería hacer:
+
+	make modules_install
+
+Esto copiará todos los módulos recién hechos en subdirectorios bajo
+"/lib/modules/versión_núcleo", donde "versión_núcleo" es algo como 2.2.9, o
+la versión que sea...
+
+Tan pronto como haya reiniciado el módulo recién hecho, puede instalar y
+eliminar módulos a su gusto con las utilidades: "insmod" y "rmmod". Tras
+leer la página de manual de insmod, también sabrá lo fácil que es configurar
+un módulo al hacer "insmod" (pista: símbolo=valor).
+
+
+Características adicionales:
+----------------------------
+
+También tiene acceso a dos utilidades: "modprobe" y "depmod", donde modprobe
+es una extensión a "insmod". Estas utilidades utilizan (y mantienen) un
+juego de ficheros que describen todos los módulos que están disponible para
+el núcleo actual en la jerarquía de /lib/modules así como sus
+interdependencias.
+
+Utilizando la utilidad modprobe, usted puede cargar cualquier módulo así:
+
+	/sbin/modprobe module
+
+sin poner mucha atención al núcleo que está ejecutando, o de qué otros
+módulos depende este módulo.
+
+Con la ayuda del fichero de configuración de modprobe: "/etc/conf.modules"
+puede ajustar el comportamiento de modprobe de muchas maneras, incluyendo un
+ajuste automático de las opciones de insmod para cada módulo. Y, sí, HAY
+páginas de manual para todas estas herramientas...
+
+Para usar modprobe de manera exitosa, deberá colocar - si su distribución
+no lo ha hecho ya - el siguiente comando en su rutina /etc/rc.d/rc.S. (Lea
+más acerca de esto en el fichero "rc.hints" del paquete de utilidades del 
+núcleo, "modules-x.y.z.tar.gz".)
+
+	/sbin/depmod -a
+
+Esto calcula las dependencias entre módulos distintos. Entonces, si hace,
+por ejemplo 
+
+	/sbin/modprobe umsdos
+
+automáticamente cargará tanto el módulo umsdos como el módulo msdos, ya
+que umsdos necesita msdos para ejecutarse.
+
+
+La "última" utilidad:
+-----------------------
+
+Bien, ya ha leído todo lo de más arriba, y se siente bastante
+impresionado... Ahora le diremos que olvide todo acerca de instalar y
+eliminar módulos cargables...
+Con el programa residente kerneld, todas estas tareas se realizan
+automáticamente. Simplemente responda "S" a "Habilitar soporte para 
+cargador de módulos del núcleo" (CONFIG_KERNELD o CONFIG_KMOD, 
+dependiendo de si utiliza un núcleo 2.0.x o anterior, o un 2.2.x) en 
+"make menuconfig" o "make xconfig", y asegúrese, en el caso de tener 
+un núcleo 2.0.x, de que /sbin/kerneld se inicia tan pronto como sea 
+posible tras el arranque y, para cualquier versión del núcleo, que 
+"/sbin/depmod -a" ha sido ejecutado para el núcleo actual. (Lea más 
+acerca de esto en el paquete de utilidades para módulos)
+
+Cuando un programa desee que el núcleo utilice una característica que sólo
+está disponible como módulo cargable, y si el núcleo no tiene instalado ya
+ese módulo, el núcleo pedirá al programa residente kerneld o a kmod que se
+haga cargo de la situación y la lleve a cabo lo mejor que pueda.
+
+Esto es lo que sucede:
+
+	- El núcleo se da cuenta de que se pide una característica que no
+	  está incluida en el núcleo.
+	- El núcleo envía un mensaje a kerneld o a kmod, con una descripción
+	  simbólica de la característica necesitada.
+	- kerneld, o kmod, le pide a modprobe que cargue el módulo que
+	  encaja con la descripción simbólica dada.
+	- modprobe busca dentro de su tabla de traducción interna para ver
+	  si hay un módulo que encaje.  Esta tabla puede ser reconfigurada
+	  y expandida añadiendo líneas "alias" en "/etc/conf.modules".
+	- Se solicita a insmod que instale los módulos que modprobe ha
+	  decidido que necesita el núcleo.  Cada módulo será configurado 
+	  según las líneas de "opciones" en "/etc/conf.modules".
+	- modprobe sale y kerneld o kmod le dice al núcleo que la petición
+	  tuvo éxito (o no...)
+	- El núcleo utiliza la característica recién instalada sólo como si
+	  hubiera sido configurada en el núcleo como parte "residente".
+
+Lo mejor de todo es que un módulo automáticamente instalado ha estado sin
+utilizarse durante un rato (normalmente 1 minuto), el módulo se eliminará
+automáticamente también del núcleo.
+
+Esto hace que el núcleo utilice la mínima parte de memoria en un momento
+determinada, dejándola disponible para usos más productivos que como
+portapapeles de código no utilizado.
+
+En la actualidad este es sólo un efecto colateral del beneficio auténtico de
+kerneld (o kmod):
+Sólo debe crear un núcleo mínimo, esto es más o menos independiente de la
+configuración real de hardware.  La configuración del núcleo "virtual" es,
+en su lugar, controlada por un fichero de configuración de manera similar al
+caso de máquina corriente con su propio núcleo.
+Esto debería ser una buena noticia para gente que mantenga múltiples
+máquinas así como para los fabricantes de distribuciones.
+
+Para utilizar kerneld con la menor cantidad de problemas, usted necesita un
+modprobe de una versión que se pueda considerar reciente de acuerdo con su
+núcleo, así como un fichero de configuración para modprobe
+("/etc/conf.modules").
+
+Como modprobe ya conoce casi todos los módulos, el fichero de configuración 
+mínima podría ser algo como:
+
+	alias scsi_hostadapter aha1542  # o el controlador SCSI que tenga
+	alias eth0 3c509	# o el controlador de red que tenga
+	# podría necesitar líneas de opciones para algún controlador de red:
+	options 3c509 io=0x300 irq=10
+	# o para algún otro módulo:
+	options cdu31a cdu31a_port=0x1f88 sony_pas_init=1
+
+Puede añadir estas líneas también, pero sólo son "cosméticas":
+
+	alias net-pf-3 off	# no hay disponible módulo ax25 (aún)
+	alias net-pf-4 off	# si no utiliza el módulo ipx
+	alias net-pf-5 off	# si no utiliza el módulo appletalk
+
+Finalmente, para los "puristas":
+Puede nombrar el fichero de configuración tanto "/etc/conf.modules" como
+"/etc/modules.conf", ya que modprobe sabe qué hacer en cada caso...
+
+Escrito por:
+	Jacques Gelinas <jacques@solucorp.qc.ca>
+	Bjorn Ekwall <bj0rn@blox.se>
+
+Traducido para el proyecto NuLies por:
+	David Marín Carreño <davefx@bigfoot.com>

@@ -1,0 +1,320 @@
+\chapter{Mecanismos de Comunicacion Interprocesos}
+\label{IPC-chapter}
+\index{Mecanismos de Comunicacion Interprocesos (IPC)}
+\index{IPC, Mecanismos de Comunicacion Interprocesos}
+\ChapterDescription{
+Los procesos se comunican con otros procesos y con el núcleo para coordinar sus actividades.
+Linux soporta un número de mecanismos de comunicación entre procesos (IPC).
+Las señales y tuberías son dos de ellos pero Linux también soporta el llamado mecanismo System V por la versión Unix\tm\ en la que apareció por primera vez.
+}
+
+\section{Señales}
+\index{Señales}
+Las señales son uno de los métodos más antiguos de comunicación entre procesos usados por los sistemas Unix\tm\ .
+Son usados para señalizar sucesos asíncronos a uno o más procesos.
+Una señal podría ser generada por una interrupción de teclado o por una condición de error como la de un proceso intentando acceder a una localización no existente en su memoria virtual.
+Las señales son usadas también por las shells para indicar ordenes de control de trabajo a sus procesos hijos.
+
+Hay un conjunto de señales definidas que puede generar el núcleo o que pueden ser generadas por otros procesos en el sistema, siempre que tengan los privilegios correctos.
+Usted puede listar un conjunto de señales del sistema usando el comando \eg{kill -l}, en mi Máquina Linux Intel esto proporciona:
+\begin{verbatim}
+ 1) SIGHUP       2) SIGINT       3) SIGQUIT      4) SIGILL
+ 5) SIGTRAP      6) SIGIOT       7) SIGBUS       8) SIGFPE
+ 9) SIGKILL     10) SIGUSR1     11) SIGSEGV     12) SIGUSR2
+13) SIGPIPE     14) SIGALRM     15) SIGTERM     17) SIGCHLD
+18) SIGCONT     19) SIGSTOP     20) SIGTSTP     21) SIGTTIN
+22) SIGTTOU     23) SIGURG      24) SIGXCPU     25) SIGXFSZ
+26) SIGVTALRM   27) SIGPROF     28) SIGWINCH    29) SIGIO
+30) SIGPWR      
+\end{verbatim}
+Los números son diferentes para una Máquina Linux \axp\ .
+Los procesos pueden elegir ignorar la mayoría de las señales que son generadas, con dos excepciones notables: ni la señal \texttt{SIGSTOP} la cual causa que un proceso detenga su ejecución ni la señal \texttt{SIGKILL} que causa que un proceso termine pueden ser ignoradas.
+En cualquier otro caso un proceso puede elegir solamente de que forma manejar las diferentes señales.
+Los procesos pueden bloquear las señales y, si no las bloquean pueden elegir entre tratarlas ellos mismos o permitir que sea el núcleo el que lo haga.
+Si el núcleo maneja las señales, ejecutará las acciones requeridas por defecto para cada una.
+Por ejemplo, la acción por defecto cuando un proceso recibe la señal \texttt{SIGFPE} (execpción de punto flotante), es realizar un volcado del núcleo y después terminar.
+Las señales no tienen prioridades relativas inherentes.
+Si dos señales se generan para un proceso al mismo tiempo puede que sean presentadas al proceso o tratadas en cualquier orden.
+Tampoco existe mecanismo para tratar múltiples señales de la misma clase.
+No existe forma de que un proceso pueda informar de si recibió 1 o 42 señales \texttt{SIGCONT}.
+
+Linux implementa las señales usando información almacenada en la \ds{task\_struct} del proceso.
+El número de señales soportadas está limitado al tamño de palabra del procesador.
+Procesadores con un tamaño de palabra de 32 bits pueden tener 32 señales mientras que procesadores de 64 bits como el \axp\ pueden tener hasta 64 señales
+Las señales actualmente pendientes son mantenidas con el campo de \ds{señal} marcado con una mascara de señal \ds{bloqueada}.
+Con la excepción de \texttt{SIGSTOP} y \texttt{SIGKILL}, todas las señales pueden ser bloqueadas.
+Si se genera una señal bloqueada, esta permanece pendiente hasta que es desbloqueada.
+Linux también mantiene información acerca de como cada proceso trata todas las posibles señales y esta es almacenada en una matriz de estructuras de datos \ds{sigaction} apuntada por la \ds{task\_struct} de cada proceso.
+Entre otras cosas esta contiene o la dirección de una rutina que tratará la señal o una bandera que indica a Linux que el proceso o bien desea ignorar la señal o bien permitir que sea el núcleo el que la trate en su lugar.
+El proceso modifica el tratamiento por defecto de la señal realizando llamadas al sistema las cuales alteran la \ds{sigaction} de la señal apropiada así como la máscara de \ds{bloqueada}.
+
+No todo proceso en el sistema puede enviar señales a todo otro proceso, el núcleo puede y los super usuarios también.
+Los procesos normales solo pueden enviar señales a procesos con el mismo {\em uid} y {\em gid} o a procesos en el mismo grupo de proceso\footnote{\ReviewNotes{Explican los grupos de procesos.}}.
+Las señales son generadas estableciendo el bit apropiado el campo \ds{señal} de la \ds{task\_struct}
+Si el proceso no ha bloqueado la señal y está esperando pero es interrumpible (en estado Interrumpible) entonces es activado cambiando su estado a ejecutándose y asegurándose de que se encuentra en la cola de ejecución.
+De esa forma el planificador lo considerará un candidato a ejecutar cuando el sistema planifica de nuevo.
+
+Si es necesario el tratamiento por defecto, entonces Linux puede optimizar el manejo de la señal. Por ejemplo si la señal \texttt{SIGWINCH} (el foco ha cambiado en X window) y se usa el manejador por defecto entonces no hay nada que hacer.
+
+Las señales no son presentadas al proceso inmediatamente que son generadas, tienen que esperar hasta que el proceso se está ejecutándose de nuevo.
+Cada vez que un proceso sale de una llamada al sistema sus campos \ds{señal} y \ds{bloqueado} son comprobados y, si hay algunas señales no bloqueadas, ahora pueden ser comunicadas. 
+Esto quizás parezca un método poco fiable pero todo proceso en el sistema está realizando todo el tiempo llamadas al sistema, por ejemplo para escribir un caracter en el terminal.
+Los procesos pueden elegir esperar a las señales si los desean, quedando suspendidos en estado interrumpible hasta que una señal les es presentada.
+El código de procesado de señales de Linux comprueba la estructura \ds{sigaction} para cada una de las señales no bloqueadas.
+
+Si un manejador de señal es establecido a la acción por defecto entonces el núcleo la tratará.
+El tratamiento por defecto de la señal \texttt{SIGSTOP} cambiará el estado del proceso actual a Detenido y ejecutará el planificador para seleccionar un nuevo proceso.
+La acción por defecto para la señal \texttt{SIGFPE} realizará un volcado del núcleo del proceso y entonces hará que este termine.
+Alternativamente, el proceso puede haber especificado su propio manejador de señales.
+Este es una rutina que será llamada siempre que la seãl es generada y la estructura \ds{sigaction} almacena la dirección de esa rutina.
+El núcleo debe de llamar a la rutina de tratamiento de señales del proceso el como esto ocurre es dependiente del procesador pero todas las CPUs deben hacer frente a el hecho de que el proceso actual está ejecutándose en modo núcleo y es así como vuelve al proceso que llamó al núcleo o la rutina de sistema en modo usuario.
+El problema se resuelve manipulando la pila y registros del proceso.
+El contador de programa del proceso se establece a la dirección de la rutina de manejo de señales y los parámetros de la rutina son añadidos a la estructura de llamada o pasados en registros.
+Cuando el proceso reanuda la operación parece como si la rutina de tratamiento de señales hubiese sido llamada de forma normal.
+
+
+Linux es compatible POSIX por tanto el proceso puede especificar que señales son bloqueadas cuando es llamada una rutina particular de tratamiento de señales.
+Esto significa cambiar la mascara \ds{bloqueado} durante la llamada al manejador de señales del proceso.
+La mascara \ds{bloqueado} debe ser devuelta a su valor original cuando la rutina de tratamiento de la señal ha terminado.
+Por lo tanto Linux añade una llamada a una rutina ordenadora la cual restaura la mascara \ds{bloqueado} en la pila de llamada del proceso señalado.
+Linux también optimiza el caso en el que varias rutinas de tratamiento de señales deben ser llamadas mediante apilamiento por eso cada vez que una rutina termina, la siguiente es llamada hasta que la rutina ordenadora es llamada.
+
+\section{Tuberías}
+Todas las shells habituales en Linux permiten la redirección
+Por ejemplo
+\begin{verbatim}
+
+$ ls | pr | lpr
+
+\end{verbatim}
+Encauza la salida de el comando \eg{ls} que lista los ficheros del directorio hacia la entrada estandar de el comando \eg{pr} el cual la repagina.
+Finalmente la salida estandar de el comando \eg{pr} es encauzada hacia la entrada estandar del comando \eg{lpr} qu imprime los resultados en la impresora por defecto.
+Las tuberías son por tanto flujos unidireccionales de bytes que conectan la salida estandar de un proceso con la entrada estandar de otro proceso.
+Ningún proceso es consciente de esta redirección y actúa como lo haría normalmente.
+Es la shell la que establece estas tubeías temporales entre procesos.
+
+
+\index{Ficheros}
+\begin{figure}
+\begin{center}
+{\centering \includegraphics{ipc/pipes.eps}
+\par}
+\end{center}
+\caption{Tuberías}
+\label{Pipes-figure}
+\end{figure}
+En Linux, una tubería se implementa usando dos estructuras de datos de \ds{fichero} que apuntan ambos al mismo inodo VFS que asimismo apunta a una página física de memoria.
+La figura \ref{Pipes-figure} muestra que cada estructura de datos de \ds{fichero} contiene punteros a distintos vectores de rutinas de tratamiento de ficheros; una para escribir en la tubería, y la otra para leer de la tubería.  
+\SeeModule{include/\-linux/\-inode\_fs\_i.h}
+Esto oculta las diferencias subyacentes de las llamadas al sistema genéricas la cuales leen y escriben en ficheros ordinarios.
+Conforme el proceso escritor escribe en la tubería, los bytes son copiados en la página de datos compartida y cuando el proceso lector lee de la tubería los bytes son copiados de la página de datos compatida.
+Linux debe sincronizar el acceso a la tubería.
+Debe asegurarse que el lector y el escritor van al paso y para hacer esto utiliza los bloqueos, colas de espera y señales.
+
+Cuando el escritor quiere escribir en la tubeía utiliza la funciones estandar de la librería de escritura.
+Estas pasan descriptores de ficheros que son índices dentro del conjunto de estructuras de \ds{fichero} del proceso, cada una representando un fichero abierto o, como en este caso, una tubería abierta.
+Las llamadas al sitema de Linux usan las rutinas de escritura apuntadas por la estructura de datos que describe esta tubería.
+Esa rutina de escritura usa información mantenida en el inodo VFS que representa a esta tubería
+\SeeCode{pipe\_write()}{fs/pipe.c}
+Si hay suficiente espacio para escribir todos los bytes en la tubería y, por tanto a todo su largo la tubería no es bloqueada por su lector, Linux la bloquea para el escritor y copia los bytes que deben de ser escritos desde el espacio de direcciones  del proceso en la página de datos compartidos.
+Si la tubería es bloqueada por el lector o si no hay suficiente espacio para los datos entonces se hace dormir el proceso actual sobre la cola de espera del inodo de la tubería y se llama al planificador con lo que otro proceso puede ejecutarse.
+El proceso es interrumpible por lo tanto puede recibir señales y será despertado por el lector cuando haya espacio suficiente para los datos escritos o cuando la tubería sea desbloqueada.
+Cuando los datos han sido escritos, el inodo VFS de la tubería es desbloqueado y cualquier lector dormido que esté esperando en la cola de espera del inodo se despertará a si mismo. 
+
+La lectura de datos de la tubería es un proceso muy similar a la escritura en ella.
+\SeeCode{pipe\_read()}{fs/\-pipe.c}
+Los procesos están autorizados a realizar lecturas no bloqueantes (depende del modo en que fué abierto el fichero o la tubería) y, en este caso, si no hay datos para ser leidos o si la tubería está bloqueada, se devolverá un error.
+Esto significa que el proceso puede continuar ejecutándose.
+La alternativa es esperar en la cola del inodo de la tubería hasta que el proceso escritor ha terminado.
+Cuando ambos procesos han terminado con la tubería, el inodo de la tubería es desechado junto con la página de datos compartidos.
+
+Linux también soporta tuberías {\em nombradas}, también conocidas como FIFOs porque las tuberías funcionan según un principo Primero en Entrar, Primero en Salir.
+El primer dato escrito en la tubería es el primer dato leido de la tubería.
+A diferencia de las tuberías los FIFOs no son objetos temporales, son entidades y pueden ser creadas usando el comando \eg{makefifo}.
+Los procesos son libres de usar un FIFO tan solo con tener derechos de acceso apropiados para ello. 
+La forma en que los FIFOs son abiertos es un poco diferente de las tuberías.
+Una tubería (son dos estructuras de \ds{ficheros}, su inodo VFS y la página de datos compartida) es creada en el momento mientras que un FIFO ya existe y es abierto y cerrado por sus usuarios.
+Linux debe de tratar los lectores que abren el FIFO antes de que los escritores lo abran así como los lectores antes de que cualquier escritor haya escrito sobre él.
+De esta forma, los FIFOs son manejados de forma casi idéntica que las tuberías y manejan las mismas estructuras de datos y operaciones. 
+
+\section{Enchufes}
+\ReviewNotes{Añadir cuando sea escrito el capítulo de trabajo en red}
+
+\subsection{Mecanismos IPC System V}
+Linux soporta tres tipos de mecanismos de comiuncación interprocesos que aparecieron por primera vez en el Unix\tm\ System V (1983).
+Estos son colas de mensajes, semaforos y memoria compartida.
+Estos mecanismos IPC System V comparten todos métodos comunes de autentificación.
+Los procesos quizás accedan a estos recursos solo mediante el paso de una referencia a un identificador único a el núcleo vía llamadas al sistema.
+El acceso a estos objetos IPC System V es comprobado usando permisos de acceso, más que comprobando los accesos a ficheros.
+Los derechos de acceso a los objetos System V son establecidos por el creador del objeto vía llamadas al sistema.
+El indentificador referencia del objeto es utilizado por cada mecanismo como un índice dentro de una tabla de recursos.
+No es un índice sencillo pero requiere alguna manipulación antes de generar el índice.
+
+Todas las estructuras de datos Linux que representan objetos IPC System V en el sistema incluyen una estructura \ds{ipc\_perm}
+\index{ipc\_perm estructura de datos}
+\SeeModule{include/\-linux/\-ipc.h}
+la cual contiene identificadores de el propietario y el usuario y grupo creador del proceso.
+
+La forma de acceso para este objeto (propietario, grupo y otro) y la clave del objeto IPC.
+La clave es utilizada como una forma de encontrar el identificador de referencia del objeto IPC System V. 
+Se soportan dos tipos de claves públicas y privadas.
+Si la clave es pública entonces cualquier proceso en el sistema, sujeto a chequeo de derechos, puede encontrar el identificador de referencia del objeto IPC System V.
+Los objetos IPC System V nunca pueden ser refernciados con una clave, solo por su identificador de referencia.
+
+\subsection{Colas de Mensajes}
+Las colas de mensajes permiten a uno o más procesos escribir mensajes, que serán leidos por uno o más procesos lectores.
+Linux mantiene una lista de colas de mensajes, el vector \dsni{msgque}\index{msgque vector}; cada elemento del cual apunta a una estructura de datos \ds{msqid\_ds} que describe completamente la cola de mensajes; 
+Cuando las colas de mensajes son creadas se posiciona una nueva estructura de datos \ds{msqid\_ds} en la memoria del sistema y es insertada en el vector. 
+
+
+\begin{figure}
+\begin{center}
+{\centering \includegraphics{ipc/msg.eps} \par}
+\end{center}
+\caption{Colas de Mensajes IPC System V}
+\label{figura-msg}
+\end{figure}
+Cada estructura de datos \ds{msqid\_ds}
+\index{Estructura de datos msqid\_ds}
+\SeeModule{include/\-linux/\-msg.h}
+contiene una estructura de datos \ds{ipc\_perm} y punteros a los mensajes introducidos en esta cola.
+Además, Linux guarda tiempos de modificación de la cola como la última vez en la que se escribió en la cola.
+La \ds{msqid\_ds} también contiene dos colas de espera; una para escritores de la cola y otra para lectores de la cola.
+
+Cada vez que un proceso intenta escribir un mensaje en la cola de escritura sus identificadores efectivos de usuario y grupo son comparados con el modo en la estructura de datos \ds{ipc\_perm} de esta cola.
+Si el proceso puede escribir en la cola entonces el mensaje puede ser copiado desde el espacio de direcciones del proceso a una estructura de datos \ds{msg}
+\index{estructura de datos msg}
+y ser puesto al final de la cola.
+Cada mensaje es etiquetado con un tipo específico de aplicación, acordado entre los procesos cooperantes.
+Sin embargo, quizás no haya espacio para el mensaje puesto que Linux restringe el número y longitud de los mensajes que pueden ser escritos.
+En este caso el proceso será añadido a esta cola de espera de esta cola y el planificador será llamado para que ejecute otro proceso. 
+Será despertado cuando uno o más mensajes hayan sido leidos de la cola.
+
+La lectura de la cola es un proceso similar.
+De nuevo, los derechos de acceso del proceso a la cola de escritura son chequeados.
+Un proceso lector puede elegir entre coger el primer mensaje de la cola sin importar el tipo o seleccionar mensajes de un determinado tipo.
+Si no hay mensajes que cumplan este criterio el proceso lector es añadido a la cola de espera de lectura y se ejecuta el planificador.
+Cuando un mensaje sea escrito a la cola este proceso será despertado y ejecutado de nuevo.
+
+\subsection{Semaforos}
+\index{Semaforos System V}
+\index{Semaforos, System V}
+\index{Semaforos}
+En su forma más simple un semaforo es una zona en memoria cuyo valor puede ser comprobado y establecido por más de un proceso.
+La comprobación y establecimiento es, más allá de como un proceso está implicado, ininterrumpible o atómico; una vez que ha comenzado nada puede detenerlo.
+El resultado de la operación de comprobación y establecimiento es la suma del valor actual del semaforo y el valor establecido, que puede ser positivo o negativo. 
+Dependiendo del resultado de la operación de comprobación y establecimiento un proceso quizás tenga que suspenderse hasta que el valor del semaforo sea cambiado por otro proceso.
+Los semaforos pueden ser utilizados para implementar {\em regiones críticas}, áreas de código críticas que un proceso solo debiera ejecutar en un determinado momento.
+
+Diagmos que usted tuviera muchos procesos cooperando leyendo y escribiendo registros en un único fichero de datos.
+Usted querría que los accesos al fichero estuvieran estrictamente coordinados.
+Usted podría utilizar un semaforo con un valor incicial de 1 y, alrededor del código de operación del fichero, situar dos operaciones de semaforos, la primera para comprobar y decrementar el valor del semaforo, y la segunda para comprobar e incrementarlo. 
+El primer proceso que acceda al fichero debería intentar decrementar el valor del semaforo y si tuviese exito, el valor del semaforo será 0.
+Este proceso puede ahora continuar y usar el fichero de datos pero si otro proceso que deseara usar el fichero en ese momento intentara decrementar el valor del semaforo fallaría ya que el resultado debería ser -1.
+Este proceso deberá ser suspendido hasta que el primer proceso haya terminado con el fichero.
+Cuando el primer proceso ha terminado con el fichero incrementará el valor del semaforo, poniendolo de nuevo a 1.
+Ahora del proceso en espera puede ser reanudado y esta vez su intento de modificar el semaforo tendrá exito.
+
+\begin{figure}
+\begin{center}
+{\centering \includegraphics{ipc/sem.eps} \par}
+\end{center}
+\caption{Semaforos IPC System V}
+\label{figura-semaforos}
+\end{figure}
+Cada objeto semaforo IPC System V describe una matriz y Linux usa la estructura de datos
+\ds{semid\_ds}
+\index{semid\_ds, estructura de datos}
+\SeeModule{include/\-linux/\-sem.h}
+para representarlo.
+Todas las estructuras de datos \ds{semid\_ds} en el sistema están apuntadas por el \ds{semary}, un vector de punteros.
+En cada matriz de semaforos hay \dsni{sem\_nsems}, cada uno descrito por una estructura de datos \ds{sem} que es apuntado por \dsni{sem\_base}.
+Todos los procesos que están autorizados a manipular la matriz de semaforos de un objeto semaforo IPC System V puede realizar llamadas al sistema que realizan operaciones sobre ellos.
+Las llamadas al sistema pueden especificar muchas operaciones y cada operación está descrita por tres entradas; el índice de semaforo, el valor de la operación y un conjuto de banderas.
+El índice de semaforo es un índice dentro de la matriz de semaforos y el valor de la operación es un valor numérico que será añadido a el valor actual del semaforo.
+Linux primero comprueba si o no el total de la operación podría realizarse.
+Una operación tendrá exito si el valor de la operación sumado al valor actual del semaforo fuese mayor que cero o si ambos el valor de la operación y el actual del semaforo son cero.
+Si cualquiera de las operaciones del semaforo fallara Linux puede suspender el proceso pero solo si las banderas de la operación no han solicitado que la llamada al sistema sea no-bloqueante.
+Si el proceso va a ser suspendido entonces Linux debe guardar el estado de operaciones a ser realizadas en el semaforo y poner el proceso actual en cola de espera.
+Esto lo hace construyendo una estructura \ds{sem\_queue}
+en la pila y llenandola. 
+La nueva estructura \ds{sem\_queue} se pone al final de la cola de espera de este objeto semaforo (usando los punteros \dsni{sem\_pending} y \dsni{sem\_pending\_last}).
+El proceso actual es puesto en cola de espera en la estructura de datos \dsni{sem\_queue}(\dsni{sleeper}) y se llama al planificador para que elija otro proceso para ejecutar.
+
+Si todas las operaciones del semaforo hubieran tenido éxito y el proceso actual no necesita ser suspendido, Linux continúa y aplica las operaciones sobre los miembros apropiados de la matriz de semaforos.
+Ahora Linux debe chequear que quizás ahora cualquier proceso esperando o suspendido aplique sus operaciones.
+Mira cada miembro de la cola de operaciones pendientes (\dsni{sem\_pending}) por turno, probando a ver si las operaciones pueden realizarse esta vez.
+Si pueden entonces borra la estructura de datos \dsni{sem\_queue} de la lista de  operaciones pendientes y realiza las operaciones de semaforos en la matriz de semaforos.
+Despierta los procesos dormidos haciendolos disponibles para ser continuados la próxima ves que se ejcuta el planificador.
+Linux se mantiene mirando a lo largo de la lista de pendientes hasta que hay un paso en que no se pueden realizar más operaciones de semaforos y por tanto no se pueden despertar más procesos.
+
+Hay un problema con los semaforos, {\em deadlocks}.
+Este tiene lugar cuando un proceso ha alterado el valor de los semaforos y entra en una región critica pero no puede salir de la región critica por que se cuelga o fue matado.
+Linux se protege frente a esto manteniendo listas de ajustes a las matrices de semaforos.
+La idea es que cuando estos ajustes se aplican, los semaforos son devueltos al estado en que estaban antes de que el conjunto de operaciones del proceso sobre el semaforo fuese realizado.
+Estos ajustes están guardados en estructuras de datos \dsni{sem\_undo}
+puestas ambas en cola en la estructura \ds{semid\_ds} y en la estructura \ds{task\_struct} de el proceso usando estas matrices de semaforos.
+
+Cada operación individual de semaforo puede requerir que se mantenga un ajuste.
+Linux mantendrá como mucho una estructura de datos \ds{sem\_undo} por proceso para cada matriz de semaforo.
+Si el proceso solicitante no tiene una, entonces se le crea una cuando se necesite.
+La nueva estructura de datos \ds{sem\_undo} se pone en cola en la estructura de datos \ds{task\_struct} del proceso y en la estructura de datos de la matriz del semaforo \ds{semid\_ds}.
+Conforme las operaciones son aplicadas a los semaforos en la matriz del semaforo el negativo del valor de la operación se añade a la entrada de este semaforo en la matriz de ajuste de este proceso en la estructura de datos \ds{sem\_undo}.
+Por tanto, si el valor de la operación es 2, entonces se añade -2 en la entrada de ajuste de este semaforo.
+
+Cuando los procesos son borrados, conforme terminan Linux trabaja a lo largo de su conjunto de estructuras de datos \ds{sem\_undo} aplicando los ajustes a las matrices de semaforos. 
+Si se borra un conjunto de semaforos, la estructura de datos \ds{sem\_undo} queda en cola en la estructura de datos del proceso \ds{task\_struct} pero el identificador de la matriz de semaforo se hace inválido.
+En este caso el codigo de limpieza del semaforo simplemente desecha la estructura de datos \ds{sem\_undo}.
+
+\subsection{Memoria Compartida}
+\index{Memoria Compartida}
+\index{Memoria, compartida}
+La memoria comparida permite a uno o más procesos comunicarse por medio de la memoria que aparece en todos su espacios virutales de direcciones.
+Las páginas de la memoria virtual se referencian por entradas en la tabla de páginas de cada uno de los procesos que comparten tablas de páginas. 
+No tienen que estar en la misma dirección en toda la memoria virtual de los procesos.
+Como con todos los objetos IPC System V, el acceso a areas de memoria es crotrolado a través de chequeo de derechos de acceso.
+Una vez que la memoria está siendo compartida, no hay comprobación de como los procesos la utilizan.
+Esto debe recaer en otros mecanismos, por ejemplo los semaforos System V, para sincronizar el acceso a memoria.
+
+\begin{figure}
+\begin{center}
+{\centering \includegraphics{ipc/shm.eps} \par}
+\end{center}
+\caption{Memoria Compartida IPC System V}
+\label{figura-shm}
+\end{figure}
+Cada nueva área creada de memoria compartida está representada por una estructura de datos \ds{shmid\_ds}.
+Estas son guardadas en el vector \ds{shm\_segs}.
+\SeeModule{include/\-linux/\-sem.h}
+\index{Estructura de datos, shmid\_ds}
+La estructura de datos \ds{shmid\_ds} describe lo grande que es el área de memoria compartida, cuantos procesos están usándola e información sobre esa memoria que está siendo mapeada dentro de sus espacios de direcciones. 
+Es el creador de la memoria compartida el que controla los permisos de acceso a esa memoria y si la clave es pública o privada.
+Si tiene suficientes derechos de acceso puede también fijar la memoria compartida en memoria física.
+
+Cada proceso que desee compartir la memoria debe engancharse a esa memoria virtual por medio de llamadas al sistema.
+Esto crea una nueva estructura de datos \ds{vm\_area\_struct} que describe la memoria compartida para este proceso.
+El proceso puede elegir en su espacio virtual de direcciones donde va la memoria virtual o puede dejar a Linux que elija un area libre lo suficientemente grande.
+La nueva estructura \ds{vm\_area\_struct} se coloca en la lista de \ds{vm\_area\_struct} que es apuntada por la \ds{shmid\_ds}.
+Los punteros \dsni{vm\_next\_shared} y \dsni{vm\_prev\_shared} son usados para enlazarlos a ambos unidos.
+La memoria virtual no es creada actualmente durante el enganche; sucede cuando el primer proceso intenta acceder a ella.
+
+La primera vez que un proceso accede a un de las páginas de memoria virtual compartida, tiene lugar un fallo de página.
+Cuando Linux corrige este fallo de página encuentra la estructura de datos \ds{vm\_area\_struct} describiendola. 
+Esta contiene punteros a rutinas de tratamiente para este tipo de memoria virtual compartida.
+El código de tratamiento de fallos de página de memoria compartida busca en las entradas de tablas de páginas de esta \ds{shmid\_ds} para ver si existe alguna para esta página de memoria virtual compartida.
+Si no existe, asignará una página física y creará una entrada en la tabla de paginas para ella.
+
+Tan pronto como entra en la tabla de páginas del proceso en curso, esta entrada es guardada en la \ds{shmid\_ds}.
+Esto significa que cuando el siguiente proceso que intenta acceder a esta memoria obtiene un fallo de página, el codigo de tratamiento de fallos de pagina de memoria virtual usará esta página recientemente creada también para este proceso. 
+Por tanto, el primer proceso que accede a una página de memoria compartida hace que esta sea creada y los posteriores accesos por otros procesos hacen que esa página sea añadida a sus espacios virutales de direcciones.
+
+Cuando los procesos no desean compartir más la memoria virtual, se desencadenan de ella.
+Como otros procesos están usando todavía la memoria el desencadenado solo afecta al proceso actual.
+Su \ds{vm\_area\_struct} es eliminada de la estructura de datos \ds{shmid\_ds} y desasignada.
+La tabla de páginas del proceso actual son acutalizadas para anular el área de memoria virtual que era utilizada para compartir.
+Cuando el último proceso que compartía la memoria se suelta de ella, las páginas de memoria compartida actualmente en memoria física son liberadas, de la misma forma que lo es la estructura de datos \ds{shmid\_ds} de esta memoria compartida.
+
+Aparecen complicaciones adicionales cuando la memoria virtual no es bloqueada en memoria física. 
+En este caso las páginas de memoria compartida pueden ser intercambiadas fuera al sistema de intercambio de disco durante periodos de alto uso de memoria.
+El como la memoria es intercambiada dentro y fuera de memoria física se describe en el capítulo Chapter \ref{mm-chapter}.
+

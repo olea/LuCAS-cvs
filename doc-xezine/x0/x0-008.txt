@@ -1,0 +1,853 @@
+
+-=|=======================[ x-eZine #0 / Art. 008 ]=======================|=-
+-=|===========================[ Sockets Stream ]==========================|=-
+-=|====================[ By Cable <cable@x0und.net> ]=====================|=-
+
+
+	Índice
+	~~~~~~
+
+	*- Introducción.
+	*- ¿Qué es un socket?
+	*- Ejemplo: DUFF.
+	*- El Código Fuente.
+	*- Compilando el DUFF.
+	*- Usando el DUFF.
+	*- Examinando el código en detalle.
+	    * Examinando el servidor DUFF.
+	    * Examinando el cliente DUFF.
+	    * Examinando el control remoto DUFF.
+	    * Conclusión.
+
+
+	Introducción.
+	~~~~~~~~~~~~~
+
+¿Estas aprendiendo a programar?  ¿Conoces  la Internet, y te mueres por hacer
+programas que funcionen por la red? ¿Estas pensando hacer un juego multijuga-
+dor? Entonces, lo que tú necesitas es aprender a manejar sockets.
+
+Para poder seguir este cursillo solo  necesitas  tener un poco de soltura con 
+el lenguaje C; la suficiente como  para ser capaz de leer y escribir ficheros
+de texto. Si nunca has manejado  ficheros  en C,  recomiendo que aprendas eso 
+primero y leas esta guía  después  (especialmente aprende a utilizar las fun-
+ciones open, read, write y close).
+
+
+	Qué es un socket?
+	~~~~~~~~~~~~~~~~~
+
+La Internet se caracteriza por ser  sumamente heterogénea: las conexiones van
+por cable telefónico, cable ethernet, fibras ópticas, infrarrojos, microondas
+satélites, gsm, palomas mensajeras,  etc.  y  cada medio requiere un software 
+diferente para funcionar.
+
+Y lo que es peor: cada vez que envias/recibes  un dato por la red, dicho dato
+salta de un ordenador a otro, por todo el planeta, hasta llegar a su destino,
+pasando por todos los medios de comunicación antes mencionados.
+
+Por suerte el programador no tiene que ser consciente de nada de esto, ya que
+el sistema operativo le provee de una abstracción llamada "socket"; cuando se
+desea conectar dos  máquinas  entre  sí,  se  forma un socket, una especie de
+tubería virtual: una máquina  tiene  un  extremo  del tubo y la otra tiene el
+extremo opuesto; introduces datos por  un extremo, y salen por el otro. Jamás
+tendrás que preocuparte por la odisea  por  la que atraviesan esos datos para
+llegar de un extremo al otro.
+
+Lo mejor de los sockets es que funcionan  exactamente igual que los ficheros;
+¡de hecho, las mismas funciones de C para leer y escribir a un fichero (read,
+write y close) se utilizan para leer  y escribir datos a través de un socket!
+Si sabes manipular ficheros  en  C,  ya  sabes  la mitad de lo necesario para
+escribir programas que se conecten por la red.
+
+Lo único que cambia es la manera  como  se  abre un socket; no puedes usar la
+función open; para ello hay que seguir una serie de pasos un tanto complejos;
+sin embargo, las funciones que se muestran d ejemplo en este artículo son tan
+versátiles que las puedes utilizar en la mayoría de las aplicaciones.
+
+Una vez creado el socket, envias datos  con la función de archivos 'write' (o
+'send', recibes con 'read' (o 'recv') y cortas la conexión con 'close' ¡igual
+que si de un archivo se tratase!
+
+
+	Ejemplo: DUFF.
+	~~~~~~~~~~~~~~
+
+Para ilustrar este  curso,  usaremos  un  sistema  sencillo  llamado "Demonio 
+Universal  Facilitador  de  Ficheros"  (para  abreviar:  DUFF);  consiste los
+siguientes componentes:
+
+ * Un servidor (o demonio)  que  te  permite  descargar  los ficheros que le
+   solicites (algo así como un FTP bebé).
+
+ * Un cliente, que es el programa que te permite conectarte al servidor DUFF
+   y descargarte ficheros.
+
+ * Un mando a distancia, que te permite  ordenarle al DUFF que se desconecte
+   sin necesidad de entrar a la máquina en la que vive.
+
+ADVERTENCIA: DUFF no ha sido  diseñado  con  la  seguridad en mente; otorgará 
+acceso a cualquier  fichero  que  el  sistema  o  perativo le permita leer, y 
+obedecerá al comando  de  desconexión  de  cualquier  persona,  sin solicitar 
+contraseña. No lo ejecutes como root si esto te preocupa. Tampoco es capaz de
+manejar múltiples conexiones a  la  vez;  si te conectas a DUFF mientras está
+atendiendo a otro cliente, te  quedarás  "colgado" hasta que acabe de atender
+al otro. DUFF ha sido diseñado para ser fácil de entender y para que aprendas
+de él, no para ser utilizable en el mundo real.
+
+	El código fuente.
+	~~~~~~~~~~~~~~~~~
+
+Aqui tienes el fuente del  DUFF;  para  obtener los ficheros, recorta por las
+líneas punteadas; así obtendrás tres ficheros:
+  * duff.c          El servidor
+  * duffcliente.c   El cliente
+  * duffkill.c      El mando a distancia
+
+Sin mas preámbulos, he aquí los ficheros; después los estudiaremos con detalle.
+
+---------------------<-Cut Here!-><duff.c><-Cut Here!->---------------------
+
+/***************************************************************************/
+/*    Archivo: duff.c                                                      */
+/*    Este es el Demonio Universal Facilitador de Ficheros (DUFF)          */
+/*    Creado por Cable, Enero de 2002                                      */
+/***************************************************************************/
+
+#include <stdio.h>
+#include <netdb.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <sys/time.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+
+
+/* Esta funcion pone al programa a "escuchar" en un puerto determinado de
+   tu maquina */
+int escuchar(int puerto){
+  struct sockaddr_in entrada;
+  int sock;
+
+  /* Crea el socket */
+  if((sock = socket(AF_INET, SOCK_STREAM,IPPROTO_TCP)) < 0){
+    return -1; /* No se pudo crear un socket */
+  }
+
+  entrada.sin_family = AF_INET;
+  entrada.sin_addr.s_addr = INADDR_ANY;
+  entrada.sin_port = htons(puerto);
+
+  /* Une el socket al puerto */
+  if(bind(sock, (struct sockaddr *) &entrada, sizeof(entrada)) < 0){
+    close(sock);
+    return -2; /* No se pudo conectar el socket al puerto */
+  }
+
+  /* Pone el socket a escuchar por si algun cliente se conecta al puerto */
+  if(listen(sock, 5) < 0){
+    close(sock);
+    return -3;  /* No me permite escuchar ese puerto */
+  }
+
+  return sock;
+}
+
+
+/* Cuando algun cliente intenta conectarse, esta funcion acepta la conexion
+   y retorna un nuevo socket conectado a dicho cliente */
+int aceptar(int sock){
+  struct sockaddr direccion;
+  int longitud;
+  return accept(sock, &direccion, &longitud);
+}
+
+
+/* Esta funcion lee una linea de texto de un socket, que termine en \r\n */
+leelinea(int sock, char *buffer, int maximo){
+  int numcars = recv(sock, buffer, maximo, 0);
+
+  /* Eliminamos cualquier caracter \r que haya quedado en el buffer */
+  while(numcars--) if(buffer[numcars] == '\r') buffer[numcars] = 0;
+}
+
+
+
+/* Esta funcion es la que procesa los comandos de los clientes; es muy sencillo:
+solo interpreta el comando como el nombre de un fichero, y le envia dicho
+fichero al cliente por el socket */
+
+procesa_comando(int sock, char *comando){
+  int fichero;
+  unsigned char c;
+
+  if((fichero = open(comando, O_RDONLY)) < 0){         /* Abre el fichero */
+    printf("fichero \"%s\" no encontrado\n", comando);
+    return;
+  }
+
+  printf("Enviando \"%s\"\n", comando);
+
+  while(read(fichero, &c, 1)){    /* Lee hasta llegar al final del fichero */
+    write(sock, &c, 1);         /* Envia los bytes al cliente via socket */
+  }
+
+  close(fichero);
+
+  return;
+}
+
+
+/* Esta funcion retorna 1 si el socket contiene datos a ser leidos, 0 si no
+   Para mas detalles leer el manpage de la funcion "select" */
+int socketlisto(int sock){
+  fd_set rfds;
+  struct timeval tv;
+
+  FD_ZERO(&rfds);       /* Inicializa la lista de sockets a 'espiar' */
+  FD_SET(sock, &rfds);  /* añade el socket a la lista */
+
+  tv.tv_sec = 0;    /* Espera 0 segundos */
+  tv.tv_usec = 0;   /* Y 0 microsegundos */
+  return select(sock+1, &rfds, NULL, NULL, &tv); /* 'espia' el socket */
+}
+
+
+/* Funcion principal; ¿Realmente requiere explicaciones? =) */
+main(){
+  char comando[80];
+  int s2, sock = escuchar(2010); /* Aceptaremos conexiones por el puerto 2010*/
+
+  if(sock < 0){
+    printf("Error conectando socket: %d\n", sock);
+    exit(1);
+  }
+
+  /* Bucle "infinito"; el programa atendera clientes indefinidamente */
+  for(;;){
+    /* Comprueba si hay algun cliente intentando conectarse */
+    if(socketlisto(sock)){
+
+      /* Acepta el cliente y asigna a s2 un socket que nos conecte a el */
+      if(( s2 = aceptar(sock) ) < 0){
+        printf("Error aceptando conexión en %d\n", s2);
+        close(sock);
+        exit(1);
+     }
+
+      /* Lee una cadena que contiene la solicitud del cliente */
+      leelinea(s2, comando, 80);
+
+      /* Si dicha cadena esta vacia, tumbamos el servidor (eso hace duffkill) */
+      if(!*comando){ close(s2); close(sock); exit(0); }
+
+      /* Procesamos la solicitud y nos desconectamos del cliente con close */
+      procesa_comando(s2, comando);
+
+      close(s2);
+    }
+  }
+}
+-------------------<-Cut Here!-><End duff.c><-Cut Here!->-------------------
+
+-----------------<-Cut Here!-><duffcliente.c><-Cut Here!->------------------
+/***************************************************************************/
+/*    Archivo: duffcliente.c                                               */
+/*    Este es el Cliente para el demonio de ficheros DUFF                  */
+/*    Creado por Cable, Enero de 2002                                      */
+/***************************************************************************/
+
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+#include <netdb.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+
+
+/* Esta funcion conecta el programa al servidor y puerto que le indiquemos */
+int conectar(hostname, puerto)
+  char *hostname;
+  int puerto;
+{
+  struct sockaddr_in sin;
+  struct hostent *host;
+  int sock;
+
+  /* Halla la direccion IP (ej: 124.23.115.12) a partir del hostname
+     (ej: www.google.com) */
+  if( !(host = gethostbyname(hostname)) ) return -1;
+
+  memcpy(&sin.sin_addr.s_addr, host->h_addr, host->h_length);
+  sin.sin_family = AF_INET;
+  sin.sin_port = htons(puerto);
+
+  /* Crea el socket */
+  if((sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0) return -2;
+
+  /* Conecta el socket al servidor y puerto indicado */
+  if(connect(sock, (struct sockaddr *) &sin, sizeof(sin)) < 0){
+    close(sock);
+    return -3;
+  }
+
+  return sock;
+}
+
+
+
+/* Esta funcion es el nucleo del cliente; se conecta al duff, le pide un
+fichero, y lo salva en un fichero local */
+duffcliente(char *host, char *fremoto, char *flocal){
+  unsigned char c;
+  int fichero, sock = conectar(host, 2010); /* Conecta al servidor DUFF */
+
+  if(sock < 0){
+    printf("No se pudo conectar al servidor %d\n", host);
+    exit(1);
+  }
+
+  /* Envia a DUFF el nombre del fichero que queremos, seguido de \r\n */
+  write(sock, fremoto, strlen(fremoto));
+  write(sock, "\r\n", 2);
+
+  /* Crea un fichero local para salvar el que nos envia el servidor */
+  if((fichero = open(flocal, O_CREAT | O_RDWR, S_IREAD | S_IWRITE)) < 0){
+    printf("No se pudo crear el fichero\n");
+    close(sock);
+    exit(1);
+  }
+
+  /* Lee los bytes del fichero por el socket, y los salva al archivo local */
+  while(read(sock, &c, 1)){
+    write(fichero, &c, 1);
+  }
+
+  /* Cerramos el fichero y la conexion de red, y nos vamos a casa :) */
+  close(fichero);
+  close(sock);
+}
+
+
+
+/* ¿No sabes que hace esta funcion? No me hagas golpearte xD */
+
+main(int argc, char **argv){
+  /* Veamos si el usuario puso los argumentos necesarios */
+  if(argc != 4){
+    printf("Uso: duffcliente <host> <archivo remoto> <archivo local>\n");
+    exit(0);
+  }
+  duffcliente(argv[1], argv[2], argv[3]);
+}
+----------------<-Cut Here!-><End duffcliente.c><-Cut Here!->----------------
+
+
+-------------------<-Cut Here!-><duffkill.c><-Cut Here!->--------------------
+/***************************************************************************/
+/*    Archivo: duffkill.c                                                  */
+/*    Este programa permite apagar remotamente el demonio de ficheros DUFF */
+/*    Creado por Cable, Enero de 2002                                      */
+/***************************************************************************/
+
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+#include <netdb.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+
+/* Esta funcion conecta el programa al servidor y puerto que le indiquemos */
+int conectar(char *hostname, int puerto){
+  struct sockaddr_in sin;
+  struct hostent *host;
+  int sock;
+
+  /* Halla la direccion IP (ej: 124.23.115.12) a partir del hostname
+       (ej: www.google.com) */
+  if( !(host = gethostbyname(hostname)) ) return -1;
+
+  memcpy(&sin.sin_addr.s_addr, host->h_addr, host->h_length);
+  sin.sin_family = AF_INET;
+  sin.sin_port = htons(puerto);
+
+  /* Crea el socket */
+  if((sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0) return -2;
+
+  /* Conecta el socket al servidor y puerto indicado */
+  if(connect(sock, (struct sockaddr *) &sin, sizeof(sin)) < 0){
+    close(sock);
+    return -3;
+  }
+
+  return sock;
+}
+
+
+/* Esta funcion es el nucleo del programa; se conecta al servidor DUFF de un
+   host de internet y le ordena apagarse */
+duffkill(char *host){
+  int sock = conectar(host, 2010); /* Conecta al servidor DUFF */
+
+  if(sock < 0){
+    printf("No se pudo conectar al host\n");
+    return;
+  }
+
+  /* Envia la señal de apagado: una linea de texto vacia */
+  write(sock, "\r\n", 2);
+
+  /* Cierra la conexion */
+  close(sock);
+}
+
+
+/* Si no sabes que hace esta funcion, no deberias estar leyendo esto =) */
+main(int argc, char **argv){
+  /* Veamos si el usuario puso los argumentos necesarios */
+  if(argc != 2){
+    printf("Uso: duffkill <host>\n");
+    exit(1);
+  }
+
+  duffkill(argv[1]);
+}
+------------------<-Cut Here!-><End duffkill.c><-Cut Here!->-----------------
+
+	Compilando el DUFF.
+	~~~~~~~~~~~~~~~~~~~
+
+Ahora que tienes los tres archivos, genera los ejecutables de la siguiente
+forma:
+   gcc -o duff duff.c
+   gcc -o duffcliente duffcliente.c
+   gcc -o duffkill duffkill.c
+
+Ahora deberías tener tres ejecutables: duff (servidor), duffcliente (cliente)
+duffkill (mando a distancia).
+
+	Usando el DUFF.
+	~~~~~~~~~~~~~~~
+
+Para poner a funcionar al demonio DUFF, ejecuta:
+
+  $ duff
+
+en una consola de texto; el programa se quedará quieto, esperando conexiones.
+para descargarte un  fichero  (por  ejemplo , "duff.c"),  abre otra consola y
+ejecuta:
+
+  $ duffcliente localhost duff.c localduff.c
+
+Con eso te descargarás el fichero que  contiene el código fuente del servidor
+(suponiendo que lo hayas dejado  en  el  mismo directorio donde ejecutaste el
+servidor) y lo salvará en  un  fichero llamado "localduff.c" en el directorio
+donde ejecutaste el cliente.
+
+Por supuesto, duff  y  duffcliente  funcionan  via  Internet; puedes ejecutar
+duffcliente en una máquina distinta de aquella donde ejecutaste duff, siempre
+que ambas maquinas esten accesibles por la red y el puerto 2010 de la maquina
+donde corres el servidor no esté bloqueado. Por ejemplo:
+
+  $ duffcliente midominio.com duff.c localduff.c
+
+donde "midominio.com" es el dominio o dirección IP de la máquina donde
+tienes DUFF ejecutándose.
+
+para terminar, puedes desconectar el servidor duff de dos formas: entrar a la
+consola donde ejecutaste duff y presionar control-c, o utilizar el programa
+duffkill de la siguiente manera:
+
+  $ duffkill localhost
+
+o
+
+  $ duffkill midominio.com
+
+dependiendo de si corres duffkill en la misma máquina donde corre duff, o en
+otra máquina.
+
+
+	Examinando el código en detalle.
+	~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Vamos a observar detenidamente el código, explicando lo que hace cada parte.
+
+	Examinando el servidor DUFF.
+	~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+El servidor (o demonio) es el programa que se encarga de proveer un servicio:
+suministrar páginas web, recibir un e-mail y retransmitirlo o, en el caso de
+DUFF, entregar un archivo al cliente.
+
+Comenzamos por incluir los archivos de cabecera apropiados; todos ellos son
+necesarios para trabajar con sockets:
+
+       #include <stdio.h>
+       #include <netdb.h>
+       #include <sys/types.h>
+       #include <sys/socket.h>
+       #include <netinet/in.h>
+       #include <sys/time.h>
+       #include <unistd.h>
+       #include <sys/stat.h>
+       #include <fcntl.h>
+
+Luego, creamos la función escuchar;  IMPORTANTE: esta es la función más vital
+del servidor; es la que permite  ponerse  a escuchar en un puerto, aguardando
+conexiones; de  hecho,  su  utilidad  es  tan  genérica  que el lector podría 
+copiarla y pegarla en su propio programa,  ya sea un servidor web, ftp, mail,
+lo que sea; esta función simplemente crea un socket que conecta el programa a
+un puerto de la  máquina  en  la  que  corre, y le permite escuchar cualquier 
+intento de conexión de otro  programa a ese mismo puerto (por ejemplo, si vas
+a hacer un servidor web,  haces  "sock = escuchar(80);" pues  80 es el puerto
+del protocolo HTTP).
+
+       int escuchar(int puerto){
+         struct sockaddr_in entrada;
+         int sock;
+
+         /* Crea el socket */
+         if((sock = socket(AF_INET, SOCK_STREAM,IPPROTO_TCP)) < 0){
+           return -1; /* No se pudo crear un socket */
+         }
+
+         entrada.sin_family = AF_INET;
+         entrada.sin_addr.s_addr = INADDR_ANY;
+         entrada.sin_port = htons(puerto);
+
+         /* Une el socket al puerto */
+         if(bind(sock, (struct sockaddr *) &entrada, sizeof(entrada)) < 0){
+           close(sock);
+           return -2; /* No se pudo conectar el socket al puerto */
+         }
+
+         /* Pone el socket a escuchar si algun cliente se conecta al puerto */
+         if(listen(sock, 5) < 0){
+           close(sock);
+           return -3;  /* No me permite escuchar ese puerto */
+         }
+
+         return sock;
+       }
+
+La función "aceptar" es complementaria  de  "escuchar"; recibe como argumento
+el socket creado con "escuchar" y, si  algun cliente se ha conectado, retorna
+un nuevo socket que contiene la  conexión  a  dicho cliente; esta función, al
+igual que "escuchar", también es de uso general, y el lector puede utilizarla
+en sus propios programas.
+
+
+       int aceptar(int sock){
+         struct sockaddr direccion;
+         int longitud;
+         return accept(sock, &direccion, &longitud);
+       }
+
+Cuando un cliente se conecta  al servidor,  enviará unos comandos solicitando
+un servicio concreto; esos  comandos  se  envían en forma de líneas de texto; 
+esta función se encarga de leer  una línea de texto del socket, permitiéndole
+recibir un comando.
+
+       leelinea(int sock, char *buffer, int maximo){
+         int numcars = recv(sock, buffer, maximo, 0);
+
+         /* Eliminamos cualquier caracter \r que haya quedado en el buffer */
+         while(numcars--) if(buffer[numcars] == '\r') buffer[numcars] = 0;
+       }
+
+Al contrario que las funciones  anteriores, esta no es genérica, el lector no
+podrá utilizarla en sus  propios  programas,  al  menos  no sin cambiarla. La
+función "procesa_comando" es la que,  de hecho, implementa el protocolo DUFF.
+
+Dicho protocolo es sumamente  simple:  el  comando consiste simplemente en el
+nombre del archivo deseado, que  DUFF  enviará; sin embargo, si el nombre del
+archivo es una cadena vacía, DUFF  finalizará su ejecución (el programa duff-
+kill
+apaga el servidor enviándole una cadena vacía como comando).
+
+La función "procesa_comando", sin embargo, no se encarga de procesar la órden
+de terminación, sólo se encarga del envío de los archivos.
+
+       procesa_comando(int sock, char *comando){
+         int fichero;
+         unsigned char c;
+
+         if((fichero = open(comando, O_RDONLY)) < 0){      /* Abre el fichero */
+           printf("fichero \"%s\" no encontrado\n", comando);
+           return;
+         }
+
+         printf("Enviando \"%s\"\n", comando);
+
+         while(read(fichero, &c, 1)){/* Lee hasta llegar al final del fichero */
+           write(sock, &c, 1);       /* Envia los bytes al cliente via socket */
+         }
+
+         close(fichero);
+       
+         return;
+       }
+
+La función "socketlisto"  es  otra  función  esencial,  y tan genérica que el 
+lector puede utilizarla en sus propios  programas. Su propósito: comprobar si
+un socket contiene datos a leer.
+
+supón que tienes un  servidor  que  ha  de  ser  capaz de atender a múltiples 
+usuarios al mismo tiempo;  sin  embargo,  cuando  llamas a las funciones como
+"accept" o "recv" (o,  en DUFF,  "aceptar"  o  "leelinea")  esas funciones se
+quedan esperando indefinidamente a que lleguen datos al socket.
+
+Así, si tu programa está  atendiendo  a  varios clientes a la vez, y llamas a
+"aceptar" para comprobar si algún cliente  nuevo se ha conectado, ¡la función
+no retornará hasta  que  algún  cliente  nuevo  se conecte! y el resto de tus
+clientes se quedarán sin ser atendidos hasta entonces.
+
+¿Qué hacer? Pues para eso es la función  "socketlisto": recibe un socket como
+argumento, y retorna 1 si ese socket  contiene datos que leer, y retorna 0 si
+no es así; utilizando esta función,  comprueba que un socket tenga *algo* que
+leer antes de intentar leer del mismo; si  no tiene nada, continúa atendiendo
+a otros clientes.
+
+En el servidor DUFF, la  función  "socketlisto"  se utiliza antes de llamar a
+"aceptar"; si el socket  que escucha  en el puerto contiene datos, eso indica
+que un cliente  se ha  conectado;  si  no  es  asi, entonces no debe llamar a
+"aceptar".
+
+Como puedes ver,  esta  función  es  absolutamente  vital  si deseas crear un 
+servidor multiusuario y/o multitarea; en ese caso, no puedes darte el lujo de
+permitir que el servidor se quede  "colgado" esperando por una conexión o por
+un cliente, dejando desatendidos a los demás. SIEMPRE LLAMA A ESTA FUNCION (U
+OTRA SIMILAR ESCRITA POR TI) ANTES DE LEER UN SOCKET.
+
+       int socketlisto(int sock){
+         fd_set rfds;
+         struct timeval tv;
+
+         FD_ZERO(&rfds);       /* Inicializa la lista de sockets a 'espiar' */
+         FD_SET(sock, &rfds);  /* añade el socket a la lista */
+
+         tv.tv_sec = 0;    /* Espera 0 segundos */
+         tv.tv_usec = 0;   /* Y 0 microsegundos */
+         return select(sock+1, &rfds, NULL, NULL, &tv); /* 'espia' el socket */
+       }
+
+Finalmente, aquí tenemos la función principal de DUFF; esencialmente, se pone
+a escuchar en el puerto estándar de DUFF :), que es el 2010, y luego entra en
+un bucle indefinido (todo servidor  ha de  tener uno) donde recibe conexiones
+de los usuarios y las procesa.
+
+Nótese que el servidor DUFF no  es  multitarea; los clientes són atendidos al
+mismo tiempo que se conectan;  en  principio, ni siquiera hace falta utilizar
+la función "socketlisto", ya que el programa no tiene nada que hacer mientras
+espera que un cliente se conecte; pero en el caso de servidores mas complejos
+que DUFF (es decir, todos)  inevitablemente  habrá que hacer multitarea, y el
+uso de una función como "socketlisto" es tan vital entonces que era necesario
+ilustrarla en algún punto.
+
+       main(){
+         char comando[80];
+         int s2, sock = escuchar(2010); /* Aceptaremos conexiones puerto 2010*/
+       
+         if(sock < 0){
+           printf("Error conectando socket: %d\n", sock);
+           exit(1);
+         }
+       
+         /* Bucle "infinito"; el programa atendera clientes indefinidamente */
+         for(;;){
+           /* Comprueba si hay algun cliente intentando conectarse */
+           if(socketlisto(sock)){
+       
+             /* Acepta el cliente y asigna a s2 un socket que conecte a el */
+             if(( s2 = aceptar(sock) ) < 0){
+               printf("Error aceptando conexión en %d\n", s2);
+               close(sock);
+               exit(1);
+            }
+       
+             /* Lee una cadena que contiene la solicitud del cliente */
+             leelinea(s2, comando, 80);
+       
+             /* Si dicha cadena esta vacia, tumbamos el servidor (duffkill) */
+             if(!*comando){ close(s2); close(sock); exit(0); }
+       
+             /* Procesamos la solicitud y desconectamos al cliente con close */
+             procesa_comando(s2, comando);
+       
+             close(s2);
+           }
+         }
+       }
+
+
+	Examinando el cliente DUFF.
+	~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+El cliente es aquel  programa  que  se  conecta  al  servidor, solicitando un
+servicio; netscape, konqueror, mutt, pine, ftp, son ejemplos de clientes.
+
+El cliente DUFF se conecta al servidor, solicita el envío de un archivo, y lo
+recibe. Estas son las  cabeceras  que  requiere (no todas son necesarias para
+conectarse por red, algunas son utilizadas para otras funciones del cliente).
+
+       #include <stdio.h>
+       #include <string.h>
+       #include <unistd.h>
+       #include <netdb.h>
+       #include <sys/types.h>
+       #include <sys/socket.h>
+       #include <netinet/in.h>
+       #include <sys/stat.h>
+       #include <fcntl.h>
+
+A continuación, la función  "conectar".  IMPORTANTE:  esta  es la función más
+importante del cliente; le permite  conectarse a cualquier máquina de la Inet
+a un puerto específico (es decir,  si  ningún firewall lo impide); retorna un
+socket que abstrae la conexión con esa  máquina y ese puerto. El lector puede
+tomar esta función y usarla tranquilamente al programar sus propios clientes.
+
+Por ejemplo, para conectarte al servidor web de google haces 'sock = conectar
+("www.google.com", 80)' OJO: el primer argumento es un servidor, no un URL;no
+intentes colocar algo  como  "www.servidor.com/direct/archivo.html"  pues  no
+funcionará; "conectar" solo recibe la parte de "www.servidor.com".
+
+       int conectar(hostname, puerto)
+         char *hostname;
+         int puerto;
+       {
+         struct sockaddr_in sin;
+         struct hostent *host;
+         int sock;
+
+         /* Halla la direccion IP (ej: 124.23.115.12) a partir del hostname
+            (ej: www.google.com) */
+         if( !(host = gethostbyname(hostname)) ) return -1;
+
+         memcpy(&sin.sin_addr.s_addr, host->h_addr, host->h_length);
+         sin.sin_family = AF_INET;
+         sin.sin_port = htons(puerto);
+
+         /* Crea el socket */
+         if((sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0) return -2;
+
+         /* Conecta el socket al servidor y puerto indicado */
+         if(connect(sock, (struct sockaddr *) &sin, sizeof(sin)) < 0){
+            close(sock);
+            return -3;
+         }
+
+         return sock;
+       }
+
+La función "duffcliente" es donde se implementa la auténtica funcionalidad dl
+cliente DUFF; se conecta al host indicado,  solicita un archivo en el host, y
+lo salva en un archivo local; nótese como para transferir el archivo, utiliza
+las funciones "read" y "write";  así  es:  los  sockets  se manipulan con las 
+mismas funciones que utilizas para procesar archivos normales y corrientes en
+C. Nótese también que el socket se cierra con "close".
+
+       duffcliente(char *host, char *fremoto, char *flocal){
+         unsigned char c;
+         int fichero, sock = conectar(host, 2010); /* Conecta al servidor */
+
+         if(sock < 0){
+           printf("No se pudo conectar al servidor %d\n", host);
+           exit(1);
+         }
+
+         /* Envia a DUFF el nombre del fichero que queremos, seguido de \r\n */
+         write(sock, fremoto, strlen(fremoto));
+         write(sock, "\r\n", 2);
+
+         /* Crea un fichero local para salvar el que nos envia el servidor */
+         if((fichero = open(flocal, O_CREAT | O_RDWR, S_IREAD | S_IWRITE)) < 0){
+           printf("No se pudo crear el fichero\n");
+           close(sock);
+           exit(1);
+         }
+
+         /* Lee los bytes del socket, y los salva al archivo local */
+         while(read(sock, &c, 1)){
+           write(fichero, &c, 1);
+         }
+
+         /* Cerramos el fichero y la conexion de red, y nos vamos a casa :) */
+         close(fichero);
+         close(sock);
+       }
+
+
+Y, finalmente, la función principal, que se limita a procesar los argumentos
+que pasa el usuario e invocar a duffcliente.
+
+       main(int argc, char **argv){
+         /* Veamos si el usuario puso los argumentos necesarios */
+         if(argc != 4){
+           printf("Uso: duffcliente <host> <archivo remoto> <archivo local>\n");
+           exit(0);
+         }
+         duffcliente(argv[1], argv[2], argv[3]);
+       }
+
+	Examinando el control remoto de DUFF.
+	~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Este programa es, de hecho, otro cliente DUFF; a diferencia del anterior este
+se limita a ordenar al servidor que se desconecte.
+
+Siendo otro cliente, este  programa  también  utiliza  los mismos archivos de
+cabecera que  duffcliente;  también utiliza  la  función  "conectar"; como es
+exactamente la misma función que  la  de duffcliente, no la examinaremos aquí.
+
+La función base de duffkill se llama, por supuesto, "duffkill"; se conecta al
+servidor, y envía una cadena  de caracteres  vacía como comando; eso hará que
+el servidor se apague.
+
+       duffkill(char *host){
+         int sock = conectar(host, 2010); /* Conecta al servidor DUFF */
+
+         if(sock < 0){
+           printf("No se pudo conectar al host\n");
+           return;
+         }
+
+         /* Envia la señal de apagado: una linea de texto vacia */
+         write(sock, "\r\n", 2);
+
+         /* Cierra la conexion */
+         close(sock);
+       }
+
+Finalmente, la función principal, la cual simplemente procesa los argumentos
+del usuario e invoca a duffkill.
+
+       main(int argc, char **argv){
+         /* Veamos si el usuario puso los argumentos necesarios */
+         if(argc != 2){
+           printf("Uso: duffkill <host>\n");
+           exit(1);
+         }
+
+         duffkill(argv[1]);
+       }
+
+
+	Conclusión.
+	~~~~~~~~~~~
+
+Utilizando a DUFF como modelo,  ahora  debes  ser capaz de escribir programas 
+que puedan funcionar en redes,  utilizando  la arquitectura cliente-servidor.
+Por supuesto, debes  tener  en  mente  que  este  programa  es extremadamente
+elemental. No incluye cosas como seguridad o una verdadera multitarea (aunque
+se muestran los  rudimentos  de  cómo  implantarla).  Pero todos esos asuntos 
+escapan al objetivo de este  documento,  que era la enseñanza de los sockets.
+Lo importante es que, con las  técnicas básicas vistas aquí, se pueden imple-
+mentar (de hecho, están implementados)  hasta los servidores más sofisticados
+en los que se basa la Internet hoy en día.

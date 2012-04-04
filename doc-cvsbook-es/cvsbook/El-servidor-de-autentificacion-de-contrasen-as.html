@@ -1,0 +1,215 @@
+<html><head><title>El servidor de autentificacion de contrasen~as</title><link rel=next href="Acceso-anonimo.html">
+<link rel=previous href="Iniciando-un-repositorio.html">
+<link rel=up href="Administracion-del-Repositorio.html">
+</head>
+<body>
+<p>
+Node:<a name="El-servidor-de-autentificacion-de-contrasen-as.html">El servidor de autentificacion de contrasen~as</a>,
+Next:<a rel=next href="Acceso-anonimo.html">Acceso anonimo</a>,
+Previous:<a rel=previous href="Iniciando-un-repositorio.html">Iniciando un repositorio</a>,
+Up:<a rel=up href="Administracion-del-Repositorio.html">Administracion del Repositorio</a>
+<hr><br>
+
+<h2>El servidor de autentificacion de contrasen~as</h2>
+
+<p>Antes de seguir los pasos necesarios para configurar el servidor de
+contraseñas vamos a examinar cómo funcionan este tipo de conexiones en teoría. 
+Cuando un cliente remoto CVS usa el método <code>:pserver:</code> para conectarse
+a un repositorio, el cliente está contactando en realidad con un número de
+puerto específico en la máquina servidora - en concreto el número de puerto
+2401 (que es 49 al cuadrado, si le interesan este tipo de cosas).  El puerto
+2401 es el puerto designado por defecto para el servidor pserver de CVS, aunque
+se podría configurar para usar un puerto diferente siempre que el cliente
+y el servidor estén de acuerdo en ello.
+
+<p>El servidor CVS en realidad no está esperando conexiones a ese puerto
+- el servidor no empezará hasta que realmente llegue una conexión. En vez de
+ello, el programa Unix "inetd" (InterNET Daemon) está escuchando en ese puerto,
+y necesita saber que cuando reciba una petición de conexión ahi, debería
+iniciar el servidor CVS y conectarlo al cliente entrante.
+
+<p>Esto se consigue modificando los ficheros de configuración de inetd:
+<code>/etc/services</code> y <code>/etc/inetd.conf</code>.  El fichero de servicios
+asigna números de puerto a nombres de servicios e inetd.conf le dice a
+inetd qué hacer para un nombre de servicio dado.
+
+<p>Primero ponga una línea como ésta en /etc/services (después de asegurarse
+de que la línea no existe ya):
+
+<pre>cvspserver	2401/tcp
+</pre>
+
+<p>Luego, escriba esto en /etc/inetd.conf:
+
+<pre>cvspserver stream tcp nowait root /usr/local/bin/cvs cvs \
+   --allow-root=/usr/local/nuevorepos pserver
+</pre>
+
+<p>(En el fichero real, esto deberá ser una única línea larga, sin barra
+inversa \).  Si su sistema usa una envoltura de TCP ("tcp wrapper", N. del T.),
+puede que quiera usar algo como esto en vez de lo anterior:
+
+<pre>cvspserver stream tcp nowait root /usr/sbin/tcpd /usr/local/bin/cvs \
+   --allow-root=/usr/local/nuevorepos pserver
+</pre>
+
+<p>Ahora reinicie inetd para que tenga en cuenta los cambios en sus ficheros
+de configuración (si no sabe cómo reiniciar el demonio, simplemente reinicie
+la máquina - esto también funcionará).
+
+<p>Esto es suficiente para permitir conexiones, pero también querrá configurar
+contraseñas especiales de CVS - separadas de las contraseñas de login de
+los usuarios - de modo que la gente pueda acceder al repositorio sin
+poner en peligro la seguridad general del sistema.
+
+<p>El fichero de contraseñas de CVS es CVSROOT/passwd en el repositorio. 
+No se creó por defecto cuando ejecutó cvs init, porque CVS no sabe seguro
+si usará pserver.  Incluso si el fichero de contraseñas se ha creado, CVS
+no tendrá forma de saber los nombres de usuario y contraseñas a crear. 
+Así que usted tendrá que crear uno por sí mismo; aquí hay una muestra de
+fichero CVSROOT/passwd:
+
+<pre>kfogel:rKa5jzULzmhOo
+anonymous:XR4EZcEs0szik
+melissa:tGX1fS8sun6rY:pubcvs
+</pre>
+
+<p>El formato es tan simple como parece.  Cada línea es:
+
+<pre>&lt;NOMBREUSUARIO&gt;:&lt;CONTRASEÑA_CIFRADA&gt;:&lt;NOMBREUSUARIO_SISTEMA_OPCIONAL&gt;
+</pre>
+
+<p>Los dos puntos adicionales seguidos de un nombre de usuario de sistema
+opcional le dicen a CVS que las conexiones autentificadas con NOMBREUSUARIO
+deberían ejecutarse como la cuenta de sistema NOMBREUSUARIO_SISTEMA  - en
+otras palabras, que la sesión CVS sólo sería capaz de hacer en el repositorio
+las cosas que alguien conectado como NOMBREUSUARIO_SISTEMA podría hacer.
+
+<p>Si no se da un nombre de usuario de sistema, NOMBREUSUARIO deberá coincidir
+con un nombre de cuenta real del sistema, y la sesión se ejecutará con los
+permisos de ese usuario.  En cualquier caso, la contraseña cifrada no debería
+ser la misma que la contraseña real de acceso del usuario.  Debería ser
+una contraseña independiente usada sólo para conexiones a CVS pserver.
+
+<p>La contraseña se cifra usando el mismo algoritmo que las contraseñas
+estándar de Unix, almacenadas en /etc/passwd.  Puede que se pregunte en
+este punto, ¿cómo se consigue una versión cifrada de una contraseña? 
+Para las contraseñas de sistema Unix, la orden passwd se encarga del
+cifrado en /etc/passwd por usted.  Por desgracia no hay una orden
+equivalente a passwd en cvs (se ha propuesto varias veces, pero nadie
+se ha puesto a escribirlo - ¿lo hará usted. quizá?).
+
+<p>Esto es un inconveniente, pero sólo pequeño.  Si no hay otra opción,
+siempre podrá cambiar temporalmente la contraseña de sistema de un
+usuario usando passwd, copiar y pegar el texto cifrado de /etc/passwd
+en CVSROOT/passwd, y restaurar la antigua contraseña (en ciertos sistemas
+las contraseñas cifradas se encuentran en /etc/shadow y sólo el
+administrador o root puede leerlas.)
+
+<p>Este proceso es factible pero bastante incómodo.  Sería mucho más fácil
+tener una utilidad de línea de órdenes que tomara una contraseña en texto
+plano como su argumento y diera como salida la versión cifrada.  Aquí está
+esa herramienta, escrita en Perl:
+
+<pre>#!/usr/bin/perl
+
+srand (time());
+my $randletter = "(int (rand (26)) + (int (rand (1) + .5) % 2 ? 65 : 97))";
+my $salt = sprintf ("%c%c", eval $randletter, eval $randletter);
+my $plaintext = shift;
+my $crypttext = crypt ($plaintext, $salt);
+
+print "${crypttext}\n";
+</pre>
+
+<p>Yo guardo el guión anterior en <code>/usr/local/bin/cryptout.pl</code>:
+
+<pre>floss$ ls -l /usr/local/bin/cryptout.pl
+
+-rwxr-xr-x   1   root   root   265  Jun 14 20:41 /usr/local/bin/cryptout.pl
+floss$ cryptout.pl "some text"
+sB3A79YDX5L4s
+
+floss$
+</pre>
+
+<p>Si usara la salida de este ejemplo para crear la siguiente entrada en
+CVSROOT/passwd
+
+<pre>jluis:sB3A79YDX5L4s:craig
+</pre>
+
+<p>entonces la gente podría conectarse al repositorio con la siguiente orden:
+
+<pre>remote$ cvs -d :pserver:jluis@floss.red-bean.com:/usr/local/nuevorepos login
+</pre>
+
+<p>Escribirían entonces <code>some text</code> como contraseña y a partir de
+entonces podrían ejecutar órdenes CVS con los mismos privilegios de acceso
+que el usuario de sistema <code>craig</code>.
+
+<p>Si alguien intenta autentificarse con un nombre de usuario y contraseña que
+no aparecen en CVSROOT/passwd, CVS comprobará si ese nombre de usuario y
+contraseña están presentes en /etc/passwd.  Si lo están (y si la contraseña
+coincide, por supuesto), CVS proporcionará el acceso.  Se comporta de esta
+forma para comodidad del administrador, para no tener que añadir entradas
+a CVSROOT/passwd por separado para los usuarios comunes del sistema. 
+Sin embargo, este comportamiento también es un agujero de seguridad, porque
+significa que si uno de esos usuarios se conecta al servidor CVS, su
+contraseña de acceso al sistema circulará por la red en texto claro,
+potencialmente vulnerable a los ojos de husmeadores de contraseñas. 
+Un poco más adelante, aprenderá cómo desactivar este comportamiento
+"problemático", para que CVS consulte sólo su propio fichero passwd. 
+Tanto si lo deja activado o desactivado, probablemente debería
+obligar a los usuarios de CVS que también tengan cuentas en el sistema a
+mantener contraseñas distintas para las dos funciones.
+
+<p>Aunque el fichero passwd autentifica para todo el repositorio, con un poco
+de trabajo adicional podrá usarlo incluso para proporcionar acceso
+específico de proyecto.  Aquí hay un método:
+
+<p>Suponga que quiere proporcionar acceso a algunos desarrolladores
+remotos al proyecto <code>foo</code>, y a otros acceso al proyecto <code>bar</code>,
+y no quiere que los desarrolladores de un proyecto tengan acceso al envío
+de cambios al otro.  Puede conseguir esto creando cuentas de usuario y
+grupos específicos de proyecto en el sistema y luego referirse a esas
+cuentas en el fichero CVSROOT/passwd.
+
+<p>Aquí está el extracto relevante de /etc/passwd en cuestión
+
+<pre>cvs-foo:*:600:600:Cuenta Pública CVS para el Proyecto Foo:/usr/local/cvs:/bin/false
+cvs-bar:*:601:601:Cuenta Pública CVS para el Proyecto Bar:/usr/local/cvs:/bin/false
+</pre>
+
+<p>y de /etc/group
+
+<pre>cvs-foo:*:600:cvs-foo
+cvs-bar:*:601:cvs-bar
+</pre>
+
+<p>y, finalmente, CVSROOT/passwd:
+
+<pre>kcunderh:rKa5jzULzmhOo:cvs-foo
+jmankoff:tGX1fS8sun6rY:cvs-foo
+brebard:cAXVPNZN6uFH2:cvs-foo
+xwang:qp5lsf7nzRzfs:cvs-foo
+dstone:JDNNF6HeX/yLw:cvs-bar
+twp:glUHEM8KhcbO6:cvs-bar
+ffranklin:cG6/6yXbS9BHI:cvs-bar
+yyang:YoEqcCeCUq1vQ:cvs-bar
+</pre>
+
+<p>Algunos de los nombres de usuario de CVS se refieren a las cuentas de
+usuario de sistema <code>cvs-foo</code> y otras a <code>cvs-bar</code>.  Dado que
+CVS se ejecuta bajo la ID de usuario de la cuenta de sistema, simplemente
+tendrá que asegurarse de que en las partes de interés del repositorio
+sólo pueden escribir los usuarios y grupos adecuados.  Si se asegura de
+que las cuentas de usuario de sistema estén bien atadas (sin contraseña de
+acceso al sistema válida, con <code>/bin/false</code> como shell), el sistema será
+razonablemente seguro (¡pero mire más adelante en este capítulo acerca de los
+permisos CVSROOT!).  Además, CVS registra los cambios e informes de cambios
+bajo el nombre de usuario de CVS, no bajo el nombre de usuario de sistema,
+así que usted podrá saber quién es responsable de un cambio dado.
+
+</body></html>
+

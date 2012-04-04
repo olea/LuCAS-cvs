@@ -1,0 +1,1073 @@
+<?xml version="1.0" encoding="iso-8859-15"?>
+<!DOCTYPE article PUBLIC "-//OASIS//DTD DocBook XML V4.2//EN" "http://www.oasis-open.org/docbook/xml/4.2/docbookx.dtd">
+
+
+<!--
+%****Miembro de un dominio****
+\porcion{Winbind}
+\autor{\CPP}
+\colaborador{\LDP}
+\revisor{}
+\traductor{}
+-->
+
+
+  <section>
+    <title>Capítulo 21. Winbind: Uso de cuentas de Dominio</title>
+    <para>     
+    </para>
+    <section remap="h2">
+      <title><anchor id="dbdoclet.id.winbind"/>Capítulo 21. Winbind: Uso de cuentas de Dominio</title>
+      <para>TimPotter Samba Team <emphasis>tpot@linuxcare.com</emphasis>
+      </para>
+        <para>AndrewTridgell Samba Team <literal>tridge@samba.org</literal>
+      </para>
+        <para>NaagMummaneni Notas para Solaris <literal>&lt;getnag@rediffmail.com&gt;</literal>
+      </para>
+      <para>JohnTrostel<literal>&lt;jtrostel@snapserver.com&gt;</literal>
+      </para>
+      <para>JelmerR.Vernooij The Samba Team <literal>&lt;jelmer@samba.org&gt;</literal>
+      </para>
+      <para>JohnH.Terpstra Samba Team <literal>&lt;jht@samba.org&gt;</literal>
+        </para>
+        <para>
+ 27 Junio 2002
+        </para>
+        <para>
+        </para>
+    </section>
+    <section remap="h2">
+      <title><anchor id="dbdoclet.id.id2894208"/>Características y ventajas</title>
+      <para>
+ 
+ La integración de  UNIX y Microsoft Windows NT a través de un inicio de sesión ha sido considerado durante mucho tiempo una quimera en entorno heterogéneos de computación.
+      </para>
+      <para>
+Hay alguna otra utilidad sin la cual la interoperatividad entre redes UNIX Microsoft Windows sufriría mucho. Es necesario que haya un mecanismo para compartir ficheros entre sistema UNIX y que pueda asignar como propietarios a usuarios y grupos del dominio con integridad.
+      </para>
+      <para>
+<emphasis>winbind</emphasis> es un componente de la suite de programas Samba que resuelve los problemas de inicio de sesión unificados. Winbind usa una implementación UNIX de las llamdas RPC de Microsoft, PAM (Pluggable Authentication Modules), y el servico de nombres (NSS, Name Service Switch) para permitir a los usuarios de dominios NT aparecer y operar como usuarios UNIX en una máquina UNIX. Este capítulo describe el sistema Winbind, explicando las funcionalidades que proporciona, cómo se configura y como funciona internamente.
+      </para>
+      <para>
+
+ Winbind proporciona tres funciones separadas:
+      </para>
+      <para>
+        <itemizedlist>
+          <listitem>
+            <para>
+ 
+ Autenticación para credenciales de usuario (vía PAM). 
+            </para>
+
+          </listitem>
+          <listitem>
+            <para>
+ 
+ Resolución de identidad (vía NSS). 
+            </para>
+
+          </listitem>
+          <listitem>
+            <para>
+ 
+ Winbind mantiene una base de datos llamada winbind_idmap.tdb en lacual guarda las asociaciones entre UNIX UIDs / GIDs y NT SIDs. Esta asociación se usa sólo para usuario y grupos que no tienen unos UID/GID locales.Guarda los UID/GID del rango uid/gid de idmap que ha asociado al SID NT. Si se ha especificado el <emphasis><literal> backend idmap</literal></emphasis> como ldapsam:url, entonces en lugar de usar de usar la asociación local Winbind la obtendrá de la base de datos LDAP.
+            </para>
+
+          </listitem>
+</itemizedlist>
+
+      </para>
+      <section remap="h3">
+        <title>Observacion</title>
+        <para>
+
+ Si <emphasis role="bold">winbindd</emphasis> no esá en ejecución, smbd (que llama a <emphasis role="bold">winbindd</emphasis>) tendrá que usar sólo la información local de <literal>/etc/passwd</literal> y de  <literal>/etc/group</literal> no podrárealizar asociaciones dinámicas.
+        </para>
+
+      </section>
+
+    </section>
+    <section remap="h2">
+      <title><anchor id="dbdoclet.id.id2894350"/>Introducción</title>
+      <para>
+ Es bien conocido que UNIX Microsoft Windows NT tienen distintss modelos para representar las informaciones de usuario y grupo y utilizan diferentes tecnologías para desarrollarlos. Este hecho dificulta integrar los dos sistemas de forma satisfactoria.
+      </para>
+      <para>
+Hasta ahora una solución frecuente era crear usuarios con los mismos nombres en ambos sistemas, UNIX y Windows y usar Samba para suministrar servicios de ficheros e impresión entre ambos. Esta solución dista mucho de ser perfecta, ya que añadir y borrar usuarios en ambos conjuntos  de sistemas se convierte en una tarea pesada y se necesitan dos conjuntos de contraseñas lo que conlleva problemas de sincronización entre UNIX y Windows y puede producir confusión entre los usuarios.
+      </para>
+      <para>
+Dividimos el problema de la sesión unificada para máquinas UNIX en tres problemas más pequeños:
+      </para>
+      <para>
+        <itemizedlist>
+          <listitem>
+            <para>
+ Obtención de la información de usuarios y grupos Windows NT.
+            </para>
+
+          </listitem>
+          <listitem>
+            <para>
+ Autenticar usuarios Windows NT.
+            </para>
+
+          </listitem>
+          <listitem>
+            <para>
+ Cambio de contraseña para usuarios Windows NT.
+            </para>
+
+          </listitem>
+</itemizedlist>
+ De forma ideal, una solución para el problema de la sesión unificada debería satisfacer los tres anteriores componentes sin duplicar la información en la máquina Unix y sin crear tareas adicionales de mantenimiento de usuarios y grupos para el administrador. El sistema winbind proporciona una solución simple y elegante para los tres componentes del problema de la sesión única.
+       </para>
+      <para>
+      </para>
+
+    </section>
+    <section remap="h2">
+      <title><anchor id="dbdoclet.id.id2894415"/>Qué proorciona Winbind</title>
+      <para>
+ Winbind unifica la gestión de cuentas UNIX y Windows NT permitiendo a una máquina Unix volverse un miembro completo de un dominio NT. Una vez hecho, la máquina Unix verá a los usuarios y grupos NT como si fueran usuarios y grupos <emphasis>nativos</emphasis> permitiedo usar el dominio NT usarse de la misma forma que se usa NIS+ en entorno exclusivos UNIX.
+      </para>
+      <para>
+El resultado final es que cuando cualquier programa en la máquina Unix solicita al sistema operativo que busque un nombrer usuario o un grupo, la consulta se resuelve preguntando al controlador de dominio NT del dominio corresondiente. Como winbind enlaza con el sistema operativo a bajo nivel (via módulo de resolución NSS de la biblioteca C), la redirección al controlador de dominio NT es completamente transparente.
+      </para>
+      <para>
+Los usuarios de la máquina Unix pueden utilizar los nombres de usuarios y grupos NT como si fueran nombres <emphasis>nativos</emphasis>. Se pueden cambiar propietarios de ficheros para que sean propiedad de usuarios de usuarios del dominio NT o incluso iniciar una sesión en la máquina Unix y lanzar una sesión X-Window como miembro del dominio.
+      </para>
+      <para>
+La única indicación obvia de que se está usando Winbind que los nombres de usuarios y grupos tienen la forma <literal>DOMAIN\user</literal> and <literal>DOMAIN\group</literal>. Esto es necesario para permitir a Winbind determinar a qué controlador de dominio hay que redireccionar para la búsqueda particular y qué dominios de confianza se están refereciando.
+      </para>
+      <para>
+Adicionalmente, Winbind proporciona un servicio de autenticación que engancha con el sitema PAM (Pluggable Authentication Modules) (PAM) para proporcionar autenticación via dominio NT a cualquier aplicación con soportee PAM. Esta capacidad resulve el problema de sincronizar las contraseñas entre sistema ya que todas las contraseñas se almacenan en una sola ubicación, en el controlador de sominio.
+      </para>
+      <para>
+      </para>
+      <section remap="h3">
+        <title><anchor id="dbdoclet.id.id2892545"/>Target Uses</title>
+        <para>
+Winbind está pensada para organizaciones que tienen una infraestructura existente basada en dominio NT en la cual desean poner estaciones trabajo o servidores de UNIX. Winbind permitirá que estas organizaciones desplieguen los estaciones de trabajo de UNIX sin tener que mantener una infraestructura de cuentas separada. Esto simplifica enormemente los gastos indirectos administrativos de introducir estaciones de trabajo de UNIX en una organización basada en NT.
+
+        </para>
+        <para>
+Otra manera interesante en la cual esperamos utilizar Winbind es como parte central de aplicaciones basadas en UNIX. Las aplicaciones que proporcionan servicios de ficheros y de impresión a las redes basadasMicrosoft podrán utilizar Winbind para proporcionar la integración de la aplicación en el dominio.
+
+        </para>
+        <para>
+        </para>
+
+      </section>
+
+    </section>
+    <section remap="h2">
+      <title><anchor id="dbdoclet.id.id2893158"/>How Winbind Works</title>
+      <para>
+ El sistema Winbind está diseñado sobre una arquitectura cliente/servidor. Un demonio <emphasis role="bold">Winbindd</emphasis> escucha en un socket Unix esperando las solicitudes. Estas peticiones son normalmente de los clientes NSS y PAM  y se procesan secuencialmente.
+
+      </para>
+      <para>
+La tecnología que se usa para implementar Winbind se describe en detalle más abajo.
+      </para>
+      <para>
+      </para>
+      <section remap="h3">
+        <title><anchor id="dbdoclet.id.id2893975"/>Microsoft RPC (Remote Procedure Calls)</title>
+        <para>
+ Durante los últimos años ha habido un importante esfuerzo dealgunos miembros del Samba Team para decodificar ciertos aspectos del sistema Microsoft Remote Procedure Call (MSRPC). Este sistema se usa en la mayoría de las operaciones  de redes, incluyendo el mantenimiento remoto, validación de usuarios y colas de impresión. Aunque inicialmente se este trabajo se realizaba para ayudar en el desarrollo de la funcionalidad de PDB (controlador primario de dominio), con posterioridad ha constituido el cuerpo de código paraotros propósitos.
+ 
+        </para>
+        <para>
+Winbind usa varias llamadas para enumerar los usuarios y grupos del dominio y obtener información detallada sobre usuarios individuales y grupos. Se pueden usar otras MSRPC para validar usuarios de dominios NT y para modificar contraseñas. Entonces, consultando información sobre usuarios y grupos directamente a un PDC, Winbind asocia información de cuentas NT en usuarios grupos UNIX.
+        </para>
+        <para>
+        </para>
+
+      </section>
+      <section remap="h3">
+        <title><anchor id="dbdoclet.id.id2892818"/>Servicios Microsoft Active Directory</title>
+        <para>
+ 
+ Desde finales de 2001, Samba tiene la habilidad de interactuar con W2000 usando los protocolos del <emphasis>Modo Nativo</emphasis> en lugar de los servicios RPC de NT4. Usando LDAP y Kerberos, un miembro del dominio que esté ejecutando Winbind puede obtener usuarios y grupos de la misma forma que lo haría un cliente W200x y de esta forma proporciona una implementación más eficiente y efectiva de Winbind.
+        </para>
+        <para>
+        </para>
+
+      </section>
+      <section remap="h3">
+        <title><anchor id="dbdoclet.id.id2953478"/>Name Service Switch</title>
+        <para>
+ El servicio Name Service Switch, o NSS, es una característica presente en la mayoría de los sistemas operativos Unix. Permite al sistema obtener información del tipo nombre de host, alias de correo e información de usuario para resolverla a partir distintas fuentes. Por ejemplo, una estación Unix aislada puede resolver esta información del sistema a partir de una serie de ficheros locales. Una estación de red puede intentar primero averiguar la información del sistema a partir de ficheros locales y después consultar una base de datos NIS para obtener la información sobre el usuario o a un servidor DNS para la información sobre los nombres de host.
+ 
+        </para>
+        <para>
+La interfaz de programación de la aplicación NSS permite a winbind presentarse a si mimo como fuente de información del sistema cuando se trata de averiguar información sobre usuarios y grupos. Winbind utiliza esta interfaz y la información obtenida de servidores NT utilizando llamdas MSRPC para proporcionar una nueva fuente de enumeración de cuentas. Se pueden enumerar los usuarios y grupos de un dominio NT, además de sus dominios de confianza, mediante las llamadas a la biblioteca estándar Unix como si fueran usuarios y grupos locales.
+
+        </para>
+        <para>
+El fichero principal de control de NSS es <literal>/etc/nsswitch.conf</literal>. Cuando una aplicación realiza una solicitur de búsqueda, la biblioteca C busca una línea en <literal>/etc/nsswitch.conf</literal> que se corresponda con el servicio solicitado, por ejemplo, se usa el servicio <emphasis>passwd</emphasis> cuando se buscan nombres de grupos o usuarios. Esta líneade configuración especifica qué implementaciones del servicio se deben llamar y en qué orden. Si la línea passwd es:
+        </para>
+        <screen>
+		passwd: files example
+		
+        </screen>
+        <para>
+entonces la biblioteca C primero cargará un módulo llamado <literal>/lib/libnss_files.so</literal> seguido por el módulo <literal>/lib/libnss_example.so</literal>. La biblioteca C cargará cada uno de esos módulos dinámicamente por orden y realiza la llamada a la función con la que el módulo trata de resolver la petición. Una vez que se ha resuelto la petición, la biblioteca C devuelve el resultado a la aplicación.
+        
+	</para>
+        <para>
+Esta interfaz del NSS proporciona a Winbind una manera fácil de enlazar con el sistema operativo. Todo lo que tiene que hacer es pponer <literal>libnss_winbind.so</literal> en <filename>/lib/</filename> y agregar winbind en <filename>/etc/nsswitch.conf</filename> en el lugar apropiado. Entonces, la biblioteca C llamará Winbind para resolver nombres de usuario y de grupo.
+        
+	</para>
+        <para>
+        </para>
+
+      </section>
+      <section remap="h3">
+        <title><anchor id="dbdoclet.id.id2953594"/>PAM (Pluggable Authentication Modules)</title>
+        <para>
+ Pluggable Authentication Modules, también conocidos como PAM, es un sistema para las abstracción de las tecnologías de autentificación y autorización. Con un módulo del PAM es posible especificar diversos métodos de autentificación para diversas aplicaciones del sistema sin necesidad de tener que recompilarlas. PAM es también útil para poner una política particular de autorización. Por ejemplo, un administrador de sistemas puede permitir solamente conexiones en la consola de los usuarios almacenados en el archivo local de contraseñas y permitir solamente a usuarios obtenidos de una base de datos NIS+ para iniciar una sesión sobre la red.
+ 
+
+        </para>
+        <para>
+Winbind utiliza la interfaz PAM de gestión de validación y de contraseñas para integrar a usuarios de Windows NT en un sistema de UNIX. Esto permite que los usuarios de Windows NT abran una sesión a una máquina de UNIX y sean autenticados contra un contolador primario del dominio adecuado. Estos usuarios pueden también cambiar sus contraseñas y que estos cambios tengan efecto directamente en el controlador primario del dominio.
+        
+	</para>
+        <para>
+El PAM se configura mediante ficheros de control en el directorio <filename>/etc/pam.d/</filename> para cada uno de los servicios que requieren la autenticación. Cuando se hace una petición de validación por una aplicación, el código del PAM de la biblioteca de C busca este archivo de control para determinarse qué módulos tiene que cargar para verificar la validación y en qué orden. Esta interfaz se hace de forma muy fácil agregando un nuevo servicio de la autenticación para Winbind. Todo lo que tiene que hacer es copiar el módulo de <filename>pam_winbind.so</filename> en <filename>/lib/security/</filename> y los archivos de control de PAM para los servicios relevantes se actualiza para permitir la autentificación vía Winbind. Vea la documentación de la autentificación PAM en la <ulink url="pam.html">alidación distribuida basasda en PAM</ulink>.
+
+        </para>
+        <para>
+        </para>
+
+      </section>
+      <section remap="h3">
+        <title><anchor id="dbdoclet.id.id2953682"/>Ubicación de los ID de usuario y grupo</title>
+        <para>
+ Cuando se crea un grupo bajo  Windows NT/200x, se guarda un identicador numérico relativo (RID). Es ligeramente diferente de Unix, que tiene un rango de números que se utilizan para identifcar usuarios y el mismo rango para identificar grupos. Winbind se encarga de convertir los RID en ID Unix y viceversa. Cuando se configura Winbind se proporciona parte del conjunto de números de ID y GID Unix en los cuales almacenar los usuarios y grupos NT. Si se encuentra un usuario NT por primera vez, se le asigna el siguiente ID del rango. Este mismo criterio se utiliza para los grupos. A lo largo del tiempo, Winbind habrá asociado todos los usuarios y grupos NT con UID y GID Unix.
+ 
+
+        </para>
+        <para>
+Los resultados de estas asociaciones se almacenan permanentemente en una base de datos TDB. Gracias a esto podemos garantizar que las asociaciones entre RID y GID son consistentes.
+        </para>
+        <para>
+        </para>
+
+      </section>
+      <section remap="h3">
+        <title><anchor id="dbdoclet.id.id2953717"/>Cacheo de resultados</title>
+        <para>
+ <anchor id="dbdoclet.id.id2953729"/>
+ Un sistema activo puede generar un gran número de búsquedas de usuarios y grupos. Para reducir el coste de la red, Winbind usa un esquema de cacheo basado en el número de secuencia SAM proporcionado por los controladores de dominio NT. Winbind almacena en cache la información de usuario y grupo devuelta por el PDC con un número de secuencia también proporcionado por el PDC NT. Este número de secuencia lo incrementa el NT cuando cambian los datos de cualquier usuario o grupo. Si una entrada del cache ha expirado se solicita el número de secuencia del PDC y se compara con el número de secuencia guadado en el cache. Si los número no son iguales se descarta la información del cache y directamente se solicita una información actualizada del PDC.
+
+        </para>
+        <para>
+        </para>
+
+      </section>
+
+    </section>
+    <section remap="h2">
+      <title><anchor id="dbdoclet.id.id2953753"/>Instalación y Configuración</title>
+      <para>
+      </para>
+      <section remap="h3">
+        <title><anchor id="dbdoclet.id.id2953761"/>Introduction</title>
+        <para>
+ 
+Esta sección describe los procedimientos para tener Winbind funcionando correctamente. Winbind es capaz de proporcionar un control de acceso y validación a los usuarios de Dominios NT a través de PDC NT 0 200x PDC para servicios habituales como telnet and ftp, también servicios Samba.
+
+        </para>
+        <para>
+          <itemizedlist>
+            <listitem>
+              <para>
+ <emphasis>Por qué hacerlo</emphasis>
+              </para>
+              <para>
+Esto permite al administrador de Samba hacer recaer los mecanismos de validación en un PDC NT/200x PDC para la validación de los miembros del dominio. Ya no es necesario tener cuentas separadas para el servidor Samba.
+ 
+              </para>
+
+            </listitem>
+            <listitem>
+              <para>
+ <emphasis>Quien debería leer este documento</emphasis>
+              </para>
+              <para>
+
+ Este documento está dirigido a administradores de sistemas. TAmbién deberías leer esto si estás instalando Samba en un servidor de ficheros y quieres integrar los usuarios Nt/200x existentes en el PDC en el servidor Samba.
+ 
+              </para>
+
+            </listitem>
+</itemizedlist>
+
+        </para>
+
+      </section>
+      <section remap="h3">
+        <title><anchor id="dbdoclet.id.id2953826"/>Requisitos</title>
+        <para>
+En primer lugar, si tiene un fichero de configuración de samba que esté actualmente en uso, <emphasis>haga una copia de seguridad</emphasis>. Si su sistema usa PAM <emphasis>haga una copia de seguridad del directorio  <literal>/etc/pam.d</literal> </emphasis>. Si no tiene un disquete de arranque <emphasis>haga uno ahora</emphasis>.
+        </para>
+        <para>
+Cuando se tocan los ficheros de configuración de PAM puede hacer casi imposible entrar en el sistema. Por esto bueno tener un disquete de arranque para poder entrar en la máquina en modo monousuario y recuperar el directotrio original  <literal>/etc/pam.d</literal> de la copia de seguridad.
+        </para>
+        <para>
+La desde la última versión de Samba-3 se incluye un demonio winbind. Por favor vea <ulink url="http://samba.org/">página principal de Samba</ulink> o, mejor aun, la web espejo más cercana para ver como obtener el código fuente.
+        </para>
+        <para>
+Para permitir a los usuarios del dominio la posibildad de acceder a los ficheros y recursos, y también potencialmente a otros servicios porporcionados por la máquina samba hay que configurar PAM adecuadamente en la máquina cliente. Para compilar el módulo Winbind debería, al menos, tener instaladas las bibliotecas de desarrollo de PAM. Vea la web de PAM en <ulink url="http://www.kernel.org/pub/linux/libs/pam/">http://www.kernel.org/pub/linux/libs/pam/</ulink>. 
+        </para>
+        <para>
+        </para>
+
+      </section>
+      <section remap="h3">
+        <title><anchor id="dbdoclet.id.id2953908"/>Comprobando  el estado</title>
+        <para>
+ Antes de comenzar, problablemente los mejor es matar todos los demonios de samba y winbind del sistema, smbd, nmbd y winbindd. Para usar PAM, asegúrese de que tiene el paquete estándar de pan que incluye el directorio <literal>/etc/pam.d</literal> incluyendo los módulos PAM que van a utilizar los servicios que usan este tipo de validación,varias bibliotecas pam y las entradas <literal>/usr/doc</literal> y <literal>/usr/man</literal> de PAM. Winbind se construye mejor en Samba si el paquete pam-devel package también está instalado. Es necesario para compilar aplicaciones con soporte PAM. 
+        </para>
+        <para>
+        </para>
+        <section remap="h4">
+          <title><anchor id="dbdoclet.id.id2953971"/>Configurar <literal>nsswitch.conf</literal> las biblitoecas Winbind en Linux y Solaris</title>
+          <para>
+PAM es un componente estándar de las generaciones más recientes de sistemas Linux. Por desgracia sólo unos pocos sistemas instalan las bibliotecass <literal>pam-devel</literal> que son necesarias para construir samba con soporte PAM. Además, Samba3 puede autoinstalar los ficheros Winbind en su sistema en sus ubicaciones correctas, y en consecuencia, antes de ir más lejos debería comprobar si la siguiente configuración es realmente necesaria. Puede que sólo necesite configurar <literal>/etc/nsswitch.conf</literal>. 
+          </para>
+          <para>
+Las bibliotecas necesarias para ejecutar el domonio winbindd mediante nsswitch tienen que copiarse en sus ubicaciones correspondientes:
+          </para>
+          <para>
+          </para>
+          <screen>
+<literal>root# </literal><emphasis role="bold"><literal>cp ../samba/source/nsswitch/libnss_winbind.so /lib</literal></emphasis>
+          </screen>
+          <para>
+          </para>
+          <para>
+
+También he visto que es necesario hacer los siguientes enlaces simbólicos:
+          </para>
+          <para>
+            <literal>root# </literal><emphasis role="bold"><literal>ln -s /lib/libnss_winbind.so /lib/libnss_winbind.so.2</literal></emphasis>
+          </para>
+          <para>
+Y en el caso de Sun Solaris:
+          </para>
+          <screen>
+<literal>root# </literal><emphasis role="bold"><literal>ln -s /usr/lib/libnss_winbind.so /usr/lib/libnss_winbind.so.1</literal></emphasis>
+<literal>root# </literal><emphasis role="bold"><literal>ln -s /usr/lib/libnss_winbind.so /usr/lib/nss_winbind.so.1</literal></emphasis>
+<literal>root# </literal><emphasis role="bold"><literal>ln -s /usr/lib/libnss_winbind.so /usr/lib/nss_winbind.so.2</literal></emphasis>
+          </screen>
+          <para>
+Ahora, como root, tiene que editar <literal>/etc/nsswitch.conf</literal> para permitir que los usuarios y grupos sean visibles para el demonio winbindd. Mi fichero <literal>/etc/nsswitch.conf</literal>, tras modificarlo es similar a:
+          </para>
+          <screen>
+	passwd:     files winbind
+	shadow:     files 
+	group:      files winbind
+          </screen>
+          <para>
+Las bibliotecas necesarias para el demonio <emphasis role="bold">winbindd</emphasis> daemon entrarán automáticametne en el cache de <emphasis role="bold">ldconfig</emphasis> cache la próxima vez  que se reinicie el sistema, pero es más rápido hacerlo a mano (y no hace falta reiniciar ): 
+          </para>
+          <para>
+            <literal>root# </literal><emphasis role="bold"><literal>/sbin/ldconfig -v | grep winbind</literal></emphasis>
+          </para>
+          <para>
+Esto hace que <literal>libnss_winbind</literal> es disponible para winbindd además de mostrar la salida.
+          </para>
+          <para>
+          </para>
+</section>
+        <section remap="h4">
+          <title><anchor id="dbdoclet.id.id2954214"/>NSS Winbind en AIX</title>
+          <para>
+ (Esta sección es sólo para quienes utilizan AIX.)
+          </para>
+          <para>
+El módulo de identificación Winbind de AIX se construye como <literal>libnss_winbind.so</literal> in el directorio 
+nsswitch de las fuentes de Samba. Este fichero se puede copiar en <literal>/usr/lib/security</literal>, y el convenio de nombres de AIX indicaría que se se debería llamar WINBIND: 
+          </para>
+          <screen>
+WINBIND:
+        program = /usr/lib/security/WINBIND
+        options = authonly
+          </screen>
+          <para>
+
+se puede añadir a <literal>/usr/lib/security/methods.cfg</literal>. Este módulo sólo admite identificación, pero hay informes de éxito en le uso del módulo estándar PAM de Winbind para validación. Utilice con precaución la configuración de los módulos de autenticación ya que puede hacer imposible entrar en el sistema. Hay más información sobre la API de los módulos de validación en <emphasis>Kernel Extensions and Device Support Programming Concepts for AIX</emphasis><ulink url="http://publibn.boulder.ibm.com/doc_link/en_US/a_doc_lib/aixprggd/kernextc/sec_load_mod.htm">
+en el Capítulo 18 Loadable Authentication Module Programming Interface</ulink> y más información sobre la administración de módulos en <ulink url="http://publibn.boulder.ibm.com/doc_link/en_US/a_doc_lib/aixbman/baseadmn/iandaadmin.htm"> <emphasis>System
+Management Guide: Operating System and Devices.</emphasis></ulink>
+          </para>
+          <para>
+          </para>
+</section>
+        <section remap="h4">
+          <title><anchor id="dbdoclet.id.id2954308"/>Configuración de smb.conf</title>
+          <para>
+ Se necesitan varios parámetros en el fichero <literal>smb.conf</literal> para controlar el funcionamiento de winbindd. Se describen con más detalle en la página del manual<ulink url="winbindd.8.html">winbindd(8)</ulink>. Mi fichero <literal>smb.conf</literal>, como se muestra en <ulink url="winbind.html#winbindcfg">el siguiente ejemplo</ulink>, se ha modificado para incluir las entradas necesarias en la sección [global]
+          </para>
+          <para>
+            <anchor id="dbdoclet.id.winbindcfg"/> <emphasis role="bold">Ejemplo 21.1. smb.conf para la configuración de Winbind</emphasis>
+          </para>
+          <informaltable frame="none">
+            <tgroup cols="1">
+              <colspec colname="c1" colwidth="100*"/>
+              <tbody>
+                <row>
+                  <entry><para/></entry>
+
+                </row>
+                <row>
+                  <entry><para><emphasis><literal>[global]</literal></emphasis></para></entry>
+
+                </row>
+                <row>
+                  <entry><para># separa domainio  y usuario con '+', como DOMINIO+username</para></entry>
+
+                </row>
+                <row>
+                  <entry><para><emphasis><literal>
+ 
+ winbind separator = +</literal></emphasis></para></entry>
+
+                </row>
+                <row>
+                  <entry><para># usa uids desde  10000 a 20000 para los usuarios del dominiop</para></entry>
+
+                </row>
+                <row>
+                  <entry><para><emphasis><literal>
+ 
+ idmap uid = 10000-20000</literal></emphasis></para></entry>
+
+                </row>
+                <row>
+                  <entry><para># usa gids desde 10000 a 20000 para los grupos del dominio</para></entry>
+
+                </row>
+                <row>
+                  <entry><para><emphasis><literal>
+ 
+ idmap gid = 10000-20000</literal></emphasis></para></entry>
+
+                </row>
+                <row>
+                  <entry><para># allow enumeration of winbind users and groups</para></entry>
+
+                </row>
+                <row>
+                  <entry><para><emphasis><literal>
+ 
+ winbind enum users = yes</literal></emphasis></para></entry>
+
+                </row>
+                <row>
+                  <entry><para><emphasis><literal>
+ 
+ winbind enum groups = yes</literal></emphasis></para></entry>
+
+                </row>
+                <row>
+                  <entry><para># da a los usuarios de winbind una shell real (sólo necesario si tienen acceso a telnet)</para></entry>
+
+                </row>
+                <row>
+                  <entry><para><emphasis><literal>
+ 
+ template homedir = /home/winnt/%D/%U</literal></emphasis></para></entry>
+
+                </row>
+                <row>
+                  <entry><para><emphasis><literal>
+ 
+ template shell = /bin/bash</literal></emphasis></para></entry>
+
+                </row>
+
+              </tbody>
+
+            </tgroup>
+
+          </informaltable>
+          <para>
+          </para>
+</section>
+        <section remap="h4">
+          <title><anchor id="dbdoclet.id.id2954566"/>Unir el servidor Samba al PDC del dominio</title>
+          <para>
+Introduzca la siguiente orden para hacer que el servidor SAmba se una al PDC del dominio, donde <emphasis><literal>DOMAIN</literal></emphasis> es en nombre de su dominio NT y <emphasis><literal>Administrator</literal></emphasis> es el usuario del dominio que tiene privilegios administrativos en el dominio.
+
+          </para>
+          <para>
+            <literal>root# </literal><emphasis role="bold"><literal>/usr/local/samba/bin/net rpc join -S PDC -U Administrator</literal></emphasis>
+          </para>
+          <para>
+La respuesta a  esta orden debería ser <emphasis>Joined the domain <emphasis><literal>DOMAIN</literal></emphasis></emphasis> donde <emphasis><literal>DOMAIN</literal></emphasis> 
+es su nombre de dominio.
+          </para>
+          <para>
+          </para>
+</section>
+        <section remap="h4">
+          <title><anchor id="dbdoclet.id.id2954626"/>Iniciar y verificar el demonio <emphasis role="bold">winbindd</emphasis></title>
+          <para>
+También puede que sea necesario modificar el script de inicio de Samba para que llame automáticamente al demonio wnibindd cuando inicia otros componentes de samba, sino es posible verificar Winbind primero. Para comenzar los servicios Winbind introduzca como root (verifique las rutas correctas):
+
+          </para>
+          <para>
+            <literal>root# </literal><emphasis role="bold"><literal>/usr/local/samba/bin/winbindd</literal></emphasis>
+          </para>
+          <para>
+          </para>
+</section>
+
+      </section>
+      <section remap="h3">
+        <title>Note</title>
+        <para>
+
+The above assumes that Samba has been installed in the <literal>/usr/local/samba</literal>
+directory tree. You may need to search for the location of Samba files if this is not the
+location of <emphasis role="bold">winbindd</emphasis> on your system. 
+        </para>
+        <para>
+
+Winbindd can now also run in &amp;#8220;;<emphasis>dual daemon mode</emphasis>&amp;#8221;. This will make it 
+run as two processes. The first will answer all requests from the cache,
+thus making responses to clients faster. The other will
+update the cache for the query that the first has just responded.
+The advantage of this is that responses stay accurate and are faster. 
+You can enable dual daemon mode by adding <literal>-B</literal> to the command-line: 
+        </para>
+        <para>
+          <literal>root# </literal><emphasis role="bold"><literal>/usr/local/samba/bin/winbindd -B</literal></emphasis>
+        </para>
+        <para>
+Siempre soy un paranoico y me gusta asegurarme de que el demonio está realmente en ejecución:
+
+        </para>
+        <para>
+          <literal>root# </literal><emphasis role="bold"><literal>ps -ae | grep winbindd</literal></emphasis>
+        </para>
+        <para>
+Esta orden debería generar una salida similar a la siguiente si el demonio está en ejecución:
+
+        </para>
+        <screen>
+3025 ?        00:00:00 winbindd
+        </screen>
+        <para>
+Ahora el test real, itnentamos obtener información sobre los usuarios de su PDC:
+
+        </para>
+        <para>
+          <literal>root# </literal><emphasis role="bold"><literal>/usr/local/samba/bin/wbinfo -u</literal></emphasis>
+        </para>
+        <para>
+Esto debería devolver una lisa de usuarios Windows en el PDC. Por ejemplo yo obtengo la siguiente resspuesta: 
+        </para>
+        <screen>
+	CEO+Administrator
+	CEO+burdell
+	CEO+Guest
+	CEO+jt-ad
+	CEO+krbtgt
+	CEO+TsInternetUser
+        </screen>
+        <para>
+Obviamente el nombre de mi dominio es <emphasis>CEO</emphasis> y mi <anchor id="dbdoclet.id.id2954811"/>winbind separator is <emphasis>+</emphasis>.
+        </para>
+        <para>
+Se puede hacer lo mismo para obtener infomación de los grupos del PDC:
+
+        </para>
+        <screen>
+<literal>root# </literal><emphasis role="bold"><literal>/usr/local/samba/bin/wbinfo -g</literal></emphasis>
+	CEO+Domain Admins
+	CEO+Domain Users
+	CEO+Domain Guests
+	CEO+Domain Computers
+	CEO+Domain Controllers
+	CEO+Cert Publishers
+	CEO+Schema Admins
+	CEO+Enterprise Admins
+	CEO+Group Policy Creator Owners
+        </screen>
+        <para>
+Ahoa se puede usar la función <emphasis role="bold">getent</emphasis> para obtener listas unificadas de usuarios y grupos locales y del PDC. Intente la siguiente orden:
+        </para>
+        <para>
+          <literal>root# </literal><emphasis role="bold"><literal>getent passwd</literal></emphasis>
+        </para>
+        <para>
+Debaría obtener una lista similar a su <literal>/etc/passwd</literal> seguida de los usuarios del dominio con sus nuevos UID, GID, directorio personal y shell predeterminada.
+        </para>
+        <para>
+Lo mismo de puede hacer para los grupos:
+        </para>
+        <para>
+          <literal>root# </literal><emphasis role="bold"><literal>getent group</literal></emphasis>
+        </para>
+        <para>
+        </para>
+        <section remap="h4">
+          <title><anchor id="dbdoclet.id.id2954923"/>Corregir el script init.d de inicio</title>
+          <para>
+          </para>
+          <section remap="h5">
+            <title><anchor id="dbdoclet.id.id2954931"/>Linux</title>
+            <para>
+ 
+El demonio winbindd tiene que iniciarse una vez que los demonios smbd y nmbd ya estén en ejecución. Para esto  tiene que que modificar los script de inicio de su sistema. Normalmente se guardan en <literal>/etc/init.d/smb</literal> en Red Hat Linux y en <literal>/etc/init.d/samba</literal> en Debian Linux. Modifique su script de inicio para añadirlas órdenes llmarlos en en orden adecuado. Mi script de inicio lanza smbd, nmbd y winbindd directamente desde el directorio <literal>/usr/local/samba/bin</literal>. La función <emphasis role="bold">start</emphasis> 
+del  script se parece al lo siguiente:
+            </para>
+            <screen>
+start() {
+        KIND="SMB"
+        echo -n $"Starting $KIND services: "
+        daemon /usr/local/samba/bin/smbd $SMBDOPTIONS
+        RETVAL=$?
+        echo
+        KIND="NMB"
+        echo -n $"Starting $KIND services: "
+        daemon /usr/local/samba/bin/nmbd $NMBDOPTIONS
+        RETVAL2=$?
+        echo
+        KIND="Winbind"
+        echo -n $"Starting $KIND services: "
+        daemon /usr/local/samba/bin/winbindd
+        RETVAL3=$?
+        echo
+        [ $RETVAL -eq 0 -a $RETVAL2 -eq 0 -a $RETVAL3 -eq 0 ] &amp;&amp; \
+		touch /var/lock/subsys/smb || RETVAL=1
+        return $RETVAL
+}
+            </screen>
+            <para>
+Si quisiera ejecutar winbindd em modo demonio dual, sustituya la línea: 
+            </para>
+            <screen>
+        daemon /usr/local/samba/bin/winbindd
+            </screen>
+            <para>
+
+del ejemplo anterior por:
+            </para>
+            <screen>
+        daemon /usr/local/samba/bin/winbindd -B
+            </screen>
+            <para>
+. 
+            </para>
+            <para>
+
+La función tiene<emphasis role="bold">stop</emphasis> tiene una entrada correspondiente para detener los servicios similar a la siguiente::
+            </para>
+            <screen>
+stop() {
+        KIND="SMB"
+        echo -n $"Shutting down $KIND services: "
+        killproc smbd
+        RETVAL=$?
+        echo
+        KIND="NMB"
+        echo -n $"Shutting down $KIND services: "
+        killproc nmbd
+        RETVAL2=$?
+        echo
+        KIND="Winbind"
+        echo -n $"Shutting down $KIND services: "
+        killproc winbindd
+        RETVAL3=$?
+        [ $RETVAL -eq 0 -a $RETVAL2 -eq 0 -a $RETVAL3 -eq 0 ] &amp;&amp; \
+		 rm -f /var/lock/subsys/smb
+        echo ""
+        return $RETVAL
+}
+            </screen>
+            <para>
+            </para>
+</section>
+          <section remap="h5">
+            <title><anchor id="dbdoclet.id.id2955109"/>Solaris</title>
+            <para>
+ 
+Winbind no funciona en Solaris 9, vea la sección<ulink url="Portability.html#winbind-solaris9">Winbind en Solaris 9</ulink> para más detalles.
+            </para>
+            <para>
+
+En Solaris tiene que modificar el script de inicio <literal>/etc/init.d/samba.server</literal>. Normalmente sólo inicia smbd y nmbd pero ahora debería iniciar winbindd también. Si tiene Samba instalado en <literal>/usr/local/samba/bin</literal>, el fichero podría contener algo como lo siguiente:
+            </para>
+            <screen>
+	##
+	## samba.server
+	##
+
+	if [ ! -d /usr/bin ]
+	then                    # /usr not mounted
+		exit
+	fi
+
+	killproc() {            # kill the named process(es)
+		pid=`/usr/bin/ps -e |
+		     /usr/bin/grep -w $1 |
+		     /usr/bin/sed -e 's/^  *//' -e 's/ .*//'`
+		[ "$pid" != "" ] &amp;&amp; kill $pid
+	}
+	 
+	# Start/stop processes required for Samba server
+
+	case "$1" in
+
+	'start')
+	#
+	# Edit these lines to suit your installation (paths, workgroup, host)
+	#
+	echo Starting SMBD
+	   /usr/local/samba/bin/smbd -D -s \
+		/usr/local/samba/smb.conf
+
+	echo Starting NMBD
+	   /usr/local/samba/bin/nmbd -D -l \
+		/usr/local/samba/var/log -s /usr/local/samba/smb.conf
+
+	echo Starting Winbind Daemon
+	   /usr/local/samba/bin/winbindd
+	   ;;
+
+	'stop')
+	   killproc nmbd
+	   killproc smbd
+	   killproc winbindd
+	   ;;
+
+	*)
+	   echo "Usage: /etc/init.d/samba.server { start | stop }"
+	   ;;
+	esac
+            </screen>
+            <para>
+
+De nuevo, si quisiera ejecutar Samba en modo demonio dual:
+            </para>
+            <screen>
+	/usr/local/samba/bin/winbindd
+            </screen>
+            <para>
+
+en el anterior script con:
+            </para>
+            <screen>
+	/usr/local/samba/bin/winbindd -B
+            </screen>
+            <para>
+            </para>
+            <para>
+            </para>
+</section>
+          <section remap="h5">
+            <title><anchor id="dbdoclet.id.id2955227"/>Reiniciar</title>
+            <para>
+ 
+Si reinicia los demonios smbd, nmbd y winbindd en este punto, debería poder conectar al Servidor Samba como Miembro del dominio, como si fuera un usuario local.
+            </para>
+            <para>
+            </para>
+</section>
+</section>
+        <section remap="h4">
+          <title><anchor id="dbdoclet.id.id2955264"/>Configurar Winbind y PAM</title>
+          <para>
+Si lo ha hecho todo hasta llegar a este punto sabe que <emphasis role="bold">winbindd</emphasis> y Samba están funcionando juntos. Si quiere usar Winbind para proporcionar validación para otros servicios, siga leyendo. Los ficheros de configuración PAM necesarios tienen que modificarse para este paso. (Recuerde que tenía que hacer una copia de seguridad del directorio original <literal>/etc/pam.d</literal> files. Si no la hizo, hágala ahora).
+          </para>
+          <para>
+Necesitará un módulo PAM para usar winbindd con estos otros servicios. Este módulo se compilará en el directorio <literal>../source/nsswitch</literal> ejecutando:
+
+          </para>
+          <para>
+            <literal>root# </literal><emphasis role="bold"><literal>make nsswitch/pam_winbind.so</literal></emphasis>
+          </para>
+          <para>
+
+from the <literal>../source</literal> directory. The <literal>pam_winbind.so</literal> file should be copied to the location of
+your other PAM security modules. On my Red Hat system, this was the <literal>/lib/security</literal> directory. On Solaris, the PAM security 
+modules reside in <literal>/usr/lib/security</literal>. 
+          </para>
+          <para>
+            <literal>root# </literal><emphasis role="bold"><literal>cp ../samba/source/nsswitch/pam_winbind.so /lib/security</literal></emphasis>
+          </para>
+          <para>
+          </para>
+          <section remap="h5">
+            <title><anchor id="dbdoclet.id.id2955378"/>Configuración PAM específica de Linux/FreeBSD</title>
+            <para>
+ 
+El fichero <literal>/etc/pam.d/samba</literal> no hay que modificarlo. Lo dejo como estaba:
+            </para>
+            <screen>
+	auth    required        /lib/security/pam_stack.so service=system-auth
+	account required        /lib/security/pam_stack.so service=system-auth
+            </screen>
+            <para>
+Los otros servicios que he modificado para permitir el uso de Winbind como servicio de autenticación fueron el login normal en la consola (o sesión desde un terminal), telnety sevicio ftp. Para activarlos, primero tiene que cambiar las entradas de <literal>/etc/xinetd.d</literal> (o <literal>/etc/inetd.conf</literal>). Red Hat Linux 7.1 y posteriores usan el nuevo xinetd.d, en este caso tiene que cambiar las líneas de <literal>/etc/xinetd.d/telnet</literal> y <literal>/etc/xinetd.d/wu-ftp</literal> de
+            </para>
+            <screen>
+	enable = no
+            </screen>
+            <para>
+
+a: 
+            </para>
+            <screen>
+	enable = yes
+            </screen>
+            <para>
+
+Para  que los servicios ftp funcionen correctamente también tendrá que tener directorios personales para los usuarios del dominio ya presentes en el servidor o cambiar el parámetro correspondiente al directorio personal a un directorio general para todos los usuarios del dominio. Esto se hace fácilmente usando el el parámetro <anchor id="dbdoclet.id.id2955480"/>template homedir del fichero <literal>smb.conf</literal>.
+            </para>
+            <para>
+El fichero <literal>/etc/pam.d/ftp</literal> se puede modificar para permitir a Winbind acceso ftp de forma similar al fichero samba. Mi fichero <literal>/etc/pam.d/ftp</literal> lo modifiqué para dejarlo similar a:
+            </para>
+            <screen>
+auth       required     /lib/security/pam_listfile.so item=user sense=deny \
+\
+	 file=/etc/ftpusers onerr=succeed
+auth       sufficient   /lib/security/pam_winbind.so
+auth       required     /lib/security/pam_stack.so service=system-auth
+auth       required     /lib/security/pam_shells.so
+account    sufficient   /lib/security/pam_winbind.so
+account    required     /lib/security/pam_stack.so service=system-auth
+session    required     /lib/security/pam_stack.so service=system-auth
+            </screen>
+            <para>
+
+El fichero <literal>/etc/pam.d/login</literal> se puede modificar de una forma parecida. Ahora podría parecer a:
+            </para>
+            <screen>
+auth       required     /lib/security/pam_securetty.so
+auth       sufficient   /lib/security/pam_winbind.so
+auth       sufficient   /lib/security/pam_UNIX.so use_first_pass
+auth       required     /lib/security/pam_stack.so service=system-auth
+auth       required     /lib/security/pam_nologin.so
+account    sufficient   /lib/security/pam_winbind.so
+account    required     /lib/security/pam_stack.so service=system-auth
+password   required     /lib/security/pam_stack.so service=system-auth
+session    required     /lib/security/pam_stack.so service=system-auth
+session    optional     /lib/security/pam_console.so
+            </screen>
+            <para>
+
+En este caso he añadido las líneas
+            </para>
+            <screen>auth sufficient /lib/security/pam_winbind.so
+            </screen>
+            <para>
+ 
+como antes, pero tambien he añadido
+            </para>
+            <screen>required pam_securetty.so
+            </screen>
+            <para>
+
+antes para deshabilitar las conexiones de root en red. También he añadido la línea:
+            </para>
+            <screen>sufficient /lib/security/pam_unix.so use_first_pass
+            </screen>
+            <para>
+
+tras la líneaa <emphasis role="bold">winbind.so</emphasis> para evitar  que solicite dos veces la contraseña.
+            </para>
+            <para>
+            </para>
+</section>
+          <section remap="h5">
+            <title><anchor id="dbdoclet.id.id2955601"/>Configuración específica de Solaris</title>
+            <para>
+Es necesario modificar <literal>/etc/pam.conf</literal>. He modificado este fichero para que los usuarios de mi dominio puedan conectarse tanto localmente como por telnet. A continuación vienen los cambios que he realizado. Puede personalizar el fichero <literal>pam.conf</literal> según los requitos de su sistema, pero asegúrese de los cambios porque en el peor de los casos hará que sea imposible iniciar su sistema.
+            </para>
+            <screen>
+#
+#ident "@(#)pam.conf 1.14 99/09/16 SMI"
+#
+# Copyright (c) 1996-1999, Sun Microsystems, Inc.
+# All Rights Reserved.
+#
+# PAM configuration
+#
+# Authentication management
+#
+login   auth required   /usr/lib/security/pam_winbind.so
+login auth required  /usr/lib/security/$ISA/pam_UNIX.so.1 try_first_pass 
+login auth required  /usr/lib/security/$ISA/pam_dial_auth.so.1 try_first_pa\
+ss 
+#
+rlogin  auth sufficient /usr/lib/security/pam_winbind.so
+rlogin  auth sufficient /usr/lib/security/$ISA/pam_rhosts_auth.so.1
+rlogin auth required  /usr/lib/security/$ISA/pam_UNIX.so.1 try_first_pass
+#
+dtlogin auth sufficient /usr/lib/security/pam_winbind.so
+dtlogin auth required  /usr/lib/security/$ISA/pam_UNIX.so.1 try_first_pass
+#
+rsh auth required /usr/lib/security/$ISA/pam_rhosts_auth.so.1
+other   auth sufficient /usr/lib/security/pam_winbind.so
+other auth required /usr/lib/security/$ISA/pam_UNIX.so.1 try_first_pass
+#
+# Account management
+#
+login   account sufficient      /usr/lib/security/pam_winbind.so
+login account requisite /usr/lib/security/$ISA/pam_roles.so.1 
+login account required /usr/lib/security/$ISA/pam_UNIX.so.1 
+#
+dtlogin account sufficient      /usr/lib/security/pam_winbind.so
+dtlogin account requisite /usr/lib/security/$ISA/pam_roles.so.1 
+dtlogin account required /usr/lib/security/$ISA/pam_UNIX.so.1 
+#
+other   account sufficient      /usr/lib/security/pam_winbind.so
+other account requisite /usr/lib/security/$ISA/pam_roles.so.1 
+other account required /usr/lib/security/$ISA/pam_UNIX.so.1 
+#
+# Session management
+#
+other session required /usr/lib/security/$ISA/pam_UNIX.so.1 
+#
+# Password management
+#
+#other   password sufficient     /usr/lib/security/pam_winbind.so
+other password required /usr/lib/security/$ISA/pam_UNIX.so.1 
+dtsession auth required /usr/lib/security/$ISA/pam_UNIX.so.1
+#
+# Support for Kerberos V5 authentication (uncomment to use Kerberos)
+#
+#rlogin auth optional /usr/lib/security/$ISA/pam_krb5.so.1 try_first_pass
+#login auth optional /usr/lib/security/$ISA/pam_krb5.so.1 try_first_pass
+#dtlogin auth optional /usr/lib/security/$ISA/pam_krb5.so.1 try_first_pass
+#other auth optional /usr/lib/security/$ISA/pam_krb5.so.1 try_first_pass
+#dtlogin account optional /usr/lib/security/$ISA/pam_krb5.so.1
+#other account optional /usr/lib/security/$ISA/pam_krb5.so.1
+#other session optional /usr/lib/security/$ISA/pam_krb5.so.1
+#other password optional /usr/lib/security/$ISA/pam_krb5.so.1 try_first_pass
+
+            </screen>
+            <para>
+También he añadido una línea <emphasis><literal>try_first_pass</literal></emphasis> tras <literal>winbind.so</literal> para evitar que pida la contraseña dos veces.
+            </para>
+            <para>
+Ahora reinicie su Samba e intente conectar mediante la aplicación que ha configurado en pam.conf. 
+            </para>
+            <para>
+            </para>
+</section>
+</section>
+
+      </section>
+
+    </section>
+    <section remap="h2">
+      <title><anchor id="dbdoclet.id.id2955717"/>Conclusión</title>
+      <para>
+El sistema Winbind, mediante eñ uso de NSS (Name Service Switch), PAM (Pluggable Authentication Modules), y las llamdas Microsoft RPC han permitido proporcinar la integración de los usuarios de dominios NT en sistemas Unix. El resultado es un gran reducción del coste administrativo de ejecutar redes mixtas UNIX y NT.
+      </para>
+      <para>
+      </para>
+
+    </section>
+    <section remap="h2">
+      <title><anchor id="dbdoclet.id.id2955735"/>Errores Frecuentes</title>
+      <para>
+Winbind tiene cierto número de limitaciones en su versión actual que esperamos corregir en las príximas.      
+      </para>
+      <para>
+        <itemizedlist>
+          <listitem>
+            <para>
+ Winbind sólo está disponible pra Linux, Solaris, AIX, e IRIX, aunque son posibles adaptaciones para otros sistems operativos. Para que tales adaptaciones sean posibles necesitamos que la biblioteca C de la máquina destino admita los sistemas Name Service Switch y Pluggable Authentication Modules. Esto se hace más frecuetne ya que NSS y PAM ganan sporte entre los vendedores de UNIX.
+            </para>
+
+          </listitem>
+          <listitem>
+            <para>
+ La asociación entre los RID de Windows NT RIDs con los ID de UNIX no se hace mediante algoritmo, depende del orden en el que Windbind ve a los usuario no asociados. Puede ser difícil recuperar las asociaciones si entre RID e ID si el fichero que las contiene se corrompe o se destruye.
+             </para>
+
+          </listitem>
+          <listitem>
+            <para>
+ En la actualidad el módulos PAM para Winbind no tiene en cuenta ni las estaciones de trabajo ni las restricciones de hora de conexión que se pueden fijar para los usuarios de NT.
+             </para>
+
+          </listitem>
+</itemizedlist>
+
+      </para>
+      <section remap="h3">
+        <title><anchor id="dbdoclet.id.id2955789"/>Aviso de problemas con NSCD</title>
+        <para>
+        </para>
+
+      </section>
+      <section remap="h3">
+        <title>Aviso</title>
+        <para>
+Bajo ninguna circunstacia ejecute <emphasis role="bold">nscd</emphasis> sobre un sistema en el que <emphasis role="bold">winbindd</emphasis> esté en ejecución.
+        </para>
+        <para>
+
+Si <emphasis role="bold">nscd</emphasis> está en ejecución en un sistema UNIX/Linux, entonces incluso aunque NSSWITCH esté correctamente configurado no es posible resolver usuarios y grupos del dominio para control de ficheros y directorios.
+        </para>
+        <para>
+        </para>
+
+      </section>
+      <section remap="h3">
+        <title><anchor id="dbdoclet.id.id2955836"/>Winbind no resuelve usuarios y grupos</title>
+        <para>
+ <emphasis>Mi <literal>smb.conf</literal> está correctamente configurado. He especificado <anchor id="dbdoclet.id.id2955858"/>idmap uid = 12000, 
+ y <anchor id="dbdoclet.id.id2955866"/>idmap gid = 3000-3500 y <emphasis role="bold">winbind</emphasis> está en ejecución. Cuando hago lo sigueinte todo funciona bien</emphasis>
+        </para>
+        <screen>
+<literal>root# </literal><emphasis role="bold"><literal>wbinfo -u</literal></emphasis>
+MIDEARTH+maryo
+MIDEARTH+jackb
+MIDEARTH+ameds
+...
+MIDEARTH+root
+
+<literal>root# </literal><emphasis role="bold"><literal>wbinfo -g</literal></emphasis>
+MIDEARTH+Domain Users
+MIDEARTH+Domain Admins
+MIDEARTH+Domain Guests
+...
+MIDEARTH+Accounts
+
+<literal>root# </literal><emphasis role="bold"><literal>getent passwd</literal></emphasis>
+root:x:0:0:root:/root:/bin/bash
+bin:x:1:1:bin:/bin:/bin/bash
+...
+maryo:x:15000:15003:Mary Orville:/home/MIDEARTH/maryo:/bin/false
+        </screen>
+        <para>
+<emphasis>Pero la siguiente orden falla:</emphasis>
+        </para>
+        <screen>
+<literal>root# </literal><emphasis role="bold"><literal>chown maryo a_file</literal></emphasis>
+chown: `maryo': invalid user
+        </screen>
+        <para>
+
+El mismo problema anterior. Probablemente está ejecutando <emphasis role="bold">nscd</emphasis>, el demonio del servicio decacheo de nombres. Párelo y no lo reinicie, verá como se resuelve el problema.
+        </para>
+
+      </section>
+
+    </section>
+    <section>
+	<title>Traducción</title>
+<para>Pedro Pablo Fábrega pfabrega(en)arrakis.es.</para>
+     </section>   
+  </section>

@@ -1,0 +1,1638 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+
+<chapter id="openldap-certificados-openldap">
+
+<chapterinfo>
+	<keywordset>
+		<keyword>OpenLDAP</keyword>
+		<keyword>certificado</keyword>
+		<keyword>SSL</keyword>
+		<keyword>TLS</keyword>
+	</keywordset>
+</chapterinfo>
+
+<title>Preparando la conexión segura</title>
+<subtitle>Creación de certificados</subtitle>
+
+<!-- INTRODUCCIÓN  -->
+
+<sect1 id="openldap-certificados-introduccion">
+	<title>Introducción</title>
+	
+	<para>Este capítulo está dedicado a la creación de la entidad certificadora y
+	los certificados necesarios para hacer uso de una conexión segura, característica
+	que provee la versión 3 del protocolo <acronym>LDAP</acronym> por defecto, y por
+	tanto, la versión de OpenLDAP que se está utilizando en este documento.</para>
+	
+	<warning><para>Tal y como se distribuye el paquete de OpenLDAP en Debian GNU/Linux, no
+	es posible, al menos a la hora de generar esta documentación, hacer uso de cifrado en las comunicaciones
+	relacionadas con <acronym>LDAP</acronym>. En la
+	<xref linkend="openldap-certificados-preparando-openldap"/> se detallará
+	el problema y se dará una solución temporal, a la espera de que se solucionen
+	los problemas con este paquete en Debian<footnote><para>La versión de OpenLDAP
+	utilizada para la realización de esta documentación es la 2.1.30-3.</para></footnote>.</para></warning>
+
+<!--
+	<para>Como las opciones de compilación por defecto (vea el
+	<xref linkend="openldap-configure.options"/> para más detalles)
+	del paquete OpenLDAP que provee Debian <acronym>GNU</acronym>/Linux ya viene
+	con las opciones necesarias para dar soporte
+	<acronym>SSL</acronym>/<acronym>TLS</acronym> a OpenLDAP
+	(<quote>- -with-tls</quote>), no es necesario recompilarlo.</para>
+-->
+
+	<caution><para>Se asume que ya posee una instalación de OpenSSL
+	en su sistema, de no ser así, será necesario instalarla:</para>
+	
+	<screen><prompt>#</prompt> <userinput>apt-get install openssl</userinput></screen>
+	</caution>
+
+	<note><para>La versión de OpenSSL empleada para generar esta documentación
+	ha sido la <emphasis>0.9.7d</emphasis>.</para></note>
+
+	<note><para>Para la elaboración de este capítulo, se ha empleado, principalmente,
+	la entrada bibliográfica <xref linkend="bibliografia-soper-01"/>
+	y el capítulo 6 de la entraba bibliográfica <xref linkend="bibliografia-tournier-01"/>.</para></note>
+	
+</sect1>
+
+<!-- CREACIÓN DE UN CERTIFICADO -->
+
+<sect1 id="openldap-certificados-creacion-certificado">
+	<title>Creación de un certificado</title>
+	
+	<para>Para habilitar las conexiones <acronym>SSL</acronym>/<acronym>TLS</acronym> hacia
+	el servidor <acronym>LDAP</acronym>, se necesita la presencia de un certificado en el servidor.
+	Además, en el establecimiento de una conexión <acronym>SSL</acronym>/<acronym>TLS</acronym>,
+	el certificado del servidor sólo proporciona una conexión segura y cifrada al servidor. Si se desea
+	autentificar al cliente, se ha de presentar al servidor <acronym>LDAP</acronym>
+	el certificado y el par de llaves del cliente.</para>
+
+	<para>Existen dos formas de crear e instalar un certificado en el servidor:
+	la creación de un <quote>certificado autofirmado</quote> y la creación
+	de un <quote>certificado emitido por una <acronym>CA</acronym></quote>. Ambos métodos
+	requieren la creación de un certificado para el servidor, enviárselo a los
+	clientes OpenLDAP y realizar los cambios apropiados en los archivos de configuración
+	de OpenLDAP. Ambos métodos necesitan el uso de órdenes OpenSSL que solicitarán
+	información para la creación del certificado.</para>
+
+	<note><para>Para la elaboración de esta documentación se ha elegido la creación de un
+	certificado a partir de una <acronym>CA</acronym>
+	(<xref linkend="openldap-certificados-creacion-certificado-entidad-certifificadora"/>) y
+	sobre este método se basará el resto de la documentación. De todas formas, se ha incluido en la
+	<xref linkend="openldap-certificados-creacion-certificado-autofirmado"/> el otro método
+	existente, a título informativo.</para></note>
+
+	<warning><para>Cuando se pregunte por el <quote>Common Name</quote>,
+	ha de teclear el nombre del dominio de su servidor (<acronym>FQDN</acronym>), como por
+	ejemplo: <emphasis>miservidor.pt</emphasis>, y no <quote>su nombre</quote>
+	como sugiere OpenSSL. ¡Esta equivocación es la causa del 90% de los errores en el
+	el certificado del servidor!</para></warning>
+
+	<sect2 id="openldap-certificados-creacion-certificado-autofirmado">
+		<title>Certificado autofirmado</title>
+
+		<para>La primera forma para la creación del certificado del servidor emplea OpenSSL
+		y genera un certificado autofirmado para el servidor. Para ello, desde la
+		línea de comandos se ha de teclear (la letra en negrita son las opciones
+		que ha de introducir el usuario):</para>
+
+		<note><para>OpenLDAP sólo trabaja con llaves no cifradas, por lo que se ha de
+		emplear el parámetro <quote>-nodes</quote> de OpenSSL para evitar el
+		cifrado de la llave privada.</para></note>
+
+		<example id="openldap-certificados-creacion-certificado-autofirmado-ejemplo1">
+			<title>Creación de un certificado autofirmado para el servidor</title>
+
+<screen><prompt>$</prompt> <userinput>openssl req -newkey rsa:1024 -x509 -nodes -out server.pem -keyout server.pem -days 365</userinput>
+<computeroutput>Generating a 1024 bit RSA private key
+..........................++++++
+...............................++++++
+writing new private key to 'server.pem'
+-----
+You are about to be asked to enter information that will be incorporated
+into your certificate request.
+What you are about to enter is what is called a Distinguished Name or a DN.
+There are quite a few fields but you can leave some blank
+For some fields there will be a default value,
+If you enter '.', the field will be left blank.
+-----
+Country Name (2 letter code) [AU]:</computeroutput><userinput>PT</userinput>
+<computeroutput>State or Province Name (full name) [Some-State]:</computeroutput><userinput>Braganca</userinput>
+<computeroutput>Locality Name (eg, city) []:</computeroutput><userinput>Braganca</userinput>
+<computeroutput>Organization Name (eg, company) [Internet Widgits Pty Ltd]:</computeroutput><userinput>gsr.pt</userinput>
+<computeroutput>Organizational Unit Name (eg, section) []:</computeroutput><userinput>gsr.pt</userinput>
+<computeroutput>Common Name (eg, YOUR name) []:</computeroutput><userinput>gsr.pt</userinput>
+<computeroutput>Email Address []:</computeroutput><userinput>sergio@gsr.pt</userinput></screen>
+		</example>
+
+		<para>Esto creará un archivo <filename>server.pem</filename> en el directorio donde haya
+		ejecutado la orden del
+		<xref linkend="openldap-certificados-creacion-certificado-autofirmado-ejemplo1"/>. Puede
+		ver una muestra de su resultado en el <xref linkend="openldap-certificado-servidor"/>.</para>
+
+		<para>Ahora sólo falta indicar a OpenLDAP que utilice el certificado anteriormente
+		creado. El siguiente ejemplo muestra las opciones de configuración que han de añadirse
+		al archivo <filename>/etc/ldap/slapd.conf</filename> si se ha seguido el método de creación
+		del certificado autofirmado.</para>
+
+		<example id="openldap-certificados-creacion-certificado-autofirmado-ejemplo2">
+			<title>Opciones de configuración para <filename>slapd.conf</filename> que añaden
+			un certificado autofirmado en el servidor.</title>
+
+<programlisting>TLSCACertificateFile server.pem 
+TLSCertificateFile server.pem 
+TLSCertificateKeyFile server.pem</programlisting>
+		</example>
+
+		<note><para>Puede observarse en el ejemplo anterior, que las tres opciones poseen el mismo valor:
+		<quote>server.pem</quote>. Esto diferirá si se ha obtenido el certificado
+		a partir de una <acronym>CA</acronym>, como puede verse en el
+		<xref linkend="openldap-certificados-configuracion-openldap-servidor-ejemplo1"/>.</para></note>
+	</sect2>
+
+	<sect2 id="openldap-certificados-creacion-certificado-entidad-certifificadora">
+		<title>Certificado emitido por una <acronym>CA</acronym></title>
+
+		<para>Si ya posee una entidad certificadora (<acronym>CA</acronym>) de confianza,
+		sáltese esta sección dedicada al proceso de obtención de un certificado
+		firmado por una entidad certificadora y una llave privada para el servidor.</para>
+
+		<para>Sin embargo, si no posee de una entidad certificadora de confianza, OpenSSL
+		realiza el proceso rápida y fácilmente. Para ello siga los siguientes pasos:</para>
+
+		<orderedlist>
+			<listitem id="creacion-directorio">
+				<para>Creación de un directorio para crear y firmar los certificados, por ejemplo:
+				<filename class="directory">/var/tmp/mica</filename></para>
+
+				<example id="openldap-certificados-creacion-certificado-ca-ejemplo1">
+					<title>Creación de un directorio para crear y firmar los certificados</title>
+
+<screen><prompt>$</prompt> <userinput>/bin/mkdir -v /var/tmp/mica</userinput>
+<computeroutput>/bin/mkdir: se ha creado el directorio `/var/tmp/mica'</computeroutput></screen>
+				</example>
+			</listitem>
+			<listitem id="creacion-entidad-certificadora">
+				<para>Sitúese en el directorio <filename class="directory">/var/tmp/mica</filename>
+				y ejecute el script <filename>CA.sh</filename> de OpenSSL.</para>
+
+				<example id="openldap-certificados-creacion-certificado-ca-ejemplo2">
+					<title>Creación de una entidad certificadora</title>
+
+<screen><prompt>$</prompt> <userinput>cd /var/tmp/mica</userinput>
+<prompt>$</prompt> <userinput>/usr/lib/ssl/misc/CA.sh -newca</userinput>
+<computeroutput>CA certificate filename (or enter to create)
+</computeroutput><userinput>[Enter]</userinput>
+<computeroutput>Making CA certificate ...
+Generating a 1024 bit RSA private key
+....................+++
+...................................+++
+writing new private key to './demoCA/private/./cakey.pem'
+Enter PEM pass phrase:</computeroutput> <userinput>[Clave ca]</userinput> <co id="clave-pem"/>
+<computeroutput>Verifying - Enter PEM pass phrase:</computeroutput> <userinput>[Clave ca]</userinput>
+<computeroutput>-----
+You are about to be asked to enter information that will be incorporated
+into your certificate request.
+What you are about to enter is what is called a Distinguished Name or a DN.
+There are quite a few fields but you can leave some blank
+For some fields there will be a default value,
+If you enter '.', the field will be left blank.
+-----
+Country Name (2 letter code) [AU]:</computeroutput><userinput>PT</userinput>
+<computeroutput>State or Province Name (full name) [Some-State]:</computeroutput><userinput>Braganca</userinput>
+<computeroutput>Locality Name (eg, city) []:</computeroutput><userinput>Braganca</userinput>
+<computeroutput>Organization Name (eg, company) [Internet Widgits Pty Ltd]:</computeroutput><userinput>Companhia GSR</userinput>
+<computeroutput>Organizational Unit Name (eg, section) []:</computeroutput><userinput>Unidade de certificados</userinput>
+<computeroutput>Common Name (eg, YOUR name) []:</computeroutput><userinput>gsr.pt</userinput>
+<computeroutput>Email Address []:</computeroutput><userinput>[Enter]</userinput>
+</screen>
+
+					<calloutlist>
+						<callout arearefs="clave-pem">
+							<para>La clave utilizada ha de tener un mínimo de 4 caracteres.</para>
+						</callout>
+					</calloutlist>
+				</example>
+
+				<para>Esto creará la siguiente estructura de directorios bajo
+				<filename class="directory">/var/tmp/mica</filename>:</para>
+
+<screen><prompt>$</prompt> <userinput>/usr/bin/tree</userinput>
+<computeroutput>.
+`-- demoCA
+    |-- cacert.pem
+    |-- certs
+    |-- crl
+    |-- index.txt
+    |-- newcerts
+    |-- private
+    |   `-- cakey.pem
+    `-- serial
+
+5 directories, 4 files</computeroutput></screen>
+
+				<para>Pero los archivos realmente interesantes son
+				<filename>demoCA/cacert.pem</filename> y
+				<filename>demoCA/private/cakey.pem</filename> (El certificado
+				de la entidad certificadora y la llave privada, respectivamente).</para>
+			</listitem>
+			<listitem id="creacion-csr">
+				<para>Creamos la petición para la firma del certificado perteneciente al servidor
+				(<acronym>CSR</acronym>):</para>
+
+				<example id="openldap-certificados-creacion-certificado-ca-ejemplo3">
+					<title>Creación de la petición para la firma del certificado del servidor</title>
+
+<screen><prompt>$</prompt> <userinput>/usr/bin/openssl req -newkey rsa:1024 -nodes -keyout newreq.pem -out newreq.pem</userinput>
+<computeroutput>Generating a 1024 bit RSA private key
+...++++++
+...........++++++
+writing new private key to 'newreq.pem'
+-----
+You are about to be asked to enter information that will be incorporated
+into your certificate request.
+What you are about to enter is what is called a Distinguished Name or a DN.
+There are quite a few fields but you can leave some blank
+For some fields there will be a default value,
+If you enter '.', the field will be left blank.
+-----
+Country Name (2 letter code) [AU]:</computeroutput><userinput>PT</userinput>
+<computeroutput>State or Province Name (full name) [Some-State]:</computeroutput><userinput>Braganca</userinput>
+<computeroutput>Locality Name (eg, city) []:</computeroutput><userinput>Braganca</userinput>
+<computeroutput>Organization Name (eg, company) [Internet Widgits Pty Ltd]:</computeroutput><userinput>SubGSR</userinput>
+<computeroutput>Organizational Unit Name (eg, section) []:</computeroutput><userinput>Controle de acesso</userinput>
+<computeroutput>Common Name (eg, YOUR name) []:</computeroutput><userinput>gsr.pt</userinput>
+<computeroutput>Email Address []:</computeroutput><userinput>sergio@gsr.pt</userinput>
+<computeroutput></computeroutput><userinput></userinput>
+<computeroutput>
+Please enter the following 'extra' attributes
+to be sent with your certificate request
+A challenge password []:</computeroutput><userinput>[Clave]</userinput> <co id="clave-challenge"/>
+<computeroutput>An optional company name []:</computeroutput>.<userinput>[Enter]</userinput>
+</screen>
+
+					<calloutlist>
+						<callout arearefs="clave-challenge">
+							<para>La clave utilizada ha de tener un mínimo de 4 caracteres.</para>
+						</callout>
+					</calloutlist>
+				</example>
+
+				<para>El resultado es el archivo <filename>newreq.pem</filename>.</para>
+			</listitem>
+			<listitem id="firma-csr">
+				<para>Firma del <acronym>CSR</acronym>:</para>
+
+				<example id="openldap-certificados-creacion-certificado-ca-ejemplo4">
+					<title>Firma del <acronym>CSR</acronym></title>
+
+<screen><prompt>$</prompt> <userinput>/usr/lib/ssl/misc/CA.sh -sign</userinput>
+<computeroutput>Using configuration from /usr/lib/ssl/openssl.cnf
+Enter pass phrase for ./demoCA/private/cakey.pem:</computeroutput><userinput>[Clave ca]</userinput>
+<computeroutput>Check that the request matches the signature
+Signature ok
+Certificate Details:
+        Serial Number: 1 (0x1)
+        Validity
+            Not Before: Sep 23 16:16:11 2004 GMT
+            Not After : Sep 23 16:16:11 2005 GMT
+        Subject:
+            countryName               = PT
+            stateOrProvinceName       = Braganca
+            localityName              = Braganca
+            organizationName          = SubGSR
+            organizationalUnitName    = Controle de acesso
+            commonName                = gsr.pt
+            emailAddress              = sergio@gsr.pt
+        X509v3 extensions:
+            X509v3 Basic Constraints:
+                CA:FALSE
+            Netscape Comment:
+                OpenSSL Generated Certificate
+            X509v3 Subject Key Identifier:
+                8C:66:2C:3E:0F:63:2F:53:29:FA:28:EA:7F:59:A4:16:4C:DF:7C:6C
+            X509v3 Authority Key Identifier:
+                keyid:F1:34:77:80:A4:34:4B:71:C8:BF:81:6C:DF:0C:98:D3:62:B7:10:BE
+                DirName:/C=PT/ST=Braganca/L=Braganca/O=Companhia GSR/OU=Unidade de\
+                                                             certificados/CN=gsr.pt
+                serial:00
+
+Certificate is to be certified until Sep 23 16:16:11 2005 GMT (365 days)
+Sign the certificate? [y/n]:</computeroutput><userinput>y</userinput>
+<computeroutput>
+
+1 out of 1 certificate requests certified, commit? [y/n]</computeroutput><userinput>y</userinput>
+<computeroutput>Write out database with 1 new entries
+Data Base Updated
+Certificate:
+    Data:
+        Version: 3 (0x2)
+        Serial Number: 1 (0x1)
+        Signature Algorithm: md5WithRSAEncryption
+        Issuer: C=PT, ST=Braganca, L=Braganca, O=Companhia GSR, OU=Unidade de certificados,\
+                                                                                   CN=gsr.pt
+        Validity
+            Not Before: Sep 23 16:16:11 2004 GMT
+            Not After : Sep 23 16:16:11 2005 GMT
+        Subject: C=PT, ST=Braganca, L=Braganca, O=SubGSR, OU=Controle de acesso, \
+                                                        CN=gsr.pt/emailAddress=sergio@gsr.pt
+        Subject Public Key Info:
+            Public Key Algorithm: rsaEncryption
+            RSA Public Key: (1024 bit)
+                Modulus (1024 bit):
+                    00:ab:bc:62:aa:75:ad:76:6d:05:e6:be:c2:b7:b7:
+                    1f:28:3a:b9:ed:0b:b2:11:6a:9d:27:7b:06:69:89:
+                    3a:13:3d:29:85:0d:02:87:b7:ac:cf:46:b0:01:3a:
+                    30:c6:2e:25:13:af:6f:35:b6:d0:2c:ae:fb:42:24:
+                    77:f3:c7:e1:a6:cb:00:35:ca:03:be:b1:d8:dd:22:
+                    de:d6:bc:e2:94:d4:1a:ae:47:83:95:0c:a2:ae:1f:
+                    c3:d3:f4:1d:7e:cd:cc:9c:48:28:63:35:5c:af:7b:
+                    c9:bf:f8:f7:de:2b:09:61:c6:40:30:76:e3:9f:51:
+                    28:d0:61:b2:18:9a:d9:8a:53
+                Exponent: 65537 (0x10001)
+        X509v3 extensions:
+            X509v3 Basic Constraints:
+                CA:FALSE
+            Netscape Comment:
+                OpenSSL Generated Certificate
+            X509v3 Subject Key Identifier:
+                8C:66:2C:3E:0F:63:2F:53:29:FA:28:EA:7F:59:A4:16:4C:DF:7C:6C
+            X509v3 Authority Key Identifier:
+                keyid:F1:34:77:80:A4:34:4B:71:C8:BF:81:6C:DF:0C:98:D3:62:B7:10:BE
+                DirName:/C=PT/ST=Braganca/L=Braganca/O=Companhia GSR/OU=Unidade de \
+                                                                    certificados/CN=gsr.pt
+                serial:00
+
+    Signature Algorithm: md5WithRSAEncryption
+        27:43:54:46:14:dd:f5:2d:64:40:b4:dd:62:b4:79:d6:93:32:
+        d4:56:0d:a7:80:60:6a:93:1a:c2:02:e3:f8:33:d9:4d:32:c7:
+        0b:34:29:01:72:98:1a:aa:c6:34:78:50:11:0d:92:ab:31:ba:
+        9b:3f:27:39:1a:19:8b:a0:2c:d7:ca:56:04:69:c4:ae:cc:e5:
+        dc:fa:ce:da:11:a9:25:0c:db:d6:8c:60:b1:86:9a:02:06:c5:
+        c4:da:8f:8e:a6:4d:84:06:3d:e1:ce:3e:d9:fa:d4:5b:d5:44:
+        36:4f:48:88:d0:ab:ec:03:e5:a7:4f:92:e8:8e:db:aa:89:7e:
+        02:e4
+-----BEGIN CERTIFICATE-----
+MIIDkDCCAvmgAwIBAgIBATANBgkqhkiG9w0BAQQFADB+MQswCQYDVQQGEwJQVDER
+MA8GA1UECBMIQnJhZ2FuY2ExETAPBgNVBAcTCEJyYWdhbmNhMRYwFAYDVQQKEw1D
+b21wYW5oaWEgR1NSMSAwHgYDVQQLExdVbmlkYWRlIGRlIGNlcnRpZmljYWRvczEP
+MA0GA1UEAxMGZ3NyLnB0MB4XDTA0MDkyMzE2MTYxMVoXDTA1MDkyMzE2MTYxMVow
+gZAxCzAJBgNVBAYTAlBUMREwDwYDVQQIEwhCcmFnYW5jYTERMA8GA1UEBxMIQnJh
+Z2FuY2ExDzANBgNVBAoTBlN1YkdTUjEbMBkGA1UECxMSQ29udHJvbGUgZGUgYWNl
+c3NvMQ8wDQYDVQQDEwZnc3IucHQxHDAaBgkqhkiG9w0BCQEWDXNlcmdpb0Bnc3Iu
+cHQwgZ8wDQYJKoZIhvcNAQEBBQADgY0AMIGJAoGBAKu8Yqp1rXZtBea+wre3Hyg6
+ue0LshFqnSd7BmmJOhM9KYUNAoe3rM9GsAE6MMYuJROvbzW20Cyu+0Ikd/PH4abL
+ADXKA76x2N0i3ta84pTUGq5Hg5UMoq4fw9P0HX7NzJxIKGM1XK97yb/4994rCWHG
+QDB2459RKNBhshia2YpTAgMBAAGjggEJMIIBBTAJBgNVHRMEAjAAMCwGCWCGSAGG
++EIBDQQfFh1PcGVuU1NMIEdlbmVyYXRlZCBDZXJ0aWZpY2F0ZTAdBgNVHQ4EFgQU
+jGYsPg9jL1Mp+ijqf1mkFkzffGwwgaoGA1UdIwSBojCBn4AU8TR3gKQ0S3HIv4Fs
+3wyY02K3EL6hgYOkgYAwfjELMAkGA1UEBhMCUFQxETAPBgNVBAgTCEJyYWdhbmNh
+MREwDwYDVQQHEwhCcmFnYW5jYTEWMBQGA1UEChMNQ29tcGFuaGlhIEdTUjEgMB4G
+A1UECxMXVW5pZGFkZSBkZSBjZXJ0aWZpY2Fkb3MxDzANBgNVBAMTBmdzci5wdIIB
+ADANBgkqhkiG9w0BAQQFAAOBgQAnQ1RGFN31LWRAtN1itHnWkzLUVg2ngGBqkxrC
+AuP4M9lNMscLNCkBcpgaqsY0eFARDZKrMbqbPyc5GhmLoCzXylYEacSuzOXc+s7a
+EaklDNvWjGCxhpoCBsXE2o+Opk2EBj3hzj7Z+tRb1UQ2T0iI0KvsA+WnT5Lojtuq
+iX4C5A==
+-----END CERTIFICATE-----
+Signed certificate is in newcert.pem</computeroutput>
+</screen>
+				</example>
+
+				<para>Esto crea el archivo <filename>newcert.pem</filename> (el certificado
+				del servidor firmado por la entidad certificadora) con la clave
+				privada, <filename>newreq.pem</filename>.</para>
+
+				<note><para>Para verificar que el certificado está correctamente firmado
+				se puede utilizar la siguiente orden:</para>
+
+				<example id="verificacion-firma-de-un-certificado">
+					<title>Verificación de la firma creada en un certificado por una
+					<acronym>CA</acronym></title>
+
+<screen><prompt>$</prompt> <userinput>/usr/bin/openssl verify -CAfile demoCA/cacert.pem newcert.pem</userinput>
+<computeroutput>newcert.pem: OK</computeroutput></screen>
+				</example>
+				</note>
+			</listitem>
+			<listitem id="ajustes-finales">
+				<para>Ahora se puede renombrar y mover los certificados al sitio deseado.
+				En este caso se moverá al directorio
+				<filename class="directory">/etc/ldap/ssl</filename>, quedando
+				la estructura final como sigue:</para>
+
+				<example id="openldap-certificados-creacion-certificado-ca-ejemplo5">
+					<title>Estructura de directorios final para los certificados</title>
+
+<screen><prompt>#</prompt> <userinput>/usr/bin/tree /etc/ldap/ssl</userinput>
+<computeroutput>/etc/ldap/ssl
+|-- cacert.pem
+|-- certs
+|   `-- servidorcert.pem <co id="servidorcert.pem"/>
+|-- crl
+|-- index.txt
+|-- newcerts
+|   `-- 01.pem
+|-- private
+|   |-- cakey.pem
+|   `-- servidorkey.pem <co id="servidorkey.pem"/>
+`-- serial
+
+4 directories, 7 files</computeroutput></screen>
+
+					<calloutlist>
+						<callout arearefs="servidorcert.pem"><para>Este archivo se corresponde con
+						el archivo <filename>newcert.pem</filename> generado tras el
+						<xref linkend="openldap-certificados-creacion-certificado-ca-ejemplo4"/></para>
+						</callout>
+						<callout arearefs="servidorkey.pem"><para>Este archivo se corresponde con
+						el archivo <filename>newreq.pem</filename> generado tras el
+						<xref linkend="openldap-certificados-creacion-certificado-ca-ejemplo4"/></para>
+						</callout>
+					</calloutlist>
+				</example>
+
+				<important><para>Sería recomendable hacer la llave privada del servidor
+				sólo legible por el usuario con el que se ejecuta <command>slapd</command>,
+				para ello teclee:</para>
+
+<screen><prompt>#</prompt> <userinput>/bin/chmod -v 400 /etc/ldap/ssl/private/servidorkey.pem</userinput>
+<computeroutput>el modo de `/etc/ldap/ssl/private/servidorkey.pem' cambia a 0400 (r--------)</computeroutput></screen>
+
+				<para>Los demás certificados tendría que poderse leer por todo el mundo.</para></important>
+			</listitem>
+			<listitem id="certificado-accesible">
+				<para>Hacer que el certificado de la entidad certificadora esté disponible para los
+				clientes de <acronym>LDAP</acronym>.</para>
+
+				<para>Si los clientes están en la misma máquina, se ha de copiar el archivo
+				<filename>cacert.pem</filename> a un lugar accesible por los clientes. Si los
+				clientes están en otros equipos, se ha de copiar el archivo
+				<filename>cacert.pem</filename> a esas máquinas y hacerlo accesible.</para>
+			</listitem>
+		</orderedlist>
+
+		<para>Como se ha podido apreciar, este proceso requieres algunos pasos más que la creación
+		un certificado autofirmado, pero los beneficios obtenidos sobrepasan cualquier gasto
+		de tiempo empleado en crear la entidad certificadora.</para>
+	</sect2>
+
+	<sect2 id="openldap-certificados-creacion-certificado-cliente">
+		<title>El certificado de los clientes</title>
+
+		<para>Los certificados para los clientes se crean de forma similar a los certificados
+		para el servidor. Si se siguen los pasos detallados en
+		<xref linkend="openldap-certificados-creacion-certificado-entidad-certifificadora"/>,
+		los únicos cambios son los siguientes:</para>
+
+		<formalpara>
+			<title><xref linkend="creacion-directorio"/> y
+			<xref linkend="creacion-entidad-certificadora"/>:</title>
+
+			<para>No se hace nada... no se necesita crear de nuevo la entidad certificadora.
+			El objetivo es utilizar la misma entidad certificadora para firmar el
+			certificado del cliente.</para>
+		</formalpara>
+
+		<formalpara>
+			<title><xref linkend="creacion-csr"/>:</title>
+
+			<para>Se ejecuta todo lo que allí se muestra, lo único que se ha de cambiar es el nombre
+			del servidor por el del cliente cuando se pregunte el <quote>Common Name</quote>.
+			Se da por supuesto que todas las demás respuestas se han de ajustar a los datos
+			del cliente.</para>
+		</formalpara>
+
+		<formalpara>
+			<title><xref linkend="firma-csr"/>:</title>
+
+			<para>Las mismas órdenes, obteniéndose los mismos archivos para el certificado y
+			la llave privada. ¡Gracias que se renombró el certificado en el
+			<xref linkend="ajustes-finales"/>!.</para>
+		</formalpara>
+
+		<formalpara>
+			<title><xref linkend="ajustes-finales"/>:</title>
+
+			<para>Ahora se puede renombrar y mover el certificado y la llave privada del cliente
+			al lugar indicado (por ejemplo,
+			<filename class="directory">/home/usuario/ssl/</filename><footnote><para>Tenga en cuenta
+			que el directorio donde almacene el certificado del usuario ha de ser accesible por
+			todo el mundo.</para></footnote>). También sería recomendable
+			que cambiase los permisos de la llave privada, para que sólo pueda ser leída por el
+			usuario al que pertenece.</para>
+		</formalpara>
+
+		<formalpara>
+			<title><xref linkend="certificado-accesible"/>:</title>
+
+			<para>No se ha de hacer nada en este paso.</para>
+		</formalpara>
+
+		<para>Ahora que ya están creados los certificados, sólo queda configurar OpenLDAP.</para>
+	</sect2>
+</sect1>
+
+<!-- CONFIGURACIÓN DE OPENLDAP -->
+
+<sect1 id="openldap-certificados-configuracion-openldap">
+	<title>Configuración de OpenLDAP</title>
+	
+	<para>Hay tres áreas a considerar para la configuración de OpenLDAP: el servidor
+	(<filename>slapd.conf</filename>), el cliente (<filename>ldap.conf</filename>) y el directorio
+	(<emphasis>schema</emphasis>). Esta sección configurará los requerimientos de un servidor
+	<acronym>SSL</acronym> así como la autentificación de un cliente.</para>
+
+	<note><para>Un ejemplo completo del archivo de configuración del demonio
+	<command>slapd</command> se encuentra en el <xref linkend="openldap-slapd.conf"/></para></note>
+
+	<sect2 id="openldap-certificados-configuracion-openldap-servidor">
+		<title>Servidor</title>
+
+		<para>Se ha de añadir las siguientes líneas al archivo de configuración de
+		<command>slapd</command>, <filename>slapd.conf</filename>.</para>
+
+		<example id="openldap-certificados-configuracion-openldap-servidor-ejemplo1">
+			<title>Líneas de configuración para un servidor
+			<acronym>SSL</acronym>/<acronym>TLS</acronym></title>
+
+<programlisting># Certificado firmado de una entidad certificadora y
+# el certificado del servidor
+
+TLSCipherSuite HIGH:MEDIUM:+SSLv2 
+TLSCACertificateFile /etc/ldap/ssl/cacert.pem 
+TLSCertificateFile /etc/ldap/ssl/certs/servidorcert.pem 
+TLSCertificateKeyFile /etc/ldap/ssl/private/servidorkey.pem
+
+# Si desea que el cliente necesite autentificación,
+# descomente la siguiente línea
+TLSVerifyClient demand
+# ... si no, descomente esta otra
+# TLSVerifyClient never</programlisting>
+		</example>
+	</sect2>
+
+	<sect2 id="openldap-certificados-configuracion-openldap-cliente">
+		<title>Cliente</title>
+
+		<para>El archivo de configuración <filename>/etc/ldap/ldap.conf</filename> configura las
+		opciones por defecto para los clientes <acronym>LDAP</acronym>.</para>
+
+		<para>Si se necesitan valores específicos para los usuarios, se puede crear el archivo
+		<filename>ldaprc</filename> o <filename>.ldaprc</filename> en el home del usuario o en
+		el directorio actual, lo que
+		sobreescribirá la configuración global de <acronym>LDAP</acronym>.</para>
+
+		<caution><para>Si se requiere la autentificación de los clientes, se necesita añadir el certificado
+		y la llave privada del cliente al archivo <filename>ldaprc</filename> o
+		<filename>.ldaprc</filename>.</para></caution>
+
+		<sect3 id="openldap-certificados-configuracion-openldap-cliente-directivas-conf">
+			<title>Directivas de configuración del cliente <acronym>LDAP</acronym></title>
+
+			<para>La siguiente tabla refleja las directivas referentes a la parte de configuración
+			del cliente <acronym>LDAP</acronym>. Las ocurrencias de las palabras
+			<emphasis role="strong">específicas para usuarios</emphasis> quieren decir
+			que las directivas a las que afectan sólo
+			son aplicadas en la configuración del archivo <filename>ldaprc</filename> o
+			<filename>.ldaprc</filename>, no son directivas globales de <acronym>LDAP</acronym>.</para>
+
+	
+			<table frame="all" id="openldap-certificados-configuracion-openldap-cliente-directivas-conf-tabla1">
+				<title>Directivas de configuración de clientes <acronym>LDAP</acronym></title>
+	
+				<tgroup cols='3' align='left' colsep='1' rowsep='1'>
+					<thead>
+						<row>
+						  <entry align="center">Directiva</entry>
+						  <entry align="center">Valor</entry>
+						  <entry align="center">Descripción</entry>
+						</row>
+					</thead>
+	
+					<tbody>
+						<row>
+							<entry>BASE</entry>
+							<entry>dn</entry>
+							<entry>Base por defecto (Default Base - <acronym>DN</acronym>)
+							a utilizar cuando se realizan operaciones ldap</entry>
+						</row>
+						<row>
+							<entry>BINDDN</entry>
+							<entry>dn</entry>
+							<entry>Base por defecto a la que cambiar cuando se realizan
+							operaciones ldap <emphasis>específicas para usuarios</emphasis></entry>
+						</row>
+						<row>
+							<entry>HOST</entry>
+							<entry>nombre[:puerto]</entry>
+							<entry>Nombre de los servidores <acronym>LDAP</acronym> a los
+							que conectarse (separados por espacios)</entry>
+						</row>
+						<row>
+							<entry>PORT</entry>
+							<entry>número</entry>
+							<entry>Puerto por defecto utilizado en las conexiones a un servidor
+							<acronym>LDAP</acronym>. 636 = <acronym>SSL</acronym></entry>
+						</row>
+						<row>
+							<entry>SIZELIMIT</entry>
+							<entry>número</entry>
+							<entry>Límite de resultados devueltos en una búsqueda (0 = sin límite)</entry>
+						</row>
+						<row>
+							<entry>TIMELIMIT</entry>
+							<entry>número</entry>
+							<entry>Límite en el tiempo de búsqueda (0 = sin límite)</entry>
+						</row>
+						<row>
+							<entry>TLS</entry>
+							<entry>nivel</entry>
+							<entry>Si el usuario ha de utilizar <acronym>TLS</acronym> por defecto
+							( never | hard ), el uso de esta directiva está desaconsejado; es
+							incompatible con la petición StartTLS de LDAPv3</entry>
+						</row>
+						<row>
+							<entry>TLS_CACERT</entry>
+							<entry>nombre de un archivo</entry>
+							<entry>Especifica el archivo que contiene todos los certificados
+							pertenecientes a entidades certificadoras que el cliente
+							reconoce</entry>
+						</row>
+						<row>
+							<entry>TLS_CACERTDIR</entry>
+							<entry>directorio</entry>
+							<entry>Usado si falla TLS_CACERT</entry>
+						</row>
+						<row>
+							<entry>TLS_REQCERT</entry>
+							<entry>nivel</entry>
+							<entry>Especifica que tipo de comprobación se ha de realizar a
+							un certificado de servidor ( never | allow | try | demand,hard )</entry>
+						</row>
+						<row>
+							<entry>TLS_CERT</entry>
+							<entry>nombre de un archivo</entry>
+							<entry><emphasis role="strong">Autentificación de clientes</emphasis>:
+							especifica el certificado del cliente <emphasis role="strong">específico
+							del usuario</emphasis></entry>
+						</row>
+						<row>
+							<entry>TLS_KEY</entry>
+							<entry>nombre de un archivo</entry>
+							<entry><emphasis role="strong">Autentificación de clientes</emphasis>:
+							especifica la llave privada, para la entrada TLS_CERT,
+							<emphasis role="strong">específico del usuario</emphasis></entry>
+						</row>
+					</tbody>
+				</tgroup>
+			</table>
+		
+		</sect3>
+
+		<sect3 id="openldap-certificados-configuracion-openldap-cliente-ldap.conf">
+			<title>Ejemplo de un archivo <filename>ldap.conf</filename></title>
+
+			<para>A continuación se muestra un ejemplo de configuración de un archivo
+			<filename>ldap.conf</filename>:</para>
+
+			<note><para>En el <xref linkend="openldap-ldap.conf"/> se encuentra
+			un ejemplo de configuración más extenso de este archivo.</para></note>
+
+			<example id="openldap-certificados-configuracion-openldap-cliente-ldap.conf-ejemplo1">
+				<title>Ejemplo de configuración de un archivo <filename>ldap.conf</filename></title>
+
+<programlisting># 
+# Configuración global de LDAP
+# 
+ 
+# Lea ldap.conf(5) para más detalles
+# Este archivo se ha de poder leer por todo el mundo, pero no escribir. 
+HOST gsr.pt 
+BASE dc=gsr, dc=pt
+PORT 636 
+ 
+TLS_CACERT /etc/ldap/ssl/certs/cacert.pem 
+TLS_REQCERT demand</programlisting>				
+			</example>
+
+			<para>Esta configuración hará que los clientes se conecten a ldaps://gsr.pt:636
+			sin necesidad de especificar el host ni el puerto en las órdenes del cliente.</para>
+		</sect3>
+
+		<sect3 id="openldap-certificados-configuracion-openldap-cliente-ldaprc">
+			<title>Ejemplo de un archivo <filename>.ldaprc</filename></title>
+
+			<para>El archivo <filename>.ldaprc</filename> se utiliza para sobreescribir las opciones
+			globales de <acronym>LDAP</acronym> y para establecer el el certificado y
+			la llave privada utilizados para la autentificación del cliente.</para>
+
+			<example id="openldap-certificados-configuracion-openldap-cliente-ldaprc-ejemplo1">
+				<title>Ejemplo de configuración de un archivo <filename>.ldaprc</filename> (en el
+				home del usuario o en el directorio actual)</title>
+
+<programlisting># 
+# Configuraciones de usuario específicas para LDAP
+# 
+ 
+# Sobreescribe la directiva global (si se ha establecido) 
+TLS_REQCERT demand 
+ 
+# Autentificación del cliente
+TLS_CERT /home/ldap-user/ssl/certs/client.cert.pem 
+TLS_KEY /home/ldap-user/ssl/certs/keys/client.key.pem</programlisting>
+			</example>
+
+			<para>Esta configuración mínima es todo lo que se necesita para la autentificación
+			de un cliente.</para>
+		</sect3>
+
+	</sect2>
+
+	<sect2 id="openldap-certificados-configuracion-openldap-schema">
+		<title>Schema</title>
+
+		<para>En el archivo <filename>slapd.conf</filename>, los esquemas (schema) aparecen
+		cerca de la parte superior del archivo. A continuación se muestra un ejemplo
+		de algunos de los esquemas que se pueden establecer.</para>
+
+		<note><para>En el directorio <filename class="directory">/etc/ldap/schema</filename>
+		se encuentran varias definiciones de esquemas para <acronym>LDAP</acronym>.</para></note>
+
+		<example id="openldap-certificados-configuracion-openldap-schema-ejemplo1">
+			<title>Esquemas en un archivo de configuración <filename>slapd.conf</filename></title>
+
+<programlisting>include         /etc/ldap/schema/core.schema
+include         /etc/ldap/schema/cosine.schema
+include         /etc/ldap/schema/nis.schema
+include         /etc/ldap/schema/misc.schema
+include         /etc/ldap/schema/openldap.schema
+include         /etc/ldap/schema/inetorgperson.schema</programlisting>
+		</example>
+	</sect2>
+
+	<sect2 id="openldap-certificados-configuracion-openldap-resumen">
+		<title>Resumen de configuración</title>
+
+		<para>Existen varios grados de configuración <acronym>SSL</acronym> que se pueden establecer.
+		La <xref linkend="openldap-certificados-configuracion-openldap-resumen-tabla1"/>
+		resume las directivas y los valores que estas han de tomar para realizar desde una configuración
+		básica (<quote>Básica</quote>) a una muy estricta (<quote>La mejor</quote>) en el servidor,
+		en cuanto a conexiones <acronym>SSL</acronym> se refiere.</para>
+	
+		<table frame="all" id="openldap-certificados-configuracion-openldap-resumen-tabla1">
+			<title>Resumen de configuración <acronym>SSL</acronym> en <acronym>LDAP</acronym></title>
+
+			<tgroup cols='7' align='left' colsep='1' rowsep='1'>
+				<thead>
+					<row>
+					  <entry align="center">Archivo</entry>
+					  <entry align="center">Directiva</entry>
+					  <entry align="center">Básica</entry>
+					  <entry align="center">OK</entry>
+					  <entry align="center">Buena</entry>
+					  <entry align="center">Mejor</entry>
+					  <entry align="center">La mejor</entry>
+					</row>
+				</thead>
+
+				<tbody>
+					<row>
+						<entry morerows='4' valign='middle'><filename>slapd.conf</filename></entry>
+						<entry>TLSCACertificateFile o TLSCACertificatePath</entry>
+						<entry align="center" valign="middle">x</entry>
+						<entry align="center" valign="middle">x</entry>
+						<entry align="center" valign="middle">x</entry>
+						<entry align="center" valign="middle">x</entry>
+						<entry align="center" valign="middle">x</entry>
+					</row>
+					<row>
+						<entry>TLSCertificateFile</entry>
+						<entry align="center" valign="middle">x</entry>
+						<entry align="center" valign="middle">x</entry>
+						<entry align="center" valign="middle">x</entry>
+						<entry align="center" valign="middle">x</entry>
+						<entry align="center" valign="middle">x</entry>
+					</row>
+					<row>
+						<entry>TLSCertificateKeyFile</entry>
+						<entry align="center" valign="middle">x</entry>
+						<entry align="center" valign="middle">x</entry>
+						<entry align="center" valign="middle">x</entry>
+						<entry align="center" valign="middle">x</entry>
+						<entry align="center" valign="middle">x</entry>
+					</row>
+					<row>
+						<entry>TLSCipherSuite</entry>
+						<entry align="center" valign="middle">-</entry>
+						<entry align="center" valign="middle">x</entry>
+						<entry align="center" valign="middle">x</entry>
+						<entry align="center" valign="middle">x</entry>
+						<entry align="center" valign="middle">x</entry>
+					</row>
+					<row>
+						<entry>TLSVerifyClient</entry>
+						<entry align="center" valign="middle">never</entry>
+						<entry align="center" valign="middle">never</entry>
+						<entry align="center" valign="middle">allow</entry>
+						<entry align="center" valign="middle">try</entry>
+						<entry align="center" valign="middle">demand</entry>
+					</row>
+					<row>
+						<entry morerows='2' valign='middle'><filename>ldap.conf</filename></entry>
+						<entry>TLS_CACERT</entry>
+						<entry align="center" valign="middle">-</entry>
+						<entry align="center" valign="middle">x</entry>
+						<entry align="center" valign="middle">x</entry>
+						<entry align="center" valign="middle">x</entry>
+						<entry align="center" valign="middle">x</entry>
+					</row>
+					<row>
+						<entry>TLS_CACERTDIR (opcional)</entry>
+						<entry align="center" valign="middle">-</entry>
+						<entry align="center" valign="middle">x</entry>
+						<entry align="center" valign="middle">x</entry>
+						<entry align="center" valign="middle">x</entry>
+						<entry align="center" valign="middle">x</entry>
+					</row>
+					<row>
+						<entry>TLS_REQCERT</entry>
+						<entry align="center" valign="middle">never</entry>
+						<entry align="center" valign="middle">never</entry>
+						<entry align="center" valign="middle">allow</entry>
+						<entry align="center" valign="middle">try</entry>
+						<entry align="center" valign="middle">demand</entry>
+					</row>
+					<row>
+						<entry morerows='1' valign='middle'><filename>ldaprc</filename>
+						o <filename>.ldaprc</filename></entry>
+						<entry>TLS_CERT</entry>
+						<entry align="center" valign="middle">-</entry>
+						<entry align="center" valign="middle">-</entry>
+						<entry align="center" valign="middle">-</entry>
+						<entry align="center" valign="middle">x</entry>
+						<entry align="center" valign="middle">x</entry>
+					</row>
+					<row>
+						<entry>TLS_KEY</entry>
+						<entry align="center" valign="middle">-</entry>
+						<entry align="center" valign="middle">-</entry>
+						<entry align="center" valign="middle">-</entry>
+						<entry align="center" valign="middle">x</entry>
+						<entry align="center" valign="middle">x</entry>
+					</row>
+				</tbody>
+			</tgroup>
+		</table>
+
+	<blockquote>
+		<para>LEYENDA:</para>
+		<para>-: no se usa</para>
+		<para>x: se usa y se ha de asignar un nombre de archivo o un directorio</para>
+		<para>Note: El valor por defecto de TLSVerifyClient es <quote>never</quote>
+		y el valor por defecto de TLS_REQCERT es <quote>demand</quote></para>
+	</blockquote>
+	</sect2>
+
+</sect1>
+
+<!-- PREPARANDO EL PAQUETE DE OPENLDAP PARA EL SOPORTE DE CIFRADO  -->
+
+<sect1 id="openldap-certificados-preparando-openldap">
+	<title>Solución temporal a los problemas de OpenLDAP en Debian GNU/Linux</title>
+
+	<sect2 id="openldap-certificados-preparando-openldap-descripcion-problema">
+		<title>Descripción del problema</title>
+
+		<para>Debido a un problema de licencias con OpenSSL, los desarrolladores de Debian han decidido
+		incorporar <ulink url="http://www.gnu.org/software/gnutls/"><acronym>GNU</acronym>
+		<acronym>TLS</acronym></ulink> al paquete de OpenLDAP de esta distribución.</para>
+
+		<para>Este soporte no se ha incorporado oficialmente al proyecto OpenLDAP, y la implementación
+		que se distribuye desde Debian no funciona correctamente. El principal problema que se ha
+		presentado en la realización de esta documentación, relacionado con el soporte de
+		<application>gnutls</application> por parte de OpenLDAP, ha sido que no reconoce el
+		certificado generado en la <xref linkend="openldap-certificados-creacion-certificado"/>,
+		por lo que no puede verificar su autenticidad, y por lo tanto no se puede establecer
+		una conexión segura.</para>
+
+		<sect3 id="openldap-certificados-preparando-openldap-descripcion-problema-solucion">
+			<title>Posible solución: uso de OpenSSL</title>
+
+			<para>La primera solución que se planteó, para poder llevar a cabo la parte de cifrado
+			de esta documentación, fue el empleo de OpenSSL en detrimento de <acronym>GNU</acronym>
+			<acronym>TLS</acronym><footnote><para>Esta decisión se tomó, debido a que si se empleaba
+			el paquete oficial de OpenLDAP, tal cual, no se presentaban los problemas aquí detallados.
+			Ha de recordarse que la distribución oficial de OpenLDAP hace uso de OpenSSL.</para></footnote>.</para>
+
+			<para>La solución pasaba por especificar, en las opciones de compilación de OpenLDAP, el
+			empleo de OpenSSL para el cifrado (en Debian se utiliza <acronym>GNU</acronym> <acronym>TLS</acronym>
+			por defecto). Para ello, y teniendo en cuenta el
+			reporte <ulink url="http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=214753">214753</ulink>
+			<footnote><para>OpenLDAP source package does not compile correctly with
+			'--with-tls=openssl' flag</para></footnote> del sistema de seguimiento de errores de Debian,
+			se recompiló el paquete OpenLDAP con esta nueva opción y se probó el funcionamiento del
+			sistema.</para>
+
+			<para>Con el uso de OpenSSL, en lugar de <acronym>GNU</acronym> <acronym>TLS</acronym>, el
+			certificado ya era reconocido y permitía realizar conexiones cifradas con el servidor
+			<acronym>LDAP</acronym>. Pero ahora se presentaba un nuevo problema<footnote><para>Inexistente
+			si se hacía uso de la distribución oficial de OpenLDAP.</para></footnote>: tras finalizar
+			la ejecución de cualquier orden que implicara la conexión cifrada con el servidor
+			<acronym>LDAP</acronym>, se obtenía una <emphasis>violación de segmento</emphasis>
+			(<emphasis>segmentation fault</emphasis>). Este problema impedía, por ejemplo,
+			hacer uso de las cuentas almacenadas en el directorio <acronym>LDAP</acronym> para
+			acceder al sistema.</para>
+
+			<para>Después de un período de pruebas y análisis del problema, se consiguió
+			solucionarlo, presentando la solución en la siguiente sección.</para>
+		</sect3>
+	</sect2>
+
+	<sect2 id="openldap-certificados-preparando-openldap-solucion">
+		<title>Solución temporal propuesta</title>
+
+		<para>Después del planteamiento del problema
+		(<xref linkend="openldap-certificados-preparando-openldap-descripcion-problema"/>), la solución
+		que se ha llevado a cabo ha sido la de eliminar los parches aplicados por los
+		desarrolladores de Debian, para dar soporte <acronym>GNU</acronym> <acronym>TLS</acronym> a OpenLDAP,
+		entre otros.</para>
+
+		<caution><para>De todas formas, ha de tomarse esta solución como algo temporal (a la espera de que se
+		solucionen los problemas con el paquete de Debian). Si se desea hacer uso de cifrado
+		junto con OpenLDAP en un entorno de producción, sería recomendable utilizar la versión
+		oficial estable de OpenLDAP (en estos momentos es la versión 2.2.*), que todavía no tiene
+		paquetes para Debian.</para></caution>
+
+		<para>En las siguientes secciones se muestran los pasos seguidos para aplicar la solución planteada.</para>
+
+		<sect3 id="openldap-certificados-preparando-openldap-solucion-paso-1">
+			<title>Obtención del código fuente de OpenLDAP</title>
+
+			<para>Puede obtener el código fuente de la versión 2.1.30 de OpenLDAP de dos formas:
+			a partir del proyecto <xref linkend="bibliografia-openldap"/> o de los distintos
+			mirrors de Debian. Si opta por la segunda opción, tendrá que teclear la siguiente
+			orden en un directorio en el que tenga permisos de escritura:</para>
+
+			<example id="openldap-certificados-preparando-openldap-solucion-paso-1-ejemplo-1">
+				<title>Obtención del código fuente de OpenLDAP</title>
+
+<screen><prompt>$</prompt> <userinput>/usr/bin/apt-get source openldap2</userinput></screen>
+			</example>
+
+			<note><para>Asegúrese de tener una entrada <emphasis>deb-src</emphasis> en el archivo
+			<filename>/etc/apt/sources.list</filename> que apunte a uno de los mirrors de Debian,
+			para poder bajarse el código fuente de OpenLDAP.</para></note>
+
+		</sect3>
+
+		<sect3 id="openldap-certificados-preparando-openldap-solucion-paso-2">
+			<title>Aplicación del parche</title>
+
+			<para>La solución planteada se muestra en forma de parche a las fuentes de OpenLDAP.
+			Dependiendo de donde haya obtenido el código fuente, tendrá que aplicar uno u otro parche
+			(ambos darán el mismo resultado):</para>
+
+			<itemizedlist>
+				<listitem>
+					<para>Si ha obtenido el código fuente de OpenLDAP del proyecto oficial,
+					ha de aplicar el siguiente parche:
+					<ulink url="http://guepardo.dyndns.org:8080/sergio-gonzalez/doc/10-ldap-samba-cups-pykota/recursos/openldap-2.1.30-debianized.patch.bz2">openldap-2.1.30-debianized.patch.bz2</ulink>.</para>
+				</listitem>
+				<listitem>
+					<para>Si ha preferido obtener el código fuente desde Debian, ha de aplicar
+					el siguiente parche:
+					<ulink url="http://guepardo.dyndns.org:8080/sergio-gonzalez/doc/10-ldap-samba-cups-pykota/recursos/openldap-2.1.30-without-gnutls.patch.bz2">openldap-2.1.30-without-gnutls.patch.bz2</ulink>.</para>
+				</listitem>
+			</itemizedlist>
+
+			<para>El proceso para aplicar los parches es similar en ambas situaciones, por lo que aquí
+			sólo se mostrará el proceso para una de ellas. Se aplicará el parche al código fuente
+			obtenido desde Debian.</para>
+
+			<example id="openldap-certificados-preparando-openldap-solucion-paso-2-ejemplo-1">
+				<title>Aplicando el parche a las fuentes de OpenLDAP</title>
+
+<screen><prompt>$</prompt> <userinput>cd openldap2-2.1.30/</userinput>
+<userinput>/usr/bin/bzcat ../openldap-2.1.30-without-gnutls.patch.bz2 | /usr/bin/patch -p1</userinput>
+<computeroutput>patching file configure
+patching file configure.in
+patching file contrib/ldapc++/config.guess
+patching file contrib/ldapc++/config.sub
+patching file debian/changelog
+patching file debian/control
+patching file include/ldap_pvt_gnutls.h
+patching file include/portable.h.in
+patching file libraries/libldap/getdn.c
+patching file libraries/libldap/gnutls.c
+patching file libraries/libldap/Makefile.in
+patching file libraries/libldap/tls.c
+patching file libraries/libldap_r/Makefile.in
+patching file servers/slapd/schema_init.c</computeroutput></screen>
+			</example>
+		</sect3>
+
+		<sect3 id="openldap-certificados-preparando-openldap-solucion-paso-3">
+			<title>Resolviendo las dependencias de compilación</title>
+
+			<para>El último paso, antes de proceder a recompilar el código, es la resolución de las dependencias
+			de compilación de OpenLDAP. Para ello, ha de ejecutar:</para>
+
+			<example id="openldap-certificados-preparando-openldap-solucion-paso-3-ejemplo-1">
+				<title>Resolviendo las dependencias de compilación para OpenLDAP</title>
+
+<screen><prompt>#</prompt> <userinput>/usr/bin/apt-get build-dep openldap2</userinput></screen>
+			</example>
+
+			<para>La orden anterior instalará dos paquetes, <emphasis>libgnutls11-dev</emphasis> y
+			<emphasis>libgcrypt11-dev</emphasis>, que no son necesarios tras aplicar el parche, por lo
+			que puede desinstalarlos si lo considera oportuno.</para>
+		</sect3>
+
+		<sect3 id="openldap-certificados-preparando-openldap-solucion-paso-4">
+			<title>Compilación del paquete</title>
+
+			<para>Ahora ya está todo listo para proceder a recompilar el paquete, para ello teclee:</para>
+
+			<example id="openldap-certificados-preparando-openldap-solucion-paso-4-ejemplo-1">
+				<title>Compilando OpenLDAP</title>
+
+<screen><prompt>$</prompt> <userinput>/usr/bin/dpkg-buildpackage -us -uc -b -rfakeroot</userinput></screen>
+			</example>
+
+			<para>Tras la compilación, se habrán generado los siguientes paquetes:</para>
+
+			<example id="openldap-certificados-preparando-openldap-solucion-paso-4-ejemplo-2">
+				<title>Listado de paquetes de OpenLDAP</title>
+
+<screen><prompt>$</prompt> <userinput>/bin/ls -l ../*deb</userinput>
+<computeroutput>-rw-r--r--  1 sergio src 112810 2004-09-21 22:12 ldap-utils_2.1.30-3.1_i386.deb
+-rw-r--r--  1 sergio src 284366 2004-09-21 22:12 libldap2_2.1.30-3.1_i386.deb
+-rw-r--r--  1 sergio src 321336 2004-09-21 22:12 libldap2-dev_2.1.30-3.1_i386.deb
+-rw-r--r--  1 sergio src  71864 2004-09-21 22:12 libslapd2-dev_2.1.30-3.1_all.deb
+-rw-r--r--  1 sergio src 945220 2004-09-21 22:12 slapd_2.1.30-3.1_i386.deb</computeroutput></screen>
+			</example>
+
+		</sect3>
+
+		<sect3 id="openldap-certificados-preparando-openldap-solucion-paso-5">
+			<title>Instalación de los nuevos paquetes</title>
+
+			<para>La única acción que nos queda por hacer es la instalación de los nuevos paquetes
+			que se han generado. Para ello teclee:</para>
+
+			<example id="openldap-certificados-preparando-openldap-solucion-paso-5-ejemplo-1">
+				<title>Instalación de los nuevos paquetes de OpenLDAP</title>
+
+<screen><prompt>#</prompt> <userinput>/usr/bin/dpkg -i ../slapd_2.1.30-3.1_i386.deb \
+                   ../ldap-utils_2.1.30-3.1_i386.deb \
+                   ../libldap2_2.1.30-3.1_i386.deb</userinput>
+<computeroutput>(Leyendo la base de datos ...
+132792 ficheros y directorios instalados actualmente.)
+Preparando para reemplazar slapd 2.1.30-3 (usando slapd_2.1.30-3.1_i386.deb) ...
+Stopping OpenLDAP: slapd.
+Stopping OpenLDAP: slapd.
+Desempaquetando el reemplazo de slapd ...
+Preparando para reemplazar ldap-utils 2.1.30-3 (usando ldap-utils_2.1.30-3.1_i386.deb) ...
+Desempaquetando el reemplazo de ldap-utils ...
+Preparando para reemplazar libldap2 2.1.30-3 (usando libldap2_2.1.30-3.1_i386.deb) ...
+Desempaquetando el reemplazo de libldap2 ...
+Configurando libldap2 (2.1.30-3.1) ...
+
+Configurando slapd (2.1.30-3.1) ...
+Starting OpenLDAP: slapd.
+
+Configurando ldap-utils (2.1.30-3.1) ...</computeroutput></screen>
+			</example>
+
+			<para>Con esto se finalizaría la instalación del servidor OpenLDAP modificado.</para>
+
+		</sect3>
+
+	</sect2>
+</sect1>
+
+<!-- PROBANDO EL SERVIDOR EN MODO SEGURO -->
+
+<sect1 id="openldap-certificados-probando-servidor">
+	<title>Probando el servidor en modo seguro</title>
+	
+	<para>En este punto ya se puede re/iniciar el demonio <command>slapd</command>
+	con la nueva configuración de seguridad. Para ello emplee la orden
+	<command>/etc/init.d/slapd restart</command> (en el
+	<xref linkend="openldap-configuracion-especificacion-interfaz-ejemplo2"/>
+	se muestra como hacerlo).</para>
+
+	<para>En las siguientes secciones se verá la forma de comprobar que
+	OpenLDAP se comporta como debe. Para cumplir este objetivo, se hará uso de las
+	herramientas que vienen con OpenSSL para verificar las conexiones
+	<acronym>SSL</acronym> y se realizarán búsquedas en el directorio <acronym>LDAP</acronym>.</para>
+
+	<sect2 id="openldap-certificados-probando-servidor-comprobando-la-conexion-ssl">
+		<title>Comprobando la conexión <acronym>SSL</acronym></title>
+
+		<note><para>Antes de ejecutar la siguiente orden, ha de asegurarse que valor tiene la variable
+		<emphasis>TLSVerifyClient</emphasis>. Si su valor es <emphasis>demand</emphasis>, la
+		orden no se ejecutará correctamente, ya que el cliente no se ha autentificado, como
+		se requiere en la configuración de OpenLDAP.</para></note>
+
+		<para>Nótese que a la orden del
+		<xref linkend="openldap-certificados-probando-servidor-comprobando-la-conexion-ssl-ejemplo-1"/>
+		se le pasa como argumento<footnote><para>-CAfile</para></footnote> el certificado de la entidad
+		certificadora del cliente. ¿Por qué se ha de especificar el certificado, si ya se ha
+		configurado en el archivo <filename>ldap.conf</filename>? la razón es porque la orden
+		que estamos ejecutando, es una orden dependiente de OpenSSL y no de OpenLDAP.</para>
+
+		<example id="openldap-certificados-probando-servidor-comprobando-la-conexion-ssl-ejemplo-1">
+			<title>Comprobando la conexión <acronym>SSL</acronym> sin autentificación del cliente</title>
+
+<screen><prompt>$</prompt> <userinput>/usr/bin/openssl s_client -connect gsr.pt:636 -showcerts -state \
+                            -CAfile /etc/ldap/ssl/cacert.pem</userinput>
+<computeroutput>CONNECTED(00000003)
+SSL_connect:before/connect initialization
+SSL_connect:SSLv2/v3 write client hello A
+SSL_connect:SSLv3 read server hello A
+depth=1 /C=PT/ST=Braganca/L=Braganca/O=Companhia GSR/OU=Unidade de certificados/CN=gsr.pt
+verify return:1
+depth=0 /C=PT/ST=Braganca/L=Braganca/O=SubGSR/OU=Controle de \
+                                              acesso/CN=gsr.pt/emailAddress=sergio@gsr.pt
+verify return:1
+SSL_connect:SSLv3 read server certificate A
+SSL_connect:SSLv3 read server done A
+SSL_connect:SSLv3 write client key exchange A
+SSL_connect:SSLv3 write change cipher spec A
+SSL_connect:SSLv3 write finished A
+SSL_connect:SSLv3 flush data
+SSL_connect:SSLv3 read finished A
+---
+Certificate chain
+ 0 s:/C=PT/ST=Braganca/L=Braganca/O=SubGSR/OU=Controle de \
+                                           acesso/CN=gsr.pt/emailAddress=sergio@gsr.pt
+   i:/C=PT/ST=Braganca/L=Braganca/O=Companhia GSR/OU=Unidade de certificados/CN=gsr.pt
+-----BEGIN CERTIFICATE-----
+MIIDkDCCAvmgAwIBAgIBATANBgkqhkiG9w0BAQQFADB+MQswCQYDVQQGEwJQVDER
+MA8GA1UECBMIQnJhZ2FuY2ExETAPBgNVBAcTCEJyYWdhbmNhMRYwFAYDVQQKEw1D
+b21wYW5oaWEgR1NSMSAwHgYDVQQLExdVbmlkYWRlIGRlIGNlcnRpZmljYWRvczEP
+MA0GA1UEAxMGZ3NyLnB0MB4XDTA0MDkyMzE2MTYxMVoXDTA1MDkyMzE2MTYxMVow
+gZAxCzAJBgNVBAYTAlBUMREwDwYDVQQIEwhCcmFnYW5jYTERMA8GA1UEBxMIQnJh
+Z2FuY2ExDzANBgNVBAoTBlN1YkdTUjEbMBkGA1UECxMSQ29udHJvbGUgZGUgYWNl
+c3NvMQ8wDQYDVQQDEwZnc3IucHQxHDAaBgkqhkiG9w0BCQEWDXNlcmdpb0Bnc3Iu
+cHQwgZ8wDQYJKoZIhvcNAQEBBQADgY0AMIGJAoGBAKu8Yqp1rXZtBea+wre3Hyg6
+ue0LshFqnSd7BmmJOhM9KYUNAoe3rM9GsAE6MMYuJROvbzW20Cyu+0Ikd/PH4abL
+ADXKA76x2N0i3ta84pTUGq5Hg5UMoq4fw9P0HX7NzJxIKGM1XK97yb/4994rCWHG
+QDB2459RKNBhshia2YpTAgMBAAGjggEJMIIBBTAJBgNVHRMEAjAAMCwGCWCGSAGG
++EIBDQQfFh1PcGVuU1NMIEdlbmVyYXRlZCBDZXJ0aWZpY2F0ZTAdBgNVHQ4EFgQU
+jGYsPg9jL1Mp+ijqf1mkFkzffGwwgaoGA1UdIwSBojCBn4AU8TR3gKQ0S3HIv4Fs
+3wyY02K3EL6hgYOkgYAwfjELMAkGA1UEBhMCUFQxETAPBgNVBAgTCEJyYWdhbmNh
+MREwDwYDVQQHEwhCcmFnYW5jYTEWMBQGA1UEChMNQ29tcGFuaGlhIEdTUjEgMB4G
+A1UECxMXVW5pZGFkZSBkZSBjZXJ0aWZpY2Fkb3MxDzANBgNVBAMTBmdzci5wdIIB
+ADANBgkqhkiG9w0BAQQFAAOBgQAnQ1RGFN31LWRAtN1itHnWkzLUVg2ngGBqkxrC
+AuP4M9lNMscLNCkBcpgaqsY0eFARDZKrMbqbPyc5GhmLoCzXylYEacSuzOXc+s7a
+EaklDNvWjGCxhpoCBsXE2o+Opk2EBj3hzj7Z+tRb1UQ2T0iI0KvsA+WnT5Lojtuq
+iX4C5A==
+-----END CERTIFICATE-----
+ 1 s:/C=PT/ST=Braganca/L=Braganca/O=Companhia GSR/OU=Unidade de certificados/CN=gsr.pt
+   i:/C=PT/ST=Braganca/L=Braganca/O=Companhia GSR/OU=Unidade de certificados/CN=gsr.pt
+-----BEGIN CERTIFICATE-----
+MIIDUDCCArmgAwIBAgIBADANBgkqhkiG9w0BAQQFADB+MQswCQYDVQQGEwJQVDER
+MA8GA1UECBMIQnJhZ2FuY2ExETAPBgNVBAcTCEJyYWdhbmNhMRYwFAYDVQQKEw1D
+b21wYW5oaWEgR1NSMSAwHgYDVQQLExdVbmlkYWRlIGRlIGNlcnRpZmljYWRvczEP
+MA0GA1UEAxMGZ3NyLnB0MB4XDTA0MDkyMzE2MDY1NFoXDTA1MDkyMzE2MDY1NFow
+fjELMAkGA1UEBhMCUFQxETAPBgNVBAgTCEJyYWdhbmNhMREwDwYDVQQHEwhCcmFn
+YW5jYTEWMBQGA1UEChMNQ29tcGFuaGlhIEdTUjEgMB4GA1UECxMXVW5pZGFkZSBk
+ZSBjZXJ0aWZpY2Fkb3MxDzANBgNVBAMTBmdzci5wdDCBnzANBgkqhkiG9w0BAQEF
+AAOBjQAwgYkCgYEA15+Ciw1MUiRiY88v0rsAZDr+W/w4uQ3bx20v3ddE9Ok0mwv0
+vE+DDJjKVUL4FK0rUe8ReDka4D3kB9j2vshWJjf2pA5nWtsoBgm5Dft0RIHM82GM
+KCqeG5Lb7/21UaKloJNXTDPfh/HVydQzt2Uivbss3iUdGaDuKCt7IKynA/kCAwEA
+AaOB3TCB2jAdBgNVHQ4EFgQU8TR3gKQ0S3HIv4Fs3wyY02K3EL4wgaoGA1UdIwSB
+ojCBn4AU8TR3gKQ0S3HIv4Fs3wyY02K3EL6hgYOkgYAwfjELMAkGA1UEBhMCUFQx
+ETAPBgNVBAgTCEJyYWdhbmNhMREwDwYDVQQHEwhCcmFnYW5jYTEWMBQGA1UEChMN
+Q29tcGFuaGlhIEdTUjEgMB4GA1UECxMXVW5pZGFkZSBkZSBjZXJ0aWZpY2Fkb3Mx
+DzANBgNVBAMTBmdzci5wdIIBADAMBgNVHRMEBTADAQH/MA0GCSqGSIb3DQEBBAUA
+A4GBAEyudW3FLXIFNbWQ7qJqEE6KhrsiSgR1+VjavJZJP0j2A5sf0vsp083mWJd5
+yCWvgxb/Bcx2kbi9KjeP/dtYJM0drAQzFAW4CQQBNxsk3lNkEMot0/8epybirKVG
+nThgAkySYQDPXfNEc5qSm2eAgLI7aElBLHQk2R6YVn26i0Gu
+-----END CERTIFICATE-----
+---
+Server certificate
+subject=/C=PT/ST=Braganca/L=Braganca/O=SubGSR/OU=Controle de \
+                                             acesso/CN=gsr.pt/emailAddress=sergio@gsr.pt
+issuer=/C=PT/ST=Braganca/L=Braganca/O=Companhia GSR/OU=Unidade de certificados/CN=gsr.pt
+---
+No client certificate CA names sent <co id="openldap-certificados-probando-servidor-comprobando-la-conexion-ssl-ejemplo-1-no-client-certificate-sent"/>
+---
+SSL handshake has read 1933 bytes and written 340 bytes
+---
+New, TLSv1/SSLv3, Cipher is AES256-SHA
+Server public key is 1024 bit
+SSL-Session:
+    Protocol  : TLSv1
+    Cipher    : AES256-SHA
+    Session-ID: C5101CF18CB3C821E1AD7C6CCD74693773C1AF75D2A209C6E12075B300A29CF2
+    Session-ID-ctx:
+    Master-Key: DB2972AF0D2AFF52B57861BBFE8164F5DE2347D3B5248C8D193C26F9B2DA93C6FFB16\
+                                                           A705BAD5447716F7BAB2DA958D6
+    Key-Arg   : None
+    Start Time: 1095969142
+    Timeout   : 300 (sec)
+    Verify return code: 0 (ok)
+---
+</computeroutput></screen>
+		</example>
+
+		<calloutlist>
+			<callout arearefs="openldap-certificados-probando-servidor-comprobando-la-conexion-ssl-ejemplo-1-no-client-certificate-sent">
+				<para>Esta línea indica que el cliente no se ha autentificado ante el servidor.</para>
+			</callout>
+		</calloutlist>
+
+		<note><para>Normalmente, para finalizar la ejecución de la orden anterior, se ha de pulsar
+		<keycombo action='simul'><keycap>Ctrl</keycap><keycap>c</keycap></keycombo>. No se preocupe por
+		ello.</para></note>
+
+		<para>Ahora se verá un ejemplo donde el cliente se autentifica ante el servidor:</para>
+
+		<example id="openldap-certificados-probando-servidor-comprobando-la-conexion-ssl-ejemplo-2">
+			<title>Comprobando la conexión <acronym>SSL</acronym> con autentificación del cliente</title>
+
+<screen><prompt>$</prompt> <userinput>/usr/bin/openssl s_client -connect gsr.pt:636 -state \
+                            -CAfile /etc/ldap/ssl/cacert.pem \
+                            -cert /home/certs/ldap.cliente.cert.pem \
+                            -key /home/certs/ldap.cliente.key.pem</userinput>
+<computeroutput>CONNECTED(00000003)
+SSL_connect:before/connect initialization
+SSL_connect:SSLv2/v3 write client hello A
+SSL_connect:SSLv3 read server hello A
+depth=1 /C=PT/ST=Braganca/L=Braganca/O=Companhia GSR/OU=Unidade de certificados/CN=gsr.pt
+verify return:1
+depth=0 /C=PT/ST=Braganca/L=Braganca/O=SubGSR/OU=Controle de \
+                                               acesso/CN=gsr.pt/emailAddress=sergio@gsr.pt
+verify return:1
+SSL_connect:SSLv3 read server certificate A
+SSL_connect:SSLv3 read server certificate request A <co id="negociacion-ssl-1"/>
+SSL_connect:SSLv3 read server done A
+SSL_connect:SSLv3 write client certificate A <co id="negociacion-ssl-2"/>
+SSL_connect:SSLv3 write client key exchange A
+SSL_connect:SSLv3 write certificate verify A <co id="negociacion-ssl-3"/>
+SSL_connect:SSLv3 write change cipher spec A
+SSL_connect:SSLv3 write finished A
+SSL_connect:SSLv3 flush data
+SSL_connect:SSLv3 read finished A
+---
+Certificate chain
+ 0 s:/C=PT/ST=Braganca/L=Braganca/O=SubGSR/OU=Controle de \
+                                              acesso/CN=gsr.pt/emailAddress=sergio@gsr.pt
+   i:/C=PT/ST=Braganca/L=Braganca/O=Companhia GSR/OU=Unidade de certificados/CN=gsr.pt
+-----BEGIN CERTIFICATE-----
+MIIDkDCCAvmgAwIBAgIBATANBgkqhkiG9w0BAQQFADB+MQswCQYDVQQGEwJQVDER
+MA8GA1UECBMIQnJhZ2FuY2ExETAPBgNVBAcTCEJyYWdhbmNhMRYwFAYDVQQKEw1D
+b21wYW5oaWEgR1NSMSAwHgYDVQQLExdVbmlkYWRlIGRlIGNlcnRpZmljYWRvczEP
+MA0GA1UEAxMGZ3NyLnB0MB4XDTA0MDkyMzE2MTYxMVoXDTA1MDkyMzE2MTYxMVow
+gZAxCzAJBgNVBAYTAlBUMREwDwYDVQQIEwhCcmFnYW5jYTERMA8GA1UEBxMIQnJh
+Z2FuY2ExDzANBgNVBAoTBlN1YkdTUjEbMBkGA1UECxMSQ29udHJvbGUgZGUgYWNl
+c3NvMQ8wDQYDVQQDEwZnc3IucHQxHDAaBgkqhkiG9w0BCQEWDXNlcmdpb0Bnc3Iu
+cHQwgZ8wDQYJKoZIhvcNAQEBBQADgY0AMIGJAoGBAKu8Yqp1rXZtBea+wre3Hyg6
+ue0LshFqnSd7BmmJOhM9KYUNAoe3rM9GsAE6MMYuJROvbzW20Cyu+0Ikd/PH4abL
+ADXKA76x2N0i3ta84pTUGq5Hg5UMoq4fw9P0HX7NzJxIKGM1XK97yb/4994rCWHG
+QDB2459RKNBhshia2YpTAgMBAAGjggEJMIIBBTAJBgNVHRMEAjAAMCwGCWCGSAGG
++EIBDQQfFh1PcGVuU1NMIEdlbmVyYXRlZCBDZXJ0aWZpY2F0ZTAdBgNVHQ4EFgQU
+jGYsPg9jL1Mp+ijqf1mkFkzffGwwgaoGA1UdIwSBojCBn4AU8TR3gKQ0S3HIv4Fs
+3wyY02K3EL6hgYOkgYAwfjELMAkGA1UEBhMCUFQxETAPBgNVBAgTCEJyYWdhbmNh
+MREwDwYDVQQHEwhCcmFnYW5jYTEWMBQGA1UEChMNQ29tcGFuaGlhIEdTUjEgMB4G
+A1UECxMXVW5pZGFkZSBkZSBjZXJ0aWZpY2Fkb3MxDzANBgNVBAMTBmdzci5wdIIB
+ADANBgkqhkiG9w0BAQQFAAOBgQAnQ1RGFN31LWRAtN1itHnWkzLUVg2ngGBqkxrC
+AuP4M9lNMscLNCkBcpgaqsY0eFARDZKrMbqbPyc5GhmLoCzXylYEacSuzOXc+s7a
+EaklDNvWjGCxhpoCBsXE2o+Opk2EBj3hzj7Z+tRb1UQ2T0iI0KvsA+WnT5Lojtuq
+iX4C5A==
+-----END CERTIFICATE-----
+ 1 s:/C=PT/ST=Braganca/L=Braganca/O=Companhia GSR/OU=Unidade de certificados/CN=gsr.pt
+   i:/C=PT/ST=Braganca/L=Braganca/O=Companhia GSR/OU=Unidade de certificados/CN=gsr.pt
+-----BEGIN CERTIFICATE-----
+MIIDUDCCArmgAwIBAgIBADANBgkqhkiG9w0BAQQFADB+MQswCQYDVQQGEwJQVDER
+MA8GA1UECBMIQnJhZ2FuY2ExETAPBgNVBAcTCEJyYWdhbmNhMRYwFAYDVQQKEw1D
+b21wYW5oaWEgR1NSMSAwHgYDVQQLExdVbmlkYWRlIGRlIGNlcnRpZmljYWRvczEP
+MA0GA1UEAxMGZ3NyLnB0MB4XDTA0MDkyMzE2MDY1NFoXDTA1MDkyMzE2MDY1NFow
+fjELMAkGA1UEBhMCUFQxETAPBgNVBAgTCEJyYWdhbmNhMREwDwYDVQQHEwhCcmFn
+YW5jYTEWMBQGA1UEChMNQ29tcGFuaGlhIEdTUjEgMB4GA1UECxMXVW5pZGFkZSBk
+ZSBjZXJ0aWZpY2Fkb3MxDzANBgNVBAMTBmdzci5wdDCBnzANBgkqhkiG9w0BAQEF
+AAOBjQAwgYkCgYEA15+Ciw1MUiRiY88v0rsAZDr+W/w4uQ3bx20v3ddE9Ok0mwv0
+vE+DDJjKVUL4FK0rUe8ReDka4D3kB9j2vshWJjf2pA5nWtsoBgm5Dft0RIHM82GM
+KCqeG5Lb7/21UaKloJNXTDPfh/HVydQzt2Uivbss3iUdGaDuKCt7IKynA/kCAwEA
+AaOB3TCB2jAdBgNVHQ4EFgQU8TR3gKQ0S3HIv4Fs3wyY02K3EL4wgaoGA1UdIwSB
+ojCBn4AU8TR3gKQ0S3HIv4Fs3wyY02K3EL6hgYOkgYAwfjELMAkGA1UEBhMCUFQx
+ETAPBgNVBAgTCEJyYWdhbmNhMREwDwYDVQQHEwhCcmFnYW5jYTEWMBQGA1UEChMN
+Q29tcGFuaGlhIEdTUjEgMB4GA1UECxMXVW5pZGFkZSBkZSBjZXJ0aWZpY2Fkb3Mx
+DzANBgNVBAMTBmdzci5wdIIBADAMBgNVHRMEBTADAQH/MA0GCSqGSIb3DQEBBAUA
+A4GBAEyudW3FLXIFNbWQ7qJqEE6KhrsiSgR1+VjavJZJP0j2A5sf0vsp083mWJd5
+yCWvgxb/Bcx2kbi9KjeP/dtYJM0drAQzFAW4CQQBNxsk3lNkEMot0/8epybirKVG
+nThgAkySYQDPXfNEc5qSm2eAgLI7aElBLHQk2R6YVn26i0Gu
+-----END CERTIFICATE-----
+---
+Server certificate
+subject=/C=PT/ST=Braganca/L=Braganca/O=SubGSR/OU=Controle de \
+                                             acesso/CN=gsr.pt/emailAddress=sergio@gsr.pt
+issuer=/C=PT/ST=Braganca/L=Braganca/O=Companhia GSR/OU=Unidade de certificados/CN=gsr.pt
+---
+Acceptable client certificate CA names <co id="negociacion-ssl-4"/>
+/C=PT/ST=Braganca/L=Braganca/O=Companhia GSR/OU=Unidade de certificados/CN=gsr.pt
+---
+SSL handshake has read 2072 bytes and written 2274 bytes
+---
+New, TLSv1/SSLv3, Cipher is AES256-SHA
+Server public key is 1024 bit
+SSL-Session:
+    Protocol  : TLSv1
+    Cipher    : AES256-SHA
+    Session-ID: CE4D0BFD367AF2F4B2E51ECB8C48A1D1A3F5EC0F00346EF13551534C1F1CE8E1
+    Session-ID-ctx:
+    Master-Key: 4D9089B2602C0376B92079BA539D8D3F244B5CBF31A68FD3A51DDC801251AA16\
+                                                 5C194DA63B1BFB7025D818F2480E6450
+    Key-Arg   : None
+    Start Time: 1095970126
+    Timeout   : 300 (sec)
+    Verify return code: 0 (ok)
+---
+</computeroutput></screen>
+		</example>
+
+		<calloutlist>
+			<callout arearefs="negociacion-ssl-1 negociacion-ssl-2 negociacion-ssl-3 negociacion-ssl-4">
+				<para>Negociado extra relacionado con la comunicación <acronym>SSL</acronym>.</para>
+			</callout>
+		</calloutlist>
+
+	</sect2>
+
+	<sect2 id="openldap-certificados-probando-servidor-ordenes-openldap">
+		<title>Uso de cifrado con las herramientas de OpenLDAP</title>
+
+		<para>OpenLDAP tiene varias herramientas, como son: <application>ldapsearch</application>,
+		<application>ldapadd</application>, <application>ldapmodify</application> y
+		<application>ldapdelete</application>. A continuación se verán algunos ejemplos de su uso, para
+		ilustrar la comunicación mediante <acronym>SSL</acronym> y <acronym>TLS</acronym>.</para>
+
+		<para>Los ejemplos se centrarán en las búsquedas de varias entradas, previamente incorporadas al
+		directorio.</para>
+
+		<sect3 id="openldap-certificados-probando-servidor-ordenes-openldap-aniadir-entradas">
+			<title>Añadir datos al directorio</title>
+
+			<para>Lo primero que se va a hacer es añadir una serie de datos al directorio
+			<acronym>LDAP</acronym>, sobre los cuales, posteriormente, se realizarán las búsquedas.
+			Para ello, puede copiar el siguiente texto a un archivo denominado
+			<filename>datos-iniciales.ldif</filename>, por ejemplo.</para>
+
+			<para>Tenga en cuenta que ha de eliminar cualquier espacio al inicio o al final
+			de las líneas del ejemplo. Tampoco olvide adaptar el ejemplo que aquí se presenta
+			a su configuración.</para>
+
+<programlisting><![CDATA[#datos-iniciales.ldif
+dn: cn=sergio,dc=gsr,dc=pt
+objectclass: organizationalRole
+cn: sergio
+
+dn: ou=unidade de contas,dc=gsr,dc=pt
+objectclass: organizationalUnit
+ou: unidade de contas
+description: Organizacao de provas que contera ao administrador
+
+dn: cn=senhor administrador,ou=unidade de contas,dc=gsr,dc=pt
+objectclass: person
+userPassword: chaveprova
+description: Usuario de exemplo como administrador
+cn: senhor administrador
+sn: admin]]></programlisting>
+
+			<para>Ahora se procederá a añadir estas entradas a la base de datos de <acronym>LDAP</acronym>,
+			para ello haga uso del usuario administrador de su directorio <acronym>LDAP</acronym>.</para>
+
+			<example id="openldap-certificados-probando-servidor-ordenes-openldap-aniadir-entradas-ejemplo-1">
+				<title>Incorporación de datos al directorio <acronym>LDAP</acronym> por medio de un archivo
+				<acronym>LDIF</acronym></title>
+
+<screen><prompt>$</prompt> <userinput>/usr/bin/ldapadd -x -D "cn=admin,dc=gsr,dc=pt" -W -f datos-iniciales.ldif</userinput>
+<computeroutput>Enter LDAP Password:<userinput>[Clave]</userinput>
+adding new entry "cn=sergio,dc=gsr,dc=pt"
+
+adding new entry "ou=unidade de contas,dc=gsr,dc=pt"
+
+adding new entry "cn=senhor administrador,ou=unidade de contas,dc=gsr,dc=pt"
+
+</computeroutput></screen>
+			</example>
+
+			<para>La orden anterior se ha realizado en texto plano, por lo que la transmisión de la clave
+			del administrador del directorio <acronym>LDAP</acronym> se ha hecho sin ningún tipo
+			de cifrado, como se puede apreciar en la siguiente captura de pantalla (debajo del color rojo
+			aparece la clave del administrador):</para>
+
+			<figure>
+				<title>Captura de la clave del administrador del directorio <acronym>LDAP</acronym> con
+				<application>ethereal</application></title>
+				<mediaobject>
+					<imageobject>
+						<imagedata fileref="./imagenes/openldap-certificado-ethereal.png" format="PNG"/>
+					</imageobject>
+			
+					<caption>
+						<para>Al comunicarse con el servidor <acronym>LDAP</acronym> sin hacer uso de cifrado,
+						las claves de los usuarios viajan en texto plano, como puede apreciarse
+						en esta captura de pantalla. Las líneas en rojo ocultan la clave del administrador
+						del directorio <acronym>LDAP</acronym> capturada por el programa
+						<application>ethereal</application>.</para>
+					</caption>
+				</mediaobject>
+			</figure>
+
+			<para>Para evitar esta situación, se puede hacer uso de <acronym>SSL</acronym> o <acronym>TLS</acronym>
+			en las comunicaciones con el servidor <acronym>LDAP</acronym>. Las siguientes secciones
+			explican como hacerlo:</para>
+
+			<sect4 id="openldap-certificados-probando-servidor-ordenes-openldap-aniadir-entradas-SSL">
+				<title>Cómo activar el cifrado <acronym>SSL</acronym> en las comunicaciones con el servidor
+				<acronym>LDAP</acronym> </title>
+
+				<para>Para asegurarse de que sus comunicaciones con el servidor <acronym>LDAP</acronym> utilizan
+				<acronym>SSL</acronym> al hacer uso de las herramientas que incorpora OpenLDAP, ha de añadir
+				el siguiente parámetro a sus órdenes: <quote>-H ldaps://gsr.pt/</quote>.</para>
+			</sect4>
+
+			<sect4 id="openldap-certificados-probando-servidor-ordenes-openldap-aniadir-entradas-TLS">
+				<title>Cómo activar el cifrado <acronym>TLS</acronym> en las comunicaciones con el servidor
+				<acronym>LDAP</acronym> </title>
+
+				<para>La principal diferencia entre una conexión <acronym>SSL</acronym> y una <acronym>TLS</acronym>,
+				es que la primera siempre utilizará el cifrado en la conexión mientras que la segunda
+				provee al cliente la opción de hacer uso de cifrado cuando lo desee.</para>
+
+				<para>Tenga en cuenta que por el simple hecho de acceder al servidor mediante
+				<emphasis>ldap://:389</emphasis> no asegura que la conexión haga uso de cifrado <acronym>TLS</acronym>,
+				pero tampoco si accede mediante <emphasis>ldaps://</emphasis>. Para activar una conexión
+				<acronym>TLS</acronym> tendrá que hace uso del parámetro <quote>-Z</quote> o <quote>-ZZ</quote>.</para>
+
+				<para>El parámetro <quote>-ZZ</quote> fuerza que la negociación <acronym>TLS</acronym> tenga
+				éxito, mientras que el parámetro <quote>-Z</quote>, intenta habilitar el cifrado
+				<acronym>TLS</acronym>, pero si no lo consigue, continua con la conexión sin <acronym>TLS</acronym>.</para>
+			</sect4>
+
+		</sect3>
+
+		<sect3 id="openldap-certificados-probando-servidor-ordenes-openldap-busquedas">
+			<title>Búsquedas en el directorio</title>
+
+			<para>En esta sección se realizarán una serie de búsquedas en el directorio. El uso del parámetro
+			<emphasis>-D <quote>cn=admin,dc=gsr,dc=pt</quote></emphasis> es necesario, debido a la restricción
+			de acceso que se ha impuesto en el archivo <filename>slapd.conf</filename>:</para>
+
+<programlisting>access to *
+        by dn="cn=admin,dc=gsr,dc=pt" write
+        by dn="cn=readadmin,dc=gsr,dc=pt" read <co id="certificados-readadmin"/>
+        by self write
+        by users read
+        by anonymous auth</programlisting>
+
+			<calloutlist>
+				<callout arearefs="certificados-readadmin">
+					<para>Para más datos sobre este usuario, ver el <xref linkend="openldap-usuario-readadmin"/>.</para>
+				</callout>
+			</calloutlist>
+
+			<example id="openldap-certificados-probando-servidor-ordenes-openldap-busquedas-ejemplo-1">
+				<title>Devuelve todas las entradas del directorio</title>
+
+				<para>Si el cliente se encuentra en la misma máquina que el servidor:</para>
+
+<screen><prompt>$</prompt> <userinput>/usr/bin/ldapsearch -x -b 'dc=gsr,dc=pt' -D "cn=admin,dc=gsr,dc=pt" -W \
+                      '(objectclass=*)'</userinput></screen>
+
+				<para>Si el cliente se encuentra en una máquina distinta al servidor y se quiere hacer
+				uso de <acronym>SSL</acronym> :</para>
+
+<screen><prompt>$</prompt> <userinput>/usr/bin/ldapsearch -x -b 'dc=gsr,dc=pt' -D "cn=admin,dc=gsr,dc=pt" -W \
+                      '(objectclass=*)' -H ldaps://gsr.pt/</userinput></screen>
+
+				<para>Si el cliente se encuentra en una máquina distinta al servidor y se quiere hacer
+				uso de <acronym>TLS</acronym> :</para>
+
+<screen><prompt>$</prompt> <userinput>/usr/bin/ldapsearch -x -b 'dc=gsr,dc=pt' -D "cn=admin,dc=gsr,dc=pt" -W \
+                      '(objectclass=*)' -H ldap://gsr.pt/ -ZZ</userinput></screen>
+
+				<para>Después de ejecutar las órdenes anteriores, la salida debería ser similar a:</para>
+
+<screen><computeroutput>Enter LDAP Password:</computeroutput><userinput>[Clave]</userinput>
+<computeroutput><![CDATA[# extended LDIF
+#
+# LDAPv3
+# base <dc=gsr,dc=pt> with scope sub
+# filter: (objectclass=*)
+# requesting: ALL
+#
+
+# gsr.pt
+dn: dc=gsr,dc=pt
+objectClass: top
+objectClass: dcObject
+objectClass: organization
+o: gsr.pt
+dc: gsr
+
+# admin, gsr.pt
+dn: cn=admin,dc=gsr,dc=pt
+objectClass: simpleSecurityObject
+objectClass: organizationalRole
+cn: admin
+description: LDAP administrator
+userPassword:: e2NyeXB0fXkxcFlKZVpQQzQ5Qlk=
+
+# sergio, gsr.pt
+dn: cn=sergio,dc=gsr,dc=pt
+objectClass: organizationalRole
+cn: sergio
+
+# unidade de contas, gsr.pt
+dn: ou=unidade de contas,dc=gsr,dc=pt
+objectClass: organizationalUnit
+ou: unidade de contas
+description: Organizacao de provas que contera ao administrador
+
+# senhor administrador, unidade de contas, gsr.pt
+dn: cn=senhor administrador,ou=unidade de contas,dc=gsr,dc=pt
+objectClass: person
+userPassword:: Y2hhdmVwcm92YQ==
+description: Usuario de exemplo como administrador
+cn: senhor administrador
+sn: admin
+
+# search result
+search: 3
+result: 0 Success
+
+# numResponses: 6
+# numEntries: 5]]></computeroutput></screen>
+			</example>
+
+			<example id="openldap-certificados-probando-servidor-ordenes-openldap-busquedas-ejemplo-2">
+				<title>Devuelve algunas entradas del directorio</title>
+
+<screen><prompt>$</prompt> <userinput>/usr/bin/ldapsearch -x -b 'cn=sergio,dc=gsr,dc=pt' -D "cn=admin,dc=gsr,dc=pt" \
+                      '(objectclass=*)' -H ldaps://gsr.pt/ -w clave</userinput>
+<computeroutput><![CDATA[# extended LDIF
+#
+# LDAPv3
+# base <cn=sergio,dc=gsr,dc=pt> with scope sub
+# filter: (objectclass=*)
+# requesting: ALL
+#
+
+# sergio, gsr.pt
+dn: cn=sergio,dc=gsr,dc=pt
+objectClass: organizationalRole
+cn: sergio
+
+# search result
+search: 2
+result: 0 Success
+
+# numResponses: 2
+# numEntries: 1]]></computeroutput>
+<prompt>$</prompt> 
+<prompt>$</prompt> <userinput>/usr/bin/ldapsearch -x -b 'ou=unidade de contas,,dc=gsr,dc=pt' \
+                      -D "cn=admin,dc=gsr,dc=pt" '(objectclass=*)' -H ldaps://gsr.pt/ -w clave</userinput>
+<computeroutput><![CDATA[# extended LDIF
+#
+# LDAPv3
+# base <ou=unidade de contas,dc=gsr,dc=pt> with scope sub
+# filter: (objectclass=*)
+# requesting: ALL
+#
+
+# unidade de contas, gsr.pt
+dn: ou=unidade de contas,dc=gsr,dc=pt
+objectClass: organizationalUnit
+ou: unidade de contas
+description: Organizacao de provas que contera ao administrador
+
+# senhor administrador, unidade de contas, gsr.pt
+dn: cn=senhor administrador,ou=unidade de contas,dc=gsr,dc=pt
+objectClass: person
+userPassword:: Y2hhdmVwcm92YQ==
+description: Usuario de exemplo como administrador
+cn: senhor administrador
+sn: admin
+
+# search result
+search: 2
+result: 0 Success
+
+# numResponses: 3
+# numEntries: 2]]></computeroutput></screen>
+
+			</example>
+
+			<para>Como ha podido comprobar, la comunicación con el servidor <acronym>LDAP</acronym> se realiza
+			satisfactoriamente, bien sea utilizando cifrado bien sin el.</para>
+
+		</sect3>
+	</sect2>
+</sect1>
+</chapter>

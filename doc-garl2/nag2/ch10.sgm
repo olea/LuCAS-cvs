@@ -1,0 +1,889 @@
+<!-- $Id: ch10.sgm,v 1.8 2002/09/02 21:06:06 pakojavi2000 Exp $ -->
+<!--
+Nota legal:
+
+   Linux Network Administration Guide, por Olaf Kirch et al.
+
+   La traducción al español se publica bajo la licencia GFDL,
+siendo texto de portada el siguiente:
+
+Linux Network Administrator's Guide
+by Olaf Kirch and Terry Dawson
+Copyright  (c) 1993 Olaf Kirch
+Copyright  (c) 2000 Terry Dawson
+Copyright on O'Reilly printed version (c) 2000 O'Reilly & Associates
+
+y siendo secciones invariantes, la sección de Agradecimientos,
+la sección titulada «La traducción al español», el apéndice C; así
+como esta nota.
+
+Capítulo traducido por:
+
+  Hardy Beltran Monasterios <hardy@acm.org>
+Revisión 1 por Francisco Javier Fernández serrador@arrakis.es
+-->
+<chapter id="X-087-2-accounting"><title>Contabilidad IP</title>
+<para>
+<indexterm id="chac.tcp.ip.accounting" class="startofrange">
+<primary>TCP/IP (Transmission Control Protocol/Internet Protocol)</primary>
+<secondary>contabilidad</secondary>
+</indexterm>
+
+En el mundo de servicio comercial Internet de hoy, está volviéndose cada vez
+más importante saber cuántos datos está transmitiendo y recibiendo en sus
+conexiones de red.
+Si es un Provedor de Servicios Internet (ISP) y cobra a sus clientes por volumen,
+esto será esencial para su negocio. Si es un cliente de un Provedor de Servicios Internet
+que cobra por el volumen de datos, encontrará muy útil recoger sus propios
+datos para asegurar la exactitud de sus cargos de Internet.
+</para>
+
+<para>
+Hay otros usos de la contabilidad de red que no tienen nada que ver con
+dinero y facturas. Si usted administra un servidor que ofrece varios
+tipos diferentes de servicios de red, podría ser útil para usted, saber
+exactamente cuántos datos está generándose por cada uno. Esta clase de
+información puede ayudarle en la toma de decisiones, como qué hardware
+comprar o cuántos servidores ejecutar.
+</para>
+
+<para>
+El núcleo Linux proporciona una funcionalidad que le permite coleccionar
+todo tipo de información útil sobre el tráfico de red que ve. Esta funcionalidad
+es llamada <emphasis>Contabilidad IP</emphasis>.
+</para>
+
+<sect1 id="X-087-2-accounting.kernel.config">
+<title>Configurando el núcleo <?lb>para contabilidad IP</title>
+<para>
+<indexterm><primary>Contabilidad IP</primary><secondary>Configuración del núcleo</secondary>
+</indexterm>
+<INDEXTERM><PRIMARY>Configurando</PRIMARY><SECONDARY>el núcleo</SECONDARY>
+<TERTIARY SORTAS="Contabilidad IP">para contabilidad IP</TERTIARY></INDEXTERM>
+La característica de contabilidad IP de Linux se relaciona muy estrechamente
+al software de cortafuego. Los lugares en que necesita coleccionar datos
+de contabilidad son los mismos lugares en los que estaría interesado realizando
+filtrado con cortafuegos: dentro y fuera de un puesto en la red, y en el software
+que hace asignación de ruta de datagramas. Si no ha leído la sección de cortafuegos,
+ahora es probablemente un buen momento para hacerlo, puesto que estaremos usando
+algunos de los conceptos descritos en <xref linkend="X-087-2-firewall">.
+</para>
+
+<para>
+<INDEXTERM><PRIMARY>núcleos 2.0</PRIMARY><SECONDARY>contabilidad IP</SECONDARY></INDEXTERM>
+<INDEXTERM><PRIMARY>núcleos 2.2</PRIMARY><SECONDARY>contabilidad IP</SECONDARY></INDEXTERM>
+Para activar la característica de contabilidad IP, debe ver primero si su núcleo Linux está
+configurado para ello. Revise y vea si el fichero <filename>/proc/net/ip_acct</filename> existe.
+Si es así, su núcleo ya soporta contabilidad IP. Si no es así, debe compilar un núcleo nuevo,
+asegurándose que responde &ldquo;Y&rdquo; a las opciones en las series de núcleos 2.0 y 2.2:
+
+<screen>
+Networking options  --->
+	[*] Network firewalls
+	[*] TCP/IP networking
+	 ...
+	[*] IP: accounting
+</screen>
+
+<INDEXTERM><PRIMARY>núcleos 2.4</PRIMARY><SECONDARY>Contabilidad IP</SECONDARY></INDEXTERM>
+o en la serie de núcleos 2.4:
+
+<screen>
+Networking options  --->
+    [*] Network packet filtering (replaces ipchains)
+</screen>
+</para>
+</sect1>
+
+<sect1 id="X-087-2-accounting.ipfwadm"><title>Configurando Contabilidad IP</title>
+<para>
+<INDEXTERM id="IPaccounting.config" class=startofrange><PRIMARY>Contabilidad IP</PRIMARY><SECONDARY>configurando</SECONDARY></INDEXTERM>
+<INDEXTERM id="config.IPaccounting" class=startofrange><PRIMARY>configurando</PRIMARY><SECONDARY>Contabilidad IP</SECONDARY></INDEXTERM>
+<INDEXTERM id="ipfwadm.config.IPaccount" class=startofrange><PRIMARY>orden ipfwadm</PRIMARY><SECONDARY>configurando contabilidad IP</SECONDARY></INDEXTERM>
+<INDEXTERM id="ipchains.config.IPaccount" class=startofrange><PRIMARY>orden ipchains</PRIMARY><SECONDARY>configurando contabilidad IP</SECONDARY></INDEXTERM>
+<INDEXTERM id="iptables.config.IPaccount" class=startofrange><PRIMARY>orden iptables</PRIMARY><SECONDARY>configurando contabilidad IP</SECONDARY></INDEXTERM>
+Debido a que la contabilidad IP se relaciona estrechamente con el cortafuegos de IP,
+la misma herramienta fue designada para configurarla, de modo que <command>ipfwadm</command>,
+<command>ipchains</command> o <command>iptables</command> sean utilizados para configurar la
+contabilidad IP. La sintaxis de órdenes es muy similar a la de las reglas del cortafuegos,
+así que no nos centraremos en eso, pero discutiremos qué puede descubrir sobre la naturaleza
+de su tráfico de red utilizando esta característica.
+</para>
+
+<para>
+La sintaxis general para contabilidad IP con <command>ipfwadm</command> es:
+
+<screen>
+# <userinput>ipfwadm -A [<replaceable>sentido</replaceable>] [<replaceable>orden</replaceable>] [<replaceable>parámetros</replaceable>]</userinput>
+</screen>
+</para>
+
+<para>
+El argumento sentido es nuevo. Esto se codifica simplemente como
+<literal>entrada (in)</literal>,
+<literal>salida (out)</literal>, o
+<literal>ambos (both)</literal>.
+Estas trayectorías son desde la perspectiva de la propia máquina GNU/Linux.
+<literal>entrada (in)</literal> se refiere a datos que entran a
+la máquina desde una conexión de red y <literal>salida (out)</literal>
+se refiere a datos que están transmitiéndose por este nodo en una conexión de red.
+El sentido <literal>ambos (both)</literal> es la suma de ambas trayectorias,
+entrante y saliente.
+</para>
+
+<para>
+La sintaxis general para la orden <command>ipchains</command> 
+e <command>iptables</command> es:
+
+<screen>
+# <userinput>ipchains -A <replaceable>cadena </replaceable><replaceable>especificación-de-regla</replaceable></userinput>
+# <userinput>iptables -A <replaceable>cadena </replaceable><replaceable>especificación-de-regla</replaceable></userinput>
+</screen></para>
+
+<para>
+Las órdenes <command>ipchains</command> e <command>iptables</command>
+permiten especificar el sentido de una manera más consistente con las
+reglas de cortafuegos.  El cortafuegos de cadenas IP<footnote><para>
+Traducción de IP Chains Firewall. N. del T.</para></footnote> no le permite
+configurar una regla que agrege ambos sentidos, pero permite configurar
+reglas en la cadena <literal>forward</literal> que la antigua implementación
+no hacía. Veremos la diferencia que produce, en algunos ejemplos un poco
+mas adelante.
+</para>
+
+<para>
+Las órdenes son bastante iguales a las reglas de cortafuegos, excepto que
+las políticas de reglas no se aplican aquí. Podemos agregar, insertar,
+eliminar y listar las reglas de contabilidad. En el caso de
+<command>ipchains</command> e <command>iptables</command>, todas las 
+reglas válidas son reglas de contabilidad, y cualquier orden que no
+especifica la opción <emphasis>-j</emphasis> sólo realiza recuento.
+</para>
+
+<para>
+Las reglas de especificación de parámetros para contabilidad IP son las mismas
+que aquellas usadas para cortafuegos IP. Éstas son las que nosotros usamos
+para definir precisamente qué tráfico de la red deseamos contabilizar y sumar.
+</para>
+
+<sect2 id="X-087-2-accounting.by.address"><title>Contabilidad por Dirección</title>
+<para>
+<indexterm><primary>contabilidad IP</primary><secondary SORTAS="address">por dirección</secondary></indexterm>
+Trabajemos con un ejemplo para ilustrar como usaríamos la contabilidad IP.
+</para>
+
+<para>
+Imagine que tenemos un encaminador basado en Linux que sirve a dos departamentos
+en la Cervecería Virtual. El encaminador tiene dos dispositivos Ethernet,
+<filename>eth0</filename> y <filename>eth1</filename>, cada uno de los cuales
+sirve a un departamento; y un dispositivo PPP, <filename>ppp0</filename>, que
+nos conecta vía un enlace serie de alta velocidad al campus principal de la
+Universidad Groucho Marx.
+</para>
+
+<para>
+También imaginemos que para propósitos de faturación queremos conocer el total
+de tráfico generado por cada uno de los departamentos a lo largo del enlace serie,
+y para propósitos de administración queremos conocer el total de tráfico generado
+entre los dos departamentos.
+</para>
+
+<para>
+La siguiente tabla muestra las interfaces y direcciones que usaremos en nuestro
+ejemplo:
+</para>
+
+<para>
+<informaltable>
+<tgroup cols=3>
+<thead>
+<row>
+	<entry>interfaz</entry>
+	<entry>dirección</entry>
+	<entry>máscara de red</entry>
+</row>
+</thead>
+<tbody>
+<row>
+	<entry>eth0</entry>
+	<entry>172.16.3.0</entry>
+	<entry>255.255.255.0</entry>
+</row>
+<row>
+	<entry>eth1</entry>
+	<entry>172.16.4.0</entry>
+	<entry>255.255.255.0</entry>
+</row>
+</tbody>
+</tgroup>
+</informaltable>
+</para>
+
+<para>
+Para responder a la pregunta, &ldquo;¿ Cuántos datos genera cada
+departamento en el enlace PPP ?&rdquo;, podríamos usar una regla 
+parecida a:
+
+<screen>
+# <userinput>ipfwadm -A both -a -W ppp0 -S 172.16.3.0/24 -b</userinput>
+# <userinput>ipfwadm -A both -a -W ppp0 -S 172.16.4.0/24 -b</userinput>
+</screen>
+
+o:
+
+<screen>
+# <userinput>ipchains -A input -i ppp0 -d 172.16.3.0/24</userinput>
+# <userinput>ipchains -A output -i ppp0 -s 172.16.3.0/24</userinput>
+# <userinput>ipchains -A input -i ppp0 -d 172.16.4.0/24</userinput>
+# <userinput>ipchains -A output -i ppp0 -s 172.16.4.0/24</userinput>
+</screen>
+
+y con <command>iptables</command>:
+
+<screen>
+# <userinput>iptables -A FORWARD -i ppp0 -d 172.16.3.0/24</userinput>
+# <userinput>iptables -A FORWARD -o ppp0 -s 172.16.3.0/24</userinput>
+# <userinput>iptables -A FORWARD -i ppp0 -d 172.16.4.0/24</userinput>
+# <userinput>iptables -A FORWARD -o ppp0 -s 172.16.4.0/24</userinput>
+</screen>
+</para>
+
+<para>
+La primera mitad de cada una de estas reglas dice, &ldquo;Cuente todos
+los datos viajando en cualquier dirección por la interfaz llamada ppp0
+con una dirección origen o destino (recuerde la función de la bandera
+<emphasis>-b</emphasis> en <command>ipfwadm</command> e <command>iptables</command>) 
+de <literal>172.16.3.0/24.</literal>&rdquo; La segunda mitad de cada
+conjunto de reglas es la misma, pero para la segunda red Ethernet en
+nuestro sitio.
+</para>
+
+<para>
+Para responder a la segunda pregunta , &ldquo;¿ Cuántos datos viajan entre
+los dos departamentos ?&rdquo;, necesitamos una regla como esta:
+
+<screen>
+# <userinput>ipfwadm -A both -a -S 172.16.3.0/24 -D 172.16.4.0/24 -b</userinput>
+</screen>
+
+o:
+
+<screen>
+# <userinput>ipchains -A forward -s 172.16.3.0/24 -d 172.16.4.0/24 -b</userinput>
+</screen>
+
+o:
+
+<screen>
+# <userinput>iptables -A FORWARD -s 172.16.3.0/24 -d 172.16.4.0/24</userinput>
+# <userinput>iptables -A FORWARD -s 172.16.4.0/24 -d 172.16.3.0/24</userinput>
+</screen>
+
+Estas reglas contarán todos los datagramas con una dirección origen perteneciente
+a una de las redes de departamento y una dirección destino perteneciente a la otra.
+</para>
+
+</sect2>
+
+<sect2 id="X-087-2-accounting.by.service"><title>Contabilidad por el Puerto de Servicio</title>
+<para>
+<INDEXTERM id="IPaccounting.service.port" class=startofrange><PRIMARY>Contabilidad IP</PRIMARY><SECONDARY SORTAS="service port">por el puerto de servicio</SECONDARY></INDEXTERM>
+Bien, supongamos que también queremos una mejor idea de qué tipo de tráfico
+exactamente está transportándose por nuestro enlace PPP. Por ejemplo, nosotros podríamos
+querer saber cuánto del enlace están consumiendo los servicios FTP, SMTP, y Web.
+</para>
+
+<para>
+Un guión de reglas para permitirnos coleccionar esta información podría parecerse a:
+
+<screen>
+#!/bin/sh
+# Coleccionar estadísticas de volumen FTP, SMTP y WWW para los datos
+# transportados en nuestro enlace PPP utilizando ipfwadm
+#
+ipfwadm -A both -a -W ppp0 -P tcp -S 0/0 ftp ftp-data
+ipfwadm -A both -a -W ppp0 -P tcp -S 0/0 smtp
+ipfwadm -A both -a -W ppp0 -P tcp -S 0/0 www
+</screen>
+
+o:
+
+<screen>
+#!/bin/sh
+# Coleccionar estadísticas de volumen FTP, SMTP y WWW para los datos
+# transportados en nuestro enlace PPP utilizando ipchains
+#
+ipchains -A input -i ppp0 -p tcp -s 0/0 ftp-data:ftp
+ipchains -A output -i ppp0 -p tcp -d 0/0 ftp-data:ftp
+ipchains -A input -i ppp0 -p tcp -s 0/0 smtp
+ipchains -A output -i ppp0 -p tcp -d 0/0 smtp
+ipchains -A input -i ppp0 -p tcp -s 0/0 www
+ipchains -A output -i ppp0 -p tcp -d 0/0 www
+</screen>
+
+o:
+
+<screen>
+#!/bin/sh
+# Coleccionar estadísticas de volumen FTP, SMTP y WWW para los datos
+# transportados en nuestro enlace PPP utilizando iptables
+#
+iptables -A FORWARD -i ppp0 -m tcp -p tcp --sport ftp-data:ftp
+iptables -A FORWARD -o ppp0 -m tcp -p tcp --dport ftp-data:ftp
+iptables -A FORWARD -i ppp0 -m tcp -p tcp --sport smtp
+iptables -A FORWARD -o ppp0 -m tcp -p tcp --dport smtp
+iptables -A FORWARD -i ppp0 -m tcp -p tcp --sport www
+iptables -A FORWARD -o ppp0 -m tcp -p tcp --dport www
+</screen>
+</para>
+
+<para>
+Hay un par de rasgos interesantes a esta configuración. Primeramente,
+hemos especificado el protocolo. Cuando especificamos puertos en nuestras reglas,
+también debemos especificar un protocolo porque TCP y UDP proveen conjuntos
+separados de puertos. Ya que todos estos servicios están basados en TCP,
+lo hemos especificado como el protocolo.  Segundo, tenemos especificado dos
+servicios <literal>ftp</literal> y <literal>ftp-data</literal> en un comando.
+<command>ipfwadm</command> permite establecer puertos simples, rango de puertos o
+una lista arbitraria de puertos. La orden <command>ipchains</command> permite
+cualesquiera, puertos simples o rango de puertos, que es lo que hemos usado aquí.
+La sintaxis &ldquo;<literal>ftp-data:ftp</literal>&rdquo; significa &ldquo;puertos ftp-data (20) hasta
+ftp (21),&rdquo; y es como nosotros codificamos rangos de puertos en ambos:
+<command>ipchains</command> e <command>iptables</command>. Cuando usted tiene una
+lista de puertos en una regla de contabilidad, eso significa que cualquier dato
+recibido para alguno de los puertos en la lista, provocará que el dato sea sumado
+a los totales de esa entrada. Recordando que el servicio FTP utiliza dos puertos,
+el de órdenes y el de transferencia de datos, los hemos añadido a la vez para sumar
+el tráfico de FTP. Finalmente, especificamos la dirección origen como &ldquo;<literal>0/0</literal>&rdquo;,
+que es la notación especial que coincide con todas las direcciones y es requerida
+por ambas órdenes <command>ipfwadm</command> e <command>ipchains</command>
+para especificar los puertos.
+</para>
+
+<para>
+Podemos extendernos un poco en el segundo punto para darnos una vista diferente  
+de los datos en nuestro enlace. Ahora imaginemos que nosotros clasificamos tráfico
+FTP, SMTP, y  del Web como tráfico esencial, y todo el otro tráfico
+como no esencial. Si nosotros estuviéramos interesados en ver la proporción del
+tráfico esencial al tráfico no esencial, podríamos hacer algo como:
+
+<screen>
+# <userinput>ipfwadm -A both -a -W ppp0 -P tcp -S 0/0 ftp ftp-data smtp www</userinput>
+# <userinput>ipfwadm -A both -a -W ppp0 -P tcp -S 0/0 1:19 22:24 26:79 81:32767</userinput>
+</screen>
+</para>
+
+<para>
+Si ya ha examinado su fichero <filename>/etc/services</filename>, observará que 
+la segunda regla cubre todos los puertos excepto (<literal>ftp</literal>, <literal>ftp-data</literal>, <literal>smtp</literal>,
+y <literal>www</literal>).
+</para>
+
+<para>
+¿Cómo hacemos esto con las órdenes <command>ipchains</command> o
+<command>iptables</command>, puesto que ellas permiten sólo un argumento en
+la especificación de puerto ?. Podemos aprovecharnos en contabilidad, de las
+cadenas definidas por usuario tan fácil como en las reglas del cortafuegos.
+Considere el siguiente acercamiento:
+</para>
+
+<para>
+<screen>
+# <userinput>ipchains -N a-essent</userinput>
+# <userinput>ipchains -N a-noness</userinput>
+# <userinput>ipchains -A a-essent -j ACCEPT</userinput>
+# <userinput>ipchains -A a-noness -j ACCEPT</userinput>
+# <userinput>ipchains -A forward -i ppp0 -p tcp -s 0/0 ftp-data:ftp -j a-essent</userinput>
+# <userinput>ipchains -A forward -i ppp0 -p tcp -s 0/0 smtp -j a-essent</userinput>
+# <userinput>ipchains -A forward -i ppp0 -p tcp -s 0/0 www -j a-essent</userinput>
+# <userinput>ipchains -A forward -j a-noness</userinput>
+</screen>
+
+Aquí creamos dos cadenas definidas por usuario, una llamada 
+<literal>a-essent</literal>, donde capturamos datos de contabilidad
+para servicios esenciales y otra llamada <literal>a-noness</literal>,
+donde capturamos datos de contabilidad para servicios no esenciales.
+Entonces agregamos a nuestra cadena <emphasis>forward</emphasis> las
+reglas que coinciden con nuestros servicios esenciales y saltan a la cadena
+<literal>a-essent</literal>, donde tenemos justamente una regla que
+acepta todos los datagramas y los cuenta. La última regla en nuestra
+cadena <emphasis>forward</emphasis> es una regla que salta a nuestra
+cadena <literal>a-noness</literal>, donde otra vez tenemos solamente
+una regla que acepta todos los datagramas y los cuenta. La regla que
+salta a la cadena <literal>a-noness</literal> no será alcanzada por
+ninguno de nuestros servicios esenciales, puesto que ellos se habrán
+aceptado en su propia cadena. Nuestras cuentas para servicios esenciales
+y no esenciales estarán por consiguiente disponibles en las reglas
+dentro de esas cadenas. Éste es simplemente un acercamiento que podría
+tomar; hay otros. Nuestra implementación <command>iptables</command>
+del mismo acercamiento se parecería a:
+
+<screen>
+# <userinput>iptables -N a-essent</userinput>
+# <userinput>iptables -N a-noness</userinput>
+# <userinput>iptables -A a-essent -j ACCEPT</userinput>
+# <userinput>iptables -A a-noness -j ACCEPT</userinput>
+# <userinput>iptables -A FORWARD -i ppp0 -m tcp -p tcp --sport ftp-data:ftp -j a-essent</userinput>
+# <userinput>iptables -A FORWARD -i ppp0 -m tcp -p tcp --sport smtp -j a-essent</userinput>
+# <userinput>iptables -A FORWARD -i ppp0 -m tcp -p tcp --sport www -j a-essent</userinput>
+# <userinput>iptables -A FORWARD -j a-noness</userinput>
+</screen>
+</para>
+
+<para>
+<INDEXTERM><PRIMARY>datagramas</PRIMARY><SECONDARY>fragmentación de</SECONDARY></INDEXTERM>
+<INDEXTERM><PRIMARY>fragmentación, datagramas</PRIMARY></INDEXTERM>
+Esto parece bastante simple. Desafortunadamente, hay un pequeño pero
+inevitable problema al intentar efectuar contabilidad por el tipo de servicio.
+Recordará que discutimos el rol que desempeña la MTU en redes TCP/IP en un capítulo anterior.
+La MTU define el datagrama más largo que se transmitirá en un dispositivo de red.
+Cuando un datagrama se recibe por un encaminador que es más grande que el MTU
+de la interfaz que necesita al retransmitirlo, el encaminador realiza un truco
+llamado <emphasis>fragmentación</emphasis>. El encaminador fragmenta el datagrama
+largo en piezas pequeñas no más largos que la MTU de la interfaz y entonces
+transmite éstas piezas. El encaminador construye nuevas cabeceras para poner
+delante de cada una de estas piezas, y éstas son las que la máquina remota
+usa para reconstruir el dato original. Desafortunadamente, durante el proceso
+de fragmentación el puerto se pierde para todos menos para el primer fragmento.
+Esto significa que la contabilidad IP no puede contar adecuadamente datagramas
+fragmentados. Puede contar fiablemente sólo el primer fragmento o datagramas 
+no fragmentados. Hay un pequeño truco permitido por <command>ipfwadm</command> 
+que asegura que mientras nosotros no podamos saber exactamente desde qué puerto 
+el segundo y siguientes fragmentos vienen, podemos todavía contarlos. Una temprana
+versión del software de contabilidad Linux asignó a los fragmentos un número de
+puerto falso, 0xFFFF, que podríamos contar. Para asegurarnos que capturamos
+el segundo y posteriores fragmentos, podemos usar una regla como ésta:
+
+<screen>
+# <userinput>ipfwadm -A both -a -W ppp0 -P tcp -S 0/0 0xFFFF</userinput>
+</screen>
+</para>
+
+<para>
+La implementación de cadenas IP tiene una solución ligeramente más sofisticada,
+pero el resultado es muy similar. Usando la orden <command>ipchains</command>
+usaríamos en cambio:
+
+<screen>
+# <userinput>ipchains -A forward -i ppp0 -p tcp -f</userinput>
+</screen>
+
+y con <command>iptables</command> usaríamos:
+
+<screen>
+# <userinput>iptables -A FORWARD -i ppp0 -m tcp -p tcp -f</userinput>
+</screen>
+</para>
+
+<para>
+Éstos no nos dirán el puerto original para estos datos, pero por lo menos podemos ver cuanto
+de nuestros datos son fragmentos, y seremos capaces de contabilizar el volumen de tráfico
+que ellos consumen.
+</para>
+
+<para>
+En núcleos 2.2 podemos seleccionar una opción del núcleo en tiempo de compilación, que 
+niega este problema completo si su máquina GNU/Linux está actuando como el único punto de
+acceso para una red. Si habilita la opción <option>IP: Desfragmentar siempre</option>
+cuando compila su núcleo, todos los datagramas recibidos serán reensamblados por el
+encaminador Linux antes de encaminar y retransmitir. Esta operación es realizada antes
+que el software de contabilidad y cortafuegos miren el datagrama, y así no tendrá
+trato con ningún fragmento. En núcleos 2.4 usted puede compilar y cargar el módulo
+<emphasis>netfilter</emphasis> <filename>forward-fragment</filename>.
+</para>
+
+<INDEXTERM startref="IPaccounting.service.port" class=endofrange>
+</sect2>
+
+<sect2 id="X-087-2-accounting.of.ICMP"><title>Contabilidad de Datagramas ICMP</title>
+<para>
+<indexterm><primary>Contabilidad IP</primary><secondary SORTAS="ICMP datagramas">de datagramas ICMP</secondary></indexterm>
+<INDEXTERM><PRIMARY>ICMP (Internet Control Message Protocol)</PRIMARY><SECONDARY>contabilidad de datagramas</SECONDARY></INDEXTERM>
+<INDEXTERM><PRIMARY>saturamiento ping</PRIMARY></INDEXTERM>
+El protocolo ICMP no usa número de puerto de servicio y es por eso un poco
+más dificultoso coleccionar detalles. ICMP usa un número de tipos diferentes
+de datagramas. Muchos de éstos son inofensivos y normales, mientras otros
+sólo deben observarse bajo circunstancias especiales. A veces las personas
+con mucho tiempo en sus manos intentan maliciosamente deteriorar el acceso
+de un usuario a la red, generando grandes cantidades de mensajes ICMP. Esto
+es comúnmente denominado <emphasis>saturamiento ping</emphasis><footnote><para>
+Traducción de <emphasis>ping flooding</emphasis> N. del T.</para></footnote>.
+Aun cuando la contabilidad IP no puede hacer nada para prevenir este problema
+( ¡ Aunque el cortafuegos IP puede ayudar ! ) podemos al menos colocar reglas
+de contabilidad en un lugar que nos muestre si alguien lo ha estado intentando.
+</para>
+
+<para>
+ICMP no usa los puertos como lo hacen TCP y UDP. En cambio ICMP tiene mensajes
+tipo ICMP. Podemos construir reglas de contabilidad para cada tipo de mensaje
+ICMP. Para hacer esto, colocamos el mensaje ICMP y el número del tipo en lugar
+del puerto en la orden de contabilidad <command>ipfwadm</command>. Listamos
+los tipos de mensaje ICMP en &ldquo;<xref linkend="X-087-2-firewall.ipfwadm.icmp-types">&rdquo;
+refíerase a él si usted necesita recordar cuáles son.
+</para>
+
+<para>
+Una regla de contabilidad IP para coleccionar información sobre el volumen
+de datos ping que está enviándose a usted o que usted está generando podría
+verse como:
+<screen>
+# <userinput>ipfwadm -A both -a -P icmp -S 0/0 8</userinput>
+# <userinput>ipfwadm -A both -a -P icmp -S 0/0 0</userinput>
+# <userinput>ipfwadm -A both -a -P icmp -S 0/0 0xff</userinput>
+</screen>
+
+o, con <command>ipchains</command>:
+
+<screen>
+# <userinput>ipchains -A forward -p icmp -s 0/0 8</userinput>
+# <userinput>ipchains -A forward -p icmp -s 0/0 0</userinput>
+# <userinput>ipchains -A forward -p icmp -s 0/0 -f</userinput>
+</screen>
+
+o, con <command>iptables</command>:
+
+<screen>
+# <userinput>iptables -A FORWARD -m icmp -p icmp --sports echo-request</userinput>
+# <userinput>iptables -A FORWARD -m icmp -p icmp --sports echo-reply</userinput>
+# <userinput>iptables -A FORWARD -m icmp -p icmp -f</userinput>
+</screen>
+
+La primera regla colecciona información sobre datagramas &ldquo;Petición de eco ICMP&rdquo;
+(petición ping) <footnote><para>Traducción de ICMP Echo Request. N. del T.</para></footnote>,
+y la segunda regla colecciona información sobre datagramas &ldquo;Respuesta de eco ICMP&rdquo;
+(respuesta ping). La tercera regla colecciona información sobre fragmentos de datagrama ICMP.
+Este es un truco similar al descrito para fragmentos de datagramas TCP y UDP.
+</para>
+
+<para>
+Si usted especifica la dirección origen y/o destino en sus reglas, puede
+seguir la pista de dónde están viniendo los ping, tales como si ellos se
+originan dentro o fuera de su red. Una vez que ha determinado de dónde
+están viniendo los datagramas pillos, usted puede decidir si quiere poner
+reglas de cortafuegos en un sitio para evitarlos o tomar alguna otra
+acción, como avisar al dueño de la red agraviante para avisarles del
+problema, o quizás incluso, acción legal si el problema es un acto
+malévolo.
+</para>
+</sect2>
+
+<sect2 id="X-087-2-accounting.by.protocol"><title>Contabilidad por Protocolo</title>
+<para>
+<indexterm><primary>Contabilidad IP</primary><secondary SORTAS="protocolo">por protocolo</secondary>
+</indexterm>
+Imaginemos ahora que estamos interesados en conocer cuánto tráfico
+en nuestro enlaces es TCP, UDP, e ICMP. Usaríamos reglas como las siguientes:
+
+<screen>
+# <userinput>ipfwadm -A both -a -W ppp0 -P tcp -D 0/0</userinput>
+# <userinput>ipfwadm -A both -a -W ppp0 -P udp -D 0/0</userinput>
+# <userinput>ipfwadm -A both -a -W ppp0 -P icmp -D 0/0</userinput>
+</screen>
+
+o:
+
+<screen>
+# <userinput>ipchains -A forward -i ppp0 -p tcp -d 0/0</userinput>
+# <userinput>ipchains -A forward -i ppp0 -p udp -d 0/0</userinput>
+# <userinput>ipchains -A forward -i ppp0 -p icmp -d 0/0</userinput>
+</screen>
+
+o:
+
+<screen>
+# <userinput>iptables -A FORWARD -i ppp0 -m tcp -p tcp</userinput>
+# <userinput>iptables -A FORWARD -o ppp0 -m tcp -p tcp</userinput>
+# <userinput>iptables -A FORWARD -i ppp0 -m udp -p udp</userinput>
+# <userinput>iptables -A FORWARD -o ppp0 -m udp -p udp</userinput>
+# <userinput>iptables -A FORWARD -i ppp0 -m icmp -p icmp</userinput>
+# <userinput>iptables -A FORWARD -o ppp0 -m icmp -p icmp</userinput>
+</screen>
+
+Con estas reglas situadas, todo el tráfico fluyendo por la interfaz
+<literal>ppp0</literal> será analizado para determinar si es TCP,
+UDP, o tráfico de IMCP y los contadores apropiados serán actualizados
+para cada uno. El ejemplo con <command>iptables</command> divide
+el flujo entrante del flujo saliente como lo exige su sintaxis.
+</para>
+
+</sect2>
+
+<INDEXTERM startref="IPaccounting.config" class=endofrange>
+<INDEXTERM startref="config.IPaccounting" class=endofrange>
+</sect1>
+
+<sect1 id="X-087-2-accounting.viewing.results"><title>Utilizando los resultados de contabilidad IP</title>
+<para>
+<INDEXTERM id="IPaccounting.results" class=startofrange><PRIMARY>Contabilidad IP</PRIMARY><SECONDARY>utilizando los resultados de</SECONDARY></INDEXTERM>
+Está muy bien estar recolectando esta información, pero ¿ cómo hacemos
+realmente para conseguir verlos ? Para ver los datos de contabilidad coleccionados
+y las reglas de contabilidad configuradas, usamos nuestras órdenes de
+configuración de cortafuegos, pidiéndole listar nuestras reglas. Los contadores
+de byte y paquetes para cada una de nuestras reglas son listadas en la salida.
+</para>
+
+<para>
+Las órdenes <command>ipfwadm</command>, <command>ipchains</command>, e
+<command>iptables</command> difieren en cómo se manejan los datos de
+contabilidad, asi que trataremos estos independientemente.
+</para>
+
+<sect2><title>Listando datos de contabilidad con ipfwadm</title>
+<para>
+<INDEXTERM><PRIMARY>ipfwadm</PRIMARY><SECONDARY>listando datos de contabilidad con</SECONDARY></INDEXTERM>
+Los medios más básicos de listar nuestros datos de contabilidad con la orden
+<command>ipfwadm</command> son utilizados así:
+
+<screen>
+# <userinput>ipfwadm -A -l</userinput>
+IP accounting rules
+ pkts bytes dir prot source               destination          ports
+ 9833 2345K i/o all  172.16.3.0/24      anywhere             n/a
+56527   33M i/o all  172.16.4.0/24      anywhere             n/a
+</screen>
+</para>
+
+<para>
+Esto nos dirá el número de paquetes enviados en cada dirección. Si usamos el
+formato de salida extendida, con la opción <option>-e</option> (no mostrada
+aquí porque la salida es muy ancha para una página), nosotros también
+proporcionamos las opciones y los nombres de la interfaz aplicables. Muchos de
+estos campos en la salida serán autoexplicativos, pero puede que los siguientes
+no:
+</para>
+
+
+<variablelist>
+<varlistentry><term>dir</term>
+<listitem><para>
+El sentido en que la regla aplica. Aquí se esperan los valores
+<literal>in</literal>, <literal>out</literal>,
+o <literal>i/o</literal>, significando ambos sentidos.
+</para></listitem>
+</varlistentry>
+<varlistentry><term>prot</term>
+<listitem><para>
+Los protocolos a los cuales la regla se aplica.
+</para></listitem>
+</varlistentry>
+<varlistentry><term>opt</term>
+<listitem><para>
+Una forma codificada de las opciones que usamos al invocar
+<command>ipfwadm</command>. 
+</para></listitem>
+</varlistentry>
+<varlistentry><term>ifname</term>
+<listitem><para>
+El nombre de la interfaz a que la regla se aplica.
+</para></listitem>
+</varlistentry>
+<varlistentry><term>ifaddress</term>
+<listitem><para>
+La dirección de la interfaze a que la regla se aplica.
+</para></listitem>
+</varlistentry>
+</variablelist>
+
+<para>
+De modo predeterminado, <command>ipfwadm</command> despliega el contador de bytes
+y paquetes en una forma reducida, redondeado al mil más cercano (K) o millón (M).
+Podemos pedirle que despliegue los datos recolectados en unidades exactas usando
+la opción extendida como sigue:
+
+<screen width=105>
+# <userinput>ipfwadm -A -l -e -x</userinput>
+</screen>
+</para>
+
+</sect2>
+
+<sect2><title>Listando datos de contabilidad con ipchains</title>
+<para>
+<INDEXTERM><PRIMARY>ipchains</PRIMARY><SECONDARY>listando datos de contabilidad con</SECONDARY></INDEXTERM>
+La orden <command>ipchains</command> no desplegará nuestros datos de contabilidad
+(contador de byte y paquetes) a menos que le proporcionemos el argumento
+<literal>-v</literal>. Los recursos simples para listar nuestros datos de contabilidad
+con <command>ipchains</command> se utilizan así: 
+
+<screen width=130>
+# <userinput>ipchains -L -v</userinput>
+</screen>
+</para>
+
+<para>
+Nuevamente, así como con <command>ipfwadm</command>, podemos desplegar
+el contador de bytes y paquetes en unidades usando el modo de salida extendida.
+La orden <command>ipchains</command> usa el argumento <literal>-x</literal>
+para esto.
+
+<screen width=134>
+# <userinput>ipchains -L -v -x</userinput>
+</screen>
+</para>
+
+</sect2>
+
+<sect2><title>Listando datos de contabilidad con iptables</title>
+<para>
+<INDEXTERM><PRIMARY>iptables</PRIMARY><SECONDARY>listando datos de contabilidad con</SECONDARY></INDEXTERM>
+El comando <command>iptables</command> se comporta muy similarmente a la
+orden <command>ipchains</command>. Otra vez, debemos usar <literal>-v</literal>
+cuando listemos nuestras reglas para ver los contadores de contabilidad. Para
+listar nuestros datos de contabilidad, podemos utilizar:
+</para>
+
+<screen width=88>
+# <userinput>iptables -L -v</userinput>
+</screen>
+
+<para>
+Tal como para la orden <command>ipchains</command>, podemos usar el argumento
+<literal>-x</literal> para mostrar la salida en formato extendido con cifras
+unitarias.
+</para>
+
+</sect2>
+<INDEXTERM startref="IPaccounting.results" class=endofrange>
+</sect1>
+
+<sect1 id="X-087-2-accounting.zeroing.counter"><title>Restableciendo contadores</title>
+<para>
+<indexterm><primary>Contabilidad IP</primary><secondary>restableciendo contadores</secondary></indexterm>
+Los contadores de contabilidad IP pueden desbordarse si usted los deja
+mucho tiempo. Si se desbordan, tendrá dificultad determinando el
+valor que realmente representan. Para evitar este problema, debe
+leer los datos de contabilidad periódicamente, registrarlos, y entonces
+restablecer los contadores a cero para comenzar a recolectar información
+de contabilidad para el próximo período de recuento.
+</para>
+
+<para>
+La órdenes <command>ipfwadm</command>, <command>ipchains</command> e 
+<command>iptables</command> le proporcionan recursos para hacer esto
+bastante simple:
+
+<screen>
+# <userinput>ipfwadm -A -z</userinput>
+</screen>
+
+o:
+
+<screen>
+# <userinput>ipchains -Z</userinput>
+</screen>
+
+o:
+
+<screen>
+# <userinput>iptables -Z</userinput>
+</screen>
+Usted puede incluso combinar el listado junto a la acción de
+puesta a cero para asegurarse que ningún dato de contabilidad
+es perdido en medio:
+
+<screen>
+# <userinput>ipfwadm -A -l -z</userinput>
+</screen>
+
+o:
+
+<screen>
+# <userinput>ipchains -L -Z</userinput>
+</screen>
+
+o:
+
+<screen>
+# <userinput>iptables -L -Z -v</userinput>
+</screen>
+
+Estas órdenes primero listarán los datos de contabilidad y entonces
+inmediatamente pondrá a cero los contadores y empezará la cuenta de nuevo.
+Si está interesado en coleccionar y utilizar esta información regularmente,
+usted probablemente querrá poner esta orden en una secuencia de órdenes
+que registre la salida y lo guarde en alguna parte, y ejecutar la secuencia
+de órdenes periódicamente utilizando la utilidad <command>cron</command>
+</para>
+
+</sect1>
+
+<sect1 id="X-087-2-accounting.flushing.rules"><title>Vaciando las reglas</title>
+<para>
+<indexterm><primary>Contabilidad IP</primary><secondary>vaciando las reglas</secondary></indexterm>
+Una último orden que puede ser útil, le permite vaciar todas las reglas
+de contabilidad que haya configurado. Esto es bastante útil cuando quiere
+alterar radicalmente su conjunto de reglas sin reiniciar el sistema.
+</para>
+
+<para>
+El argumento <literal>-f</literal> en combinación con la orden
+<command>ipfwadm</command> vaciará todas las reglas del tipo que
+usted especifique. <command>ipchains</command> apoya el argumento
+<literal>-F</literal>, que hace lo mismo:
+
+<screen>
+# <userinput>ipfwadm -A -f</userinput>
+</screen>
+
+o:
+
+<screen>
+# <userinput>ipchains -F</userinput>
+</screen>
+
+o:
+
+<screen>
+# <userinput>iptables -F</userinput>
+</screen>
+
+Esto vacía todas sus reglas de contabilidad IP configuradas, quitándolas todas
+y salvándolo de tener que quitar cada una de ellas individualmente. Observe que 
+vaciar las reglas con <command>ipchains</command> no provoca que cualquier
+cadena definida por el usuario sea quitada, sólo las reglas dentro de ellas.
+</para>
+
+<INDEXTERM startref="ipfwadm.config.IPaccount" class=endofrange>
+<INDEXTERM startref="ipchains.config.IPaccount" class=endofrange>
+<INDEXTERM startref="iptables.config.IPaccount" class=endofrange>
+</sect1>
+
+<sect1 id="X-087-2-accounting.passive.collection"><title>Colección pasiva de datos de contabilidad</title>
+<para>
+<indexterm><primary>Contabilidad IP</primary><secondary>colección pasiva</secondary></indexterm>
+Un último truco que podría gustarle considerar: si su máquina Linux está conectada
+a una Ethernet, puede aplicar reglas a todos los datos del segmento,
+no sólo aquello que es transmitido por él o destinado para él. Su máquina
+escuchará pasivamente todos los datos en el segmento y los contará.
+</para>
+
+<para>
+Usted debe primero desactivar el reenvío IP en su máquina Linux
+para que no intente encaminar los datagramas que recibe. <footnote id="X-087-2-FNAC01">
+<para>
+No es bueno hacer esto, si su máquina Linux se emplea como encaminador. Si desactiva
+reenvío IP, ¡ dejará de encaminar !. Sólo haga esto en una máquina con una sola
+interfaz física de red.
+</para>
+</footnote>
+En los núcleos 2.0.36 y 2.2, ésto es una cuestión de:
+
+<screen>
+# <userinput>echo 0 &gt;/proc/sys/net/ipv4/ip_forward</userinput>
+</screen>
+</para>
+
+<para>
+<INDEXTERM><PRIMARY>orden ifconfig</PRIMARY></INDEXTERM>
+Debe habilitar entonces el modo promiscuo en su interfaz Ethernet
+utilizando la orden <command>ifconfig</command>. Ahora puede colocar
+reglas de contabilidad que le permitan recoger información sobre
+los datagramas que fluyen a lo largo de su Ethernet sin involucrar en
+absoluto a su GNU/Linux en la ruta.
+</para>
+
+</sect1>
+
+<indexterm class="endofrange" startref="chac.tcp.ip.accounting">
+</chapter>
+

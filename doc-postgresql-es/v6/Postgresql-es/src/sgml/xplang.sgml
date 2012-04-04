@@ -1,0 +1,1522 @@
+<!-- **BUSCA PL/Tcl --> 
+ <chapter id="xplang">
+  <title id="xplang-title">Lenguajes Procedurales</title>
+
+<!-- **********
+     * Informacion general sobre soporte de lenguajes procedurales
+     **********
+-->
+
+<para>
+    A partir del lanzamiento de la versión 6.3, <productname>Postgres</productname> soporta la 
+    definición de lenguajes procedurales. En el caso de una función o procedimiento definido en 
+    un lenguaje procedural, la base de datos no tiene un conocimiento implícito sobre como 
+    interpretar el código fuente de las funciones. El manejador en sí es una función de un 
+    lenguaje de programación compilada en forma de objeto compartido, y cargado cuando es necesario.
+</para>
+
+<!-- **********
+     * Instalacion de lenguajes procedurales
+     **********
+-->
+
+<sect1>
+<title>Instalación de lenguajes procedurales</title>
+
+<procedure>
+    <title>
+    Instalación de lenguajes procedurales
+    </title>
+
+    <para>
+    Un lenguaje procedural se instala en la base de datos en tres pasos.
+    </para>
+	<step performance="Required">
+	    <para>
+                El objeto compartido que contienen el manejador del lenguaje ha de ser compilado e 
+                instalado. Por defecto, el manejador para PL/pgSQL está integrado e instalado en 
+                el directorio de bibliotecas de la base de datos. Si el soporte de Tcl/Tk está 
+                instalado y configurado, el manejador para PL/Tcl está integrado e instalado en el 
+                mismo sitio.
+	    </para>
+	    <para>
+                La escritura de un nuevo lenguaje procedural (Procedural language, PL) está mas 
+                allá del ámbito de este manual.
+	    </para>
+	</step>
+	<step performance="Required">
+	    <para>
+                El manejador debe ser declarado mediante la orden
+		<programlisting>
+    CREATE FUNCTION <replaceable>handler_function_name</replaceable> () RETURNS OPAQUE AS
+        '<filename>path-to-shared-object</filename>' LANGUAGE 'C';
+		</programlisting>
+                El calificador especial de tipo devuelto <acronym>OPAQUE</acronym> le dice a la 
+                base de datos que esta función no devuelve uno de los tipos definidos en la base 
+                de datos ni un tipo compuesto, y que no es directamente utilizable en una sentencia 
+                <acronym>SQL</acronym>.
+	    </para>
+	</step>
+	<step performance="Required">
+	    <para>
+                El PL debe ser declarado con la orden
+		<programlisting>
+    CREATE [ TRUSTED ] PROCEDURAL LANGUAGE '<replaceable>language-name</replaceable>'
+        HANDLER <replaceable>handler_function_name</replaceable>
+	LANCOMPILER '<replaceable>description</replaceable>';
+		</programlisting>
+                La palabra clave opcional <acronym>TRUSTED</acronym> indica si un usuario 
+                normal de la base de datos, sin privilegios de superusuario, puede usar este 
+                lenguaje para crear funciones y procedimientos activadores. Dado que las funciones 
+                de los PL se ejecutan dentro de la aplicación de base de datos, sólo deberían 
+                usarse para lenguajes que no puedan conseguir acceso a las aplicaciones internas 
+                de la base de datos, o al sistema de ficheros. Los lenguajes PL/pgSQL y PL/Tcl 
+                son manifiestamente fiables en este sentido
+	    </para>
+	</step>
+</procedure>
+
+<procedure>
+    <title>Ejemplo</title>
+    <step performance="Required">
+    <para>
+        La siguiente orden le dice a la base de datos donde encontrar el objeto compartido para 
+        el manejador de funciones que llama al lenguaje PL/pgSQL
+    </para>
+    <programlisting>
+    CREATE FUNCTION plpgsql_call_handler () RETURNS OPAQUE AS
+        '/usr/local/pgsql/lib/plpgsql.so' LANGUAGE 'C';
+    </programlisting>
+    </step>
+
+    <step performance="Required">
+    <para>
+        La orden
+    </para>
+    <programlisting>
+    CREATE TRUSTED PROCEDURAL LANGUAGE 'plpgsql'
+        HANDLER plpgsql_call_handler
+        LANCOMPILER 'PL/pgSQL';
+    </programlisting>
+    <para>
+        define que la función manejadora de llamadas previamente declarada debe ser invocada 
+        por las funciones y procedimientos disparadores cuando el atributo del lenguaje es 
+        'plpgsql'
+    </para>
+    <para>
+        Las funciones manejadoras de PL tienen una interfase de llamadas especial distinta 
+        del de las funciones de lenguaje C normales. Uno de los argumentos dados al manejador 
+        es el identificador del objeto en las entradas de la tabla <filename>pg_proc</filename> 
+        para la función que ha de ser ejecutada. El manejador examina varios catálogos de sistema 
+        para analizar los argumentos de llamada de la función y los tipos de dato que devuelve. 
+        El texto fuente del cuerpo de la función se encuentra en el atributo prosrc de 
+        <filename>pg_proc</filename>.
+        Debido a esto, en contraste con las funciones de lenguaje C, las funciones PL pueden 
+        ser sobrecargadas, como las funciones del lenguaje SQL. Puede haber múltiples funciones 
+        PL con el mismo nombre de función, siempre que los argumentos de llamada sean distintos.
+    </para>
+    <para>
+        Los lenguajes procedurales definidos en la base de datos <filename>template1</filename> 
+        se definen automáticamente en todas las bases de datos creadas subsecuentemente. Así que 
+        el administrador de la base de datos puede decidir que lenguajes están definidos por 
+        defecto.
+    </para>
+    </step>
+</procedure>
+</sect1> <!-- **** Fin de la intalación de PL **** -->
+
+<!-- **********
+     * El lenguaje procedural PL/pgSQL
+     **********
+-->
+
+<sect1>
+<title>PL/pgSQL</title>
+
+<para>
+    PL/pgSQL es un lenguaje procedural cargable para el sistema de bases de datos <productname>Postgres</productname>.
+</para>
+
+<para>
+    Este paquete fue escrito originalmente por Jan Wieck.
+</para>
+
+<!-- **** Panorámica de PL/pgSQL **** -->
+
+<sect2>
+<title>Panorámica</title>
+
+<para>
+    Los objetivos de diseño de PL/pgSQL fueron crear un lenguaje procedural cargable que
+    <itemizedlist>
+    <listitem>
+	<para>
+        pueda usarse para crear funciones y procedimientos disparados por eventos,
+	</para>
+    </listitem>
+    <listitem>
+	<para>
+        añada estructuras de control al lenguaje <acronym>SQL</acronym>,
+	</para>
+    </listitem>
+    <listitem>
+	<para>
+        pueda realizar cálculos complejos,
+	</para>
+    </listitem>
+    <listitem>
+	<para>
+        herede todos los tipos definidos por el usuario, las funciones y los operadores,
+	</para>
+    </listitem>
+    <listitem>
+	<para>
+        pueda ser definido para ser fiable para el servidor,
+	</para>
+    </listitem>
+    <listitem>
+	<para>
+        sea fácil de usar,
+	</para>
+    </listitem>
+    </itemizedlist>
+</para>
+<para>
+    El gestor de llamadas PL/pgSQL analiza el texto de las funciones y produce un árbol de 
+    instrucciones binarias interno la primera vez que la función es invocada por una aplicación. 
+    El bytecode producido es identificado por el manejador de llamadas mediante el ID de la 
+    función. Esto asegura que el cambio de una función por parte de una secuencia DROP/CREATE 
+    tendrá efecto sin tener que establecer una nueva conexión con la base de datos.
+</para>
+<para>
+    Para todas y las expresiones y sentencias <acronym>SQL</acronym> usadas en la función, el 
+    interprete de bytecode de PL/pgSQL crea un plan de ejecución preparado usando los gestores 
+    de SPI, funciones SPI_prepare() y SPI_saveplan(). Esto se hace la primera vez que las 
+    sentencias individuales se procesan en la función PL/pgSQL. Así, una función con código 
+    condicional que contenga varias sentencias que puedan ser ejecutadas, solo preparará y 
+    almacenará las opciones que realmente se usarán durante el ámbito de la conexión con la 
+    base de datos.
+</para>
+<para>
+    Excepto en el caso de funciones de conversión de entrada/salida y de cálculo para tipos 
+    definidos, cualquier cosa que pueda definirse en funciones de lenguaje C puede ser hecho 
+    con PL/pgSQL. Es posible crear funciones complejas de calculo y después usarlas para 
+    definir operadores o usarlas en índices funcionales.
+</para>
+</sect2>
+
+<!-- **** Descripción de PL/pgSQL **** -->
+
+<sect2>
+<title>Descripcion</title>
+
+<!-- **** Estructura de PL/pgSQL **** -->
+
+<sect3>
+<title>Estructura de PL/pgSQL</title>
+
+<para>
+    El lenguaje PL/pgSQL no es sensible a las mayúsculas. Todas las palabras clave e identificadores 
+    pueden usarse en cualquier mexcla de mayúsculas y minúsculas.
+</para>
+<para>
+    PL/pgSQL es un lenguaje orientado a bloques. Un bloque se define como
+
+<programlisting>
+    [&lt;&lt;label&gt;&gt;]
+    [DECLARE
+        <replaceable>declarations</replaceable>]
+    BEGIN
+        <replaceable>statements</replaceable>
+    END;
+</programlisting>
+
+    Puede haber cualquier numero de subbloques en la sección de sentencia de un bloque. Los 
+    subloques pueden usarse para ocultar variables a otros bloques de sentencias. Las variables 
+    declaradas en la sección de declaraciones se inicializan a su valor por defecto cada vez 
+    que se inicia el bloque, no cada vez que se realiza la llamada a la función.
+</para>
+  
+<para>
+    Es importante no confundir el significado de BEGIN/END en la agrupación de sentencias de 
+    OL/pgSQl y las ordenes de la base de datos para control de transacciones. Las funciones y 
+    procedimientos disparadores no pueden iniciar o realizar transacciones y <productname>Postgres</productname> 
+    no soporta transacciones anidadas.
+</para>
+</sect3>
+
+<!-- **** Comentarios en PL/pgSQL **** -->
+
+<sect3>
+<title>Comments</title>
+
+<para>
+    Hay dos tipos de comentarios en PL/pgSQl. Un par de guiones '--' comienza un comentario que 
+    se extiende hasta el fin de la linea. Los caracteres '/*' comienzan un bloque de comentarios 
+    que se extiende hasta que se encuentre un '*/'. Los bloques de comentarios no pueden anidarse 
+    pero un par de guiones pueden encerrarse en un bloque de comentario, o ocultar los limitadores 
+    de estos bloques.
+</para>
+</sect3>
+
+<!-- **** Declaraciones en PL/pgSQL **** -->
+
+<sect3>
+<title>Declaraciones</title>
+
+<para>
+    Todas las variables, filas y columnas que se usen en un bloque o subloque ha de ser 
+    declarado en la sección de declaraciones del bloque, excepto las variables de control de 
+    bucle en un bucle FOR que se itere en un rango de enteros. Los parámetros dados a una 
+    función PL/pgSQL se declaran automáticamente con los identificadores usuales, $n.
+    Las declaraciones tienen la siguiente sintaxis:
+</para>
+<variablelist>
+
+<varlistentry>
+<term>
+<replaceable>name</replaceable> [ CONSTANT ]
+<replaceable>>typ</replaceable>> [ NOT NULL ] [ DEFAULT | :=
+	<replaceable>value</replaceable> ];
+</term>
+<listitem>
+<para>
+    Esto declara una variable de un tipo base especificado. Si la variable es declarada como 
+    CONSTANT, su valor no podrá ser cambiado. Si se especifica NOT NULL, la asignación de un 
+    NULL producirá un error en timepo de ejecución. Dado que el valor por defecto de todas las 
+    variables es el valor NULL de <acronym>SQL</acronym>, todas las variables declaradas como 
+    NOT NULL han de tener un valor por defecto.
+</para>
+<para>
+    El valor por defecto es evaluado cada vez que se invoca la función. Así que asignar 
+    '<replaceable>now</replaceable>' a una variable de tipo <replaceable>datetime</replaceable> 
+    hace que la variable tome el momento de la llamada a la función, no el momento en que la 
+    función fue compilada a bytecode.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term>
+<replaceable>name</replaceable> <replaceable>class</replaceable>%ROWTYPE;
+</term>
+<listitem>
+<para>
+    Esto declara una fila con la estructura de la clase indicada. La clase ha de ser una 
+    tabla existente, o la vista de una base de datos. Se accede a los campos de la fila 
+    mediante la notación de punto. Los parámetros de una función pueden ser de tipos compuestos 
+    (filas de una tabla completas). En ese caso, el correspondiente identificador $n será un 
+    tipo de fila, pero ha de ser referido usando la orden ALIAS que se describe más adelante.
+    Solo los atributos de usuario de una fila de tabla son accesibles en la fila, no se puede 
+    acceder a Oid o a los otros atributos de sistema (dado que la fila puede ser de una vista, 
+    y las filas de una vista no tienen atributos de sistema útiles).
+</para>
+<para>
+    Los campos de un tipo de fila heredan los tipos de datos, tamaños y precisiones de las tablas.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term>
+<replaceable>name</replaceable> RECORD;
+</term>
+<listitem>
+<para>
+    Los registros son similares a los tipos de fila, pero no tienen una estructura predefinida.
+    Se emplean en selecciones y bucles FOR, para mantener una fila de la actual base de datos 
+    en una operación SELECT. El mismo registro puede ser usado en diferentes selecciones. El 
+    acceso a un campo de registro cuando no hay una fila seleccionada resultará en un error de 
+    ejecución.
+</para>
+<para>
+    Las filas NEW y OLD en un disparador se pasan a los procedimientos como registros. Esto es 
+    necesario porque en <productname>Postgres</productname> un mismo procedimiento desencadenado 
+    puede tener sucesos disparadores en diferentes tablas.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term>
+<replaceable>name</replaceable> ALIAS FOR $n;
+</term>
+<listitem>
+<para>
+    Para una mejor legibilidad del código, es posible definir un alias para un parámetro 
+    posicional de una función.
+</para>
+<para>
+    Estos alias son necesarios cuando un tipo compuesto se pasa como argumento a una función.
+    La notación punto $1.salary como en funciones SQL no se permiten en PL/pgSQL
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term>
+RENAME <replaceable>oldname</replaceable> TO <replaceable>newname</replaceable>;
+</term>
+<listitem>
+<para>
+    Esto cambia el nombre de una variable, registro o fila. Esto es útil si NEW o OLD ha de 
+    ser referenciado por parte de otro nombre dentro de un procedimiento desencadenado.
+</para>
+</listitem>
+</varlistentry>
+
+</variablelist>
+</sect3>
+
+<!-- **** Tipos de datos en PL/pgSQL **** -->
+
+<sect3>
+<title>Tipos de datos</title>
+
+<para>
+    Los tipos de una variable pueden ser cualquiera de los tipos básicos existentes en la base 
+    de datos. <replaceable>type</replaceable> en la sección de declaraciones se define como:
+</para>
+<para>
+    <itemizedlist>
+    <listitem>
+        <para>
+	<productname>Postgres</productname>-basetype
+	</para>
+    </listitem>
+    <listitem>
+        <para>
+	<replaceable>variable</replaceable>%TYPE
+	</para>
+    </listitem>
+    <listitem>
+        <para>
+	<replaceable>class.field</replaceable>%TYPE
+	</para>
+    </listitem>
+    </itemizedlist>
+</para>
+<para>
+    <replaceable>variable</replaceable> es el nombre de una variable, previamente declarada en 
+    la misma función, que es visible en este momento.
+</para>
+<para>
+    <replaceable>class</replaceable> es el nombre de una tabla existente o vista, donde 
+    <replaceable>field</replaceable> es el nombre de un atributo.
+</para>
+<para>
+    El uso de <replaceable>class.field</replaceable>%TYPE hace que PL/pgSQl busque las 
+    definiciones de atributos en la primera llamada a la función, durante toda la vida de 
+    la aplicación final. Supongamos que tenemos una tabla con un atributo char(20) y algunas 
+    funciones PL/pgSQL, que procesan el contenido por medio de variables locales. Ahora, 
+    alguien decide que char(20) no es suficiente, cierra la tabla, y la recrea con el atributo 
+    en cuestión definido como char(40), tras lo que restaura los datos. Pero se ha olvidado de 
+    las funciones. Los cálculos internos de éstas truncarán los valores a 20 caracteres. Pero 
+    si hubieran sido definidos usando las declaraciones <replaceable>class.field</replaceable>%TYPE 
+    automáticamente se adaptarán al cambio de tamaño, o a si el nuevo esquema de la tabla define 
+    el atributo como de tipo texto.
+</para>
+</sect3>
+
+<!-- **** Expresiones en PL/pgSQL **** -->
+
+<sect3>
+<title>Expressions</title>
+
+<para>
+    Todas las expresiones en las sentencias PL/pgSQL son procesadas usando backends de ejecución.
+    Las expresiones que puedan contener constantes pueden de hecho requerir evaluación en tiempo 
+    de ejecución (por ejemplo, 'now' para el tipo 'datatime'), dado que es imposible para el 
+    analizador de PL/pgSQL identificar los valores constantes distintos de la palabra clave NULL.
+    Todas las expresiones se evalúan internamente ejecutando una consulta
+    <programlisting>
+    SELECT <replaceable>expression</replaceable>
+    </programlisting>
+    usando el gestor SPI. En la expresión, las apariciones de los identificadores de variables son 
+    sustituidos por parámetros, y los valores reales de las variables son pasadas al ejecutor en la 
+    matriz de parámetros. Todas las expresiones usadas en una función PL/pgSQL son preparadas de 
+    una sola vez, y guardadas una única vez.
+</para>
+<para>
+    La comprobación de tipos hecha por el analizador principal de <productname>Postgres</productname>
+    tiene algunos efectos secundarios en la interpretación de los valores constantes. En detalle, 
+    hay una diferencia entre lo que hacen estas dos funciones
+
+    <programlisting>
+    CREATE FUNCTION logfunc1 (text) RETURNS datetime AS '
+        DECLARE
+            logtxt ALIAS FOR $1;
+        BEGIN
+            INSERT INTO logtable VALUES (logtxt, ''now'');
+            RETURN ''now'';
+        END;
+    ' LANGUAGE 'plpgsql';
+    </programlisting>
+
+    y
+
+    <programlisting>
+    CREATE FUNCTION logfunc2 (text) RETURNS datetime AS '
+        DECLARE
+            logtxt ALIAS FOR $1;
+            curtime datetime;
+        BEGIN
+            curtime := ''now'';
+            INSERT INTO logtable VALUES (logtxt, curtime);
+            RETURN curtime;
+        END;
+    ' LANGUAGE 'plpgsql';
+    </programlisting>
+
+    En el caso de logfunc1(), el analizador principal de <productname>Postgres</productname> sabe 
+    cuando prepara la ejecución de INSERT que la cadena 'now' debe ser interpretada como una 
+    fecha, dado que el campo objeto de 'logtable' tiene ese tipo. Así, hará una constante de ese 
+    tipo, y el valor de esa constante se empleará en todas las llamadas a logfunc1(), durante toda 
+    la vida útil de ese proceso. No hay que decir que eso no era lo que pretendía el programador.
+</para>
+<para>
+    En el caso de logfunc2(), el analizador principal de <productname>Postgres</productname> no 
+    sabe cual es el tipo de 'now', por lo que devuelve un tipo de texto, que contiene la cadena 
+    'now'. Durante la asignación a la variable local 'curtime', el interprete PL/pgSQL asigna a 
+    esta cadena el tipo fecha, llamando a las funciones text_out() y datetime_in() para realizar 
+    la conversión.
+</para>
+<para>
+    esta comprobación de tipos realizada por el analizador principal de <productname>Postgres</productname> 
+    fue implementado antes de que PL/pgSQL estuviera totalmente terminado. Es una diferencia entre 
+    6.3 y 6.4, y afecta a todas las funciones que usan la planificación realizada por el gestor SPI. 
+    El uso de variables locales en la manera descrita anteriormente es actualmente la única forma de 
+    que PL/pgSQL interprete esos valores correctamente.
+</para>
+<para>
+    Si los campos del registro son usados en expresiones o sentencias, los tipos de datos de campos 
+    no deben cambiarse entre llamadas de una misma expresión. Tenga esto en cuenta cuando escriba 
+    procedimientos disparadores que gestionen eventos en más de una tabla.
+</para>
+</sect3>
+
+<!-- **** Sentencias PL/pgSQL **** -->
+
+<sect3>
+<title>Sentencias</title>
+
+<para>
+    Cualquier cosa no comprendida por el analizador PL/pgSQL tal como se ha especificado 
+    será enviado al gestor de bases de datos, para su ejecución. La consulta resultante 
+    no devolverá ningún dato.
+</para>
+
+<variablelist>
+
+<varlistentry>
+<term>
+Asignación
+</term>
+<listitem>
+<para>
+    Una asignación de un valor a una variable o campo de fila o de registro se escribe:
+    <programlisting>
+    <replaceable>identifier</replaceable> := <replaceable>expression</replaceable>;
+    </programlisting>
+    Si el tipo de dato resultante de la expresión no coincide con el tipo de dato de las 
+    variables, o la variable tienen un tamaño o precisión conocido (como char(29)), el 
+    resultado será amoldado implícitamente por el interprete de bytecode de PL/pgSQL, usando 
+    los tipos de las variables para las funciones de entrada y los tipos resultantes en las 
+    funciones de salida. Nótese que esto puede potencialmente producir errores de ejecución 
+    generados por los tipos de las funciones de entrada.
+</para>
+<para>
+    Una asignación de una selección completa en un registro o fila puede hacerse del siguiente 
+    modo:
+    <programlisting>
+    SELECT <replaceable>expressions</replaceable> INTO <replaceable>target</replaceable> FROM ...;
+    </programlisting>
+    <replaceable>target</replaceable> puede ser un registro, una variable de fila o una lista 
+    separada por comas de variables y campo de de registros o filas.
+</para>
+<para>
+    Si una fila o una lista de variables se usa como objetivo, los valores seleccionados han de 
+    coincidir exactamente con la estructura de los objetivos o se producirá un error de 
+    ejecución. La palabra clave FROM puede preceder a cualquier calificador válido, agrupación, 
+    ordenación, etc. que pueda pasarse a una sentencia SELECT.
+</para>
+<para>
+    Existe una variable especial llamada FOUND de tipo booleano, que puede usarse inmediatamente 
+    después de SELECT INTO para comprobar si una asignación ha tenido éxito.
+
+    <programlisting>
+    SELECT * INTO myrec FROM EMP WHERE empname = myname;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION ''employee % not found'', myname;
+    END IF;
+    </programlisting>
+
+    Si la selección devuelve múltiples filas, solo la primera se mueve a los campos objetivo. 
+    todas las demás se descartan.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term>
+Llamadas a otra función
+</term>
+<listitem>
+<para>
+    Todas las funciones definidas en una base de datos <productname>Postgres</productname> 
+    devuelven un valor. Por lo tanto, la forma normal de llamar a una función es ejecutar una 
+    consulta SELECT o realizar una asignación (que de lugar a un SELECT interno de PL/pgSQL). 
+    Pero hay casos en que no interesa saber los resultados de las funciones.
+    <programlisting>
+    PERFORM <replaceable>query</replaceable>
+    </programlisting>
+    Esto ejecuta 'SELECT <replaceable>query</replaceable>' en el gestor SPI, y descarta el 
+    resultado. Los identificadores como variables locales son de todos modos sustituidos en 
+    los parámetros.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term>
+Volviendo de la función
+</term>
+<listitem>
+<para>
+    <programlisting>
+    RETURN <replaceable>expression</replaceable>
+    </programlisting>
+    La función termina y el valor de <replaceable>expression</replaceable> se devolverá al 
+    ejecutor superior. El valor devuelto por una función no puede quedar son definir. Si el 
+    control alcanza el fin del bloque de mayor nivel de la función sin encontrar una sentencia 
+    RETURN, ocurrirá un error de ejecución.
+</para>
+<para>
+    Las expresiones resultantes serán amoldadas automáticamente en los tipos devueltos por la 
+    función, tal como se ha descrito en el caso de las asignaciones.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term>
+Abortando la ejecución y mensajes
+</term>
+<listitem>
+<para>
+    Como se ha indicado en los ejemplos anteriores, hay una sentencia RAISE que puede enviar 
+    mensajes al sistema de registro de <productname>Postgres</productname>.
+    ###################### ATENCION WARNING ACHTUNG #####################
+    ¡Aquí puede haber una errata! Comparad con el original
+
+    <programlisting>
+    RAISE <replaceable class="parameter">level</replaceable>
+	 <replaceable class="parameter">for</replaceable>'' [,
+	  <replaceable class="parameter">identifier</replaceable> [...]];
+    </programlisting>
+    #####################################################################
+
+    Dentro del formato, <quote>%</quote> se usa como situación para los subsecuentes 
+    identificadores, separados por comas. Los posibles niveles son DEBUG (suprimido en las bases de datos de producción), NOTICE (escribe en el registro de la base de datos y lo envía a la aplicación del cliente) y EXCEPTION (escribe en el registro de la base de datos y aborta la transacción).
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term>
+Condiciones
+</term>
+<listitem>
+<para>
+    <programlisting>
+    IF <replaceable>expression</replaceable> THEN
+        <replaceable>statements</replaceable>
+    [ELSE
+        <replaceable>statements</replaceable>]
+    END IF;
+    </programlisting>
+    <replaceable>expression</replaceable> debe devolver un valor que al menos pueda ser adaptado 
+    en un tipo booleano.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term>
+Bucles
+</term>
+<listitem>
+<para>
+    Hay varios tipos de bucles.
+    <programlisting>
+    [&lt;&lt;label&gt;&gt;]
+    LOOP
+        <replaceable>statements</replaceable>
+    END LOOP;
+    </programlisting>
+    Se trata de un bucle no condicional que ha de ser terminado de forma explicita, mediante una 
+    sentencia EXIT. La etiqueta opcional puede ser usado por las sentencias EXIT de otros bucles 
+    anidados, para especificar el nivel del bucle que ha de terminarse.
+    <programlisting>
+    [&lt;&lt;label&gt;&gt;]
+    WHILE <replaceable>expression</replaceable> LOOP
+        <replaceable>statements</replaceable>
+    END LOOP;
+    </programlisting>
+    Se trata de un lazo condicional que se ejecuta mientras la evaluación de <replaceable>expression</replaceable> 
+    sea cierta.
+    <programlisting>
+    [&lt;&lt;label&gt;&gt;]
+    FOR <replaceable>name</replaceable> IN [ REVERSE ]
+<replaceable>express</replaceable> .. <replaceable>expression</replaceable> LOOP
+        <replaceable>statements</replaceable>
+    END LOOP;
+    </programlisting>
+    Se trata de un bucle que se itera sobre un rango de valores enteros. La variable <replaceable>name</replaceable> 
+    se crea automáticamente con el tipo entero, y existe solo dentro del bucle. Las dos 
+    expresiones dan el limite inferior y superior del rango y son evaluados sólo cuando se entra 
+    en el bucle. El paso de la iteración es siempre 1.
+    <programlisting>
+    [&lt;&lt;label&gt;&gt;]
+    FOR <replaceable>record | row</replaceable> IN <replaceable>select_clause</replaceable> LOOP
+        <replaceable>statements</replaceable>
+    END LOOP;
+    </programlisting>
+    EL registro o fila se asigna a todas las filas resultantes de la clausula de selección, y la 
+    sentencia se ejecuta para cada una de ellas. Si el bucle se termina con una sentencia EXIT, 
+    la ultima fila asignada es aún accesible después del bucle.
+    <programlisting>
+    EXIT [ <replaceable>label</replaceable> ] [ WHEN <replaceable>expression</replaceable> ];
+    </programlisting>
+    Si no se incluye <replaceable>label</replaceable>, se termina el lazo más interno, y se 
+    ejecuta la sentencia que sigue a END LOOP. Si se incluye <replaceable>label</replaceable> 
+    ha de ser la etiqueta del bucle actual u de otro de mayor nivel. EL bucle indicado se 
+    termina, y el control se pasa a la sentencia de después del END del bucle o bloque 
+    correspondiente.
+</para>
+</listitem>
+</varlistentry>
+
+</variablelist>
+
+</sect3>
+
+<!-- **** Procedimientos desencadenados en PL/pgSQL **** -->
+
+<sect3>
+<title>Procedimientos desencadenados</title>
+
+<para>
+    PL/pgSQL puede ser usado para definir procedimientos desencadenados por eventos. Estos se crean con la
+    orden CREATE FUNCTION, igual que una función, pero sin argumentos, y devuelven un tipo OPAQUE.
+</para>
+<para>
+    Hay algunos detalles específicos de <productname>Postgres</productname> cuando se usan 
+    funciones como procedimientos desencadenados.
+</para>
+<para>
+    En primer lugar, disponen de algunas variables especiales que se crean automáticamente en 
+    los bloques de mayor nivel de la sección de declaración. Son:
+</para>
+
+<variablelist>
+
+<varlistentry>
+<term>
+    NEW
+</term>
+<listitem>
+<para>
+    Tipo de dato RECORD; es una variable que mantienen la fila de la nueva base de datos en 
+    las operaciones INSERT/UPDATE, en los desencadenados ROW.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term>
+    OLD
+</term>
+<listitem>
+<para>
+    Tipo de dato RECORD; es una variable que mantiene la fila de la base de datos vieja en 
+    operaciones UPDATE/DELETE, en los desencadenados ROW.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term>
+    TG_NAME
+</term>
+<listitem>
+<para>
+    Nombre de tipo de dato; es una variable que contiene el nombre del procedimiento desencadenado que se ha
+    activado.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term>
+    TG_WHEN
+</term>
+<listitem>
+<para>
+    Tipo de dato texto; es una cadena de caracteres del tipo 'BEFORE' o 'AFTER', dependiendo 
+    de la definición del procedimiento desencadenado.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term>
+    TG_LEVEL
+</term>
+<listitem>
+<para>
+    Tipo de dato texto; una cadena de 'ROW' o 'STATEMENT', dependiendo de la definición del 
+    procedimiento desencadenado.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term>
+    TG_OP
+</term>
+<listitem>
+<para>
+    Tipo de dato texto; una cadena de 'INSERT', 'UPDATE' o 'DELETE', que nos dice la operación 
+    para la que se ha disparado el procedimiento desencadenado.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term>
+    TG_RELID
+</term>
+<listitem>
+<para>
+    Tipo de dato oid; el ID del objeto de la tabla que ha provocado la invocación del procedimiento 
+    desencadenado.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term>
+    TG_RELNAME
+</term>
+<listitem>
+<para>
+    Tipo de dato nombre; el nombre de la tabla que ha provocado la activación del procedimiento desencadenado.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term>
+    TG_NARGS
+</term>
+<listitem>
+<para>
+    Tipo de dato entero; el numero de argumentos dado al procedimiento desencadenado en la sentencia 
+    CREATE TRIGGER.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term>
+    TG_ARGV[]
+</term>
+<listitem>
+<para>
+    Tipo de dato matriz de texto; los argumentos de la sentencia CREATE TRIGGER. El índice 
+    comienza por cero, y puede ser dado en forma de expresión. Índices no validos dan lugar 
+    a un valor NULL.
+</para>
+</listitem>
+</varlistentry>
+
+</variablelist>
+
+<para>
+    En segundo lugar, han de devolver o NULL o una fila o registro que contenga exactamente 
+    la estructura de la tabla que ha provocado la activación del procedimiento desencadenado. Los 
+    procedimientos desencadenados activados por AFTER deben devolver siempre un valor NULL, sin 
+    producir ningún efecto. Los procedimientos desencadenados activados por BEFORE indican al gestor 
+    de procedimientos desencadenados que no realice la operación sobre la fila actual cuando se devuelva 
+    NULL. En cualquier otro caso, la fila o registro devuelta sustituye a la fila insertada o actualizada. 
+    Es posible reemplazar valores individuales directamente en una sentencia NEW y devolverlos, o construir 
+    una nueva fila o registro y devolverla.
+</para>
+</sect3>
+
+<!-- **** Excepciones en PL/pgSQL **** -->
+
+<sect3>
+<title>Excepciones</title>
+
+<para>
+    <productname>Postgres</productname> no dispone de un modelo de manejo de excepciones muy 
+    elaborado. Cuando el analizador, el optimizador o el ejecutor deciden que una sentencia 
+    no puede ser procesada, la transacción completa es abortada y el sistema vuelve al lazo 
+    principal para procesar la siguiente consulta de la aplicación cliente.
+</para>
+<para>
+    Es posible introducirse en el mecanismo de errores para detectar cuando sucede esto.
+    Pero lo que no es posible es saber qué ha causado en realidad el aborto (un error de 
+    conversión de entrada/salida, un error de punto flotante, un error de análisis). Y es posible 
+    que la base de datos haya quedado en un estado inconsistente, por lo que volver a un nivel de 
+    ejecución superior o continuar ejecutando comandos puede corromper toda la base de datos.
+    E incluso aunque se pudiera enviar la información a la aplicación cliente, la transacción 
+    ya se abría abortado, por lo que carecería de sentido el intentar reanudar la operación.
+</para>
+<para>
+    Por todo esto, lo único que hace PL/pgSQL cuando se produce un aborto de ejecución durante 
+    la ejecución de una función o procedimiento disparador es enviar mensajes de depuración al 
+    nivel DEBUG, indicando en qué función y donde (numero de línea y tipo de sentencia) ha 
+    sucedido el error.
+</para>
+</sect3>
+</sect2>
+
+<!-- **** Ejemplos de PL/pgSQL **** -->
+
+<sect2>
+<title>Ejemplos</title>
+
+<para>
+Se incluyen unas pocas funciones para demostrar lo fácil que es escribir funciones en PL/pgSQL. 
+Para ejemplos más complejos, el programador debería consultar el test de regresión de PL/pgSQL.
+</para>
+
+<para>
+Un detalle doloroso a la hora de escribir funciones en PL/pgSQL es el manejo de la comilla simple. 
+El texto de las funciones en CREATE FUNCTION ha de ser una cadena de texto. Las comillas simples 
+en el interior de una cadena literal deben de duplicarse o anteponerse de una barra invertida. 
+Aún estamos trabajando en una alternativa más elegante. Mientras tanto, duplique las comillas 
+sencillas como en los ejemplos siguientes. Cualquier solución a este problema en futuras versiones 
+de <productname>Postgres</productname> mantendrán la compatibilidad con esto.
+</para>
+
+<sect3>
+<title>Algunas funciones sencillas en PL/pgSQL </title>
+
+<para>
+    Las dos funciones siguientes son idénticas a sus contrapartidas que se verán cuando estudiemos 
+    el lenguaje C.
+
+    <programlisting>
+    CREATE FUNCTION add_one (int4) RETURNS int4 AS '
+        BEGIN
+            RETURN $1 + 1;
+        END;
+    ' LANGUAGE 'plpgsql';
+    </programlisting>
+
+    <programlisting>
+    CREATE FUNCTION concat_text (text, text) RETURNS text AS '
+        BEGIN
+            RETURN $1 || $2;
+        END;
+    ' LANGUAGE 'plpgsql';
+    </programlisting>
+</para>
+
+</sect3>
+
+<sect3>
+<title>Funciones PL/pgSQL para tipos compuestos</title>
+
+<para>
+    De nuevo, estas funciones PL/pgSQL tendrán su equivalente en lenguaje C.
+
+    <programlisting>
+    CREATE FUNCTION c_overpaid (EMP, int4) RETURNS bool AS '
+        DECLARE
+            emprec ALIAS FOR $1;
+            sallim ALIAS FOR $2;
+        BEGIN
+            IF emprec.salary ISNULL THEN
+                RETURN ''f'';
+            END IF;
+            RETURN emprec.salary > sallim;
+        END;
+    ' LANGUAGE 'plpgsql';
+    </programlisting>
+</para>
+
+</sect3>
+
+<sect3>
+<title>Procedimientos desencadenados en PL/pgSQL </title>
+
+<para>
+    Estos procedimientos desencadenados aseguran que, cada vez que se inserte o actualice un fila en la 
+    tabla, se incluya el nombre del usuario y la fecha y hora. Y asegura que se proporciona un nombre de 
+    empleado y que el salario tiene un valor positivo.
+
+    <programlisting>
+    CREATE TABLE emp (
+        empname text,
+        salary int4,
+        last_date datetime,
+        last_user name);
+
+    CREATE FUNCTION emp_stamp () RETURNS OPAQUE AS
+        BEGIN
+            -- Check that empname and salary are given
+            IF NEW.empname ISNULL THEN
+                RAISE EXCEPTION ''empname cannot be NULL value'';
+            END IF;
+            IF NEW.salary ISNULL THEN
+                RAISE EXCEPTION ''% cannot have NULL salary'', NEW.empname;
+            END IF;
+
+            -- Who works for us when she must pay for?
+            IF NEW.salary < 0 THEN
+                RAISE EXCEPTION ''% cannot have a negative salary'', NEW.empname;
+            END IF;
+
+            -- Remember who changed the payroll when
+            NEW.last_date := ''now'';
+            NEW.last_user := getpgusername();
+            RETURN NEW;
+        END;
+    ' LANGUAGE 'plpgsql';
+
+    CREATE TRIGGER emp_stamp BEFORE INSERT OR UPDATE ON emp
+        FOR EACH ROW EXECUTE PROCEDURE emp_stamp();
+    </programlisting>
+</para>
+
+</sect3>
+
+</sect2>
+
+</sect1>
+
+<!-- **********
+     * El lenguaje procedural PL/Tcl
+     **********
+-->
+
+<sect1>
+<title>PL/Tcl</title>
+
+<para>
+    PL/Tcl es un lenguaje procedural para el gestor de bases de datos <productname>Postgres</productname> 
+    que permite el uso de Tcl para la creación de funciones y procedimientos desencadenados 
+    por eventos.
+</para>
+
+<para>
+    Este paquete fue escrito originalmente por Jan Wieck.
+</para>
+
+<!-- **** Introducción a PL/Tcl **** -->
+
+<sect2>
+<title>Introducción</title>
+
+<para>
+    PL/Tcl ofrece la mayoría de las capacidades de que dispone el lenguaje C, excepto algunas 
+    restricciones.
+</para>
+<para>
+    Las restricciones buenas son que todo se ejecuta en un buen interprete Tcl. Además del 
+    reducido juego de ordenes de Tcl, solo se disponen de unas pocas ordenes para acceder a 
+    bases de datos a través de SPI y para enviar mensajes mediante elog(). No hay forma de 
+    acceder a las interioridades del proceso de gestión de la base de datos, no de obtener 
+    acceso al nivel del sistema operativo, bajo los permisos del identificador de usuario de 
+    <productname>Postgres</productname>, como es posible en C. Así, cualquier usuario de bases 
+    de datos sin privilegios puede usar este lenguaje.
+</para>
+<para>
+    La otra restricción, interna, es que los procedimientos Tcl no pueden usarse para crear 
+    funciones de entrada / salida para nuevos tipos de datos. 
+</para>
+<para>
+    Los objetos compartidos para el gestor de llamada PL/Tcl se construyen automáticamente y 
+    se instalan en el directorio de bibliotecas de <productname>Postgres</productname>, si el 
+    soporte de Tcl/Tk ha sido especificado durante la configuración, en el procedimiento de 
+    instalación.
+</para>
+</sect2>
+
+<!-- **** Descripción de PL/Tcl **** -->
+
+<sect2>
+<title>Descripción</title>
+
+<sect3>
+<title>Funciones de <productname>Postgres</productname> y nombres de procedimientos Tcl</title>
+
+<para>
+    En <productname>Postgres</productname>, un mismo nombre de función puede usarse para diferentes 
+    funciones, siempre que el numero de argumentos o sus tipos sean distintos. Esto puede ocasionar 
+    conflictos con los nombres de procedimientos Tcl. Para ofrecer la misma flexibilidad en PL/Tcl, los 
+    nombres de procedimientos Tcl internos contienen el identificador de objeto de la fila de procedimientos 
+    pg_proc como parte de sus nombres. Así, diferentes versiones (por el numero de argumentos) de una misma 
+    función de <productname>Postgres</productname> pueden ser diferentes también para Tcl.
+</para>
+
+</sect3>
+
+<sect3>
+<title>Definiendo funciones en PL/Tcl</title>
+
+<para>
+    Para crear una función en el lenguaje PL/Tcl, se usa la sintaxis
+
+    <programlisting>
+    CREATE FUNCTION <replaceable>funcname</replaceable>
+ <replaceable>argumen</replaceable>) RETURNS
+       <replaceable>returntype</replaceable> AS '
+        # PL/Tcl function body
+    ' LANGUAGE 'pltcl';
+    </programlisting>
+
+    Cuando se invoca esta función en una consulta, los argumentos se dan como variables $1 ... $n en 
+    el cuerpo del procedimiento Tcl. Así, una función de máximo que devuelva el mayor de dos valores 
+    int4 sería creada del siguiente modo:
+
+    <programlisting>
+    CREATE FUNCTION tcl_max (int4, int4) RETURNS int4 AS '
+        if {$1 > $2} {return $1}
+	return $2
+    ' LANGUAGE 'pltcl';
+    </programlisting>
+
+    Argumentos de tipo compuesto se pasan al procedimiento como matrices de Tcl. Los nombres de elementos 
+    en la matriz son los nombres de los atributos del tipo compuesto.
+    ¡Si un atributo de la fila actual tiene el valor NULL, no aparecerá en la matriz! He aquí un 
+    ejemplo que define la función overpaid_2 (que se encuentra en la antigua documentación de 
+    <productname>Postgres</productname>), escrita en PL/Tcl 
+
+    <programlisting>
+    CREATE FUNCTION overpaid_2 (EMP) RETURNS bool AS '
+        if {200000.0 < $1(salary)} {
+            return "t"
+        }
+        if {$1(age) < 30 && 100000.0 < $1(salary)} {
+            return "t"
+        }
+        return "f"
+    ' LANGUAGE 'pltcl';
+    </programlisting>
+</para>
+
+</sect3>
+
+<sect3>
+<title>Datos Globales en PL/Tcl</title>
+
+<para>
+    A veces (especialmente cuando se usan las funciones SPI que se describirán más adelante) 
+    es útil tener algunos datos globales que se mantengan entre dos llamadas al procedimiento.
+    Todos los procedimientos PL/Tcl ejecutados por un backend comparten el mismo interprete 
+    de Tcl.
+    Para ayudar a proteger a los procedimientos PL/Tcl de efectos secundarios, una matriz queda 
+    disponible para cada uno de los procedimientos a través de la orden 'upvar'. El nombre 
+    global de esa variable es el nombre interno asignado por el procedimiento, y el nombre 
+    local es GD.
+</para>
+</sect3>
+
+<sect3>
+<title>Procedimientos desencadenados en PL/Tcl</title>
+
+<para>
+    Los procedimientos desencadenados se definen en <productname>Postgres</productname> como 
+    funciones sin argumento y que devuelven un tipo opaco. Y lo mismo en el lenguaje PL/Tcl.
+</para>
+<para>
+    La información del gestor de procedimientos desencadenados se pasan al cuerpo del procedimiento 
+    en las siguientes variables:
+</para>
+<variablelist>
+
+<varlistentry>
+<term><replaceable class="Parameter">
+$TG_name
+</replaceable></term>
+<listitem>
+<para>
+    El nombre del procedimiento disparador se toma de la sentencia CREATE TRIGGER.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term><replaceable class="Parameter">
+$TG_relid
+</replaceable></term>
+<listitem>
+<para>
+    El ID de objeto de la tabla que provoca el desencadenamiento ha de ser invocado.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term><replaceable class="Parameter">
+$TG_relatts
+</replaceable></term>
+<listitem>
+<para>
+    Una lista Tcl de los nombres de campos de las tablas, precedida de un elemento de lista
+    vacío. Esto se hace para que al buscar un nombre de elemento en la lista con la orden de 
+    Tcl 'lsearch', se devuelva el  mismo numero positivo, comenzando por 1, en el que los campos 
+    están numerados en el catalogo de sistema 'pg_attribute'.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term><replaceable class="Parameter">
+$TG_when
+</replaceable></term>
+<listitem>
+<para>
+    La cadena BEFORE o AFTER, dependiendo del suceso de la llamada desencadenante.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term><replaceable class="Parameter">
+$TG_level
+</replaceable></term>
+<listitem>
+<para>
+    La cadena ROW o STATEMENT, dependiendo del suceso de la llamada desencadenante.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term><replaceable class="Parameter">
+$TG_op
+</replaceable></term>
+<listitem>
+<para>
+    La cadena INSERT, UPDATE o DELETE, dependiendo del suceso de la llamada desencadenante.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term><replaceable class="Parameter">
+$NEW
+</replaceable></term>
+<listitem>
+<para>
+    Una matriz que contiene los valores de la fila de la nueva tabla para acciones INSERT/UPDATE, 
+    o vacía para DELETE.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term><replaceable class="Parameter">
+$OLD
+</replaceable></term>
+<listitem>
+<para>
+    Una  matriz que contiene los valores de la fila de la vieja tabla para acciones UPDATE o 
+    DELETE, o vacía para INSERT.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term><replaceable class="Parameter">
+$GD
+</replaceable></term>
+<listitem>
+<para>
+    La matriz de datos de estado global, como se describa más adelante.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term><replaceable class="Parameter">
+$args
+</replaceable></term>
+<listitem>
+<para>
+    Una lista Tcl de los argumentos del procedimiento como se dan en la sentencia CREATE 
+    TRIGGER. Los argumentos son también accesibles como $1 ... $n en el cuerpo del procedimiento.
+</para>
+</listitem>
+</varlistentry>
+
+</variablelist>
+
+<para>
+    EL valor devuelto por un procedimiento desencadenado es una de las cadenas OK o SKIP, o una 
+    lista devuelta por la orden Tcl 'array get'. Si el valor devuelto es OK, la operación normal 
+    que ha desencadenado el procedimiento (INSERT/UPDATE/DELETE) tendrá lugar. Obviamente, SKIP 
+    le dice al gestor de procesos desencadenados que suprima silenciosamente la operación. La 
+    lista de 'array get' le dice a PL/Tcl que devuelva una fila modificada al gestor de procedimientos 
+    desencadenados que será insertada en lugar de la dada en $NEW (solo para INSERT/UPDATE). No hay 
+    que decir que todo esto solo tiene sentido cuando el desencadenante es BEFORE y FOR EACH ROW.
+</para>
+<para>
+    Ha aquí un pequeño ejemplo de procedimiento desencadenado que fuerza a un valor entero de 
+    una tabla a seguir la pista del numero de actualizaciones que se han realizado en esa fila.
+    Para cada nueva fila insertada, el valor es inicializado a 0, e incrementada en cada operación 
+    de actualización:
+
+    <programlisting>
+    CREATE FUNCTION trigfunc_modcount() RETURNS OPAQUE AS '
+        switch $TG_op {
+            INSERT {
+                set NEW($1) 0
+            }
+            UPDATE {
+                set NEW($1) $OLD($1)
+                incr NEW($1)
+            }
+            default {
+                return OK
+            }
+        }
+        return [array get NEW]
+    ' LANGUAGE 'pltcl';
+
+    CREATE TABLE mytab (num int4, modcnt int4, desc text);
+
+    CREATE TRIGGER trig_mytab_modcount BEFORE INSERT OR UPDATE ON mytab
+        FOR EACH ROW EXECUTE PROCEDURE trigfunc_modcount('modcnt');
+    </programlisting>
+
+</para>
+</sect3>
+
+<sect3>
+<title>Acceso a bases de datos desde PL/Tcl</title>
+
+<para>
+    Las siguientes ordenes permiten acceder a una base de datos desde el interior de un 
+    procedimiento PL/Tcl:
+</para>
+
+<variablelist>
+
+<varlistentry>
+<term>
+elog <replaceable>level</replaceable> <replaceable>msg</replaceable>
+</term>
+<listitem>
+<para>
+    Lanza un mensaje de registro. Los posibles niveles son NOTICE,  WARN, ERROR, FATAL, DEBUG 
+    y NOIND, como en la función 'elog()' de C.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term>
+quote <replaceable>string</replaceable>
+</term>
+<listitem>
+<para>
+    Duplica todas las apariciones de una comilla o de la barra invertida. Debería usarse 
+    cuando las variables se usen en la cadena en la cadena de la consulta enviada a 
+    'spi_exec' o 'spi_prepara' (no en la lista de valores de 'spi_execp'). Consideremos 
+    una cadena de consulta como esta:
+
+    <programlisting>
+    "SELECT '$val' AS ret"
+    </programlisting>
+
+    Donde la variable Tcl 'val' contiene "doesn't". Esto da lugar a la cadena de consulta
+    <programlisting>
+    "SELECT 'doesn't' AS ret"
+    </programlisting>
+
+    que produce un error del analizador durante la ejecución de 'spi_exec' o 'spi_prepare'. 
+    Debería contener
+
+    <programlisting>
+    "SELECT 'doesn''t' AS ret"
+    </programlisting>
+
+    y ha de escribirse de la siguiente manera
+
+    <programlisting>
+    "SELECT '[ quote $val ]' AS ret"
+    </programlisting>
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term>
+spi_exec ?-count <replaceable>n</replaceable>? ?-array
+<replaceable>nam</replaceable>?<replaceable>que</replaceable> ?<replaceable>loop-body</replaceable>?
+</term>
+<listitem>
+<para>
+    Llama al analizador/planificador/optimizador/ejecutos de la consulta. El valor opcional 
+    -count la dice a 'spi_exec' el máximo numero de filas que han de ser procesadas por la 
+    consulta.    
+</para>
+<para>
+    Si la consulta es una sentencia SELECT y se incluye el cuerpo del lazo opcional (un cuerpo 
+    de sentencias Tcl similar a una sentencia anticipada), se evalúa para cada fila seleccionada, 
+    y se comporta como se espera, tras continua/break. Los valores de los campos seleccionados 
+    se colocan en nombres de variables, como nombres de columnas. Así,
+
+    <programlisting>
+    spi_exec "SELECT count(*) AS cnt FROM pg_proc"
+    </programlisting>
+
+    pondrá en la variable cnt el numero de filas en el catálogo de sistema 'pg_proc'. Si se 
+    incluye la opción -array, los valores de columna son almacenados en la matriz asociativa 
+    llamada 'name', indexada por el nombre de la columna, en lugar de en variables individuales.
+
+    <programlisting>
+    spi_exec -array C "SELECT * FROM pg_class" {
+        elog DEBUG "have table $C(relname)"
+    }
+    </programlisting>
+
+    imprimirá un mensaje de registro DEBUG para cada una de las filas de pg_class. El valor 
+    devuelto por spi_exec es el numero de filas afectado por la consulta, y se encuentra en 
+    la variable global SPI_processed.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term>
+spi_prepare <replaceable>query</replaceable> <replaceable>typelist</replaceable>
+</term>
+<listitem>
+<para>
+    Prepara Y GUARDA una consulta para una ejecución posterior. Es un poco distinto del caso de 
+    C, ya que en ese caso, la consulta prevista es automáticamente copiada en el contexto de 
+    memoria de mayor nivel. Por lo tanto, no actualmente ninguna forma de planificar una consulta 
+    sin guardarla.
+</para>
+<para>
+    Si la consulta hace referencia a argumentos, los nombres de los tipos han de incluirse, 
+    en forma de lista Tcl. El valor devuelto por 'spi_prepare' es el identificador de la consulta 
+    que se usará en las siguientes llamadas a 'spi_execp'. Véase 'spi_execp' para un ejemplo.
+</para>
+</listitem>
+</varlistentry>
+
+<!--
+<porlagloriademimadre> 
+########################## AVISO CUIDADIN ###############################
+Creo que la mitad de los replaceable del fichero están mal, cotejar con
+los originales
+#########################################################################
+</porlagloriademimadre>
+
+-->
+
+<varlistentry>
+<term>
+spi_exec ?-count <replaceable>n</replaceable>? ?-array
+<replaceable>nam</replaceable>? ?-nulls<replaceable>es</replaceable><replaceable>qu</replaceable><replaceable>value</replaceable>? ?<replaceable>loop-body</replaceable>?
+</term>
+<listitem>
+<para>
+    Ejecuta una consulta preparada en 'spi_prepare' con sustitución de variables. El valor     opcional '-count' le dice a 'spi_execp' el máximo numero de filas que se procesarán en     la consulta.
+</para>
+<para>
+    El valor opcional para '-nulls' es una cadena de espacios de longitud "n", que le indica a 
+    'spi_execp' qué valores son NULL. Si se indica, debe tener exactamente la longitud del 
+    numero de valores.
+</para>
+<para>
+    El identificador de la consulta es el identificador devuelto por la llamada a 'spi_prepare'.
+</para>
+<para>
+    Si se pasa una lista de tipos a 'spi_prepare', ha de pasarse una lista Tcl de exactamente 
+    la misma longitud a 'spi_execp' después de la consulta. Si la lista de tipos de 'spi_prepare' 
+    está vacía, este argumento puede omitirse.
+</para>
+<para>
+    Si la consulta es una sentencia SELECT, lo que se ha descrito para 'spi_exec' ocurrirá para 
+    el cuerpo del bucle y las variables de los campos seleccionados.
+</para>
+<para>
+    He aquí un ejemplo de una función PL/Tcl que usa una consulta planificada:
+
+    <programlisting>
+    CREATE FUNCTION t1_count(int4, int4) RETURNS int4 AS '
+        if {![ info exists GD(plan) ]} {
+            # prepare the saved plan on the first call
+            set GD(plan) [ spi_prepare \\
+                    "SELECT count(*) AS cnt FROM t1 WHERE num &gt;= \\$1 AND num &lt;= \\$2" \\
+                    int4 ]
+        }
+        spi_execp -count 1 $GD(plan) [ list $1 $2 ]
+        return $cnt
+    ' LANGUAGE 'pltcl';
+    </programlisting>
+
+    Nótese que cada una de las barras invertidas que Tcl debe ver ha de ser doblada en la consulta que crea la función, dado que el analizador principal procesa estas barras en 
+    CREATE FUNCTION.
+    Dentro de la cadena de la consulta que se pasa a 'spi_prepare' debe haber un signo $ para marcar la posición del parámetro, y evitar que $1 sea sustituido por el valor dado en la primera llamada a la función.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term>
+Módulos y la orden 'desconocido'
+</term>
+<listitem>
+<para>
+    PL/Tcl tiene una característica especial para cosas que suceden raramente. Reconoce dos 
+    tablas "mágicas", 'pltcl_modules' y 'pltcl_modfuncs'. Si existen, el módulo 'desconocido' 
+    es cargado por el interprete, inmediatamente tras su creación. Cada vez que se invoca un 
+    procedimiento Tcl desconocido, el procedimiento 'desconocido' es comprobado, por si el 
+    procedimiento en cuestión está definido en uno de esos módulos. Si ocurre esto, el módulo 
+    es cargado cuando sea necesario. Para habilitar este comportamiento, el gestor de llamadas 
+    de PL/Tcl ha de ser compilado con la opción -DPLTCL_UNKNOWN_SUPPORT habilitado.
+</para>
+<para>
+    Existen scripts de soporte para mantener esas tablas en el subdirectorio de módulos del 
+    código fuente de PL/Tcl, incluyendo el código fuente del módulo 'desconocido', que ha de 
+    ser instalado inicialmente.
+</para>
+</listitem>
+</varlistentry>
+
+</variablelist>
+
+</sect3>
+
+</sect2>
+</sect1>
+</chapter>
+
+<!-- Keep this comment at the end of the file
+Local variables:
+mode: sgml
+sgml-omittag:nil
+sgml-shorttag:t
+sgml-minimize-attributes:nil
+sgml-always-quote-attributes:t
+sgml-indent-step:1
+sgml-indent-data:t
+sgml-parent-document:nil
+sgml-default-dtd-file:"./reference.ced"
+sgml-exposed-tags:nil
+sgml-local-catalogs:"/usr/lib/sgml/CATALOG"
+sgml-local-ecat-files:nil
+End:
+-->

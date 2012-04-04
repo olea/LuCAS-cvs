@@ -1,0 +1,199 @@
+   Cómo intentar sobrevivir con una IBM Mwave bajo los Controlador SB de Linux
+
+
++	IBM ha liberado ahora documentación y Torsten está ocupado
+	intentando hacer que Mwave funcione. Esto no es sin embargo una
+	tarea trivial.
+
+----------------------------------------------------------------------------
+
+OK, lo primero - el problema de la IRQ ES un problema, se pase o no la prueba.
+NO ES un problema de Linux, sino un problema de la MWAVE que se arregla con los
+últimos parches de la MWAVE. Por lo tanto, en otras palabra, no deje de probar
+las MWAVES!
+
+Tengo Windows 95 en /dev/hda1, swap en /dev/hda2, y Red Hat 5 en /dev/hda3.
+
+Los pasos son, entonces:
+
+    Arrancar Linux. 
+    Montar el sistema de ficheros de Windows 95 (asumiendo el punto de montaje
+    						 /dos95).
+    mkdir /dos95/linux
+    mkdir /dos95/linux/boot
+    mkdir /dos95/linux/boot/parms
+
+    Copie el núcleo, una imagen initrd, y loadlin a /dos95/linux/boot/.
+
+    Arranque Windows 95.
+
+    Edite C:/msdos.sys y añada lo siguiente:
+
+        Logo=0
+        BootGUI=0
+
+    Note que msdos.sys es un fichero de texto que necesita ser "visible"
+    leíble y reescribible antes de que pueda ser editado.
+    Esto se puede hacer con el comando DOS' "attrib".
+
+    Edite config.sys para que tenga varios ficheros de configuración.
+    Yo tengo uno para windows 95 y 5 para Linux, como este:
+------------
+[menu]
+menuitem=W95, Windows 95
+menuitem=LINTP, Linux - ThinkPad
+menuitem=LINTP3, Linux - ThinkPad Console
+menuitem=LINDOC, Linux - Docked
+menuitem=LINDOC3, Linux - Docked Console
+menuitem=LIN1, Linux - Modo Mono-Usuario
+REM menudefault=W95,10
+
+[W95]
+
+[LINTP]
+
+[LINDOC]
+
+[LINTP3]
+
+[LINDOC3]
+
+[LIN1]
+
+[COMMON]
+FILES=30
+REM Por favor lea README.TXT en el directorio C:\MWW antres de cambiar la
+	opción DOS=.
+DOS=HIGH,UMB
+DEVICE=C:\MWW\MANAGER\MWD50430.EXE
+SHELL=c:\command.com /e:2048
+-------------------
+
+Lo importante son las opciones SHELL y DEVICE.
+
+    Cambie al autoexec.bat. Básicamente todo lo que esté originalmente allí
+    debería ser usado cuando se arranque Windows 95. 
+    Después añada cosas nuevas específicamente para Linux.
+    Las mías son las siguientes:
+
+---------------
+@ECHO OFF
+if "%CONFIG%" == "W95" goto W95
+
+REM
+REM Cosas de Linux
+REM
+SET MWPATH=C:\MWW\DLL;C:\MWW\MWGAMES;C:\MWW\DSP
+SET BLASTER=A220 I5 D1
+SET MWROOT=C:\MWW
+SET LIBPATH=C:\MWW\DLL
+SET PATH=C:\WINDOWS;C:\MWW\DLL;
+CALL MWAVE START NOSHOW
+c:\linux\boot\loadlin.exe @c:\linux\boot\parms\%CONFIG%.par
+
+:W95
+REM
+REM Cosas de Windows 95
+REM
+c:\toolkit\guard
+SET MSINPUT=C:\MSINPUT
+SET MWPATH=C:\MWW\DLL;C:\MWW\MWGAMES;C:\MWW\DSP
+REM Lo siguiente es usado por los juegos de DOS para reconocer el hardware
+	de la sound Blaster.
+REM Si las configuraciones del hardware cambian, por favor cambien tambien
+	la siguiente línea.
+REM Vea el fichero Mwave README para más instruciones.
+SET BLASTER=A220 I5 D1
+SET MWROOT=C:\MWW
+SET LIBPATH=C:\MWW\DLL
+SET PATH=C:\WINDOWS;C:\WINDOWS\COMMAND;E:\ORAWIN95\BIN;f:\msdev\bin;e:\v30\bin.dbg;v:\devt\v30\bin;c:\JavaSDK\Bin;C:\MWW\DLL;
+SET INCLUDE=f:\MSDEV\INCLUDE;F:\MSDEV\MFC\INCLUDE
+SET LIB=F:\MSDEV\LIB;F:\MSDEV\MFC\LIB
+win
+
+------------------------
+
+Ahora construya un fichero en c:\linux\boot\parms para cada configuración de
+Linux que tenga.
+
+Por ejemplo, mi configuración LINDOC3 es para un Thinkpad anclado(docked) en el nivel de ejecución 3 sin imagen initrd image, y tiene un fichero de parámetros 
+llamado LINDOC3.PAR en c:\linux\boot\parms:
+
+-----------------------
+#   LOADLIN @param_file image=other_image root=/dev/other
+#
+#	Linux Console in docking station
+#
+c:\linux\boot\zImage.krn        # El primer valor debe ser el nombre del núcleo
+				# Linux.
+root=/dev/hda3                  # dispositivo que se monta como FS raíz
+ro                              # Otros argumentos del núcleo van aquí.
+apm=off
+doc=yes
+3
+-----------------------
+
+El parámetro doc=yes es una variable de entorno usada en mis ficheros de 
+inicio, no un argumento del núcleo.
+
+Sin embargo, el parámetro apm=off ES un argumento del núcleo!  APM, al menos
+en mi configuración, hace que el núcleo falle cuando es cargado a través de
+loadlin (pero NO cuando se carga a través de LILO). Los parámetros de APM 
+PUEDEN ser forzados fuera del núcleo a través de opciones de compilación del
+núcleo. Sin embargo, tengo un parche no oficial que permite desactivar el
+controlador APM a través de argumentos del núcleo. 
+Sea lo que elija por documentar, parece que APM, DEBE estar fuera para 
+configuraciones como la mía.
+
+Ahora asegurese de que C:\MWW\MWCONFIG.REF se parece a esto:
+
+----------------------
+[NativeDOS]
+Default=SB1.5
+SBInputSource=CD
+SYNTH=FM
+QSound=OFF
+Reverb=OFF
+Chorus=OFF
+ReverbDepth=5
+ChorusDepth=5
+SBInputVolume=5
+SBMainVolume=10
+SBWaveVolume=10
+SBSynthVolume=10
+WaveTableVolume=10
+AudioPowerDriver=ON
+
+[FastCFG]
+Show=No
+HideOption=Off
+-----------------------------
+
+O la línea Default= PODRÍA ser
+
+Default=SBPRO
+
+Reinicie Windows 95 y elija Linux. Cuando cargue, use sndconfig para configurar
+los módulos de sonido y voilà - sonido ThinkPad con Linux.
+
+Ahora los contras - puede tener sonido CD O Mezcladores, pero no ambos.
+Esto es un prolema con la configuración de los mezcladores SB1.5 (sonido CD) 
+o SBPRO (Mezcladores). Nadie sabe a que se debe!
+
+Por alguna razón los fichero MPEG3, cuando son reproducidos por mpg123, suenan
+como si se tocaran a 1/8 de velocidad - no muy útil!  si tiene alguna idea
+de porque pasa esto, sería de gran ayuda.
+
+===========================================================
+    _/      _/_/_/_/
+   _/_/  _/_/     _/
+  _/ _/_/ _/_/_/_/      Martin John Bartlett
+ _/  _/  _/     _/      (martin@nitram.demon.co.uk)
+_/      _/_/_/_/
+       _/
+_/    _/
+ _/_/
+===========================================================
+
+"Traducido para el proyecto NuLies por
+ Gorka Olaizola Sánchez <olsago@jet.es>"

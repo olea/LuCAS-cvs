@@ -1,0 +1,303 @@
+ <chapter id="security">
+  <Title>Seguridad</Title>
+
+  <Para>
+   La seguridad de la base de datos esta implementada en varios niveles:
+
+   <itemizedlist>
+    <listitem>
+     <para>
+      Protección de los ficheros de la base de datos.  Todos los ficheros
+      almacenados en la base de datos estan protegidos contra escritura por
+      cualquier cuenta que no sea la del superusuario de <productname>Postgres</productname>.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Las conexiones de los clientes al servidor de la base de datos estan 
+      permitidas, por defecto, únicamente mediante sockets Unix locales y no 
+      mendiante sockets TCP/IP.  Ha de arrancarse el demonio con la opcion 
+      <literal>-i</literal> para permitir la conexion de clientes no locales.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Las conexiones de los clientes se pueden restringir por dirección IP 
+      y/o por nombre de usuario mediante el fichero pg_hba.conf situado 
+      en <envar>PG_DATA</envar>.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Las conexiones de los clientes pueden ser autentificadas mediante otros 
+      paquetes externos.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      A cada usuario de <productname>Postgres</productname> se le asigna un 
+      nombre de usuario y (opcionalmente) una contraseña.  Por defecto, 
+      los usarios no tienen permiso de escritura a bases de datos que no 
+      hayan creado.
+     </para>
+    </listitem>
+    <listitem>
+     <para>
+      Los usuarios pueden ser incluidos en <firstterm>grupos</firstterm>, y 
+      el acceso a las tablas puede restringirse en base a esos grupos.
+     </para>
+    </listitem>
+   </itemizedlist>
+  </para>
+
+  <Sect1>
+   <Title>Autentificacion de Usuarios</Title>
+
+   <Para>
+    <firstterm>Autentificacion</firstterm>
+    es el proceso mediante el cual el servidor de la base de datos y el
+    <application>postmaster</application>
+    se aseguran de que el usario que está solicitando acceso a la base de datos
+    es en realidad quien dice ser.
+    Todos los usarios que quieren utilizar <Productname>Postgres</Productname>
+    se comprueban en la tabla <literal>pg_user</literal> para asegurarse que 
+    están autorizados a hacerlo.  Actualmente, la verificación de la identidad 
+    del usuario se realiza de distintas formas:
+
+    <variablelist>
+     <varlistentry>
+      <term>
+       Desde la shell del usuario
+      </term>
+      <listitem>
+       <para>
+        Un demonio que se lanza desde la shell del usuario anota el id original
+        del usuario antes de realizar un <function>setuid</function>
+        al id del usuario <replaceable>postgres</replaceable>.  
+	El id original del usuario se emplea como base para todo tipo de 
+        comprobaciones.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       Desde la red
+      </term>
+      <listitem>
+       <para>
+	Si <Productname>Postgres</Productname> se instala como distribuido,
+        el acceso al puerto TCP del <application>postmaster</application>
+	está disponible para todo el mundo.  El ABD configura el fichero 
+        pg_hba.conf situado en el directorio PG_DATA especificando el sistema 
+        de autentificacion a utilizar en base al equipo que realiza la conexión 
+        y la base de datos a la que se conecta.  Ver 
+        <citetitle>pg_hba.conf(5)</citetitle> para obtener una descripción de 
+        los sistemas de autentificación disponibles.  Por supuesto la 
+        autentificación basada en equipos no es perfecta incluso en los sistemas
+        Unix.  Es posible, para determinados intrusos, enmascarar el equipo de
+        origen.  Estos temas de seguridad están fuera del alcance de
+	<Productname>Postgres</Productname>.
+       </para>
+      </listitem>
+     </varlistentry>
+    </variablelist>
+   </para>
+  </sect1>
+
+  <sect1>
+   <title>Nombres de usuario y grupos</title>
+
+   <para>
+    Para crear un nuevo usuario, ejecute el programa 
+    <application>createuser</application>.
+   </para>
+
+   <para>
+    Para añadir un usario o un grupo de usarios a un nuevo grupo
+    uno de los usuarios debe crear el grupo y añadir al resto a ese
+    grupo.  En <application>Postgres</application> estos pasos no pueden
+    realizarse actualmente mendiante el comando 
+    <command>create group</command>. Los grupos se definen añadiendo los
+    valores a la tabla <literal>pg_group</literal>, y usando el comando
+    <command>grant</command> para asignar privilegios al grupo.
+   </para>
+
+   <sect2>
+    <title>Crear Usuarios</title>
+
+    <para>
+    </para>
+   </sect2>
+
+   <sect2>
+    <title>Crear Grupos</title>
+
+    <para>
+     Actualmente no hay una forma facil de crear grupos de usuarios.  Hay que
+     añadirlos/actualizarlos uno a uno en la tabla 
+     <literal>pg_group table</literal>.
+     Por ejemplo:
+
+        jolly=> insert into pg_group (groname, grosysid, grolist)
+        jolly=>     values ('posthackers', '1234', '{5443, 8261}');
+        INSERT 548224
+        jolly=> grant insert on foo to group posthackers;
+        CHANGE
+        jolly=>
+
+   Los campos de pg_group son:
+     * groname: El nombre del grupo.  Este campo debe de ser unicamente
+       alfanumérico.  No añadas subrayados u otros signos de puntuación.
+     * grosysid: El id del grupo.  El tipo del campo es int4 y debe de 
+       ser único para cada grupo.
+     * grolist: La lista de id de usarios que pertenecen al grupo. Este 
+       campo es de tipo int4.
+    </para>
+   </sect2>
+
+   <sect2>
+    <title>Asignar usuarios a los Grupos</title>
+
+    <para>
+    </para>
+   </sect2>
+
+  </sect1>
+
+  <Sect1>
+   <Title>Control de Acceso</Title>
+
+   <Para>
+    <Productname>Postgres</Productname> proporciona mecanismos para
+    permitir a los usuarios limitar el acceso que otros usuarios tendrán
+    a sus datos. 
+
+    <variablelist>
+     <varlistentry>
+      <term>
+       SuperUsuarios de la Base de Datos
+      </term>
+      <listitem>
+       <para>
+        Los SuperUsuarios de la base de datos (aquellos que tienen el campo
+	<literal>pg_user.usesuper</literal> activado) ignoran todos los 
+        controles de acceso descritos anteriormente con dos excepciones:
+        las actualizaciones del catálogo del sistema no están permitidas
+        si el usuario no tiene el campo <literal>pg_user.usecatupd</literal>
+        activado, y nunca se permite la destrucción del catálogo del sistema
+        (o la modificación de sus estructuras).
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       Privilegios de acceso
+      </term>
+      <listitem>
+       <para>
+        El uso de los privilegios de acceso para limitar la lectura, 
+        escritura y la puesta de reglas a las clases se trata en
+	<citetitle>grant/revoke(l)</citetitle>.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       Borrado de clases y modificación de estructuras.
+      </term>
+      <listitem>
+       <para>
+        Los comandos que borran o modifican la estructura de una clase, 
+        como <command>alter</command>, <command>drop table</command>, y
+	<command>drop index</command>,
+        solo funcionan con el propietario de la clase.  Como hemos dicho 
+        antes, estas operaciones no están permitidas <emphasis>nunca</emphasis>
+        en los catálogos del systema.
+       </para>
+      </listitem>
+     </varlistentry>
+    </variablelist>
+   </para>
+  </sect1>
+
+  <Sect1>
+   <Title>Funciones y Reglas</Title>
+
+   <Para>
+    Las funciones y las reglas permiten a los usuarios insertar código en
+    el servidor de la base de datos que otros usuarios pueden ejecutar sin
+    saberlo.  Ambos mecanismos permiten a los usuarios alojar
+    <firstterm>caballos de troya</firstterm> con relativa impunidad.
+    La única protección efectiva es un estrecho control sobre quien puede
+    definir funciones (por ejemplo, escribir en tablas con campos SQL) y
+    reglas.  También se recomienda auditar seguimientos y alertas en 
+    <literal>pg_class</literal>, <literal>pg_user</literal> y 
+    <literal>pg_group</literal>.
+   </para>
+
+   <Sect2>
+    <Title>Funciones</Title>
+
+    <Para>
+     Las funciones escritas en cualquier lenguaje excepto SQL se ejecutan por
+     el servidor de la base de datos con el mismo permiso que el usuario
+     <replaceable>postgres</replaceable> (el servidor de la base de datos
+     funciona con el user-id de <replaceable>postgres</replaceable>.  
+     Es posible cambiar las estructuras de datos internas del servidor
+     por los usuarios, desde dentro de funciones de confianza.
+     Es por ello que este tipo de funciones pueden, entre otras cosas, evitar
+     cualquier sistema de control de acceso.  Este es un problema inherente a 
+     las funciones definidas por los usuarios en C.
+    </para>
+   </sect2>
+
+   <Sect2>
+    <Title>Reglas</Title>
+
+    <Para>
+     Como en las funciones SQL, las reglas tambíen se ejecutan con la 
+     identidad y los permisos del usuario que llamó al servidor de la base
+     de datos.
+    </para>
+   </sect2>
+
+   <sect2>
+    <title>Caveats</title>
+
+    <para>
+     There are no plans to explicitly support encrypted data inside of
+     <Productname>Postgres</Productname> 
+     (though there is nothing to prevent users from encrypting
+     data within user-defined functions).  There are no plans to explicitly
+     support encrypted network connections, either, pending a total rewrite
+     of the frontend/backend protocol.
+    </para>
+    <para>
+     User names, group names and associated system identifiers (e.g., the
+     contents of <literal>pg_user.usesysid</literal>) are assumed to be unique
+     throughout a database.  Unpredictable results may occur if they are
+     not.
+    </para>
+   </sect2>
+  </sect1>
+</chapter>
+
+<!-- Keep this comment at the end of the file
+Local variables:
+mode: sgml
+sgml-omittag:nil
+sgml-shorttag:t
+sgml-minimize-attributes:nil
+sgml-always-quote-attributes:t
+sgml-indent-step:1
+sgml-indent-data:t
+sgml-parent-document:nil
+sgml-default-dtd-file:"./reference.ced"
+sgml-exposed-tags:nil
+sgml-local-catalogs:"/usr/lib/sgml/CATALOG"
+sgml-local-ecat-files:nil
+End:
+-->

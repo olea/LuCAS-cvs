@@ -1,0 +1,95 @@
+           Soporte del Núcleo para formatos binarios variados v1.1
+           =======================================================
+
+Esta característica del núcleo le permite ejecutar casi todos los programas
+(ver restricciones más abajo) simplemente tecleando su nombre en el shell.
+Esto incluye, por ejemplo, los programas compilados para Java(TM), Python o 
+Emacs.
+
+Para conseguir esto usted debe decir a binfmt_misc qué intérprete debe
+ejecutarse con qué binario. Binfmt_misc reconoce el tipo de binario
+ajustando un byte al principio del fichero con una secuencia de bytes de
+magic (desenmascarando los bits especificados) que usted debe suministrar.
+Binfmt_misc también puede reconocer una extensión de nombre de fichero como
+'.com' o '.exe'.
+
+Para registrar un nuevo tipo de binarios, debe crear una cadena de caracteres
+:nombre:tipo:posición:magic:máscara:intérprete: (donde puede escoger
+el ':' según sus necesidades) y escribirla en /proc/sys/fs/binfmt_misc/register.
+Esto es lo que significan los campos:
+ - 'nombre' es una cadena de identificación. Un nuevo fichero /proc se
+   creará con ese nombre bajo /proc/sys/fs/binfmt_misc
+ - 'tipo' es el tipo de reconocimiento. Ponga 'M' para magic y 'E' para
+   extensión.
+ - 'posición' es la posición de la máscara magic en el fichero, contado en
+   bytes. Por defecto es 0 si lo omite (p.e. si escribe
+   ':nombre:tipo::magic...') 
+ - 'magic' es la secuencia de bytes que buscará binfmt_misc. La cadena
+   mágica puede contener caracteres codificados en hexadecimal como \x0a o 
+   \xA4. En un entorno de shell deberá escribir \\x0a para evitar que el
+   shell elimine su \. Si escoge una identificación por extensión de
+   fichero, esta es la extensión que se reconocerá (sin el '.', los
+   caracteres especiales \x0a no se permiten). ¡El ajuste por extensión es
+   sensible a las mayúsculas!
+ - 'máscara' es una máscara opcional (es 0xff por defecto). Usted puede 
+   enmascarar algunos bits mediante ajuste si proporciona una cadena del
+   mismo tipo que la de magic y de su misma longitud. Con la máscara y la 
+   secuencia del fichero se realiza una función lógica "and"
+ - 'intérprete' es el programa que debería ser llamado con el ejecutable
+   como primer argumento (especifique la ruta completa)
+
+Hay algunas restricciones:
+ - la cadena de registro completa no puede superar los 255 caracteres.
+ - la cadena magic debe residir en los primeros 128 bytes del fichero,
+   p.e. situación+tamaño(magic) debe ser menor de 128.
+ - la cadena del intérprete no puede superar los 127 caracteres.
+
+Puede desear añadir los formatos binarios a una de sus rutinas de /etc/rc
+para que se ejecuten durante el arranque. Lea el manual de su programa init
+para averiguar cómo realizar esto de manera correcta.
+
+Piense sobre el orden al añadir entradas. Las entradas añadidas en último 
+lugar son las comparadas en primer lugar.
+
+
+Unos cuantos ejemplos (se asume que se encuentra en /proc/sys/fs/binfmt_misc):
+
+- habilitar soporte para em86 (como binfmt_em86, sólo para Alpha AXP):
+  echo ':i386:M::\x7fELF\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x03:\xff\xff\xff\xff\xff\xfe\xfe\xff\xff\xff\xff\xff\xff\xff\xff\xff\xfb\xff\xff:/bin/em86:' > register
+  echo ':i486:M::\x7fELF\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x06:\xff\xff\xff\xff\xff\xfe\xfe\xff\xff\xff\xff\xff\xff\xff\xff\xff\xfb\xff\xff:/bin/em86:' > register
+
+- habilitar soporte para aplicaciones DOS (imágenes dosemu pre-configuradas):
+  echo ':DEXE:M::\x0eDEX::/usr/bin/dosexec:' > register
+
+- habilitar soporte para ejecutables Windows utilizando wine:
+  echo ':DOSWin:M::MZ::/usr/local/bin/wine:' > register
+
+Para el soporte de Java, lea Documentation/java.txt.
+
+
+Puede habilitar o deshabilitar binfmt_misc o un tipo de ejecutable
+escribiendo mediante «echo» un 0 (para deshabilitar) o un 1 (para habilitar) en
+/proc/sys/fs/binfmt_misc/status o /proc/.../el_nombre. Listando el fichero
+con cat se puede averiguar el estado actual de binfmt_misc/el_nombre.
+
+Puede eliminar una entrada o todas las entradas escribiendo -1 en
+/proc/.../el_nombre o /proc/sys/binfmt_misc/status.
+
+
+TRUCOS:
+=======
+
+Si desea pasar argumentos especiales al intérprete, puede escribir una
+rutina que se encargue de ello. Vea Documentation/java.txt para ver un
+ejemplo.
+
+Su intérprete NO debería mirar en PATH buscando el nombre del fichero; el
+núcleo pasa el nombre completo a utilizar.  Utilizar PATH puede ocasionar un
+comportamiento inesperado y causar un riesgo de seguridad innecesario.
+
+Hay una página web acerca de binfmt_misc en 
+http://www.anatom.uni-tuebingen.de/~richi/linux/binfmt_misc.html
+
+Richard Günther, richard.guenther@student.uni-tuebingen.de
+Traducción para NuLies: David Marín Carreño, davefx@bigfoot.com
+                        David Martínez Moreno, ender@rediris.es

@@ -1,0 +1,2032 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML
+><HEAD
+><TITLE
+>Programación de drivers de FrameBuffer</TITLE
+><META
+NAME="GENERATOR"
+CONTENT="Modular DocBook HTML Stylesheet Version 1.77"></HEAD
+><BODY
+CLASS="ARTICLE"
+BGCOLOR="#FFFFFF"
+TEXT="#000000"
+LINK="#0000FF"
+VLINK="#840084"
+ALINK="#0000FF"
+><DIV
+CLASS="ARTICLE"
+><DIV
+CLASS="TITLEPAGE"
+><H1
+CLASS="TITLE"
+><A
+NAME="AEN1"
+></A
+>Programación de drivers de FrameBuffer</H1
+><H3
+CLASS="AUTHOR"
+><A
+NAME="AEN4"
+>Sergio Costas Rodriguez</A
+></H3
+><DIV
+CLASS="AFFILIATION"
+><DIV
+CLASS="ADDRESS"
+><P
+CLASS="ADDRESS"
+>	&nbsp;&nbsp;<TT
+CLASS="EMAIL"
+>&#60;<A
+HREF="mailto:raster@rastersoft.com"
+>raster@rastersoft.com</A
+>&#62;</TT
+><br>
+	</P
+></DIV
+></DIV
+><HR></DIV
+><DIV
+CLASS="TOC"
+><DL
+><DT
+><B
+>Table of Contents</B
+></DT
+><DT
+>1. <A
+HREF="#AEN10"
+>Prefacio</A
+></DT
+><DT
+>2. <A
+HREF="#AEN13"
+>Cambios</A
+></DT
+><DT
+>3. <A
+HREF="#AEN17"
+>Introduccion</A
+></DT
+><DT
+>4. <A
+HREF="#AEN22"
+>Manejo de un dispositivo FrameBuffer</A
+></DT
+><DT
+>5. <A
+HREF="#AEN34"
+>Escribiendo un driver de FrameBuffer</A
+></DT
+><DD
+><DL
+><DT
+>5.1. <A
+HREF="#AEN36"
+>Añadiendo nuestro codigo</A
+></DT
+><DT
+>5.2. <A
+HREF="#AEN61"
+>INCLUDEs necesarios</A
+></DT
+><DT
+>5.3. <A
+HREF="#AEN67"
+>Estructuras de datos de un driver FrameBuffer</A
+></DT
+><DT
+>5.4. <A
+HREF="#AEN275"
+>Empezando a escribir el driver.</A
+></DT
+></DL
+></DD
+><DT
+>6. <A
+HREF="#AEN453"
+>Probando el driver de Framebuffer</A
+></DT
+><DT
+>7. <A
+HREF="#AEN472"
+>Referencias</A
+></DT
+></DL
+></DIV
+><DIV
+CLASS="SECT1"
+><H2
+CLASS="SECT1"
+><A
+NAME="AEN10"
+></A
+>1. Prefacio</H2
+><P
+>En este documento intentare explicar como crear drivers de FrameBuffer
+para Linux. No soy un autentico experto, puesto que lo unico que he hecho
+hasta ahora es modificar un driver existente para que soporte mi tarjeta.
+Asi pues, cualquier mejora, correccion de errores y demas seran bienvenidas
+con gran jubilo y algarabia por mi parte :-)</P
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN13"
+></A
+>2. Cambios</H2
+><P
+>0.1. de la version 1.0 a la version 1.1</P
+><P
+>Se ha añadido todo lo referente a la paleta de colores ('colormap') de la
+consola. Revisar los apartados 3.4.2, 3.4.7, 3.4.8 y 3.4.9.</P
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN17"
+></A
+>3. Introduccion</H2
+><P
+>Linux es un sistema operativo que fue creado originalmente para funcionar
+sobre maquinas de tipo PC. Debido a eso, la interfaz de consola que
+incorpora el kernel esta fuertemente orientada al modo texto de las
+tarjetas de PC.</P
+><P
+>Sin embargo, cuando se empezo a portar Linux a otras maquinas, como los
+Macintosh, las estaciones Sparc, etc, los desarrolladores se encontraron
+con que el modo texto originario de los PCs no existia en esas maquinas,
+sino que estas siempre trabajaban en modo grafico.</P
+><P
+>De esta forma, se decidio implementar un metodo distinto de acceso a la
+consola, el cual simulase un modo texto sobre una pantalla grafica, pero
+permitiendo un acceso flexible y, sobre todo, generalizado, para
+simplificar el porte del kernel a nuevas arquitecturas, asi como para
+permitir una mayor facilidad a la hora de programar aplicaciones graficas
+en consola, o un servidor X generico que trabajase sobre esta nueva
+interfaz. El FrameBuffer habia nacido.</P
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN22"
+></A
+>4. Manejo de un dispositivo FrameBuffer</H2
+><P
+>Como cualquier otro dispositivo, el FrameBuffer tiene una serie de
+ficheros asociados en el directorio /dev. Estos son fb, fb0,..., fb31.
+Normalmente, /dev/fb es un enlace simbolico que apunta a fb0.</P
+><P
+>Cada tarjeta grafica tiene asociado un fichero fb. Esto permite acceder
+a cada una por separado de forma sencilla.</P
+><P
+>La forma de trabajar con un FrameBuffer es en extremo simple:</P
+><P
+></P
+><UL
+><LI
+><P
+>Primero, se abre el fichero /dev/fb con el comando open().</P
+></LI
+><LI
+><P
+>A continuacion se usa mmap() para obtener un puntero a la
+zona de memoria de la tarjeta grafica (trabajar en un framebuffer
+usando read() y write() es poco menos que ridiculo, salvo para
+aplicaciones muy concretas).</P
+></LI
+><LI
+><P
+>Usando funciones IOCTL podremos obtener informacion sobre el
+dispositivo FrameBuffer, como por ejemplo el formato de cada
+pixel, las capacidades de la tarjeta, etc, asi como cambiar el
+modo grafico por cualquier otro que deseemos (siempre que este
+soportado, claro).</P
+></LI
+></UL
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN34"
+></A
+>5. Escribiendo un driver de FrameBuffer</H2
+><DIV
+CLASS="SECT2"
+><H3
+CLASS="SECT2"
+><A
+NAME="AEN36"
+></A
+>5.1. Añadiendo nuestro codigo</H3
+><P
+>Para añadir nuestro fichero con el codigo del driver, hemos de modificar
+varios ficheros en el kernel, en el directorio drivers/video. Estos
+ficheros son:</P
+><P
+></P
+><UL
+><LI
+><P
+>Config.in: en el buscaremos un driver soportado por nuestra maquina
+(normalmente buscaremos el driver VESA si tenemos un PC) y tras la linea
+donde esta definido debemos añadir una linea del estilo de:</P
+><PRE
+CLASS="SCREEN"
+>	bool '  Mitarjeta FrameBuffer driver' CONFIG_FB_MITARJETA</PRE
+><P
+>cambiando el texto Mitarjeta por un nombre que identifique nuestra tarjeta
+grafica. CONFIG_FB_MITARJETA sera, ademas, un #define que existira si, en
+el MAKE, escogemos nuestra tarjeta grafica.</P
+></LI
+><LI
+><P
+>  Makefile: en el añadiremos una linea del estilo:</P
+><PRE
+CLASS="SCREEN"
+>	obj-$(CONFIG_FB_MITARJETA)      += mitarjeta.o</PRE
+><P
+>siendo CONFIG_FB_MITARJETA el mismo nombre usado en el fichero Config.in,
+y mitarjeta.o el nombre del fichero que contiene nuestro codigo, pero
+acabado en .o en vez de .c.</P
+></LI
+><LI
+><P
+>  fbmem.c: en este fichero hay que añadir varias lineas. Por un lado,
+hay que añadir:</P
+><PRE
+CLASS="SCREEN"
+>	extern int mitarjetafb_init(void);
+	extern int mitarjetafb_setup(char*);</PRE
+><P
+>siendo mitarjetafb_init y mitarjetafb_setup los nombres de dos funciones que
+iran definidas en nuestro codigo (o sea, en mitarjeta.c).</P
+><P
+>Luego, añadiremos las lineas:</P
+><PRE
+CLASS="SCREEN"
+>	#ifdef CONFIG_FB_MITARJETA
+		{"mitarjetafb_id", mitarjetafb_init, mitarjetafb_setup},
+	#endif</PRE
+><P
+>(no olvidarse de la coma al final).</P
+><P
+>Para evitar problemas, lo mejor es añadir estas lineas junto con las que
+definen las otras.</P
+><P
+>Y, por supuesto, 'mitarjeta' se puede cambiar en todos los sitios por una
+palabra que identifique mejor nuestra tarjeta grafica. Lo unico importante
+es mantenerlo a lo largo de todos los cambios.</P
+><P
+>Estas dos funciones son las llamadas de inicializacion del driver, las cuales
+las explicare mas adelante con mas calma.</P
+><P
+>Por ultimo, decir que el texto que va en el #ifdef (en este caso lo he
+llamado "mitarjetafb_id") es un identificador que permite saber a que driver
+van destinados una serie de parametros dados al kernel. ¿Que es esto? Simple:
+en el fichero lilo.conf podemos añadir una o varias lineas con opciones para
+el kernel. Una (o mas) de estas lineas pueden estar destinadas al driver
+de Framebuffer, y para que el nucleo pueda identificarlas, usara esa cadena.
+Asi pues, si tenemos dos drivers de framebuffer compilados en el kernel y en
+el lilo.conf ponemos las lineas:</P
+><PRE
+CLASS="SCREEN"
+>        append="video=sis6326fb:640x480@70"
+        append="video=matroxfb:800x600@65"</PRE
+><P
+>la primera opcion se le pasara al driver de framebuffer que vaya definido
+como "sis6326fb", mientras que la segunda se le pasara unicamente al driver
+que haya sido definido como "matroxfb".</P
+></LI
+></UL
+></DIV
+><DIV
+CLASS="SECT2"
+><HR><H3
+CLASS="SECT2"
+><A
+NAME="AEN61"
+></A
+>5.2. INCLUDEs necesarios</H3
+><P
+>Para poder compilar un driver de FrameBuffer son necesarios varios
+#include. En concreto, los absolutamente imprescindibles son:</P
+><PRE
+CLASS="SCREEN"
+>	#include &lt;linux/module.h&gt;
+	#include &lt;linux/kernel.h&gt;
+	#include &lt;linux/errno.h&gt;
+	#include &lt;linux/mm.h&gt;
+	#include &lt;linux/tty.h&gt;
+	#include &lt;linux/slab.h&gt;
+	#include &lt;linux/delay.h&gt;
+	#include &lt;linux/fb.h&gt;
+	#include &lt;linux/console.h&gt;
+	#include &lt;linux/selection.h&gt;
+	#include &lt;linux/ioport.h&gt;
+	#include &lt;linux/init.h&gt;
+
+	#include &lt;asm/io.h&gt;
+	#include &lt;asm/mtrr.h&gt;
+
+	#include &lt;video/fbcon.h&gt;
+	#include &lt;video/fbcon-cfb8.h&gt;
+	#include &lt;video/fbcon-cfb16.h&gt;
+	#include &lt;video/fbcon-cfb24.h&gt;
+	#include &lt;video/fbcon-cfb32.h&gt;
+	#include &lt;video/fbcon-mac.h&gt;</PRE
+><P
+>Y, ademas, pueden ser necesarios otros, como por ejemplo:</P
+><PRE
+CLASS="SCREEN"
+>	#include &lt;linux/string.h&#62;  // para operaciones con cadenas
+	#include &lt;linux/pci.h&#62;    // para inicializar tarjetas PCI</PRE
+></DIV
+><DIV
+CLASS="SECT2"
+><HR><H3
+CLASS="SECT2"
+><A
+NAME="AEN67"
+></A
+>5.3. Estructuras de datos de un driver FrameBuffer</H3
+><P
+>Son ocho: fb_fix_screeninfo, fb_var_screeninfo, display, fb_info, fb_bitfield,
+fb_cmap, fb_ops y fb_monspecs.</P
+><P
+>fb_fix_screeninfo contiene informacion diversa que no es modificable
+directamente por el usuario. Sus variables son:</P
+><PRE
+CLASS="SCREEN"
+>struct fb_fix_screeninfo {
+	char id[16];
+	unsigned long smem_start;
+	__u32 smem_len;
+	__u32 type;
+	__u32 type_aux;
+	__u32 visual; 
+	__u16 xpanstep;
+	__u16 ypanstep;
+	__u16 ywrapstep;
+	__u32 line_length;
+	unsigned long mmio_start;
+	__u32 mmio_len;
+	__u32 accel;
+	__u16 reserved[3];
+};</PRE
+><P
+></P
+><UL
+><LI
+><P
+>id: string de identificacion del driver. (por ejemplo "TT
+	      Builtin")</P
+></LI
+><LI
+><P
+>smem_start: direccion fisica del framebuffer. Suele ser devuelta por las
+            funciones PCI, o las correspondientes al bus usado.</P
+></LI
+><LI
+><P
+>  smem_len: longitud en bytes del framebuffer.</P
+></LI
+><LI
+><P
+>type: tipo de framebuffer. Puede ser:</P
+></LI
+><LI
+><P
+></P
+><UL
+><LI
+><P
+> FB_TYPE_PACKED_PIXELS : el formato clasico (1,2,3 o 4 bytes
+                               por cada pixel, uno detras de otro).</P
+></LI
+><LI
+><P
+>                FB_TYPE_PLANES : distribucion por planos (cada plano
+                                 contiene un byte del pixel)</P
+></LI
+><LI
+><P
+>                FB_TYPE_INTERLEAVED_PLANES : lo mismo, pero con
+                entrelazado.</P
+></LI
+><LI
+><P
+>                FB_TYPE_TEXT : FrameBuffer en modo texto</P
+></LI
+><LI
+><P
+>                FB_TYPE_VGA_PLANES : planos de tipo EGA/VGA (un bit en
+                cada plano).</P
+></LI
+><LI
+><P
+>  type_aux: entrelazado para planos entrelazados.</P
+></LI
+><LI
+><P
+>    visual: organizacion de los bytes de cada pixel. Puede ser:</P
+><P
+></P
+><UL
+><LI
+><P
+>FB_VISUAL_MONO01 : monocromo (0-&#62; blanco,
+		1-&#62;negro)</P
+></LI
+><LI
+><P
+>FB_VISUAL_MONO10 : monocromo (1-&#62; blanco,
+		0-&#62;negro)</P
+></LI
+><LI
+><P
+>FB_VISUAL_TRUECOLOR : Color verdadero
+		(15/16/24/32 bits)</P
+></LI
+><LI
+><P
+>FB_VISUAL_PSEUDOCOLOR : Color por paleta
+		(normalmente 8 bits)</P
+></LI
+><LI
+><P
+>FB_VISUAL_DIRECTCOLOR : DirectColor (como en
+		Atari)</P
+></LI
+><LI
+><P
+></P
+></LI
+><LI
+><P
+>FB_VISUAL_STATIC_PSEUDOCOLOR : Color por paleta,
+		pero de solo lectura.</P
+></LI
+></UL
+></LI
+><LI
+><P
+>xpanstep: cero si no se soporta scroll horizontal por
+    hardware</P
+></LI
+><LI
+><P
+>ypanstep: cero si no se soporta scroll vertical por
+    hardware</P
+></LI
+><LI
+><P
+> ywrapstep: cero si no se soporta recorte de pantalla por
+      hardware.</P
+></LI
+><LI
+><P
+>line_length: longitud en bytes de una linea completa (resx
+      * bytesporpixel)</P
+></LI
+><LI
+><P
+>mmio_start: direccion fisica de la zona de mapeo en
+     memoria de I/O mmio_len: longitud de la zona de mapeo en memoria
+     de I/O.
+      </P
+></LI
+><LI
+><P
+>accel: tipo de aceleracion soportada. Identifica al driver
+      e indica,por tanto, que funciones de aceleracion por hardware se
+      soportan.
+      </P
+></LI
+><LI
+><P
+>	reserved: reservado para futuras ampliaciones.
+      </P
+></LI
+></UL
+><P
+>fb_var_screeninfo contiene toda la informacion que el usuario puede
+modificar. Se usa para pasar al driver informacion sobre el modo grafico
+que se quiere establecer. La informacion de fb_fix_screeninfo es obtenida
+por el driver en base a la que contiene una estructura
+      fb_var_screeninfo.</P
+><PRE
+CLASS="SCREEN"
+>struct fb_var_screeninfo {
+	__u32 xres;
+	__u32 yres;
+	__u32 xres_virtual;
+	__u32 yres_virtual;
+	__u32 xoffset;
+	__u32 yoffset;
+	__u32 bits_per_pixel;
+	__u32 grayscale;
+	struct fb_bitfield red;
+	struct fb_bitfield green;
+	struct fb_bitfield blue;
+	struct fb_bitfield transp;
+	__u32 nonstd;
+	__u32 activate;
+	__u32 height;
+	__u32 width;
+	__u32 accel_flags;
+	__u32 pixclock;
+	__u32 left_margin;
+	__u32 right_margin;
+	__u32 upper_margin;
+	__u32 lower_margin;
+	__u32 hsync_len;
+	__u32 vsync_len;
+	__u32 sync;
+	__u32 vmode;
+	__u32 reserved[6];
+};</PRE
+><P
+></P
+><UL
+><LI
+><P
+>	      xres: resolucion horizontal fisica del modo grafico, en
+	      pixels.
+       </P
+></LI
+><LI
+><P
+>yres: resolucion vertical fisica del modo grafico, en
+       pixels.
+       </P
+></LI
+><LI
+><P
+>xres_virtual: resolucion horizontal virtual del modo
+       grafico, en pixels. Suele ser igual que xres.
+       </P
+></LI
+><LI
+><P
+>	    yres_virtual: resolucion vertical virtual del modo
+	    grafico, en pixels. Suele ser igual que yres.
+       </P
+></LI
+><LI
+><P
+>     xoffset: offset desde el borde virtual hasta el borde fisico.
+      </P
+></LI
+><LI
+><P
+>yoffset: lo mismo, pero en vertical.</P
+></LI
+><LI
+><P
+>bits_per_pixel: numero de bits ocupados por cada
+       pixel.</P
+></LI
+><LI
+><P
+>grayscale: si es distinto de cero, el modo es en grises,
+       en vez de color.</P
+></LI
+><LI
+><P
+>red, green, blue.</P
+></LI
+><LI
+><P
+>      transp: contiene informacion sobre el numero de bits y la posicion
+              de cada color y la transparencia. Si el modo es PSEUDOCOLOR,
+              solo la longitud es importante (ver estructura
+              fb_bitfield).
+	  </P
+></LI
+><LI
+><P
+>      nonstd: si es distinto de cero, es que el formato de pixel no es
+              estandar.
+	    </P
+></LI
+><LI
+><P
+>    activate: indica la accion a realizar:
+	  </P
+><P
+></P
+><UL
+><LI
+><P
+>                FB_ACTIVATE_NOW : activa los cambios ahora.
+	      </P
+></LI
+><LI
+><P
+>		FB_ACTIVATE_NXTOPEN : activa los cambios la proxima vez que
+                                      se abra el dispositivo.
+	      </P
+></LI
+><LI
+><P
+>		FB_ACTIVATE_TEST : no actives. Tan solo indica si los
+                                   valores son o no validos.
+	      </P
+></LI
+></UL
+></LI
+><LI
+><P
+>height: ancho de la pantalla en
+      milimetros.</P
+></LI
+><LI
+><P
+>width: alto de la pantalla en milimetros.</P
+></LI
+><LI
+><P
+>accel_flags: flags de aceleracion
+      hardware.</P
+></LI
+><LI
+><P
+>pixclock: periodo de reloj (en
+      picosegundos).</P
+></LI
+><LI
+><P
+>left_margin: pixclocks desde el sincronismo
+      horizontal hasta el inicio de la imagen.</P
+></LI
+><LI
+><P
+>right_margin: pixclocks desde el fin de la imagen hasta el sincronismo
+              horizontal.
+      </P
+></LI
+><LI
+><P
+>upper_margin: pixclocks desde el sincronismo vertical
+	    hasta el inicio de la imagen.
+      </P
+></LI
+><LI
+><P
+>	    lower_margin: pixclocks desde el fin de la imagen hasta el
+	    sincronismo vertical.</P
+></LI
+><LI
+><P
+>hsync_len: duracion del sincronismo horizontal
+      (en pixclocks).</P
+></LI
+><LI
+><P
+>       vsync_len: duracion del sincronismo vertical (en pixclocks).
+      </P
+></LI
+><LI
+><P
+>       sync: modo de sincronismos:
+      </P
+><P
+></P
+><UL
+><LI
+><P
+>                FB_SYNC_HOR_HIGH_ACT : sincronismo horizontal activo en
+                                       estado alto.
+		</P
+></LI
+><LI
+><P
+>                FB_SYNC_VERT_HIGH_ACT : sincronismo vertical activo en
+                                        estado alto.
+		</P
+></LI
+><LI
+><P
+>                FB_SYNC_EXT : usar sincronismo externo
+	      </P
+></LI
+><LI
+><P
+>                FB_SYNC_COMP_HIGH_ACT : mezclar sincronismos en una sola
+                                        señal.
+	      </P
+></LI
+><LI
+><P
+>                FB_SYNC_BROADCAST : tiempos de television:
+                                    vtotal = 144d/288n/576i =&#62; PAL
+                                    vtotal = 121d/242n/484i =&#62; NTSC
+	      </P
+></LI
+><LI
+><P
+>                FB_SYNC_ON_GREEN : enviar los sincronismos mezclados con
+                                   la señal de verde.
+	      </P
+></LI
+></UL
+></LI
+><LI
+><P
+>       vmode: informacion extra:
+	    </P
+><P
+></P
+><UL
+><LI
+><P
+>                FB_VMODE_NONINTERLACED : modo no entrelazado
+	      </P
+></LI
+><LI
+><P
+>                FB_VMODE_INTERLACED : modo entrelazado
+	      </P
+></LI
+><LI
+><P
+>                FB_VMODE_DOUBLE : double scan
+	      </P
+></LI
+><LI
+><P
+>                FB_VMODE_YWRAP : usar ywrap en vez de desplazar la
+                pantalla
+	      </P
+></LI
+><LI
+><P
+>                FB_VMODE_SMOOTH_XPAN : soportado desplazamiento suave
+	      </P
+></LI
+><LI
+><P
+>		FB_VMODE_CONUPDATE : no actualizar x/yoffset
+	      </P
+></LI
+></UL
+></LI
+><LI
+><P
+></P
+><UL
+><LI
+><P
+>La estructura display es una parte extremadamente importante en el driver
+FrameBuffer, puesto que contiene todas las caracteristicas del modo grafico
+asociadas a cada una de las consolas virtuales de Linux. Existe una variable
+global (que veremos con calma luego) denominada fb_display[], que contiene
+un array de estructuras display, una para cada una de las consolas. Es esta
+estructura la que permite al sistema operativo conmutar entre los modos
+graficos adecuados al cambiar de una consola a otra.</P
+><P
+>De esta estructura solo nos interesa una parte, pues la otra es actualizada
+automaticamente por el driver de consola. De ahi los puntos suspensivos del
+final de la estructura.</P
+><PRE
+CLASS="SCREEN"
+>struct display {
+    struct fb_var_screeninfo var;
+    struct fb_cmap cmap;
+    char *screen_base; 
+    int visual;
+    int type;
+    int type_aux;
+    u_short ypanstep;
+    u_short ywrapstep;
+    u_long line_length;
+    u_short can_soft_blank;
+    u_short inverse;
+    struct display_switch *dispsw;
+    void *dispsw_data;
+
+#if 0
+    struct fb_fix_cursorinfo fcrsr;
+    struct fb_var_cursorinfo *vcrsr;
+    struct fb_cursorstate crsrstate;
+#endif
+
+    u_long next_line;
+
+    [...]
+
+};</PRE
+><P
+> var: es una estructura de tipo fb_var_screeninfo, que contiene toda
+             la informacion sobre el modo grafico actual. Ha de ser actualizada
+             cada vez que se cambia el modo grafico, o cuando se conmuta de
+             consola, a excepcion de los campos yoffset y vmode, que son
+             actualizados por fbcon.c.</P
+><P
+>       cmap: contiene la paleta de la consola, salvo que el modo sea TRUECOLOR,
+             en cuyo caso su longitud es cero, para indicar que no hay
+             paleta.</P
+><P
+>screen_base: puntero a char con la direccion virtual de la memoria FrameBuffer.
+             Este puntero se obtiene como resultado de la funcion:</P
+><PRE
+CLASS="SCREEN"
+>direccion_virtual = ioremap(direccion_fisica,longitud);</PRE
+><P
+>     visual: ver FB_VISUAL_*</P
+><P
+>       type: ver FB_TYPE_*</P
+><P
+>   type_aux: entrelazado para planos entrelazados.</P
+><P
+>   ypanstep: cero si no se soporta scroll vertical por hardware</P
+><P
+>  ywrapstep: cero si no se soporta recorte de pantalla por hardware. Esto es,
+             si la tarjeta no soporta que, al llegar al final de la memoria
+             y seguir escribiendo, empiece a escribir de nuevo al
+             principio.</P
+><P
+>line_length: longitud en bytes de una linea completa (resx *
+	bytesporpixel)</P
+>can_soft_blank: cero si no se soporta poner la pantalla en negro por
+      hardware.
+
+
+<P
+>    inverse: si es !=0, se usara color negro sobre fondo blanco para
+    el texto.</P
+><P
+>     dispsw: funciones de bajo nivel para la consola. Se explica con
+     mas detalle en la funcion mitarjetafb_set_var.</P
+><P
+>dispsw_data: informacion de ayuda opcional para dispsw. Se explica con mas
+             detalle en la funcion mitarjetafb_set_var.</P
+><P
+>  next_line: bytes a sumar a una direccion para pasar a la siguiente linea.
+             Suele ser igual a line_length, salvo que xres_virtual sea distinto
+             que xres. Pese a todo, no tengo claro si este campo es necesario
+             actualizarlo, o si lo hace fbcon.c automaticamente.</P
+><P
+>La estructura fb_info contiene informacion necesaria para inicializar el
+sistema de FrameBuffer.</P
+><PRE
+CLASS="SCREEN"
+>struct fb_info {
+   char modename[40];
+   kdev_t node;
+   int flags;
+   int open;
+   struct fb_var_screeninfo var;
+   struct fb_fix_screeninfo fix;
+   struct fb_monspecs monspecs;
+   struct fb_cmap cmap;
+   struct fb_ops *fbops;
+   char *screen_base;
+   struct display *disp;
+   struct vc_data *display_fg;
+   char fontname[40];
+   devfs_handle_t devfs_handle;
+   devfs_handle_t devfs_lhandle;
+   int (*changevar)(int);
+   int (*switch_con)(int, struct fb_info*);
+   int (*updatevar)(int, struct fb_info*);
+   void (*blank)(int, struct fb_info*);	
+   void *pseudo_palette;
+   void *par;	
+};</PRE
+><P
+>    modename: nombre del modo actual.</P
+><P
+>        open: Indica si ya ha sido abierto el driver o no.</P
+><P
+>         var: var del modo actual</P
+><P
+>         fix: fix del modo actual</P
+><P
+>    monspecs: capacidades actuales del monitor.</P
+><P
+>        cmap: paleta actual.</P
+><P
+>       fbops: estructura conteniendo punteros a las diversas rutinas del
+              driver.</P
+><P
+> screen_base: direccion virtual de la memoria FrameBuffer</P
+><P
+>        disp: parametros iniciales para el FrameBuffer</P
+><P
+>  display_fg: consola visible en este display (?)</P
+><P
+>    fontname: tipo de letra a usar por defecto.</P
+><P
+>   changevar: puntero a una rutina que se llama cada vez que cambia var (por
+              ejemplo, cuando un programa cambia el modo grafico). Puede
+              ser NULL).</P
+><P
+>  switch_con: puntero a una rutina que es llamada cada vez que se cambia de
+              consola.</P
+><P
+>   updatevar: puntero a una rutina que es llamada para actualizar el modo (por
+              ejemplo, al desplazar la pantalla).</P
+><P
+>       blank: puntero a una rutina que es llamada para encender, poner negro
+              o apagar el monitor (para los modos de ahorro de
+              energia).</P
+><P
+>La estructura fb_bitfield contiene la descripcion del formato de un pixel.
+Permite saber que bits corresponden a uno de los tres componentes de un color
+(R, G o B).</P
+><PRE
+CLASS="SCREEN"
+>struct fb_bitfield {
+	__u32 offset;
+	__u32 length;
+	__u32 msb_right;
+};</PRE
+><P
+>   offset : bit de inicio de la componente. Por ejemplo, si es 0, la componente
+            correspondiente empezará en el bit cero. Si es 3, empezará en el
+            bit tres, y abrá que rotar el dato correspondiente a la componente
+            3 posiciones a la izquierda o a la derecha, en funcion del campo
+            msb_right. Este campo no se usa en modos con paleta
+            (PSEUDOCOLOR).</P
+><P
+>   length : longitud en bits de la componente. Unido al bit de inicio, permite
+            saber que bits del pixel corresponden a esta componente.</P
+><P
+>msb_right : si es distinto de cero, el bit de mayor peso esta a la derecha.
+            Si no, esta a la izquierda.</P
+><P
+>La estructura fb_cmap contiene una paleta de colores. Cada componente se
+define con 16 bits en vez de 8. El driver, al asignar una paleta, debe
+recortar el numero de bits de forma que se ajuste al tamaño de las entradas
+en el DAC de la tarjeta.</P
+><P
+>Esta estructura se usa en los modos con paleta para almacenar la paleta que
+esta en el DAC de la tarjeta, y en los modos que no usan paleta para almacenar
+los colores que usara la consola (normalmente los 16 primeros).</P
+><PRE
+CLASS="SCREEN"
+>struct fb_cmap {
+	__u32 start;			/* First entry	*/
+	__u32 len;			/* Number of entries */
+	__u16 *red;			/* Red values	*/
+	__u16 *green;
+	__u16 *blue;
+	__u16 *transp;			/* transparency, can be NULL */
+};</PRE
+><P
+>   start : indice inicial de la paleta almacenada en la estructura. Este campo
+           existe porque esta estructura tambien se usa para asignar una
+           paleta, y puede no interesarnos cambiar todos, sino solo unos
+           cuantos.</P
+><P
+>     len : numero de entradas en la estructura. Este campo existe por lo mismo
+           que el anterior.</P
+><P
+>     red : puntero a una zona de memoria con las componentes rojas.</P
+><P
+>   green : puntero a una zona de memoria con las componentes verdes.</P
+><P
+>    blue : puntero a una zona de memoria con las componentes azules.</P
+><P
+>  transp : puntero a una zona de memoria con la transparencia del color. Puede
+           ser NULL.</P
+><P
+>La estructura fb_ops contiene punteros a las distintas funciones que componen
+el driver, tales como las destinadas a cambiar el modo grafico, a cambiar la
+paleta, etc. Todas estas funciones seran definidas con mas detalle en los
+apartados posteriores.</P
+><PRE
+CLASS="SCREEN"
+>struct fb_ops {
+    struct module *owner;
+    int (*fb_open)(struct fb_info *info, int user);
+    int (*fb_release)(struct fb_info *info, int user);
+
+    int (*fb_get_fix)(struct fb_fix_screeninfo *fix, int con,
+		      struct fb_info *info); 
+
+    int (*fb_get_var)(struct fb_var_screeninfo *var, int con,
+		      struct fb_info *info);		
+
+    int (*fb_set_var)(struct fb_var_screeninfo *var, int con,
+		      struct fb_info *info);		
+
+    int (*fb_get_cmap)(struct fb_cmap *cmap, int kspc, int con,
+		       struct fb_info *info);
+
+    int (*fb_set_cmap)(struct fb_cmap *cmap, int kspc, int con,
+		       struct fb_info *info);
+
+    int (*fb_pan_display)(struct fb_var_screeninfo *var, int con,
+			  struct fb_info *info);
+
+    int (*fb_ioctl)(struct inode *inode, struct file *file, unsigned int cmd,
+		    unsigned long arg, int con, struct fb_info *info);
+
+    int (*fb_mmap)(struct fb_info *info, struct file *file, struct vm_area_struct *vma);
+
+    int (*fb_rasterimg)(struct fb_info *info, int start);
+};</PRE
+><P
+>     owner : contiene el nombre del driver de FrameBuffer. Lo normal es
+             asignarlo con la macro THIS_MODULE (ver ejemplo en la
+             seccion 3.4.1).</P
+><P
+>   fb_open : funcion que se llama cuando se abre el dispositivo. Lo normal es
+             llamar a MOD_INC_USE_COUNT, si bien no es necesario
+             definirla.</P
+><P
+>fb_release : funcion que se llama cuando se cierra el dispositivo. Lo normal es
+             llamar a MOD_DEC_USE_COUNT, si bien no es necesario
+             definirla.</P
+><P
+>fb_get_fix : puntero a una funcion que devuelve la estructura fix.</P
+><P
+>fb_get_var : puntero a una funcion que devuelve la estructura var.</P
+>fb_set_var : puntero a una funcion que asigna una nueva estructura var y, por
+             tanto, cambia el modo grafico actual.
+fb_get_cmap: puntero a una funcion que obtiene la paleta actual.
+fb_set_cmap: puntero a una funcion que asigna una nueva paleta.
+fb_pan_display: puntero a una funcion que desplaza la pantalla (para hacer
+                scroll). No es obligatorio definirla.
+  fb_ioctl : puntero a una funcion que realiza una funcion IOCTL especifica
+             de la tarjeta. No es obligatorio definirla.
+   fb_mmap : puntero a una funcion que realiza el mapeado de la memoria FB.
+             Si se define, al llamar a mmap() se ejecutara esta funcion en vez
+             de la original del nucleo. No es obligatorio definirla.
+fb_rasterimg: puntero a una funcion de BITBLT (puede llamar al acelerador
+              hardware de la tarjeta) que copia una zona de la pantalla en
+              otra. No es obligatorio definirla.
+
+<P
+>La estructura fb_monspecs contiene informacion sobre el monitor. En concreto,
+las frecuencias horizontal y vertical maximas que soporta. Esto se usa para
+evitar quemar un monitor si se asignan frecuencias de refresco demasiado
+elevadas. Estos parametros deberian ser obtenidos a traves de las funciones
+DDC del monitor; sin embargo, para obtener la especificacion de dicha norma
+hay que pagar (ANDA, NO ME DIGAS!!!!!), con lo que lo mejor es poner por
+defecto las frecuencias de los monitores clasicos de VGA y permitir que el
+usuario seleccione otras a traves de la linea de parametros en el
+	LILO.</P
+><PRE
+CLASS="SCREEN"
+>struct fb_monspecs {
+	__u32 hfmin;
+	__u32 hfmax;
+	__u16 vfmin;
+	__u16 vfmax;
+	unsigned dpms : 1;
+};</PRE
+><P
+>   hfmin : frecuencia horizontal minima soportada por el monitor (en
+   Hz).</P
+><P
+>   hfmax : frecuencia horizontal maxima soportada por el monitor (en
+   Hz).</P
+><P
+>   vfmin : frecuencia vertical minima soportada por el monitor (en
+   Hz).</P
+><P
+>   vfmax : frecuencia vertical maxima soportada por el monitor (en
+   Hz).</P
+><P
+>    dpms : si vale 1, el monitor soporta DPMS (ahorro de energia).</P
+></LI
+></UL
+></LI
+></UL
+></LI
+></UL
+></DIV
+><DIV
+CLASS="SECT2"
+><HR><H3
+CLASS="SECT2"
+><A
+NAME="AEN275"
+></A
+>5.4. Empezando a escribir el driver.</H3
+><P
+>Una vez que sabemos todo lo anterior, nos queda por indicar una serie de
+detalles antes de empezar a escribir nuestras funciones:</P
+><P
+></P
+><UL
+><LI
+><P
+>   Es absolutamente necesario que el driver sepa en cada momento cual es la
+consola virtual que se encuentra visible en cada momento. Para ello, hay que
+definir una variable global estatica en donde almacenarlo (por ejemplo,
+static int currcon).</P
+></LI
+><LI
+><P
+>   Para ahorrar tiempo y esfuerzos cada vez que haya que devolver informacion
+sobre el modo actual de la tarjeta grafica, lo mejor es almacenar estos valores
+en variables globales estaticas, o incluso mejor, en una estructura global
+tambien estatica, y cambiar estos valores cada vez que se cambie el modo
+grafico.</P
+></LI
+><LI
+><P
+>   Sin embargo, las variables y estructuras estaticas solo las podremos usar
+si nuestro driver solo va a soportar una unica tarjeta. Si queremos que
+soporte varias tarjetas conectadas a la vez en el sistema, resulta
+imprescindible usar funciones de reserva de memoria dinamica (kmalloc() y
+similares).</P
+></LI
+><LI
+><P
+>   Resulta imprescindible tener la documentacion de la tarjeta grafica para
+poder conocer con precision los diversos registros de que dispone y su funcion.
+Sin embargo, de cara a programar los diversos modos, puede resultar mas facil
+crear primero un programa que guarde el contenido de todos los registros, e
+irlo ejecutando en cada uno de los modos graficos que se desean soportar (por
+ejemplo, arrancando con el driver VESA). De esta forma, se pueden tener los
+valores en estructuras globales y elegir uno u otro en funcion de la resolucion
+y la profundidad de color, y luego retocarlos para ajustar la velocidad de
+refresco, el entrelazado y otros valores puntuales.</P
+></LI
+><LI
+><P
+>A continuacion, pasare a describir el cometido de cada una de las funciones
+necesarias en el driver.</P
+><DIV
+CLASS="SECT3"
+><HR><H4
+CLASS="SECT3"
+><A
+NAME="AEN289"
+></A
+>5.4.1. mitarjetafb_setup</H4
+><P
+>El prototipo de esta funcion es:</P
+><PRE
+CLASS="SCREEN"
+>         int __init mitarjetafb_setup(char *);</PRE
+><P
+>Esta funcion recibe como parametro un puntero a una cadena ASCIIZ (ASCII
+terminada en \0), la cual contiene la linea de parametros que se pasa en
+LILO. Esta linea es del estilo:</P
+><PRE
+CLASS="SCREEN"
+>         append="video=mitarjetafb_id:..."</PRE
+><P
+>siendo "mitarjetafb_id" la cadena que define la tarjeta, tal y como fue escrita
+en el fichero fbmem.c.</P
+><P
+>El nucleo entregara los parametros indicados al driver que se registre como
+mitarjeta (ver el nombre en fb_info, la estructura usada para registrar el
+driver).</P
+><P
+>Lo ideal es especificar el modo por defecto con:</P
+><PRE
+CLASS="SCREEN"
+>         video=mitarjeta:<FONT
+COLOR="RED"
+>x<FONT
+COLOR="RED"
+>[-<FONT
+COLOR="RED"
+>][@<FONT
+COLOR="RED"
+>]</FONT
+></FONT
+></FONT
+></FONT
+></PRE
+><P
+>Ademas de esto, se pueden indicar todo tipo de parametros que el programador
+desee. Lo unico importante es documentarlos bien en un fichero de
+		texto ;-)</P
+><P
+>Para separar las distintas opciones, se puede usar la funcion strtok() y
+luego strcmp o strncmp.</P
+><P
+>Esta funcion inicializara las diversas estructuras, de modo que todo quede
+listo para poder llamar a la siguiente funcion: mitarjetafb_init.</P
+><P
+>Por ultimo, indicar que esta funcion NO sera llamada si no existe ninguna
+linea append para este driver, pero la siguiente funcion (mitarjetafb_init)
+SIEMPRE sera llamada.</P
+></DIV
+><DIV
+CLASS="SECT3"
+><HR><H4
+CLASS="SECT3"
+><A
+NAME="AEN307"
+></A
+>5.4.2. mitarjetafb_init</H4
+><P
+>El prototipo de esta funcion es:</P
+><PRE
+CLASS="SCREEN"
+>             int __init mitarjetafb_init(void);</PRE
+><P
+>Ha de inicializar la tarjeta grafica en el modo grafico por defecto, y su
+espacio de memoria y puertos (por ejemplo, usando las funciones de la
+biblioteca pci.h). Si no identifica la tarjeta, ha de retornar un 0.</P
+><P
+>A continuacion, debemos pedir acceso a la memoria y puertos. La memoria la
+pedimos con la funcion:</P
+><PRE
+CLASS="SCREEN"
+>       int request_mem_region(video_base, video_size,
+       "mitarjetafb_id");</PRE
+><P
+>usando como video_base la direccion FISICA de la memoria de la tarjeta.
+Si esta funcion nos devuelve 0, debemos imprimir un error (usando printk() de
+la misma forma que usariamos printf) y devolver un error (return
+		  -EBUSY).</P
+><P
+>A continuacion, obtendriamos la direccion VIRTUAL de la memoria de la tarjeta.
+Para ello, llamamos a la funcion:</P
+><PRE
+CLASS="SCREEN"
+>       char * ioremap(video_base, video_size);</PRE
+><P
+>Esta funcion toma como parametros la direccion FISICA de la memoria y su
+tamaño, y nos devuelve un puntero a una zona de memoria direccionable desde
+el procesador (no olvidemos que, en modo protegido, trabajamos con una serie
+de direcciones virtuales que son convertidas a direcciones fisicas mediante
+las tablas de selectores y de descriptores de los procesadores 386 y
+superiores).</P
+><P
+>Si esta funcion devuelve NULL (o sea, 0), debemos devolver un error 
+(return -EIO) y liberar la memoria reservada, usando:</P
+><PRE
+CLASS="SCREEN"
+>       release_mem_region(video_base, video_size);</PRE
+><P
+>Ahora, hemos de reservar acceso a los registros de la tarjeta grafica,
+usando:</P
+><PRE
+CLASS="SCREEN"
+>	request_region(primer_puerto, numero_puertos,
+	"mitarjetafb_id");</PRE
+><P
+>En primer_puerto, pondremos la direccion del primer puerto al que queremos
+acceder, y en numero_puertos, la cantidad. Como los puertos no suelen ser
+consecutivos, es posible que tengamos que hacer varias llamadas. Asi, si
+queremos ganar acceso a los puertos 0x300 a 0x305, 0x3c0 a 0x3cf y 0x3f0,
+tendriamos que hacer:</P
+><PRE
+CLASS="SCREEN"
+>        request_region(0x300, 6, "mitarjetafb_id");
+        request_region(0x3c0, 16, "mitarjetafb_id");
+        request_region(0x3f0, 1, "mitarjetafb_id");</PRE
+><P
+>A continuacion, se debe cambiar al modo grafico adecuado. Para el calculo de
+las frecuencias, recomiendo leer la pagina 'www.linux-fbdev.org', que incluye
+un pequeño tutorial sobre los framebuffers.</P
+><P
+>Por ultimo, se ha de rellenar una estructura de tipo fb_info,
+incluyendo al menos los campos modename, changevar (que puede ser NULL), node
+(que suele ponerse a -1), fb_ops (con los punteros al resto de las funciones),
+disp (que debe ser un puntero a una estructura disp global y estatica),
+switch_con, updatevar, blank y flags (que, normalmente, sera inicializado a
+FBINFO_FLAG_DEFAULT), y con ella llamar a la funcion</P
+><PRE
+CLASS="SCREEN"
+>          int register_framebuffer(struct fb_info *);</PRE
+><P
+>Si esta funcion devuelve un valor negativo, es señal de que el driver no se
+ha podido registrar, por lo que se debe devolver un error (return -EINVAL). La
+carga continuara en modo texto, o se probara el siguiente driver de FrameBuffer
+de la lista.</P
+><P
+>Si todo ha ido bien, retornaremos sin error (return 0).</P
+><P
+>Como comentamos antes, la funcion mitarjetafb_setup no siempre es llamada. Esto
+debemos tenerlo en cuenta en esta funcion. Mi recomendacion es colocar una
+variable estatica global que indique si la funcion setup es llamada, y si no
+lo ha sido, retornar directamente desde init y no registrar el framebuffer. De
+esta forma el usuario puede volver a arrancar en modo texto sin necesidad de
+recompilar el kernel. Tan solo ha de quitar la linea append del fichero
+lilo.conf.</P
+><P
+>Tambien hemos de inicializar una variable estatica global, que podemos llamar
+por ejemplo, VIDEO_CMAP_LEN, con el valor 16 si el modo inicial es sin paleta
+(normalmente los modos de 15, 16, 24 y 32 bpp no usan paleta), o bien con 256
+si el modo inicial es con paleta (los modos de 8 bpp). Esta variable sera
+necesaria en las funciones para obtener y modificar la paleta, que veremos mas
+adelante.</P
+><P
+>Por ultimo, un breve ejemplo de como se ha de rellenar la estructura fb_ops.
+Puesto que algunas funciones pueden ir definidas y otras no, lo mejor es
+introducir los punteros indicando su lugar correspondiente. De esta forma se
+evitan los riesgos de meter un NULL donde no se deba. Por ejemplo, podemos
+hacerlo al definir la estructura de esta forma:</P
+><PRE
+CLASS="SCREEN"
+>static struct fb_ops sis6326fb_ops = {
+    owner:              THIS_MODULE,
+    fb_get_fix:         mitarjetafb_get_fix,
+    fb_get_var:         mitarjetafb_get_var,
+    fb_set_var:         mitarjetafb_set_var,
+    fb_get_cmap:        mitarjetafb_get_cmap,
+    fb_set_cmap:        mitarjetafb_set_cmap,
+    fb_pan_display:     mitarjetafb_pan_display,
+};</PRE
+><P
+>Por supuesto, la estructura tiene que ser definida como GLOBAL, nunca como
+local.</P
+><DIV
+CLASS="SECT3"
+><HR><H4
+CLASS="SECT3"
+><A
+NAME="AEN334"
+></A
+>5.4.1. mitarjetafb_open</H4
+><P
+>Esta funcion ha de ser definida en la estructura fb_ops.</P
+><P
+>Es llamada cada vez que un programa abre el dispositivo FrameBuffer (/dev/fb).
+Lo normal es hacer una simple llamada a MOD_INC_USE_COUNT, aunque ni siquiera
+eso es necesario, sino que se puede dejar sin definir.</P
+></DIV
+><DIV
+CLASS="SECT3"
+><HR><H4
+CLASS="SECT3"
+><A
+NAME="AEN338"
+></A
+>5.4.2. mitarjetafb_close</H4
+><P
+>Esta funcion ha de ser definida en la estructura fb_ops.</P
+><P
+>Es llamada cada vez que un programa cierra el dispositivo FrameBuffer
+(/dev/fb). Lo normal es hacer una simple llamada a MOD_DEC_USE_COUNT, aunque
+ni siquiera eso es necesario, sino que se puede dejar sin definir.</P
+></DIV
+><DIV
+CLASS="SECT3"
+><HR><H4
+CLASS="SECT3"
+><A
+NAME="AEN342"
+></A
+>5.4.3. mitarjetafb_get_fix</H4
+><P
+>Esta funcion ha de ser definida en la estructura fb_ops.</P
+><P
+>Su prototipo es:</P
+><PRE
+CLASS="SCREEN"
+>    static int mitarjetafb_fb_get_fix(struct fb_fix_screeninfo *fix, int con,
+			     struct fb_info *info);</PRE
+><P
+>Esta funcion devuelve en la estructura 'fix' (cuyo puntero le es pasado como
+parametro) los valores correspondientes al modo grafico correspondiente a la
+consola virtual 'con' de la tarjeta 'info'. Los parametros se deben obtener de
+la matriz global 'fb_display[]' pasandole como indice el numero de consola que
+se recibe como parametro, a menos que 'con' valga -1, en cuyo caso se deben
+leer los parametros de la tarjeta grafica; esto es, debemos devolver los
+parametros correspondientes al modo grafico que tenga la tarjeta en este
+preciso instante.</P
+><P
+>Una forma de hacer esto consiste en mantener los valores actuales de la tarjeta
+grafica en una estructura global estatica, y si 'con' es -1, usarlos para
+rellenar la estructura 'fix'. Esto simplifica la programacion pues no hace
+falta leer los registros de la tarjeta grafica e interpretarlos, sino que cada
+vez que se cambia el modo grafico, basta con actualizar los valores en la
+estructura global.</P
+></DIV
+><DIV
+CLASS="SECT3"
+><HR><H4
+CLASS="SECT3"
+><A
+NAME="AEN349"
+></A
+>5.4.4. mitarjetafb_get_var</H4
+><P
+>Esta funcion ha de ser definida en la estructura fb_ops.</P
+><P
+>Su prototipo es:</P
+><PRE
+CLASS="SCREEN"
+>    static int mitarjetafb_get_var(struct fb_var_screeninfo *var, int con,
+			     struct fb_info *info);</PRE
+><P
+>Esta funcion devuelve en la estructura 'var' (cuyo puntero le es pasado como
+parametro) los valores correspondientes al modo grafico correspondiente a la
+consola virtual 'con' de la tarjeta 'info'. Los parametros se deben obtener de
+'fb_display[].var' pasandole como indice el numero de consola que se recibe
+como parametro, a menos que 'con' valga -1, en cuyo caso se deben leer los
+parametros de la tarjeta grafica; esto es, debemos devolver los parametros
+correspondientes al modo grafico que tenga la tarjeta en este preciso instante.</P
+><P
+>Una forma de hacer esto consiste en mantener los valores actuales de la tarjeta
+grafica en una estructura global estatica, y si 'con' es -1, usarlos para
+rellenar la estructura 'var'. Esto simplifica la programacion pues no hace
+falta leer los registros de la tarjeta grafica e interpretarlos, sino que cada
+vez que se cambia el modo grafico, basta con actualizar los valores en la
+estructura global.</P
+></DIV
+><DIV
+CLASS="SECT3"
+><HR><H4
+CLASS="SECT3"
+><A
+NAME="AEN356"
+></A
+>5.4.5. mitarjetafb_set_var</H4
+><P
+>Esta funcion ha de ser definida en la estructura fb_ops.</P
+><P
+>Su prototipo es:</P
+><PRE
+CLASS="SCREEN"
+>    static int mitarjetafb_set_var(struct fb_var_screeninfo *var, int con,
+			     struct fb_info *info);</PRE
+><P
+>Esta funcion se encarga de cambiar el modo grafico actual de la tarjeta al
+modo indicado por el parametro 'var'. Para ello hay tres fases:</P
+><P
+>    En primer lugar se han de comprobar todos los parametros pasados en 'var',
+para asegurarse de que son correctos. Tambien aqui comprobaremos el campo
+var-&#62;activate. Si es FB_ACTIVATE_NOW, debemos retornar con el valor -EINVAL si
+hay algun parametro invalido, y proseguir el cambio si todos los valores son
+adecuados. Si es FB_ACTIVATE_TEST, sin embargo, hemos de devolver cero si
+los valores son correctos, o bien -EINVAL si son incorrectos, y ademas, en la
+estructura 'var' hemos de ajustar los valores por unos que sean correctos y
+lo mas parecidos a los que se pedian. Esto es, si se pedia un modo de 24 bpp y
+la tarjeta no lo soporta, pero si uno de 32 bpp, se cambiara eso. Lo mismo para
+las frecuencias de reloj, resoluciones, etc. Lo que no tengo claro es si se
+debe hacer lo mismo si se indica FB_ACTIVATE_NOW y se devuelve
+		    -EINVAL.</P
+><P
+>    Si todo esta correcto y se indico la opcion FB_ACTIVATE_NOW, se han de
+actualizar todos los campos de 'fb_display[]'. Aqui no hay que olvidarse de
+los campos dispsw y dispsw_data. Estos campos contienen punteros a funciones
+genericas del Framebuffer necesarias para la consola virtual, y a datos
+necesarios para que funcionen estas funciones, y dependen de la profundidad de
+color del modo grafico actual. Ademas, solo se han de definir los modos que
+estan definidos en el kernel.</P
+><P
+>Un vistazo a un ejemplo de codigo (sacado de vesafb.c) ilustrara mejor el
+concepto:</P
+><PRE
+CLASS="SCREEN"
+>	switch (var-&#62;bits_per_pixel) {
+#ifdef FBCON_HAS_CFB8
+	case 8:
+		display-&#62;dispsw = _cfb8;
+		break;
+#endif
+#ifdef FBCON_HAS_CFB16
+	case 15:
+	case 16:
+		display-&#62;dispsw = _cfb16;
+		display-&#62;dispsw_data = fbcon_cmap.cfb16;
+		break;
+#endif
+#ifdef FBCON_HAS_CFB24
+	case 24:
+		display-&#62;dispsw = _cfb24;
+		display-&#62;dispsw_data = fbcon_cmap.cfb24;
+		break;
+#endif
+#ifdef FBCON_HAS_CFB32
+	case 32:
+		display-&#62;dispsw = _cfb32;
+		display-&#62;dispsw_data = fbcon_cmap.cfb32;
+		break;
+#endif</PRE
+><P
+>Vemos que en funcion del numero de bits por pixel (bits_per_pixel) en el
+campo var, se asigna una funcion u otra. Ademas, la comparacion solo se hace
+si se ha definido la variable de entorno correspondiente. Esto es porque en el
+kernel podemos decidir no incluir soporte para 8 bpp, o para 32, etc.</P
+><P
+>Por ultimo, vemos que los modos de 15 y 16 bpp son tratados por las mismas
+funciones. Esto es porque ambos son modos de 2 bytes por pixel, por lo que
+las diferencias son tratadas en las estructuras 'fb_bitfield' de var'.</P
+><P
+>    En segundo lugar, en esta funcion hemos de actualizar el modo grafico de la
+tarjeta grafica al que se nos indica en 'var', pero solamente si 'con' es
+igual al numero de consola actual (esto es, si con==currcon). Esto es porque
+un programa puede intentar cambiar el modo grafico en cualquier momento,
+incluso cuando nosotros hemos conmutado de consola y estamos trabajando en
+cualquier otra o, incluso, estando trabajando en las X-Windows. En caso de
+que 'con' sea distinta de la consola actual, solo se debe actualizar la
+estructura 'fb_display[]' correspondiente, pero nada mas. El cambio de modo
+se llevara a cabo cuando conmutemos a la consola que se ha cambiado.</P
+><P
+>Un ultimo comentario: el campo cmap.len de la estructura fb_display[con]
+NO SE HA DE MODIFICAR. De hacerlo, se produciria un kernel panic cuando se
+cambiase de una consola con paleta a una sin paleta. Lo que si se ha de
+cambiar es la variable global VIDEO_CMAP_LEN (de la que ya hablamos en
+mitarjetafb_init) para que contenga 16 si el modo grafico actual no tiene
+paleta (esto es, si es un modo de 15, 16, 24 o 32 bpp), o 256 si es un modo
+con paleta.</P
+></DIV
+><DIV
+CLASS="SECT3"
+><HR><H4
+CLASS="SECT3"
+><A
+NAME="AEN370"
+></A
+>5.4.6. mitarjetafb_get_cmap</H4
+><P
+>Esta funcion ha de ser definida en la estructura fb_ops.</P
+><P
+>Su prototipo es:</P
+><PRE
+CLASS="SCREEN"
+>        int mitarjetafb_get_cmap(struct fb_cmap *cmap, int kspc, int con,
+                                 struct fb_info *info);</PRE
+><P
+>Esta funcion toma el 'colormap' de la consola 'con' y lo devuelve en la
+estructura 'cmap'. Lo normal, sin embargo, es implementarla de esta
+	      forma:</P
+><PRE
+CLASS="SCREEN"
+>    if (con == currcon) /* current console? */
+	return fb_get_cmap(cmap, kspc, mitarjetafb_getcolreg, info);
+    else if (fb_display[con].cmap.len) /* non default colormap? */
+	fb_copy_cmap(_display[con].cmap, cmap, kspc ? 0 : 2);
+    else
+	fb_copy_cmap(fb_default_cmap(video_cmap_len),
+		     cmap, kspc ? 0 : 2);
+    return 0;</PRE
+><P
+>Aqui vemos que usamos la variable VIDEO_CMAP_LEN, y que si la longitud indicada
+en fb_display[con].cmap.len es cero, asignaremos a la consola actual el
+'colormap' por defecto.</P
+><P
+>Las funciones 'fb_get_cmap', 'fb_copy_cmap' y 'fb_default_cmap' son funciones
+genericas que vienen implementadas en el sistema Framebuffer, y no tenemos
+que preocuparnos por ellas.</P
+><P
+>Por otro lado, la funcion 'mitarjetafb_getcolreg' (que pasamos como parametro
+a 'fb_get_cmap') es una funcion que si hemos de implementar nosotros, y cuyo
+prototipo es:</P
+><PRE
+CLASS="SCREEN"
+>static int mitarjetafb_getcolreg(unsigned regno, unsigned *red,
+                                 unsigned *green, unsigned *blue,
+                                 unsigned *transp, struct fb_info
+                                 *fb_info);</PRE
+><P
+>Esta funcion recibe un numero de registro de color en 'regno', y ha de devolver
+las cuatro componentes de color de dicho registro de la paleta (en formato de
+16 bits) en 'red', 'green', 'blue' y 'transp'. Si la tarjeta no soporta
+transparencia, 'transp' ira a cero.</P
+><P
+>De esta forma, la funcion 'fb_get_cmap' llamara a 'mitarjetafb_getcolreg' las
+veces necesarias para leer la totalidad de los registros, y almacenarlos en la
+estructura 'cmap'.</P
+></DIV
+><DIV
+CLASS="SECT3"
+><HR><H4
+CLASS="SECT3"
+><A
+NAME="AEN383"
+></A
+>5.4.7. mitarjetafb_set_cmap</H4
+><P
+>Esta funcion ha de ser definida en la estructura fb_ops.</P
+><P
+>Su prototipo es:</P
+><PRE
+CLASS="SCREEN"
+>        int mitarjetafb_set_cmap(struct fb_cmap *cmap, int kspc, int con,
+                                 struct fb_info *info);</PRE
+><P
+>Esta funcion actualiza el 'colormap' de la consola 'con' con el que se le pasa
+en la estructura 'cmap'. Lo normal, sin embargo, es implementarla de esta
+forma:</P
+><PRE
+CLASS="SCREEN"
+>    int err;
+    
+    if (!fb_display[con].cmap.len) {	/* no colormap allocated? */
+	err = fb_alloc_cmap(_display[con].cmap,video_cmap_len,0);
+	if (err)
+	    return err;
+    }
+    if (con == currcon)			/* current console? */
+	return fb_set_cmap(cmap, kspc, mitarjeta_setcolreg, info);
+    else
+	fb_copy_cmap(cmap, _display[con].cmap, kspc ? 0 : 1);
+    return 0;</PRE
+><P
+>Aqui vemos que tambien usamos la variable VIDEO_CMAP_LEN, para el supuesto
+de que la consola actual todavia no tenga un 'colormap' asignado.</P
+><P
+>Las funciones 'fb_set_cmap' y 'fb_copy_cmap' son funciones genericas que
+vienen implementadas en el sistema Framebuffer, y no tenemos que preocuparnos
+de ellas.</P
+><P
+>Por otro lado, la funcion 'mitarjetafb_setcolreg' (que pasamos como parametro
+a 'fb_set_cmap') es una funcion que si hemos de implementar nosotros, y cuyo
+prototipo es:</P
+><PRE
+CLASS="SCREEN"
+>static int mitarjetafb_setcolreg(unsigned regno, unsigned red,
+                                 unsigned green, unsigned blue,
+                                 unsigned transp, struct fb_info
+                                 *fb_info);</PRE
+><P
+>Esta funcion recibe un numero de registro de color en 'regno', y las cuatro
+componentes de color de dicho registro de la paleta (en formato de 16 bits) en
+'red', 'green', 'blue' y 'transp', y ha de meter dichos valores en el registro
+de paleta correspondiente (el indicado en 'regno').</P
+><P
+>De esta forma, la funcion 'fb_set_cmap' llamara a 'mitarjetafb_setcolreg' las
+veces necesarias para escribir la totalidad de los registros segun indique la
+estructura 'cmap'.</P
+><P
+>Esta funcion tiene un segundo cometido, que es asignar la paleta para la
+consola en un formato adecuado. Para esto se ha de rellenar la estructura
+fbcon_cmap con los valores adecuados. Veamos un ejemplo:</P
+><PRE
+CLASS="SCREEN"
+>    switch (video_bpp) {
+#ifdef FBCON_HAS_CFB8
+    case 8:
+        sis6326_setpalette(regno,red,green,blue);
+        break;
+#endif
+#ifdef FBCON_HAS_CFB16
+    case 15:
+        fbcon_cmap.cfb16[regno] =
+            ((red   &#38; 0xf800) &#62;&#62;  1) |
+            ((green &#38; 0xf800) &#62;&#62;  6) |
+            ((blue  &#38; 0xf800) &#62;&#62; 11);
+        break;
+    case 16:
+        fbcon_cmap.cfb16[regno] =
+            ((red   &#38; 0xf800)      ) |
+            ((green &#38; 0xfc00) &#62;&#62;  5) |
+            ((blue  &#38; 0xf800) &#62;&#62; 11);
+        break;
+#endif
+#ifdef FBCON_HAS_CFB24
+    case 24:
+        red   &#62;&#62;= 8;
+        green &#62;&#62;= 8;
+        blue  &#62;&#62;= 8;
+        fbcon_cmap.cfb24[regno] =
+            (red   &#60;&#60; 16)   |
+            (green &#60;&#60; 8) |
+            (blue);
+        break;
+#endif
+#ifdef FBCON_HAS_CFB32
+    case 32:
+        red   &#62;&#62;= 8;
+        green &#62;&#62;= 8;
+        blue  &#62;&#62;= 8;
+        fbcon_cmap.cfb32[regno] =
+            (red   &#60;&#60; 24)   |
+            (green &#60;&#60; 16) |
+            (blue &#60;&#60; 8);
+        break;
+#endif
+    }</PRE
+><P
+>Vemos que si el modo actual es de 8 bpp, simplemente metemos el color indicado
+en el DAC de la tarjeta. Si es de 15 o 16 bpp, metemos el color en
+fbcon_cmap.cfb16[regno] (siendo regno el numero de entrada correspondiente),
+tras haber eliminado los bits que no interesaban y rotado adecuadamente cada
+componente. Lo mismo con 24 o 32 bpp, pero usando fbcon_cmap.cfb24 o
+fbcon_cmap.cfb32, respectivamente.</P
+><P
+>¿Por que hacemos esto? La consola usara estas estructuras cuando quiera pintar
+un punto de un color determinado. Gracias a esto, se gana en eficiencia, porque
+los 16 colores posibles de la consola ya estan adecuadamente preparados para
+el modo grafico actual, y solo hay que copiar 1, 2, 3 o 4 bytes en el punto
+concreto del framebuffer para obtener el color deseado. No hace falta rotar y
+enmascarar cada componente por separado.</P
+><P
+>Tambien vemos que usamos #defines para no meter codigo innecesario en el
+driver. Esto es opcional, por supuesto, pero siempre resulta bueno porque
+es muy importante que el kernel sea del menor tamaño posible.</P
+></DIV
+><DIV
+CLASS="SECT3"
+><HR><H4
+CLASS="SECT3"
+><A
+NAME="AEN401"
+></A
+>5.4.8. changevar</H4
+><P
+>Esta funcion es definida en la estructura fb_info que se usa para inicializar
+el driver de Framebuffer.</P
+><P
+>Su prototipo es:</P
+><PRE
+CLASS="SCREEN"
+>        int changevar (int con);</PRE
+><P
+>Esta funcion, por lo que se, es llamada siempre que se cambia la informacion
+de 'var' en la consola 'con'. No es obligatorio definirla, sino que se puede
+poner NULL. Si alguien tiene mas informacion sobre ella...</P
+></DIV
+><DIV
+CLASS="SECT3"
+><HR><H4
+CLASS="SECT3"
+><A
+NAME="AEN407"
+></A
+>5.4.9. mitarjetafb_pan_display</H4
+><P
+>Esta funcion es definida en la estructura fb_info que se usa para inicializar
+el driver de Framebuffer.</P
+><P
+>Su prototipo es:</P
+><PRE
+CLASS="SCREEN"
+>        int mitarjetafb_pan_display(struct fb_var_screeninfo *var, int con,
+                                    struct fb_info *info);</PRE
+><P
+>Esta funcion se encarga de desplazar la pantalla al punto indicado por
+'var-&#62;xoffset' y 'var-&#62;yoffset', dentro de la pantalla virtual. Si los valores
+son demasiado grandes, debe retornar -EINVAL. Este desplazamiento normalmente
+se hara cambiando la direccion base de inicio de la memoria de video, y no
+usando funciones de la aceleradora grafica.</P
+></DIV
+><DIV
+CLASS="SECT3"
+><HR><H4
+CLASS="SECT3"
+><A
+NAME="AEN413"
+></A
+>5.4.10. switch_con</H4
+><P
+>Esta funcion es definida en la estructura fb_info que se usa para inicializar
+el driver de Framebuffer.</P
+><P
+>Su prototipo es:</P
+><PRE
+CLASS="SCREEN"
+>        int switch_con (int con, struct fb_info *info);</PRE
+><P
+>Esta funcion es llamada siempre que el usuario conmuta de una consola a otra.
+Sus cometidos son los siguientes:</P
+><P
+></P
+><UL
+><LI
+><P
+>    Guarda el 'colormap' de la consola actual, si es necesario (lo lee de los
+registros de la tarjeta y lo mete en 'fb_display[currcon]'). Esto se hace
+llamando a 'mitarjetafb_get_cmap', dandole como destino
+'fb_display[currcon].cmap'. Se sabe si es necesario si 'cmap.len' es distinto
+de cero para la consola actual.</P
+></LI
+><LI
+><P
+>    Asigna el valor de 'con' a 'currcon', de forma que la nueva consola pasa
+a ser la actual.</P
+><P
+></P
+></LI
+><LI
+><P
+>    Cambia el modo grafico de la tarjeta al modo indicado por
+'fb_display[con].var'. Esto es necesario porque cada consola puede tener un
+modo grafico distinto, y es necesario cambiarlo al conmutar. Se hace llamando
+a 'mitarjetafb_set_var'.</P
+></LI
+><LI
+><P
+>    Si es necesario, restaura el 'colormap' de la consola actual llamando
+a 'mitarjetafb_set_cmap', dandole como origen 'fb_display[con].cmap'.</P
+><P
+></P
+></LI
+><LI
+><P
+>Resulta interesante comparar antes 'con' con 'currcon', y retornar si son
+iguales. Esto es necesario porque, en algunos casos (en concreto al ejecutar
+programas que usan la biblioteca SDL), la funcion es llamada dos veces cuando
+se conmuta a la consola que soporta las X-Windows. El resultado es que las X
+se cuelgan. Sin embargo, si se hace esta comprobacion, la segunda vez que sea
+llamada se retornara sin tocar nada, y todo funcionara perfectamente.</P
+></LI
+></UL
+></DIV
+><DIV
+CLASS="SECT3"
+><HR><H4
+CLASS="SECT3"
+><A
+NAME="AEN432"
+></A
+>5.4.11. updatevar</H4
+><P
+>Esta funcion es definida en la estructura fb_info que se usa para inicializar
+el driver de Framebuffer.</P
+><P
+>Su prototipo es:</P
+><PRE
+CLASS="SCREEN"
+>        int updatevar(int con, struct fb_info *info);</PRE
+><P
+>Esta funcion es llamada cada vez que se hace algun cambio en 'var' que requiera
+desplazar la pantalla. Se debe ver en 'fb_display[con].var.xoffset' y en
+'fb_display[con].var.yoffset' el nuevo desplazamiento de la pantalla, y
+devolver -EINVAL si es un desplazamiento no permitido (demasiado
+		grande).</P
+><P
+>Lo normal es llamar con 'fb_display[con].var' a la funcion
+'mitarjetafb_pan_display' siempre y cuando 'con' sea igual a
+	    'currcon'.</P
+></DIV
+><DIV
+CLASS="SECT3"
+><HR><H4
+CLASS="SECT3"
+><A
+NAME="AEN439"
+></A
+>5.4.12. blank</H4
+><P
+>Esta funcion es definida en la estructura fb_info que se usa para inicializar
+el driver de Framebuffer.</P
+><P
+>Su prototipo es:</P
+><PRE
+CLASS="SCREEN"
+>        void blank(int blank, struct fb_info *info);</PRE
+><P
+>Esta funcion es llamada para activar o desactivar los modos de ahorro de
+energia del monitor.</P
+><P
+>Si blank es 0, debe restaurarse la imagen y poner el monitor en modo
+		normal.</P
+><P
+>Si blank es 1, debe ponerse la pantalla en negro.</P
+><P
+>Si blank es 2, debe ponerse en modo suspend (apagar VSYNC).</P
+><P
+>Si blank es 3, debe ponerse en standby (apagar HSYNC).</P
+><P
+>Si blank es 4, debe apagarse el monitor (apagar VSYNC y HSYNC).</P
+></DIV
+><DIV
+CLASS="SECT3"
+><HR><H4
+CLASS="SECT3"
+><A
+NAME="AEN450"
+></A
+>5.4.13. las otras funciones</H4
+><P
+>Las otras funciones de 'fb_ops' no resultan imprescindibles para escribir un
+driver de Framebuffer, por lo que a todo aquel que quiera usarlas le recomiendo
+que le eche un vistazo al codigo fuente de otros drivers Framebuffer.</P
+></DIV
+></DIV
+></LI
+></UL
+></DIV
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN453"
+></A
+>6. Probando el driver de Framebuffer</H2
+><P
+>Hay cuatro pruebas que considero fundamentales para comprobar si un driver de
+Framebuffer funciona como debe o no. Son las siguientes:</P
+><P
+></P
+><UL
+><LI
+><P
+>    La primera, obviamente, consiste en arrancar con el y comprobar que las
+consolas muestran correctamente los caracteres, que se puede cambiar de una a
+otra, y que no hay problemas al cambiar a las X-Windows y volver a consola en
+modo texto. Si alguna prueba falla, es que el driver tiene algun
+	  problema.&#13;</P
+><P
+>    A veces, al arrancar se queda colgado el nucleo. La solucion que encontre
+a esto pasa por añadir una comprobacion extra en la rutina 'switch_con', de
+forma que la primera vez que es llamada retorne tal cual, y solo lleve a cabo
+su funcion a partir de la segunda vez que se llama. Esto lo hago con una
+variable estatica global.</P
+></LI
+><LI
+><P
+>    La segunda prueba consiste en cambiar de modo grafico usando 'fbset'.
+Si todo va bien, la consola cambiara de modo grafico y funcionara en el nuevo
+modo sin problemas, y al pasar a otra consola se cambia el modo grafico al
+correspondiente. Esto es, podemos tener consolas con modos graficos distintos
+y al pasar de una a otra el driver conmuta al modo grafico correcto. Si el
+cambio no ocurre, es que algo falla en la rutina 'mitarjetafb_set_var'. Sin
+embargo, si el cambio tiene lugar pero la consola se vuelve ininteligible, el
+fallo es que en 'mitarjetafb_set_var' no estamos actualizando correctamente los
+valores de fb_display[con]. Por ultimo, si el cambio ocurre sin problemas pero
+al cambiar a otra consola esta se vuelve ininteligible, el problema esta en
+la funcion 'switch_con', que no cambia el modo grafico al que le corresponde a
+la consola actual.</P
+></LI
+><LI
+><P
+>    La tercera prueba consiste en ejecutar el siguiente fichero
+    script:</P
+><PRE
+CLASS="SCREEN"
+>        #!/bin/bash
+        sleep 5
+        fbset -g resx resy resx resy bpp</PRE
+><P
+>    poniendo en resx, resy y bpp unos valores distintos de la resolucion por
+defecto.</P
+><P
+>    Si suponemos que lo ejecutamos en la consola 1, nada mas lanzarlo debemos
+cambiar a la consola 2 y esperar 10 segundos. En ese tiempo, el sleep vencera
+y se ejecutara el fbset, cambiando el modo grafico correspondiente a la consola
+1.</P
+><P
+>    Si en ese momento el modo grafico de la consola 2 cambia y la pantalla se
+vuelve ininteligible, tenemos un fallo en 'mitarjetafb_set_var', pues no
+comprueba si la consola que queremos cambiar es la actual, y cambia el modo
+grafico de la tarjeta siempre. El modo grafico de la tarjeta se debe cambiar
+solo cuando 'con' sea igual a 'currcon', pues eso indica que la consola que
+cambiamos es la activa en este momento.</P
+><P
+>    Tras pasar los 10 segundos, volvemos a la consola 1. Si el modo grafico no
+cambia y la consola sigue en el modo que habia antes de ejecutar el script,
+es que tenemos tambien un fallo en 'mitarjetafb_set_var', que consiste en que
+si 'con' es distinto de 'currcon' no actualizamos la estructura
+fb_display[con]. Esta estructura se ha de actualizar SIEMPRE que cambiemos el
+modo, sin importar si la consola a cambiar es la actual o no.</P
+></LI
+><LI
+><P
+>    Por ultimo, la cuarta prueba consiste poner un modo grafico en una consola
+distinto del modo en que corren las X-Windows, ejecutar algun programa que
+use la biblioteca SDL, y tras terminar este, cambiar a la consola donde corren
+las X-Windows. Si el cambio aparentemente funciona, pero un segundo despues de
+cambiar de consola el modo grafico de la tarjeta cambia y las X se cuelgan, es
+que tenemos un problema en la rutina 'switch_con'. Hemos de cambiarla para que
+solo cambie el modo grafico cuando 'con' sea distinta de 'currcon'.</P
+><P
+>    Esto es porque, por alguna extraña razon, tras ejecutar un programa que use
+SDL, al terminar y cambiar a las X-Windows, la funcion 'switch_con' es llamada
+dos veces: una nada mas cambiar de consola y antes de que las X actualicen el
+modo grafico, y otra un segundo despues. Sin embargo, si comparamos si 'con' es
+igual que 'currcon', la segunda vez la rutina no se ejecutara, y todo
+funcionara correctamente.</P
+></LI
+></UL
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN472"
+></A
+>7. Referencias</H2
+><P
+></P
+><UL
+><LI
+><P
+>Codigo fuente de los drivers 'vesafb.c', 'matroxfb.c' y
+	  'atyfb.c'.</P
+></LI
+><LI
+><P
+>Documentacion del Framebuffer disponible en todos los kernels
+  (linux-2.4/Documentation/fb/*).</P
+></LI
+><LI
+><P
+>Documentacion sobre programacion de drivers de Framebuffer
+  (http://www.linux-fbdev.org).</P
+></LI
+></UL
+></DIV
+></DIV
+></BODY
+></HTML
+>

@@ -1,0 +1,870 @@
+<?xml version="1.0" encoding="iso-8859-1" ?>
+<!DOCTYPE article PUBLIC "-//OASIS//DTD DocBook V4.1.2//EN"
+"http://www.oasis-open.org/docbook/xml/4.1.2/docbookx.dtd">
+
+<article>
+
+<articleinfo>
+
+<title><emphasis remap="it">HDs</emphasis> grandes: mini-COMO</title>
+
+<author>
+<firstname>Andries Brouwer,<ulink
+url="mailto:aeb@cwi.nl"
+>aeb@cwi.nl</ulink
+>
+  Traducción: Fco. J. Montilla, <ulink
+url="mailto:pacopepe@insflug.org"
+>pacopepe@insflug.org</ulink
+></firstname>
+</author>
+
+<pubdate>v1.0, 960626</pubdate>
+
+<abstract>
+
+<para>
+Todo lo referente a geometrías de disco duro, así como el límite de las BIOS/SO
+relacionados con particiones más allá de los 1024 cilindros.
+</para>
+
+</abstract>
+
+</articleinfo>
+
+<sect1>
+<title>El Problema</title>
+
+<para>
+Suponga que tiene un disco duro con más de 1024 cilindros.  Suponga que
+encima emplea un sistema operativo que hace uso de la <emphasis remap="it">BIOS</emphasis>.  Si es
+así, entonces tiene un problema, ya que el habitual interfaz de la BIOS a
+operaciones de E/S con discos, la INT13, usa un campo de 10 bits para el
+cilindro en el que se produce una operación de E/S, por lo que cilindros
+más allá del 1024 resultarán inaccesibles. 
+</para>
+
+<para>
+Afortunadamente, Linux no hace uso de la BIOS, por lo que no resulta un
+problema. 
+</para>
+
+<para>
+Bueno, a excepción de dos aspectos:
+</para>
+
+<para>
+
+<orderedlist>
+<listitem>
+
+<para>
+<emphasis remap="bf">Cuando arranca el sistema</emphasis>, Linux no está ejecutándose todavía,
+y por tanto, no puede ahorrarle los problemas relacionados con la BIOS. 
+Esto acarrea ciertas consecuencias para con LILO y gestores de arranque
+similares.
+
+</para>
+</listitem>
+<listitem>
+
+<para>
+<emphasis remap="bf">Es necesario, para todos los sistemas operativos</emphasis> que compartan
+un disco el coincidir en dónde están las particiones. En otras palabras,
+si usa Linux, y por ejemplo, <emphasis remap="it">Dos</emphasis> en un disco, ambos deberán
+interpretar la tabla de particiones del mismo modo. Esto resulta en
+determinadas consecuencias con el núcleo de Linux y <literal remap="tt">fdisk</literal>. 
+
+</para>
+</listitem>
+
+</orderedlist>
+
+</para>
+
+<para>
+Lo que sigue es una descripción bastante detallada de todos los detalles
+relevantes. Téngase en cuenta que empleé el <literal remap="tt">kernel</literal> 2.0.8 como fuente
+de referencias; para otras versiones la cosa puede variar ligeramente. 
+</para>
+
+</sect1>
+
+<sect1>
+<title>Arrancando</title>
+
+<para>
+Cuando el sistema arranca, la BIOS lee el sector 0 (conocido como
+<emphasis remap="it">MBR</emphasis>, <emphasis remap="it">Master Boot Record</emphasis>, o <emphasis remap="it">Registro de Arranque Principal</emphasis>)
+del primer disco (o de un floppy), y <emphasis remap="it">salta</emphasis> al código allí residente
+--algún tipo cargador <emphasis remap="it">bootstrap</emphasis>
+<footnote>
+
+<para>
+N del T: El término
+<emphasis remap="it">bootstrap</emphasis> procede de la expresión anglosajona ``<emphasis remap="it">To pull oneself
+up by one's bootstraps </emphasis>'', que viene a significar ``<emphasis remap="it">rehacerse por
+sí sólo, por sus propios medios, o por méritos propios,
+etc</emphasis>''
+</para>
+
+</footnote>
+, generalmente--. 
+</para>
+
+<para>
+Los pequeños programas de <emphasis remap="it">bootstrap</emphasis> que allí se encuentran no poseen
+controladores de disco propios, típicamente, y emplean servicios de la
+BIOS para ello.  Esto significa que el núcleo de Linux sólo puede arrancar
+cuando reside enteramente antes de los primeros 1024 cilindros. 
+</para>
+
+<para>
+Este problema se puede resolver fácilmente, asegurándose de que el núcleo
+(y quizás otros ficheros empleados durante la fase de arranque, como los
+ficheros de <emphasis remap="it">mapeo</emphasis> de LILO) residen en una partición que se encuentra
+en su totalidad en los primeros 1024 cilindros de un disco al que la BIOS
+puede acceder --esto significa que probablemente sea el primer o segundo
+disco--. 
+</para>
+
+<para>
+Otro punto a considerar es que tanto el <emphasis remap="it">cargador</emphasis> de arranque y la
+BIOS deben asentir en cuanto a la geometría del disco. Podría ser útil dar
+a <literal remap="tt">LILO</literal> la opción `<literal remap="tt">linear</literal>'. Más sobre esto a continuación. 
+</para>
+
+</sect1>
+
+<sect1>
+<title>Geometría de los discos y particiones.</title>
+
+<para>
+Si tiene varios sistemas operativos en sus discos, cada uno puede estar
+utilizando una o varias particiones. El más mínimo desacuerdo en cuanto a
+dónde están dichas particiones puede acarrear catastróficas consecuencias. 
+</para>
+
+<para>
+El MBR contiene una <emphasis remap="it">tabla de particiones</emphasis> describiendo donde están
+las particiones (primarias). Hay 4 entradas en dicha tabla, para 4
+particiones primarias
+<footnote>
+
+<para>
+N del T: o para 3 primarias y 1
+extendida
+</para>
+
+</footnote>
+, y cada una tiene el siguiente aspecto: 
+</para>
+
+<para>
+
+<screen>
+struct partition {
+	char active;    /* 0x80: arrancable, 0: no arrancable */
+	char begin[3];  /* CHS para el primer sector */
+	char type;
+	char end[3];    /* CHS para el ultimo sector */
+	int start;      /* numero de sector en 32 bit (contado desde 0) */
+        int length;     /* numero de sectores 32 en bit */
+};
+</screen>
+
+(donde CHS se refiere a Cilindros/Cabezas/Sectores).
+</para>
+
+<para>
+Por tanto, la información es redundante: la localización de la partición
+se da tanto por los campos de 24 bits <literal remap="tt">begin</literal> y <literal remap="tt">end</literal>, como por los
+campos de 32 bits <literal remap="tt">start</literal> y <literal remap="tt">length</literal>. 
+</para>
+
+<para>
+Linux sólo usa los campos <literal remap="tt">start</literal> y <literal remap="tt">length</literal>, y puede por tanto
+manejar particiones no mayores de 2&circ;32 sectores, o lo que es lo mismo,
+particiones de más de 2 TeraBytes. Lo cual es doscientas veces el tamaño
+de los discos disponibles actualmente, por lo que será suficiente para los
+próximos 10 años o así. 
+</para>
+
+<para>
+Desafortunadamente, la llamada a la INT13 de la BIOS emplea los CHS
+codificados en tres bytes, con 10 bits para el número de cilindro, 8 para
+el número de cabeza, y 6 para el numero de sector de pista. 
+</para>
+
+<para>
+Los números posibles de cilindro son 0-1023, de cabeza 0-255, y de sector
+de pista 1-63 (sí, los sectores de una pista se cuentan desde 1, no desde
+0).  Con esos 24 bits se puede acceder a 8455716864 bytes (7.875 GB),
+doscientas veces más de las capacidades de disco disponibles en 1983.
+</para>
+
+<para>
+Todavía más desafortunadamente, los interfaces IDE estándar permiten 256
+sectores/pista, 65536 cilindros y 16 cabezas. Esto por sí mismo permite el
+acceso a 2&circ;37 = 137438953472 bytes (128 GB), pero combinado con la
+restricción de la BIOS a 63 sectores y 1024 cilindros hace que sólo queden
+528482304 bytes (504 MB) accesibles. 
+</para>
+
+<para>
+Esto no es suficiente para los discos de hoy en día, por lo que la gente
+recurre a todo tipo de triquiñuelas, tanto vía <emphasis remap="it">hardware</emphasis> como
+<emphasis remap="it">software</emphasis>. 
+</para>
+
+</sect1>
+
+<sect1>
+<title>Traslaciones y Managers de disco</title>
+
+<para>
+A nadie le importa cuál es la geometría `real' de un disco.  De hecho,
+incluso el número de sectores por pista es variable --hay más sectores por
+pista conforme nos acercamos al borde exterior del disco-- por lo que no
+hay un número de sectores por pista `verdadero'.
+</para>
+
+<para>
+Para el usuario resulta más conveniente considerar un disco como una
+simple serie
+<footnote>
+
+<para>
+N del T: ``<emphasis remap="it">array</emphasis>'' en el original.
+</para>
+
+</footnote>
+
+lineal de sectores numerados como 0, 1, ..., y dejar a la controladora el
+trabajo de encontrar en qué lugar del disco reside un sector dado. 
+</para>
+
+<para>
+Esta numeración lineal se conoce como <emphasis remap="bf">LBA</emphasis>. Las direcciones lineales
+correspondientes a (c,h,s)
+<footnote>
+
+<para>
+N del T: c=cilindros h=cabezas
+s=sectores; parámetros lógicos.
+</para>
+
+</footnote>
+para un disco con geometría
+(C,H,S)
+<footnote>
+
+<para>
+N del T: parámetros físicos
+</para>
+
+</footnote>
+ corresponden a
+c*H*S + h*S + (s-1). Todas las controladoras SCSI ``hablan'' LBA, junto
+con algunas IDE. 
+</para>
+
+<para>
+Si la BIOS convierte los (c,h,s) de 24 bits a LBA y le pasa eso a una
+controladora que ``entienda'' LBA, entonces vuelven a ser accesibles 7.875
+GB.  No es suficiente para todos los discos, pero no deja de ser
+constituir una mejora. 
+</para>
+
+<para>
+Téngase en cuenta que que aquí CHS, tal y como los usa la BIOS, no tiene
+nada que ver con la `realidad'. 
+</para>
+
+<para>
+Algo similar funciona cuando la controladora no ``habla'' LBA, pero la
+BIOS sí sabe hacer la traslación. (En el <emphasis remap="it">setup</emphasis> esto se suele indicar
+como ``<emphasis remap="it">large</emphasis>''.) La BIOS presentará una geometría (C',H',S') al
+sistema operativo, usando (C,H,S) para hablar con la controladora del
+disco. Normalmente <emphasis remap="it">S = S', C' = C/N </emphasis> y<emphasis remap="it"> H' = H*N</emphasis>, donde <emphasis remap="it">N</emphasis>
+es la menor potencia de dos que asegura que C' &lt;= 1024 (a fin de que se
+malgaste la menor capacidad posible al redondear en C' = C/N).
+Nuevamente, esto nos proporciona acceso a 7.875 GB.
+</para>
+
+<para>
+Si la BIOS no sabe nada acerca de `LBA' o `Large', podemos recurrir a
+ciertas soluciones <emphasis remap="it">software</emphasis>. Los <emphasis remap="it">Disk Managers</emphasis> o
+<emphasis remap="it">Gestores de Disco</emphasis> como <emphasis remap="it">OnTrack</emphasis> o <emphasis remap="it">EZ-Drive</emphasis> reemplazan
+las rutinas de gestión de disco por otras suyas.  Esto se lleva a cabo
+normalmente haciendo residir el código del gestor de disco en el MBR y
+sectores subsecuentes (OnTrack llama a este código <emphasis remap="it">DDO</emphasis>: <emphasis remap="it">Dynamic
+Drive Overlay</emphasis>
+<footnote>
+
+<para>
+N del T: algo así como <emphasis remap="it">Superposición
+Dinámica de Disco</emphasis>.
+</para>
+
+</footnote>
+, de modo que sea arrancado antes que
+cualquier otro sistema operativo. Esa es la razón por la que se pueden
+tener problemas arrancando desde disquete cuando se ha instalado un Gestor
+de Disco.
+<footnote>
+
+<para>
+N. del T. Esto no significa que no pueda hacerse de
+modo seguro; los gestores suelen proveer utilidades para hacer disquetes
+especiales de arranque
+</para>
+
+</footnote>
+
+</para>
+
+<para>
+El efecto es más o menos el mismo que cuando se hacen traslaciones vía
+BIOS, pero --especialmente cuando haya distintos sistemas operativos en el
+mismo disco-- con la salvedad de que pueden causar bastantes problemas. 
+</para>
+
+<para>
+Linux soporta <emphasis remap="it">OnTrack Disk Manager</emphasis> desde la versión de núcleo
+1.3.14, y <emphasis remap="it">EZ-Drive</emphasis> desde la versión 1.3.29. Más detalles a
+continuación. 
+</para>
+
+</sect1>
+
+<sect1>
+<title>Traslación de disco al núcleo en discos IDE.</title>
+
+<para>
+Si el núcleo de Linux detecta la presencia de algún gestor de disco en un
+disco IDE, tratará de remapear el disco del mismo modo en que lo haya
+hecho el gestor de disco, de modo que Linux `vea' el mismo
+particionamiento del mismo que bajo DOS con OnTrack o EZ-Drive. 
+</para>
+
+<para>
+No obstante, <emphasis remap="bf">NO</emphasis> se produce remapeo alguno cuando se especifica la
+geometría en la línea de comandos
+<footnote>
+
+<para>
+N del T: Paso de parámetros a
+LILO o loadlin al arrancar Linux
+</para>
+
+</footnote>
+, por lo que una opción como
+`<literal remap="tt">hd=cyls,heads,secs</literal>' puede acabar perfectamente con la compatibilidad
+de un gestor de disco. 
+</para>
+
+<para>
+El remapeo se lleva a cabo probando con 4, 8, 16, 32, 64, 128, 255 Cabezas
+(manteniendo H*C constante) hasta que o bien C &lt;= 1024 o H = 255. 
+</para>
+
+<para>
+Los detalles vienen a continuación. --los títulos de las subsecciones son
+las que aparecen en los mensajes de arranque correspondientes--. Tanto
+aquí como en cualquier otra parte de este texto, los tipos de partición se
+darán en notación hexadecimal.
+</para>
+
+<sect2>
+<title>EZD</title>
+
+<para>
+EZ-Drive se detecta por el hecho de que la primera partición primaria es
+de tipo 55. La geometría se remapea como se describió anteriormente,
+desechando la tabla de particiones del sector 0 --en lugar de ello, se lee
+del sector 1--.  Los números de bloque del disco no sufren cambio alguno,
+tan sólo se redirigen las operaciones de escritura al sector 0 al sector
+1. Se puede cambiar este comportamiento recompilando el kernel con la
+definición
+</para>
+
+<para>
+
+<screen>
+#define FAKE_FDISK_FOR_EZDRIVE  0 
+</screen>
+
+</para>
+
+<para>
+en <literal remap="tt">ide.c</literal>.
+</para>
+
+</sect2>
+
+<sect2>
+<title>DM6:DDO</title>
+
+<para>
+OnTrack DiskManager (en el primer disco) se detecta por el hecho de que la
+primera partición primaria es de tipo 54. La geometría se remapea como se
+describió anteriormente, y el disco se desplaza enteramente 63 sectores
+(por lo que el antiguo sector 63 pasa a ser el sector 0).  Posteriormente,
+un MBR nuevo (con su correspondiente tabla de particiones) es leído del
+nuevo sector 0. Por supuesto este desplazamiento se lleva a cabo para
+hacer sitio al <emphasis remap="it">DDO</emphasis> --a esto se debe a que no se produzca dicho
+desplazamiento en los demás discos--. 
+</para>
+
+</sect2>
+
+<sect2>
+<title>DM6:AUX</title>
+
+<para>
+OnTrack DiskManager (en otros discos) es detectado por la circunstancia de
+que la primera partición primaria es de tipo 51 o 53.  La geometría se
+remapea como describimos antes. 
+</para>
+
+</sect2>
+
+<sect2>
+<title>DM6:MBR</title>
+
+<para>
+Una versión más antigua de OnTrack DiskManager se detecta no por el tipo
+de partición, sino por la firma. (Se comprueba que el <emphasis remap="it">offset</emphasis>
+encontrado en los bytes 2 y 3 del MBR no es superior a 430, la abreviatura
+encontrada en este <emphasis remap="it">offset</emphasis> es igual a <literal remap="tt">0x55AA</literal>, y está seguido por
+un byte impar.). Nuevamente, la geometría se remapea como anteriormente. 
+</para>
+
+</sect2>
+
+<sect2>
+<title>PTBL</title>
+
+<para>
+Para finalizar, hay un test que intenta deducir si existe traslación a
+partir de los valores <literal remap="tt">start</literal> y <literal remap="tt">end</literal>
+<footnote>
+
+<para>
+N del T:
+<literal remap="tt">comienzo</literal> y <literal remap="tt">final</literal> respectivamente
+</para>
+
+</footnote>
+ de las particiones
+primarias:  Si alguna partición posee un cilindro de comienzo y fin menor
+de 256, sectores de comienzo y fin 1 y 63 respectivamente, y como cabezas
+finales 31, 63 o 127, entonces dado que acabar las particiones en el
+límite de un cilindro es algo ``no estandarizado'' y dado que además los
+interfaces IDE usan como mucho 16 cabezas, se deduce que está activa
+alguna traslación de BIOS, y la geometría se remapea para usar 32, 64 o
+128 cabezas respectivamente.  (Puede que haya una inconsistencia aquí, y
+<literal remap="tt">genhd.c</literal>, ¿no debería haber comprobado dos bits mayores por orden del
+número de cilindro?).  No obstante, no se lleva a cabo remapeo alguno
+cuando la noción que se tiene en este momento de la geometría ya es de 63
+sectores por pista con al menos tantas otras cabezas (dado que esto
+significaría que el remapeo ya se ha producido). 
+</para>
+
+</sect2>
+
+</sect1>
+
+<sect1>
+<title>Consecuencias</title>
+
+<para>
+¿Qué significa todo esto? Para los usuarios de Linux tan sólo una cosa:
+deben de asegurarse de que <literal remap="tt">LILO</literal> y <literal remap="tt">fdisk</literal> usan la geometría
+correcta, donde `correcta' se define para <literal remap="tt">fdisk</literal> como la misma
+geometría usada por los otros sistemas operativos presentes en el mismo
+disco, y para <literal remap="tt">LILO</literal> como la geometría que hará posible una interacción
+exitosa con la BIOS en el momento del arranque. (Normalmente ambos
+coinciden). 
+</para>
+
+<para>
+¿Cómo averigua <literal remap="tt">fdisk</literal> la geometría?  Pregunta al núcleo, empleando la
+llamada <literal remap="tt">ioctl</literal> <literal remap="tt">HDIO_GETGEO</literal>.  No obstante, el usuario puede
+interponerse a dicha geometría, interactivamente o en la línea de
+comandos. 
+</para>
+
+<para>
+¿Cómo averigua <literal remap="tt">LILO</literal> la geometría?  Pregunta al núcleo, usando la
+llamada <literal remap="tt">ioctl</literal> <literal remap="tt">HDIO_GETGEO</literal>.  No obstante, el usuario puede
+descartar dicha geometría empleando la opción `<literal remap="tt">disk=</literal>'.  Se puede
+pasar también la opción <literal remap="tt">linear</literal> a LILO, que almacenará en tal caso
+direcciones LBA en lugar de CHS en su fichero de mapeo, averiguando la
+geometría a usar al arrancar (mediante el empleo de de la <literal remap="tt">INT13</literal>,
+función <literal remap="tt">8</literal> para preguntar la geometría del disco). 
+</para>
+
+<para>
+Cómo sabe el núcleo qué responder?  Veamos, para comenzar, el usuario
+puede haber especificado una geometría explícitamente con la opción, en la
+línea de comandos
+<footnote>
+
+<para>
+N del T: Al <emphasis remap="it">prompt</emphasis> de <literal remap="tt">LILO</literal>, el
+``<literal remap="tt">LILO boot:</literal>'' que aparece al encender el ordenador si <literal remap="tt">LILO</literal>
+está instalado.
+</para>
+
+</footnote>
+ `<literal remap="tt">hd=cyls,heads,secs</literal>'.  En cualquier caso
+distinto, el núcleo preguntará al <emphasis remap="it">hardware</emphasis>. 
+</para>
+
+<sect2>
+<title>Detalles IDE </title>
+
+<para>
+Permítame elaborar.  El controlador
+<footnote>
+
+<para>
+N del T: ``<emphasis remap="it">driver</emphasis>'' en
+el original, software
+</para>
+
+</footnote>
+ IDE tiene cuatro fuentes de información
+acerca de la geometría.  La primera, (<emphasis remap="it">G_user</emphasis>) es la especificada por
+el usuario en la línea de comandos.  La segunda (<emphasis remap="it">G_bios</emphasis>) es la Tabla
+de Parámetros de Disco Duro de la BIOS.  (para el primer y segundo disco
+solamente). Esto se lee al arrancar el sistema, antes de cambiar a modo 32
+bits.  La tercera (<emphasis remap="it">G_phys</emphasis>) y cuarta (<emphasis remap="it">G_log</emphasis>) son proporcionadas
+por la controladora IDE como respuesta al comando <emphasis remap="it">IDENTIFY</emphasis> --son las
+geometrías ``físicas'' y ``lógicas actuales''--. 
+</para>
+
+<para>
+Por otra parte, el controlador (<emphasis remap="it">driver</emphasis>, software;)  precisa dos
+valores para la geometría: por una parte <literal remap="tt">G_fdisk</literal>, devuelto por la
+llamada <literal remap="tt">ioctl</literal> <literal remap="tt">HDIO_GETGEO</literal>, y por otra, <literal remap="tt">G_used</literal> que es
+empleada actualmente para las operaciones de E/S.  Tanto <literal remap="tt">G_fdisk</literal> como
+<literal remap="tt">G_used</literal> son inicializadas a <literal remap="tt">G_used</literal> si se especifica éste, a
+<literal remap="tt">G_bios</literal> cuando dicha información está presente de acuerdo a la
+<emphasis remap="it">CMOS</emphasis>, y a <literal remap="tt">G_phys</literal> en los demás casos. Si <literal remap="tt">G_log</literal> parece
+razonable, entonces <literal remap="tt">G_used</literal> se inicializa como él. En cualquier otro
+caso, si <literal remap="tt">G_used</literal> no parece razonable y sí lo parece <literal remap="tt">G_phys</literal>,
+entonces <literal remap="tt">G_used</literal> se inicializa a <literal remap="tt">G_phys</literal>. `Razonable' aquí
+significa que el número de cabezas esté en el rango 1-16. 
+</para>
+
+<para>
+Dicho con otras palabras: la línea de comandos descarta la BIOS, y
+determinará lo que <literal remap="tt">fdisk</literal> va a ver, pero si especifica una geometría
+que ya ha sufrido traslación, (más de 16 cabezas), para operaciones de E/S
+a nivel núcleo será sustituida por lo retornado por el comando
+<emphasis remap="it">IDENTIFY</emphasis>. 
+</para>
+
+</sect2>
+
+<sect2>
+<title>Detalles SCSI </title>
+
+<para>
+La situación para los discos SCSI es ligeramente diferente, ya que los
+comandos SCSI usan ya números de bloque lógicos, por lo que la `geometría'
+es completamente irrelevante para las operaciones de E/S. 
+</para>
+
+<para>
+No obstante, el formato de la tabla particiones continúa siendo el mismo,
+por lo que <literal remap="tt">fdisk</literal> tendrá que inventarse alguna geometría, y también
+usará <literal remap="tt">HDIO_GETGEO</literal> aquí --de hecho, <literal remap="tt">fdisk</literal> no distingue entre
+discos IDE o SCSI--.  Como uno puede ver a raíz de la descripción
+detallada anterior, los distintos <emphasis remap="it">drivers</emphasis> inventan cada uno, una
+geometría diferente de algún modo. Un gran <emphasis remap="it">follón</emphasis>, de hecho. 
+</para>
+
+<para>
+Si no usa DOS o similar, evite todas las configuraciones con traslación
+extendida, empleando simplemente 64 cabezas, y 32 sectores por pista (para
+un bonito y práctico 1 MB por cilindro), si es posible, de modo que no
+aparezcan problemas cuando cambie el disco de una controladora a otra. 
+</para>
+
+<para>
+Algunos controladores de discos SCSI (<literal remap="tt">aha152x, pas16, ppa, qlogicfas,
+qlogicisp</literal>)  son tan paranoicos con la compatibilidad con DOS que no
+permitirán a un sistema sólo-Linux emplear más de 8Gb. Esto es un fallo. 
+</para>
+
+<para>
+¿Qué es ``geometría real''?  La respuesta más sencilla es que no existe
+tal cosa.  Y si la hubiese, no debería querer saberla, y desde luego
+NUNCA, JAMÁS decírsela a <literal remap="tt">LILO</literal> o <literal remap="tt">fdisk</literal>. 
+</para>
+
+<para>
+Esto es un asunto a tratar exclusivamente entre la controladora SCSI y el
+disco.  Permítame repetírselo: sólo los tontos le dicen a
+<literal remap="tt">fdisk/LILO</literal>/kernel la verdadera geometría de un disco SCSI. 
+</para>
+
+<para>
+Si aún así es usted curioso e insiste, debería preguntarle al propio
+disco.  Existe el importante comando <emphasis remap="it">READ CAPACITY</emphasis> que proporcionará
+el tamaño total del disco, así como existe el comando <emphasis remap="it">MODE SENSE</emphasis>, que
+proporciona el número de cilindros y cabezas (información que no puede ser
+cambiada) de la <emphasis remap="it">Página de Geometrías de Disco Duro</emphasis> (página 04), y que
+extrae de la <emphasis remap="it">Página de Formateo</emphasis> (página 03) el número de de bytes por
+sector, así como de sectores por pista. Este último número es típicamente
+dependiente de las marcas
+<footnote>
+
+<para>
+N del T: No marca comercial, marca
+física.
+</para>
+
+</footnote>
+, variando el número de sectores por pista --las pistas
+externas tienen más sectores que las internas. 
+</para>
+
+<para>
+El programa Linux <literal remap="tt">scsiinfo</literal> proporcionará esta información.  Existen
+más detalles y complicaciones, pero está claro que nadie (probablemente ni
+siquiera el sistema operativo) quiere usar esta información. 
+</para>
+
+<para>
+Más aún, en lo que a nosotros concierne respecto a <literal remap="tt">fdisk</literal> y <literal remap="tt">LILO</literal>,
+obtendremos respuestas típicamente como C/H/S=4476/27/171 --valores que no
+pueden ser empleados por <literal remap="tt">fdisk</literal> porque la tabla de particiones reserva
+sólo 10/8/6 bits para C/H/S.
+</para>
+
+<para>
+¿Entonces de dónde averigua la llamada al kernel <literal remap="tt">HDIO_GETGEO</literal> su
+información?  O bien de la controladora SCSI, o bien mediante cultas
+averiguaciones.  Algunos controladores parecen pensar que queremos saber
+la `realidad', pero por supuesto lo único que queremos saber es qué
+utilizarán los FDISK de DOS u OS/2 (o el AFDISK de Adaptec, etc). 
+</para>
+
+<para>
+Nótese que el <literal remap="tt">fdisk</literal> de Linux necesita los números H y S de las
+cabezas y sectores por pista para convertir de números de sectores LBA a
+localizaciones c/h/s, pero el número C de cilindros no tienen nada que ver
+en esta conversión.  Algunos controladores usan (C,H,S) = (1023,255,63)
+para indicar que la capacidad del disco es al menos 1023*255*63 sectores.
+Esto no resulta muy afortunado, ya que no revela la capacidad actual, y
+limitará a los usuarios de la mayoría de las versiones de <literal remap="tt">fdisk</literal> a
+alrededor de 8 Gb máximo en sus discos --una verdadera limitación hoy en
+día--. 
+</para>
+
+<para>
+En la descripción que sigue, <emphasis remap="it">M</emphasis> denota la capacidad total del disco, y
+<emphasis remap="it">C, H, S</emphasis> el número de cilindros, cabezas y sectores por pista.  Basta
+con proporcionar <emphasis remap="it">H, S</emphasis> si tenemos en cuenta a C como definido por M /
+(H*S).
+</para>
+
+<para>
+Por defecto, H=64, S=32.
+</para>
+
+<para>
+<variablelist>
+
+<varlistentry>
+<term>aha1740, dtc, g_NCR5380, t128, wd7000:</term>
+<listitem>
+<para>
+H=64, S=32.
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>aha152x, pas16, ppa, qlogicfas, qlogicisp:</term>
+<listitem>
+<para>
+ H=64, S=32 a menos
+que C &gt; 1024, en cuyo caso H=255, S=63, C = min(1023, M/(H*S)).  (C por
+tanto es truncado, y H*S*C no es una aproximación a la capacidad del disco
+M. Esto causará confusión en la mayoría de las versiones de fdisk.)  El
+código <emphasis remap="it">ppa.c</emphasis> emplea M+1 en lugar de M y dice que ello se debe a un
+error en <emphasis remap="it">sd.c</emphasis>, en el que a M le falta 1. 
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>advansys:</term>
+<listitem>
+<para>
+ H=64, S=32 a menos que C &gt; 1024 y más aún si la
+opción `&gt; 1 GB' está activado en la BIOS, en cuyo caso H=255, S=63. 
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>aha1542:</term>
+<listitem>
+<para>
+ Pregunte a la controladora cuál de los dos esquemas de
+traslación posibles está en uso, y emplee tanto H=255, S=63 como H=64,
+S=32. En el último caso habrá un mensaje al arrancar: "<literal remap="tt">aha1542.c:
+Using extended bios translation"</literal>. 
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>aic7xxx:</term>
+<listitem>
+<para>
+ H=64, S=32 a menos que C &gt; 1024, y además o bien el
+parámetro de arranque "<literal remap="tt">extended</literal>" haya sido especificado en el
+arranque, o si el bit "<literal remap="tt">extended</literal>" ha sido especificado en la SEEPROM o
+BIOS, en cuyo caso H=255, S=63. 
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>buslogic:</term>
+<listitem>
+<para>
+ H=64, S=32 a menos que C &gt;= 1024, y que además se
+haya configurado la controladora para hacer traslaciones extendidas, en
+cuyo caso si M &lt; 2&circ;22 entonces H=128, S=32; de otro modo, H=255, S=63.
+No obstante, tras hacer esta elección para (C,H,S), se lee la tabla de
+particiones, y si para alguna de las tres posibilidades (H,S) = (64,32),
+(128,32), (255,63) el valor endH=H-1 aparece por alguna parte, entonces es
+usado dicho par (H,S), y un mensaje será mostrado al arranque: 
+"<literal remap="tt">Adopting Geometry from Partition Table</literal>". 
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>fdomain:</term>
+<listitem>
+<para>
+ Averigüe la información acerca de la geometría de la
+Tabla de Parámetros de Disco de la BIOS, o lea la tabla de particiones y
+use H=endH+1, S=endS para la primera partición, teniendo en cuenta que no
+esté vacía, o use H=64, S=32 para M &lt; 2&circ;21 (1 GB), H=128, S=63 para M
+&lt; 63*2&circ;17 (3.9 GB) y S=63 en otro caso. 
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>in2000:</term>
+<listitem>
+<para>
+ Emplee los primeros (H,S) = (64,32), (64,63), (128,63),
+(255,63) que hagan que C &lt;= 1024. En el último caso, trunque C a 1023. 
+Use los primeros de (H,S) = (64,32), (64,63), (128,63), (255,63) 
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>seagate:</term>
+<listitem>
+<para>
+ Lea C,H,S del disco. (¡Horror!) Si C o S es demasiado
+grande, ponga S=17, H=2 y vaya doblando H hasta que C &lt;= 1024. Esto
+significa que H será establecida a 0 si M &gt; 128*1024*17 (1.1 GB). Esto
+es un error de programación (<emphasis remap="it">bug</emphasis>). 
+</para>
+</listitem></varlistentry>
+<varlistentry>
+<term>ultrastor y u14_34f:</term>
+<listitem>
+<para>
+ Uno de los tres mapeos ((H,S) = (16,63),
+(64,32), (64,63))  es empleado dependiendo del modo de mapeo de la
+controladora. 
+</para>
+</listitem></varlistentry>
+</variablelist>
+</para>
+
+<para>
+Si el driver no especifica la geometría, volveremos a realizar una
+averiguación inteligente usando la tabla de particiones, o usando la
+capacidad total del disco. 
+</para>
+
+<para>
+Mire la tabla de particiones. Dado que por convención las particiones
+terminan en el límite de un cilindro, podemos, dado un <literal remap="tt">end =
+(endC,endH,endS)</literal> de una partición, poner simplemente H = <literal remap="tt">endH+1</literal> y S
+= <literal remap="tt">endS</literal>. (Recuerde que los sectores son numerados a partir de 1).  De
+un modo más preciso, se hace lo siguiente:  Si hay alguna partición que no
+esté vacía, escoja la partición con el <literal remap="tt">beginC</literal> mayor.  Para dicha
+partición, mire a <literal remap="tt">end+1</literal>, calculados ambos añadiendo <literal remap="tt">start</literal> y
+<literal remap="tt">length</literal> y asumiendo que estas particiones terminan en los límites de
+un cilindro. Si ambos valores concuerdan, o si <literal remap="tt">endC</literal> = 1023 y
+<literal remap="tt">start+length</literal> es múltiplo integral de <literal remap="tt">(endH+1)*endS</literal>, asuma
+entonces que dicha partición está realmente alineada con el límite de un
+cilindro, y ponga H = <literal remap="tt">endH+1</literal> y S = <literal remap="tt">endS</literal>. 
+</para>
+
+<para>
+Si esto falla, bien debido a que no hay particiones, o porque poseen
+tamaños extraños, tenga en cuenta entonces únicamente la capacidad del
+disco M.  Algoritmo: ponga H = M/(62*1024) (redondeando hacia arriba), S =
+M/(1024*H) (redondeando hacia arriba), C = M/(H*S) (redondeando hacia
+abajo). 
+</para>
+
+<para>
+Esto tiene el efecto de producir un (C,H,S) con C siendo como mucho 1024 y
+S como mucho 62. 
+</para>
+
+</sect2>
+
+</sect1>
+
+<sect1 id="Grupos">
+<title>Anexo: El INSFLUG </title>
+
+<para>
+El <emphasis>INSFLUG</emphasis> forma parte del grupo internacional 
+<emphasis remap="it">Linux Documentation Project</emphasis>, 
+encargándose de las traducciones al castellano de los Howtos (Comos),
+así como la producción de documentos originales en aquellos casos
+en los que no existe análogo en inglés.
+</para>
+
+<para>
+En el <emphasis remap="bf">INSFLUG</emphasis> se orienta preferentemente a la traducción de documentos
+breves, como los <emphasis>COMOs</emphasis> y <emphasis>PUFs</emphasis> (<emphasis remap="bf">P</emphasis>reguntas de
+<emphasis remap="bf">U</emphasis>so <emphasis remap="bf">F</emphasis>recuente, las <emphasis remap="it">FAQs</emphasis>. <literal remap="tt">:)</literal> ), etc.
+</para>
+
+<para>
+Diríjase a la sede del INSFLUG para más información al respecto.
+</para>
+
+<para>
+En la sede del INSFLUG encontrará siempre las <emphasis remap="bf">últimas</emphasis> versiones 
+de las traducciones:  <literal remap="tt"><ulink
+url="http://www.insflug.org"
+>www.insflug.org</ulink
+></literal>. Asegúrese de comprobar cuál es la última versión 
+disponible en el Insflug antes de bajar un documento de un servidor réplica.
+</para>
+
+<para>
+Se proporciona también una lista de los servidores
+réplica (<emphasis remap="it">mirror</emphasis>) del Insflug más cercanos a Vd.,  
+e información relativa a otros recursos en castellano.
+</para>
+
+<para>
+Francisco José Montilla, <literal remap="tt"><ulink
+url="mailto:pacopepe@insflug.org"
+>pacopepe@insflug.org</ulink
+></literal>.
+</para>
+
+</sect1>
+
+</article>

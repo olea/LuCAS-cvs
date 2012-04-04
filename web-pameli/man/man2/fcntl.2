@@ -1,0 +1,376 @@
+.\" Hey Emacs! This file is -*- nroff -*- source.
+.\"
+.\" This manpage is Copyright (C) 1992 Drew Eckhardt;
+.\"                               1993 Michael Haardt, Ian Jackson;
+.\"                               1998 Jamie Lokier.
+.\"
+.\" Permission is granted to make and distribute verbatim copies of this
+.\" manual provided the copyright notice and this permission notice are
+.\" preserved on all copies.
+.\"
+.\" Permission is granted to copy and distribute modified versions of this
+.\" manual under the conditions for verbatim copying, provided that the
+.\" entire resulting derived work is distributed under the terms of a
+.\" permission notice identical to this one
+.\" 
+.\" Since the Linux kernel and libraries are constantly changing, this
+.\" manual page may be incorrect or out-of-date.  The author(s) assume no
+.\" responsibility for errors or omissions, or for damages resulting from
+.\" the use of the information contained herein.  The author(s) may not
+.\" have taken the same level of care in the production of this manual,
+.\" which is licensed free of charge, as they might when working
+.\" professionally.
+.\" 
+.\" Formatted or processed versions of this manual, if unaccompanied by
+.\" the source, must acknowledge the copyright and authors of this work.
+.\"
+.\" Modified Sat Jul 24 13:39:26 1993 by Rik Faith (faith@cs.unc.edu)
+.\" Modified Tue Sep 26 21:47:21 1995 by Andries Brouwer <aeb@cwi.nl>
+.\" and again on 960413 and 989804 and 981223.
+.\"
+.\" Translated 22 Dec 1995 Miguel A. Sepulveda (miguel@typhoon.harvard.edu)
+.\" Modified 1 Jul 1996 Miguel A. Sepulveda (angel@vivaldi.princeton.edu)
+.\" Translation fixed and revised on Mon Apr 27 18:22:37 CEST 1998 by
+.\" Gerardo Aburruzaga García <gerardo.aburruzaga@uca.es>
+.\" Translation revised Tue Aug 18 1998 by Juan Piernas <piernas@ditec.um.es>
+.\" Translation revised Fri Oct 2 1998 by Juan Piernas <piernas@ditec.um.es>
+.\" Modified Fri Dec 11 17:57:27 1998 by Jamie Lokier <jamie@imbolc.ucc.ie>
+.\" Translation revised Tue Apr  6 1999 by Juan Piernas <piernas@ditec.um.es>
+.\" Translation revised Fri Jun 25 1999 by Juan Piernas <piernas@ditec.um.es>
+.\" Applied correction by Christian Ehrhardt - aeb, 990712
+.\" Translation revised Sat Jan  8 2000 by Juan Piernas <piernas@ditec.um.es>
+.\"
+.TH FCNTL 2 "12 julio 1999" Linux "Manual del Programador de Linux"
+.SH NOMBRE
+fcntl \- manipula el descriptor de fichero
+.SH SINOPSIS
+.nf
+.B #include <unistd.h>
+.B #include <fcntl.h>
+.sp
+.BI "int fcntl(int " fd ", int " cmd );
+.BI "int fcntl(int " fd ", int " cmd ", long " arg );
+.BI "int fcntl(int " fd ", int " cmd ", struct flock * " lock );
+.fi
+.SH DESCRIPCIÓN
+.B fcntl
+realiza una de las diversas y variadas operaciones sobre
+.IR fd .
+La operación en cuestión se determina mediante
+.IR cmd :
+.TP 0.9i
+.B F_DUPFD
+Busca el descriptor de fichero disponible de menor número mayor o igual que
+.I arg
+y lo convierte en una copia de
+.IR fd .
+Esto es diferente en
+.BR dup2 (2)
+que usa exactamente el descriptor especificado.
+.sp
+Los descriptores antiguo y nuevo pueden usarse indistintamente. Ambos
+comparten candados (locks), indicadores de posición de ficheros y
+banderas (flags); por ejemplo, 
+si la posición del fichero se modifica usando
+.B lseek
+en uno de los descriptores, la posición del otro resulta modificada   
+simultáneamente.
+.sp
+Sin embargo, los dos descriptores no comparten la bandera close-on-exec
+"cerrar-al-ejecutar". La bandera close-on-exec de la copia está
+desactivada, significando que no se cerrará en ejecución.
+.sp
+En caso de éxito, se devuelve el nuevo descriptor.
+.TP
+.B F_GETFD
+Lee la bandera close-on-exec. Si el bit
+.B FD_CLOEXEC
+es 0, el fichero permanecerá abierto durante
+.BR exec ,
+en caso contrario se cerrará el fichero.
+.TP
+.B F_SETFD
+Asigna el valor de la bandera close-on-exec al valor especificado por el bit
+.B FD_CLOEXEC
+de
+.IR arg .
+.TP
+.B F_GETFL
+Lee las banderas del descriptor (todas las banderas, según 
+hayan sido asignadas por
+.BR open (2),
+serán devueltas).
+.TP
+.B F_SETFL
+Asigna las banderas del descriptor al valor asignado por
+.IR arg .
+Sólo
+.BR O_APPEND ", " O_NONBLOCK " y " O_ASYNC
+pueden asignarse; las otras banderas no se ven afectadas.
+.sp
+Las banderas se comparten entre copias (hechas con
+.BR dup "(2), " fork (2),
+etc.) del mismo descriptor de fichero.
+.sp
+Las banderas y su semántica están descritas en 
+.BR open (2).
+.P
+.BR F_GETLK ", " F_SETLK " y " F_SETLKW
+se utilizan para gestionar candados de ficheros
+discrecionales (discretionary file locks).
+El tercer argumento
+.I lock
+es un puntero a una struct flock
+(que puede ser sobrescrita por esta llamada).
+.TP
+.B F_GETLK
+Devuelve la estructura flock que nos impide obtener el candado, o
+establece el campo
+.B l_type
+del candado a
+.B F_UNLCK
+si no hay obstrucción.
+.TP
+.B F_SETLK
+El candado está cerrado (cuando
+.B l_type
+es
+.B F_RDLCK
+o 
+.BR F_WRLCK )
+o abierto (cuando es
+.BR F_UNLCK ).
+Si el candado está cogido por alguien más, esta llamada devuelve \-1 y
+pone en
+.I errno 
+el código de error
+.B EACCES
+o
+.BR EAGAIN .
+.TP
+.B F_SETLKW
+Como
+.BR F_SETLK ,
+pero en vez de devolver un error esperamos que el candado se abra.
+Si se recibe una señal a capturar mientras
+.B fcntl
+está esperando, se interrumpe y (después de que el manejador de la señal
+haya terminado) regresa inmediatamente (devolviendo \-1 y
+asignado a
+.I errno
+el valor
+.BR EINTR ).
+.P
+.BR F_GETOWN ", " F_SETOWN ", " F_GETSIG " y " F_SETSIG
+se utilizan para gestionar las señales de disponibilidad de E/S:
+.TP
+.B F_GETOWN
+Obtiene el ID de proceso o el grupo de procesos que actualmente recibe las
+señales SIGIO y SIGURG para los eventos sobre el descriptor de fichero
+.IR fd .
+.sp
+Los grupos de procesos se devuelven como valores negativos.
+.TP
+.B F_SETOWN
+Establece el ID de proceso o el grupo de procesos que recibirá las señales
+SIGIO y SIGURG para los eventos sobre el descriptor de fichero
+.IR fd .
+.sp
+Los grupos de procesos se especifican mediante valores negativos.
+(Se puede usar
+.B F_SETSIG
+para especificar una señal diferente a SIGIO).
+
+.\" De glibc.info:
+Si activa la bandera de estado
+.B O_ASYNC
+sobre un descriptor de fichero (tanto si proporciona esta bandera con la
+llamada
+.IR open (2)
+como si usa la orden
+.B F_SETFL
+de
+.BR fcntl ),
+se enviará una señal SIGIO cuando sea posible la entrada o la salida sobre
+ese descriptor de fichero.
+.sp
+El proceso o el grupo de procesos que recibirá la
+señal se puede seleccionar usando la orden
+.B F_SETOWN
+de la función
+.BR fcntl .
+Si el descriptor de fichero es un enchufe (socket), esto también
+seleccionará al recipiente de las señales SIGURG que se entregan cuando
+llegan datos fuera de orden (out-of-band, OOB) sobre el enchufe. (SIGURG se
+envía en cualquier situación en la que
+.BR select (2)
+informaría que el enchufe tiene una "condición excepcional"). Si el
+descriptor de fichero corresponde a un dispositivo de terminal, entonces las
+señales SIGIO se envían al grupo de procesos en primer plano de la terminal.
+.TP
+.B F_GETSIG
+Obtiene la señal enviada cuando la entrada o la salida son posibles. Un
+valor cero significa que se envía SIGIO. Cualquier otro valor (incluyendo
+SIGIO) es la señal enviada en su lugar y en este caso se dispone de
+información adicional para el manejador de señal si se instala con
+SA_SIGINFO.
+.TP
+.B F_SETSIG
+Establece la señal enviada cuando la entrada o la salida son posibles. Un
+valor cero significa enviar la señal por defecto SIGIO. Cualquier otro valor
+(incluyendo SIGIO) es la señal a enviar en su lugar y en este caso se
+dispone de información adiciona para el manejador de señal si se instala con
+SA_SIGINFO.
+.sp
+Usando F_SETSIF con un valor distinto de cero y asignando SA_SIGINFO para el
+manejador de señal (vea
+.BR sigaction (2)),
+se pasa información extra sobre los eventos de E/S al manejador en la
+estructura
+.IR siginfo_t .
+Si el campo
+.I si_code
+indica que la fuente is SI_SIGIO, el campo
+.I si_fd
+proporciona el descriptor de fichero asociado con el evento. En caso
+contrario, no se indican qué descriptores de ficheros hay pendientes y, para
+determinar qué descriptores de fichero están disponibles para E/S, debería
+usar los mecanismos usuales
+.RB ( select (2),
+.BR poll (2),
+.BR read (2)
+con
+.B O_NONBLOCK
+activo, etc.).
+.sp
+Seleccionando una señal de tiempo real POSIX.1b (valor >= SIGRTMIN), se
+pueden encolar varios eventos de E/S usando los mismos números de señal. (El
+encolamiento depende de la memoria disponible). Se dispone de información
+extra si se asigna SA_SIGINFO al manejador de señal, como antes.
+.PP
+Usando estos mecanismos, un programa puede implementar E/S totalmente
+asíncrona, sin usar
+.BR select (2)
+ni
+.BR poll (2)
+la mayor parte del tiempo.
+.PP
+El uso de 
+.BR O_ASYNC ,
+.BR F_GETOWN
+y
+.B F_SETOWN
+es específico de Linux y BSD.
+.B F_GETSIG
+y
+.B F_SETSIG
+son específicos de Linux. POSIX posee E/S asíncrona y la estructura
+.I aio_sigevent
+para conseguir cosas similares; estas también están disponibles en Linux
+como parte de la biblioteca de C de GNU (GNU C Library, Glibc).
+.SH "VALOR DEVUELTO"
+Para una llamada con éxito, el valor devuelto depende de la operación:
+.TP 0.9i
+.B F_DUPFD
+El nuevo descriptor.
+.TP
+.B F_GETFD
+Valor de la bandera.
+.TP
+.B F_GETFL
+Valor de las banderas.
+.TP
+.B F_GETOWN
+Valor del propietario del descriptor.
+.TP
+.B F_GETSIG
+Valor de la señal enviada cuando la lectura o la escritura son posibles o
+cero para el comportamiento tradicional con SIGIO.
+.TP
+.B Para cualquier otra orden
+Cero.
+.PP
+En caso de error el valor devuelto es \-1, y 
+se pone un valor apropiado en
+.IR errno .
+.SH ERRORES
+.TP 0.9i
+.B EACCES
+La operación está prohibida por candados mantenidos por otros
+procesos.
+.TP
+.B EAGAIN
+La operación está prohibida porque el fichero ha sido asociado a
+memoria por otro proceso.
+.TP
+.B EDEADLK
+Se ha detectado que el comando
+.B F_SETLKW
+especificado provocaría un
+interbloqueo. 
+.TP
+.B EFAULT
+.I lock
+está fuera de su espacio de direcciones accesible.
+.TP
+.B EBADF
+.I fd
+no es un descriptor de fichero abierto.
+.TP
+.B EINTR
+El comando
+.B F_SETLKW
+ha sido interrumpido por una señal.
+Para
+.BR F_GETLK " y " F_SETLK ,
+la orden fue interrumpida por una señal antes de que el candado fuera
+comprobado o adquirido. Es más probable al poner un candado a un fichero
+remoto (por ejemplo, un candado sobre NFS) pero algunas veces puede ocurrir
+localmente.
+.TP
+.B EINVAL
+Para
+.BR F_DUPFD ,
+.I arg
+es negativo o mayor que el valor máximo permitido. Para
+.BR F_SETSIG ,
+.I arg
+no es un número de señal permitido.
+.TP
+.B EMFILE
+Para
+.BR F_DUPFD ,
+el proceso ya ha llegado al número máximo de descriptores de ficheros abiertos. 
+.TP
+.B ENOLCK
+Demasiados candados de segmento abiertos, la tabla de candados está llena o
+ha fallado un protocolo de candados remoto (por ejemplo, un candado sobre
+NFS).
+.TP
+.B EPERM
+Se ha intentado limpiar la bandera
+.B O_APPEND
+sobre un fichero que tiene activo el atributo de `sólo añadir'
+(append-only).
+.SH NOTAS
+Los errores devueltos por
+.B dup2
+son distintos de aquéllos dados por 
+.BR F_DUPFD .
+.SH "CONFORME A"
+SVID, AT&T, POSIX, X/OPEN, BSD 4.3. Sólo las operaciones F_DUPFD,
+F_GETFD, F_SETFD, F_GETFL, F_SETFL, F_GETLK, F_SETLK y F_SETLKW
+se especifican en POSIX.1. F_GETOWN y F_SETOWN son BSD-ismos no
+aceptados en SVr4; F_GETSIG y F_SETSIG son específicos de Linux.
+Las banderas legales para F_GETFL/F_SETFL son aquéllas que acepta
+.BR open (2)
+y varían entre estos sistemas; O_APPEND, O_NONBLOCK, O_RDONLY
+y O_RDWR son las que se mencionan en POSIX.1. SVr4 admite algunas
+otras opciones y banderas no documentadas aquí.
+.PP
+SVr4 documenta las condiciones de error adicionales EIO, ENOLINK y EOVERFLOW.
+.SH "VÉASE TAMBIÉN"
+.BR open (2),
+.BR socket (2),
+.BR dup2 (2),
+.BR flock (2).

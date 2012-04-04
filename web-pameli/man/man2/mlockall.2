@@ -1,0 +1,155 @@
+.\" Hey Emacs! This file is -*- nroff -*- source.
+.\"
+.\" Copyright (C) Markus Kuhn, 1996
+.\"
+.\" This is free documentation; you can redistribute it and/or
+.\" modify it under the terms of the GNU General Public License as
+.\" published by the Free Software Foundation; either version 2 of
+.\" the License, or (at your option) any later version.
+.\"
+.\" The GNU General Public License's references to "object code"
+.\" and "executables" are to be interpreted as the output of any
+.\" document formatting or typesetting system, including
+.\" intermediate and printed output.
+.\"
+.\" This manual is distributed in the hope that it will be useful,
+.\" but WITHOUT ANY WARRANTY; without even the implied warranty of
+.\" MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+.\" GNU General Public License for more details.
+.\"
+.\" You should have received a copy of the GNU General Public
+.\" License along with this manual; if not, write to the Free
+.\" Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111,
+.\" USA.
+.\"
+.\" 1995-11-26  Markus Kuhn <mskuhn@cip.informatik.uni-erlangen.de>
+.\"      First version written
+.\"
+.\" Translated into Spanish on Thu Aug 20 1998 by Gerardo Aburruzaga
+.\" García <gerardo@cica.es>
+.\"
+.TH MLOCKALL 2 "26 noviembre 1995" "Linux 1.3.43" "Manual del Programador de Linux"
+.SH NOMBRE
+mlockall \- desactiva la paginación para el proceso invocador
+.SH SINOPSIS
+.nf
+.B #include <sys/mman.h>
+.sp
+\fBint mlockall(int \fIflags\fB);
+.fi
+.SH DESCRIPCIÓN
+.B mlockall
+desactiva la paginación para todas las páginas asociadas en el espacio
+de direcciones del proceso que hace la llamada. Esto incluye las
+páginas del código, de los datos y del segmento de pila, así como las
+bibliotecas compartidas, datos de núcleo en espacio de usuario,
+memoria compartida y ficheros asociados a memoria. Se garantiza que
+todas las páginas asociadas estarán en RAM cuando la llamada al sistema
+.B mlockall
+regrese con éxito, y se garantiza que permanecerán en RAM hasta que
+las páginas se desbloqueen de nuevo mediante
+.B munlock
+o
+.B munlockall
+o hasta que el proceso termine o empiece otro programa debido a la llamada
+.BR exec .
+Los procesos hijos no heredan bloqueos de página a través de un
+.BR fork .
+
+El bloqueo de memoria tiene dos aplicaciones principales: algoritmos
+de tiempo real y procesamiento de datos de alta seguridad. Las
+aplicaciones en tiempo real requieren tiempos deterministas, y, como
+la planificación, la paginación es una de las principales causas de
+retrasos inesperados en la ejecución de programas. Las aplicaciones de
+tiempo real normalmente también cambiarán a un planificador de tiempo
+real con
+.BR sched_setscheduler .
+Los programas de seguridad criptográficos a menudo manejan bytes
+críticos como contraseñas o claves secretas como estructuras de
+datos. Como resultado de la paginación, estos datos secretos pueden
+transferirse a un medio de almacenamiento permanente como resultado
+del trasiego (swap), donde podrían ser accesibles al enemigo bastante
+tiempo después de que el programa de seguridad hubiera terminado y
+borrado los datos secretos de la RAM. Para aplicaciones de seguridad,
+sólo tienen que bloquearse partes pequeñas de la memoria, para lo cual
+se dispone de
+.BR mlock .
+
+El parámetro
+.I flags
+puede construirse aplicando el operador lógico de bits O (OR) a las
+siguientes constantes:
+.TP 1.2i
+.B MCL_CURRENT
+Bloquea todas las páginas que están asociadas actualmente en el
+espacio de direcciones del proceso.
+.TP
+.B MCL_FUTURE
+Bloquea todas las páginas que en el futuro se asociarán en el espacio
+de direcciones del proceso. Éstas podrían ser, por ejemplo, páginas
+nuevas requeridas por una pila y montón crecientes así como nuevos
+ficheros asociados a memoria o regiones de memoria compartida. 
+.PP
+Si se ha especifiado
+.B MCL_FUTURE
+y el número de páginas bloqueadas excede el límite superior de las
+páginas bloqueadas permitidas, entonces la llamada al sistema que haya
+causado la nueva asociación fallará con
+.BR ENOMEM .
+Si estas nuevas páginas han sido asociadas por la pila creciente,
+entonces el núcleo denegará la expansión de la pila y mandará una señal
+.BR SIGSEGV .
+
+Los procesos en tiempo real deberían reservar bastantes páginas
+bloqueadas antes de entrar en la sección crítica de tiempo, de forma
+que ninguna llamada a función pueda provocar un fallo de página. Esto
+puede lograrse llamando a una función que tenga una variable
+automática suficientemente grande y que escriba en la memoria ocupada
+por este vector grande, para tocar estas páginas de la pila. De esta
+forma, se asociarán bastantes páginas para la pila y se pueden bloquear
+en la RAM. Las escrituras falsas asegurarán que ni siquiera ocurran
+fallos de página de copia-en-escritura en la sección crítica.
+
+Los bloqueos de memoria no se apilan; esto es, las páginas que hayan
+sido bloqueadas varias veces mediante llamadas a
+.B mlockall
+o a
+.B mlock
+se desbloquearán con una simple llamada a
+.BR munlockall .
+Las páginas que estén asociadas a varias localizaciones o por varios
+procesos permanecen bloqueadas en RAM mientras que estén bloqueadas
+al menos en una localización o al menos por un proceso.
+
+En sistemas POSIX en los cuales estén disponibles
+.B mlockall
+y
+.BR munlockall ,
+se define
+.B _POSIX_MEMLOCK
+en <unistd.h>.
+.SH VALOR DEVUELTO
+En caso de éxito,
+.B mlockall
+devuelve cero. En caso de error, se devuelve \-1 y se pone un valor
+apropiado en
+.IR errno .
+.SH ERRORES
+.TP
+.B ENOMEM
+El proceso intentó excederse en el número máximo de páginas bloqueadas
+permitido.
+.TP
+.B EPERM
+El proceso que hace la llamada no tiene los privilegios
+apropiados. Sólo los procesos de root tienen permiso para bloquear
+páginas. 
+.TP
+.B EINVAL
+Se han especificado \fIflags\fP desconocidos.
+.SH "CONFORME A"
+POSIX.1b, SVr4.   SVr4 documenta un código de error adicional, EAGAIN.
+.SH "VÉASE TAMBIÉN"
+.BR munlockall (2),
+.BR mlock (2), 
+.BR munlock (2)

@@ -1,0 +1,1403 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<HTML
+><HEAD
+><TITLE
+>Las vistas y el sistema de reglas.</TITLE
+><META
+NAME="GENERATOR"
+CONTENT="Modular DocBook HTML Stylesheet Version 1.59"><LINK
+REL="HOME"
+TITLE="Guia del Programador de PostgreSQL"
+HREF="programmer.html"><LINK
+REL="UP"
+TITLE="El Sistema de reglas de Postgres"
+HREF="rules.html"><LINK
+REL="PREVIOUS"
+TITLE="El Sistema de reglas de Postgres"
+HREF="rules.html"><LINK
+REL="NEXT"
+TITLE="Reglas sobre INSERT, UPDATE y DELETE"
+HREF="x1056.html"></HEAD
+><BODY
+CLASS="SECT1"
+BGCOLOR="#FFFFFF"
+TEXT="#000000"
+LINK="#0000FF"
+VLINK="#840084"
+ALINK="#0000FF"
+><DIV
+CLASS="NAVHEADER"
+><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TH
+COLSPAN="3"
+ALIGN="center"
+>Guia del Programador de PostgreSQL</TH
+></TR
+><TR
+><TD
+WIDTH="10%"
+ALIGN="left"
+VALIGN="bottom"
+><A
+HREF="rules.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="80%"
+ALIGN="center"
+VALIGN="bottom"
+>El Sistema de reglas de <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+></TD
+><TD
+WIDTH="10%"
+ALIGN="right"
+VALIGN="bottom"
+><A
+HREF="x1056.html"
+>Siguiente</A
+></TD
+></TR
+></TABLE
+><HR
+ALIGN="LEFT"
+WIDTH="100%"></DIV
+><DIV
+CLASS="SECT1"
+><H1
+CLASS="SECT1"
+><A
+NAME="AEN895"
+>Las vistas y el sistema de reglas.</A
+></H1
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN897"
+>Implementación de las vistas en 
+<SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+></A
+></H2
+><P
+>    Las vistas en <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> se implementan 
+    utilizando el sistema de reglas. De hecho, no hay diferencia entre
+
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    CREATE VIEW myview AS SELECT * FROM mytab;</PRE
+></TD
+></TR
+></TABLE
+>
+    
+    y la secuencia:
+
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    CREATE TABLE myview 
+    (<TT
+CLASS="REPLACEABLE"
+><I
+>la misma lista de atributos de mytab</I
+></TT
+>);
+    CREATE RULE "_RETmyview" AS ON SELECT TO myview DO INSTEAD
+        SELECT * FROM mytab;</PRE
+></TD
+></TR
+></TABLE
+>
+    
+    Porque esto es exactamente lo que hace internamente el comando CREATE VIEW.
+    Esto tiene algunos efectos colaterales. Uno de ellos es que la información 
+    sobre una vista en el sistema de catálogos de 
+    <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> es exactamente el mismo que para una 
+    tabla. De este modo, para los traductores de queries, no hay diferencia 
+    entre una tabla y una vista, son lo mismo: relaciones. Esto es lo más 
+    importante por ahora.</P
+></DIV
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN906"
+>Cómo trabajan las reglas de SELECT</A
+></H2
+><P
+>    Las reglas ON SELECT se aplican a todas las queries como el último paso, 
+    incluso si el comando dado es INSERT, UPDATE o DELETE. Y tienen diferentes 
+    semanticas de las otras en las que modifican el arbol de traducción en 
+    lugar de crear uno nuevo. Por ello, las reglas SELECT se describen las 
+    primeras.</P
+><P
+>    Actualmente, debe haber sólo una acción y debe ser una acción SELECT que 
+    es una INSTEAD. Esta restricción se requería para hacer las reglas seguras 
+    contra la apertura por usuarios ordinarios, y restringe las reglas 
+    ON SELECT a reglas para vistas reales.</P
+><P
+>    El ejemplo para este documento son dos vistas unidas que hacen algunos 
+    cálculos y algunas otras vistas utilizadas para ello. Una de estas dos 
+    primeras vistas se personaliza más tarde añadiendo reglas para operaciones
+    de INSERT, UPDATE y DELETE de modo que el resultado final será una vista 
+    que se comporta como una tabla real con algunas funcionalidades mágicas. 
+    No es un ejemplo fácil para empezar, y quizá sea demasiado duro. Pero es 
+    mejor tener un ejemplo que cubra todos los puntos discutidos paso a paso 
+    que tener muchos ejemplos diferentes que tener que mezclar después.    </P
+><P
+>    La base de datos necesitada para ejecutar los ejemplos se llama al_bundy. 
+    Verá pronto el porqué de este nombre. Y necesita tener instalado el 
+    lenguaje procedural PL/pgSQL, ya que necesitaremos una pequeña función 
+    min() que devuelva el menor de dos valores enteros. 
+    Creamos esta función como:
+
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    CREATE FUNCTION min(integer, integer) RETURNS integer AS
+        'BEGIN
+            IF $1 &#60; $2 THEN
+                RETURN $1;
+            END IF;
+            RETURN $2;
+        END;'
+    LANGUAGE 'plpgsql';</PRE
+></TD
+></TR
+></TABLE
+></P
+><P
+>    Las tablas reales que necesitaremos en las dos primeras descripciones del 
+    sistema de reglas son estas: 
+
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    CREATE TABLE shoe_data (      -- datos de zapatos
+        shoename   char(10),      -- clave primaria (primary key)
+        sh_avail   integer,       -- número de pares utilizables
+        slcolor    char(10),      -- color de cordón preferido
+        slminlen   float,         -- longitud mínima de cordón
+        slmaxlen   float,         -- longitud máxima del cordón
+        slunit     char(8)        -- unidad de longitud
+    );
+
+    CREATE TABLE shoelace_data (  -- datos de cordones de zapatos
+        sl_name    char(10),      -- clave primaria (primary key)
+        sl_avail   integer,       -- número de pares utilizables
+        sl_color   char(10),      -- color del cordón
+        sl_len     float,         -- longitud del cordón
+        sl_unit    char(8)        -- unidad de longitud
+    );
+
+    CREATE TABLE unit (           -- unidades de longitud
+        un_name    char(8),       -- clave primaria (primary key)
+        un_fact    float          -- factor de transformación a cm
+    );</PRE
+></TD
+></TR
+></TABLE
+>
+
+    Pienso que la mayoría de nosotros lleva zapatos, y puede entender que 
+    este es un ejemplo de datos realmente utilizables. Bien es cierto que hay 
+    zapatos en el mundo que no necesitan cordones, pero nos hará más facil la 
+    vida ignorarlos.</P
+><P
+>    Las vistas las crearemos como:
+
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    CREATE VIEW shoe AS
+        SELECT sh.shoename,
+               sh.sh_avail,
+               sh.slcolor,
+               sh.slminlen,
+               sh.slminlen * un.un_fact AS slminlen_cm,
+               sh.slmaxlen,
+               sh.slmaxlen * un.un_fact AS slmaxlen_cm,
+               sh.slunit
+          FROM shoe_data sh, unit un
+         WHERE sh.slunit = un.un_name;
+
+    CREATE VIEW shoelace AS
+        SELECT s.sl_name,
+               s.sl_avail,
+               s.sl_color,
+               s.sl_len,
+               s.sl_unit,
+               s.sl_len * u.un_fact AS sl_len_cm
+          FROM shoelace_data s, unit u
+         WHERE s.sl_unit = u.un_name;
+
+    CREATE VIEW shoe_ready AS
+        SELECT rsh.shoename,
+               rsh.sh_avail,
+               rsl.sl_name,
+               rsl.sl_avail,
+               min(rsh.sh_avail, rsl.sl_avail) AS total_avail
+          FROM shoe rsh, shoelace rsl
+         WHERE rsl.sl_color = rsh.slcolor
+           AND rsl.sl_len_cm &#62;= rsh.slminlen_cm
+           AND rsl.sl_len_cm &#60;= rsh.slmaxlen_cm;</PRE
+></TD
+></TR
+></TABLE
+>
+
+    El comando CREATE VIEW para la vista <TT
+CLASS="FILENAME"
+>shoelace</TT
+>
+    (que es la más simple que tenemos) creará una relación shoelace y 
+    una entrada en <TT
+CLASS="FILENAME"
+>pg_rewrite</TT
+> que dice que hay una 
+    regla de reescritura que debe ser aplicada siempre que la relación 
+    shoelace sea referida en la tabla de rango de una query. La regla 
+    no tiene cualificación de regla (discutidas en las reglas no SELECT, 
+    puesto que las reglas SELECT no pueden tenerlas) y es de tipo INSTEAD 
+    (en vez de). ¡Nótese que la cualificación de las reglas no son lo 
+    mismo que las cualificación de las queries! La acción de las reglas 
+    tiene una cualificación.</P
+><P
+>    La acción de las reglas es un árbol de query que es una copia exacta 
+    de la instrucción SELECT en el comando de creación de la vista.
+    
+    <DIV
+CLASS="NOTE"
+><P
+></P
+><TABLE
+CLASS="NOTE"
+WIDTH="100%"
+BORDER="0"
+><TR
+><TD
+WIDTH="25"
+ALIGN="CENTER"
+VALIGN="TOP"
+><IMG
+SRC="./stylesheet-images/note.gif"
+HSPACE="5"
+ALT="Nota"></TD
+><TH
+ALIGN="LEFT"
+VALIGN="CENTER"
+><B
+>Nota:</B
+></TH
+></TR
+><TR
+><TD
+>&nbsp;</TD
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+><P
+>    Las dos tablas de rango extra para NEW y OLD (llamadas *NEW* y *CURRENT* 
+    por razones históricas en el árbol de query escrito) que se pueden ver 
+    en la entrada <TT
+CLASS="FILENAME"
+>pg_rewrite</TT
+> no son de interes para las 
+    reglas de SELECT.
+    </P
+></TD
+></TR
+></TABLE
+></DIV
+>
+
+    Ahora publicamos <TT
+CLASS="FILENAME"
+>unit</TT
+>, <TT
+CLASS="FILENAME"
+>shoe_data</TT
+>
+    y <TT
+CLASS="FILENAME"
+>shoelace_data</TT
+> y Al (el propietario de al_bundy) 
+    teclea su primera SELECT en esta vida.
+
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    al_bundy=&#62; INSERT INTO unit VALUES ('cm', 1.0);
+    al_bundy=&#62; INSERT INTO unit VALUES ('m', 100.0);
+    al_bundy=&#62; INSERT INTO unit VALUES ('inch', 2.54);
+    al_bundy=&#62; 
+    al_bundy=&#62; INSERT INTO shoe_data VALUES 
+    al_bundy-&#62;     ('sh1', 2, 'black', 70.0, 90.0, 'cm');
+    al_bundy=&#62; INSERT INTO shoe_data VALUES 
+    al_bundy-&#62;     ('sh2', 0, 'black', 30.0, 40.0, 'inch');
+    al_bundy=&#62; INSERT INTO shoe_data VALUES 
+    al_bundy-&#62;     ('sh3', 4, 'brown', 50.0, 65.0, 'cm');
+    al_bundy=&#62; INSERT INTO shoe_data VALUES 
+    al_bundy-&#62;     ('sh4', 3, 'brown', 40.0, 50.0, 'inch');
+    al_bundy=&#62; 
+    al_bundy=&#62; INSERT INTO shoelace_data VALUES 
+    al_bundy-&#62;     ('sl1', 5, 'black', 80.0, 'cm');
+    al_bundy=&#62; INSERT INTO shoelace_data VALUES 
+    al_bundy-&#62;     ('sl2', 6, 'black', 100.0, 'cm');
+    al_bundy=&#62; INSERT INTO shoelace_data VALUES 
+    al_bundy-&#62;     ('sl3', 0, 'black', 35.0 , 'inch');
+    al_bundy=&#62; INSERT INTO shoelace_data VALUES 
+    al_bundy-&#62;     ('sl4', 8, 'black', 40.0 , 'inch');
+    al_bundy=&#62; INSERT INTO shoelace_data VALUES 
+    al_bundy-&#62;     ('sl5', 4, 'brown', 1.0 , 'm');
+    al_bundy=&#62; INSERT INTO shoelace_data VALUES 
+    al_bundy-&#62;     ('sl6', 0, 'brown', 0.9 , 'm');
+    al_bundy=&#62; INSERT INTO shoelace_data VALUES 
+    al_bundy-&#62;     ('sl7', 7, 'brown', 60 , 'cm');
+    al_bundy=&#62; INSERT INTO shoelace_data VALUES 
+    al_bundy-&#62;     ('sl8', 1, 'brown', 40 , 'inch');
+    al_bundy=&#62; 
+    al_bundy=&#62; SELECT * FROM shoelace;
+    sl_name   |sl_avail|sl_color  |sl_len|sl_unit |sl_len_cm
+    ----------+--------+----------+------+--------+---------
+    sl1       |       5|black     |    80|cm      |       80
+    sl2       |       6|black     |   100|cm      |      100
+    sl7       |       7|brown     |    60|cm      |       60
+    sl3       |       0|black     |    35|inch    |     88.9
+    sl4       |       8|black     |    40|inch    |    101.6
+    sl8       |       1|brown     |    40|inch    |    101.6
+    sl5       |       4|brown     |     1|m       |      100
+    sl6       |       0|brown     |   0.9|m       |       90
+    (8 rows)</PRE
+></TD
+></TR
+></TABLE
+>
+    Esta es la SELECT más sencilla que Al puede hacer en sus vistas, 
+    de modo que nosotros la tomaremos para explicar la base de las 
+    reglas de las vistas. 'SELECT * FROM shoelace' fue interpretado 
+    por el traductor y produjo un árbol de traducción.
+
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    SELECT shoelace.sl_name, shoelace.sl_avail,
+           shoelace.sl_color, shoelace.sl_len,
+           shoelace.sl_unit, shoelace.sl_len_cm
+      FROM shoelace shoelace;</PRE
+></TD
+></TR
+></TABLE
+>
+
+    y este se le dá al sistema de reglas. El sistema de reglas viaja 
+    a través de la tabla de rango, y comprueba si hay reglas en 
+    <TT
+CLASS="FILENAME"
+>pg_rewrite</TT
+> para alguna relación. Cuando se 
+    procesa las entradas en la tabla de rango para 
+    <TT
+CLASS="FILENAME"
+>shoelace</TT
+> (el único hasta ahora) encuentra la regla 
+    '_RETshoelace' con el árbol de traducción
+
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    <I
+CLASS="FIRSTTERM"
+>SELECT s.sl_name, s.sl_avail,
+           s.sl_color, s.sl_len, s.sl_unit,
+           float8mul(s.sl_len, u.un_fact) AS sl_len_cm
+      FROM shoelace *OLD*, shoelace *NEW*,
+           shoelace_data s, unit u
+     WHERE bpchareq(s.sl_unit, u.un_name);</I
+></PRE
+></TD
+></TR
+></TABLE
+>
+
+    Nótese que el traductor cambió el calculo y la cualificación en llamadas 
+    a las funciones apropiadas. Pero de hecho esto no cambia nada. El primer 
+    paso en la reescritura es mezclar las dos tablas de rango. El árbol de 
+    traducción entonces lee
+
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    SELECT shoelace.sl_name, shoelace.sl_avail,
+           shoelace.sl_color, shoelace.sl_len,
+           shoelace.sl_unit, shoelace.sl_len_cm
+      FROM shoelace shoelace, <I
+CLASS="FIRSTTERM"
+>shoelace *OLD*</I
+>,
+           <I
+CLASS="FIRSTTERM"
+>shoelace *NEW*</I
+>, 
+	   <I
+CLASS="FIRSTTERM"
+>shoelace_data s</I
+>,
+           <I
+CLASS="FIRSTTERM"
+>unit u</I
+>;</PRE
+></TD
+></TR
+></TABLE
+>
+
+    En el paso 2, añade la cualificación de la acción de las reglas al árbol 
+    de traducción resultante en
+
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    SELECT shoelace.sl_name, shoelace.sl_avail,
+           shoelace.sl_color, shoelace.sl_len,
+           shoelace.sl_unit, shoelace.sl_len_cm
+      FROM shoelace shoelace, shoelace *OLD*,
+           shoelace *NEW*, shoelace_data s,
+           unit u
+     <I
+CLASS="FIRSTTERM"
+>WHERE bpchareq(s.sl_unit, u.un_name)</I
+>;</PRE
+></TD
+></TR
+></TABLE
+>
+
+    Y en el paso 3, reemplaza todas las variables en el arbol de traducción, 
+    que se refieren a entradas de la tabla de rango (la única que se está 
+    procesando en este momento para <TT
+CLASS="FILENAME"
+>shoelace</TT
+>) por 
+    las correspondientes expresiones de la lista objetivo correspondiente
+    a la acción de las reglas. El resultado es la query final:
+
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    SELECT <I
+CLASS="FIRSTTERM"
+>s.sl_name</I
+>, <I
+CLASS="FIRSTTERM"
+>s.sl_avail</I
+>,
+           <I
+CLASS="FIRSTTERM"
+>s.sl_color</I
+>, <I
+CLASS="FIRSTTERM"
+>s.sl_len</I
+>, 
+           <I
+CLASS="FIRSTTERM"
+>s.sl_unit</I
+>, 
+	   <I
+CLASS="FIRSTTERM"
+>float8mul(s.sl_len, u.un_fact)</I
+> AS sl_len_cm
+      FROM shoelace shoelace, shoelace *OLD*,
+           shoelace *NEW*, shoelace_data s,
+           unit u
+     WHERE bpchareq(s.sl_unit, u.un_name);</PRE
+></TD
+></TR
+></TABLE
+>
+
+    Para realizar esta salida en una instrucción <SPAN
+CLASS="ACRONYM"
+>SQL</SPAN
+> 
+    real, un usuario humano debería teclear:
+
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    SELECT s.sl_name, s.sl_avail,
+           s.sl_color, s.sl_len,
+           s.sl_unit, s.sl_len * u.un_fact AS sl_len_cm
+      FROM shoelace_data s, unit u
+     WHERE s.sl_unit = u.un_name;</PRE
+></TD
+></TR
+></TABLE
+>
+
+    Esta ha sido la primera regla aplicada. Mientras se iba haciendo esto, 
+    la tabla de rango iba creciendo. De modo que el sistema de reglas 
+    continúa comprobando las entradas de la tabla de rango. Lo siguiente 
+    es el el número 2 (shoelace *OLD*). La Relación 
+    <TT
+CLASS="FILENAME"
+>shoelace</TT
+> tiene una regla, pero su entrada en la 
+    tabla de rangos no está referenciada en ninguna de las variables del 
+    árbol de traducción, de modo que se ingnora. Puesto que todas las 
+    entradas restantes en la tabla de rango, o bien no tienen reglas en 
+    <TT
+CLASS="FILENAME"
+>pg_rewrite</TT
+> o bien no han sido referenciadas, se 
+    alcanza el final de la tabla de rango. 
+    La reescritura está completa y el resultado final dado se pasa al 
+    optimizador. El optimizador ignora las entradas extra en la tabla de 
+    rango que no están referenciadas por variables en el árbol de traducción, 
+    y el plan producido por el planificador/optimizador debería ser exactamente
+    el mismo que si Al hubiese tecleado la SELECT anterior en lugar de la 
+    selección de la vista.</P
+><P
+>    Ahora enfrentamos a Al al problema de que los Blues Brothers aparecen en su
+    tienda y quieren comprarse zapatos nuevos, y como son los Blues Brothers, 
+    quieren llevar los mismos zapatos. Y los quieren llevar inmediatamente, 
+    de modo que necesitan también cordones.</P
+><P
+>    Al necesita conocer los zapatos para los que tiene en el almacén cordones 
+    en este momento (en color y en tamaño), y además para los que tenga un 
+    número igual o superior a 2. Nosotros le enseñamos a realizar la consulta 
+    a su base de datos:
+
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    al_bundy=&#62; SELECT * FROM shoe_ready WHERE total_avail &#62;= 2;
+    shoename  |sh_avail|sl_name   |sl_avail|total_avail
+    ----------+--------+----------+--------+-----------
+    sh1       |       2|sl1       |       5|          2
+    sh3       |       4|sl7       |       7|          4
+    (2 rows)</PRE
+></TD
+></TR
+></TABLE
+>
+    
+    Al es un guru de los zapatos, y sabe que sólo los zapatos de tipo sh1 le 
+    sirven (los cordones sl7 son marrones, y los zapatos que necesitan cordones
+    marrones no son los más adecuados para los Blues Brothers).</P
+><P
+>    La salida del traductor es esta vez el arbol de traducción.
+
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    SELECT shoe_ready.shoename, shoe_ready.sh_avail,
+           shoe_ready.sl_name, shoe_ready.sl_avail,
+           shoe_ready.total_avail
+      FROM shoe_ready shoe_ready
+     WHERE int4ge(shoe_ready.total_avail, 2);</PRE
+></TD
+></TR
+></TABLE
+>
+
+    Esa será la primera regla aplicada para la relación 
+    <TT
+CLASS="FILENAME"
+>shoe_ready</TT
+> y da como resultado el árbol 
+    de traducción
+
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    SELECT <I
+CLASS="FIRSTTERM"
+>rsh.shoename</I
+>, 
+           <I
+CLASS="FIRSTTERM"
+>rsh.sh_avail</I
+>,
+           <I
+CLASS="FIRSTTERM"
+>rsl.sl_name</I
+>, 
+	   <I
+CLASS="FIRSTTERM"
+>rsl.sl_avail</I
+>,
+           <I
+CLASS="FIRSTTERM"
+>min(rsh.sh_avail, rsl.sl_avail) AS 
+	           total_avail</I
+>
+      FROM shoe_ready shoe_ready, <I
+CLASS="FIRSTTERM"
+>shoe_ready *OLD*</I
+>,
+           <I
+CLASS="FIRSTTERM"
+>shoe_ready *NEW*</I
+>, 
+	   <I
+CLASS="FIRSTTERM"
+>shoe rsh</I
+>,
+           <I
+CLASS="FIRSTTERM"
+>shoelace rsl</I
+>
+     WHERE int4ge(<I
+CLASS="FIRSTTERM"
+>min(rsh.sh_avail, rsl.sl_avail)</I
+>, 2)
+       <I
+CLASS="FIRSTTERM"
+>AND (bpchareq(rsl.sl_color, rsh.slcolor)
+            AND float8ge(rsl.sl_len_cm, rsh.slminlen_cm)
+            AND float8le(rsl.sl_len_cm, rsh.slmaxlen_cm)
+           )</I
+>;</PRE
+></TD
+></TR
+></TABLE
+>
+
+    En realidad, la clausula AND en la cualificación será un nodo de 
+    operadores de tipo AND, con una expresión a la izquierda y otra 
+    a la derecha. Pero eso la hace menos legible de lo que ya es, y 
+    hay más reglas para aplicar. De modo que sólo las mostramos entre 
+    paréntesis para agruparlos en unidades lógicas en el orden en que 
+    se añaden, y continuamos con las reglas para la relación 
+    <TT
+CLASS="FILENAME"
+>shoe</TT
+> como está en la entrada de la tabla de 
+    rango a la que se refiere, y tiene una regla. 
+    El resultado de aplicarlo es
+
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    SELECT <I
+CLASS="FIRSTTERM"
+>sh.shoename</I
+>, 
+           <I
+CLASS="FIRSTTERM"
+>sh.sh_avail</I
+>,
+           rsl.sl_name, rsl.sl_avail,
+           min(<I
+CLASS="FIRSTTERM"
+>sh.sh_avail</I
+>, rsl.sl_avail) 
+	           AS total_avail,
+      FROM shoe_ready shoe_ready, shoe_ready *OLD*,
+           shoe_ready *NEW*, shoe rsh,
+           shoelace rsl, <I
+CLASS="FIRSTTERM"
+>shoe *OLD*</I
+>,
+           <I
+CLASS="FIRSTTERM"
+>shoe *NEW*</I
+>, 
+	   <I
+CLASS="FIRSTTERM"
+>shoe_data sh</I
+>,
+           <I
+CLASS="FIRSTTERM"
+>unit un</I
+>
+     WHERE (int4ge(min(<I
+CLASS="FIRSTTERM"
+>sh.sh_avail</I
+>, rsl.sl_avail), 2)
+            AND (bpchareq(rsl.sl_color, <I
+CLASS="FIRSTTERM"
+>sh.slcolor</I
+>)
+                 AND float8ge(rsl.sl_len_cm, 
+                    <I
+CLASS="FIRSTTERM"
+>float8mul(sh.slminlen, un.un_fact)</I
+>)
+                 AND float8le(rsl.sl_len_cm, 
+                    <I
+CLASS="FIRSTTERM"
+>float8mul(sh.slmaxlen, un.un_fact)</I
+>)
+                )
+           )
+       <I
+CLASS="FIRSTTERM"
+>AND bpchareq(sh.slunit, un.un_name)</I
+>;</PRE
+></TD
+></TR
+></TABLE
+>
+
+    Y finalmente aplicamos la regla para <TT
+CLASS="FILENAME"
+>shoelace</TT
+> 
+    que ya conocemos bien (esta vez en un arbol de traducción que es 
+    un poco más complicado) y obtenemos   
+
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    SELECT sh.shoename, sh.sh_avail,
+           <I
+CLASS="FIRSTTERM"
+>s.sl_name</I
+>, <I
+CLASS="FIRSTTERM"
+>s.sl_avail</I
+>,
+           min(sh.sh_avail, <I
+CLASS="FIRSTTERM"
+>s.sl_avail</I
+>) AS total_avail
+      FROM shoe_ready shoe_ready, shoe_ready *OLD*,
+           shoe_ready *NEW*, shoe rsh,
+           shoelace rsl, shoe *OLD*,
+           shoe *NEW*, shoe_data sh,
+           unit un, <I
+CLASS="FIRSTTERM"
+>shoelace *OLD*</I
+>,
+           <I
+CLASS="FIRSTTERM"
+>shoelace *NEW*</I
+>, 
+	   <I
+CLASS="FIRSTTERM"
+>shoelace_data s</I
+>,
+           <I
+CLASS="FIRSTTERM"
+>unit u</I
+>
+     WHERE (  (int4ge(min(sh.sh_avail, <I
+CLASS="FIRSTTERM"
+>s.sl_avail</I
+>), 2)
+       AND (bpchareq(<I
+CLASS="FIRSTTERM"
+>s.sl_color</I
+>, sh.slcolor)
+           AND float8ge(<I
+CLASS="FIRSTTERM"
+>float8mul(s.sl_len, u.un_fact)</I
+>, 
+                                   float8mul(sh.slminlen, un.un_fact))
+           AND float8le(<I
+CLASS="FIRSTTERM"
+>float8mul(s.sl_len, u.un_fact)</I
+>, 
+                                   float8mul(sh.slmaxlen, un.un_fact))
+                     )
+                )
+            AND bpchareq(sh.slunit, un.un_name)
+           )
+       <I
+CLASS="FIRSTTERM"
+>AND bpchareq(s.sl_unit, u.un_name)</I
+>;</PRE
+></TD
+></TR
+></TABLE
+>
+
+    Lo reducimos otra vez a una instrucción <SPAN
+CLASS="ACRONYM"
+>SQL</SPAN
+> 
+    real que sea equivalente en la salida final del sistema de reglas:
+
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    SELECT sh.shoename, sh.sh_avail,
+           s.sl_name, s.sl_avail,
+           min(sh.sh_avail, s.sl_avail) AS total_avail
+      FROM shoe_data sh, shoelace_data s, unit u, unit un
+     WHERE min(sh.sh_avail, s.sl_avail) &#62;= 2
+       AND s.sl_color = sh.slcolor
+       AND s.sl_len * u.un_fact &#62;= sh.slminlen * un.un_fact
+       AND s.sl_len * u.un_fact &#60;= sh.slmaxlen * un.un_fact
+       AND sh.sl_unit = un.un_name
+       AND s.sl_unit = u.un_name;</PRE
+></TD
+></TR
+></TABLE
+>
+
+    El procesado recursivo del sistema de reglas reescribió una 
+    SELECT de una vista en un árbol de traducción que es equivalente 
+    a exactamente lo que Al hubiese tecleado de no tener vistas.
+
+    <DIV
+CLASS="NOTE"
+><P
+></P
+><TABLE
+CLASS="NOTE"
+WIDTH="100%"
+BORDER="0"
+><TR
+><TD
+WIDTH="25"
+ALIGN="CENTER"
+VALIGN="TOP"
+><IMG
+SRC="./stylesheet-images/note.gif"
+HSPACE="5"
+ALT="Nota"></TD
+><TH
+ALIGN="LEFT"
+VALIGN="CENTER"
+><B
+>Nota</B
+></TH
+></TR
+><TR
+><TD
+>&nbsp;</TD
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+><P
+>    Actualmente no hay mecanismos de parar la recursión para las 
+    reglas de las vistas en el sistema de reglas (sólo para las 
+    otras reglas). Esto no es muy grave, ya que la única forma de 
+    meterlo en un bucle sin fin (bloqueando al cliente hasta que 
+    lea el limite de memoria) es crear tablas y luego crearles reglas 
+    a mano con CREATE RULE de forma que una lea a la otra y la otra 
+    a la una. Esto no puede ocurrir con el comando CREATE VIEW, 
+    porque en la primera creación de una vista la segunda aún no 
+    existe, de modo que la primera vista no puede seleccionar 
+    desde la segunda.
+    </P
+></TD
+></TR
+></TABLE
+></DIV
+></P
+></DIV
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN1003"
+>Reglas de vistas en instrucciones diferentes a SELECT</A
+></H2
+><P
+>    Dos detalles del arbol de traducción no se han tocado en la 
+    descripción de las reglas de vistas hasta ahora. Estos son 
+    el tipo de comando (commandtype) y la relación resultado 
+    (resultrelation). De hecho, las reglas de vistas no necesitan 
+    estas informaciones.</P
+><P
+>    Hay sólo unas pocas diferencias entre un árbol de traducción 
+    para una SELECT y uno para cualquier otro comando. Obviamente, 
+    tienen otros tipos de comandos, y esta vez la relación resultado 
+    apunta a la entrada de la tabla de rango donde irá el resultado. 
+    Cualquier otra cosa es absolutamente igual. Por ello, teniendo dos 
+    tablas t1 y t2, con atributos a y b, los árboles de traducción para 
+    las dos instrucciones:
+
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    SELECT t2.b FROM t1, t2 WHERE t1.a = t2.a;
+
+    UPDATE t1 SET b = t2.b WHERE t1.a = t2.a;</PRE
+></TD
+></TR
+></TABLE
+>
+
+    son prácticamente idénticos.
+
+    <P
+></P
+><UL
+><LI
+><P
+>	    Las tablas de rango contienen entradas para las tablas t1 y t2.
+	</P
+></LI
+><LI
+><P
+>	    Las listas objetivo continen una variable que apunta al 
+	    atributo b de la entrada de la tabla rango para la tabla t2.
+	</P
+></LI
+><LI
+><P
+>	    Las expresiones de cualificación comparan los atributos a 
+	    de ambos rangos para la igualdad.
+	</P
+></LI
+></UL
+>
+
+    La consecuencia es que ambos árboles de traducción dan lugar a 
+    planes de ejecución similares. En ambas hay joins entre las dos 
+    tablas. Para la UPDATE, las columnas que no aparecen de la tabla 
+    t1 son añadidas a la lista objetivo por el optimizador, y el 
+    árbol de traducción final se lee como: 
+
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    UPDATE t1 SET a = t1.a, b = t2.b WHERE t1.a = t2.a;</PRE
+></TD
+></TR
+></TABLE
+>
+
+    Y por ello el ejecutor al correr sobre la join producirá exactamente 
+    el mismo juego de resultados que
+
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    SELECT t1.a, t2.b FROM t1, t2 WHERE t1.a = t2.a;</PRE
+></TD
+></TR
+></TABLE
+>
+    
+    Pero hay un pequeño problema con el UPDATE. El ejecutor no cuidará 
+    de que el resultado de la join sea coherente. El sólo produce un 
+    juego resultante de filas. La diferencia entre un comando SELECT 
+    y un comando UPDATE la manipula el llamador (caller) del ejecutor. 
+    El llamador sólo conoce (mirando en el árbol de traducción) que 
+    esto es una UPDATE, y sabe que su resultado deberá ir a la tabla t1. 
+    Pero ¿cuál de las 666 filas que hay debe ser reemplazada por la nueva 
+    fila? El plan ejecutado es una join con una cualificación que 
+    potencialmente podría producir cualquier número de filas entre 0 y 666 en 
+    un número desconocido.</P
+><P
+>    Para resolver este problema, se añade otra entrada a la lista objetivo en 
+    las instrucciones UPDATE y DELETE. Es el identificador de tupla actual 
+    (current tuple id, ctid). Este es un atributo de sistema con 
+    características especiales. Contiene el bloque y posición en el bloque para
+    cada fila. Conociendo la tabla, el ctid puede utilizarse para encontrar una
+    fila específica en una tabla de 1.5 GB que contiene millones de filas 
+    atacando un único bloque de datos. Tras la adición del ctid a la lista 
+    objetivo, el juego de resultados final se podría definir como
+
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    SELECT t1.a, t2.b, t1.ctid FROM t1, t2 WHERE t1.a = t2.a;</PRE
+></TD
+></TR
+></TABLE
+>
+    
+    Entra ahora en funcionamiento otro detalle de 
+    <SPAN
+CLASS="PRODUCTNAME"
+>&#62;Postgres</SPAN
+>. 
+    Las filas de la tabla no son reescritas en este momento, y el por ello por 
+    lo que ABORT TRANSACTION es muy rápido. En una Update, la nueva fila 
+    resultante se inserta en la tabla (tras retirarle el ctid) y en la 
+    cabecera de la tupla de la fila cuyo ctid apuntaba a las entradas 
+    cmax y zmax, se fija el contador de comando actual y el identificador 
+    de transaccion actual (ctid). De este modo, la fila anterior se oculta tras
+    el commit de la transacción, y el limpiador vacuum puede realmente 
+    eliminarla.</P
+><P
+>    Conociendo todo eso, podemos simplemente aplicar las reglas de las vistas 
+    exactamente en la misma forma en cualquier comando. No hay diferencia.</P
+></DIV
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN1021"
+>El poder de las vistas en <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+></A
+></H2
+><P
+>    Todo lo anterior demuestra como el sistema de reglas incorpora las 
+    definiciones de las vistas en el árbol de traducción original. En el 
+    segundo ejemplo, una simple SELECT de una vista creó un árbol de 
+    traducción final que es una join de cuatro tablas (cada una se utiliza 
+    dos veces con diferente nombre).</P
+><DIV
+CLASS="SECT3"
+><H3
+CLASS="SECT3"
+><A
+NAME="AEN1025"
+>Beneficios</A
+></H3
+><P
+>    Los beneficios de implementar las vistas con el sistema de reglas 
+    están en que el optimizados tiene toda la información sobre qué 
+    tablas tienen que ser revisadas, más las relaciones entre estas tablas, 
+    más las cualificaciones restrictivas a partir de la definición de las 
+    vistas, más las cualificaciones de la query original, todo en un único 
+    árbol de traducción. Y esta es también la situación cuando la query 
+    original es ya una join entre vistas. Ahora el optimizador debe decidir 
+    cuál es la mejor ruta para ejecutar la query. Cuanta más información tenga
+    el optimizador, mejor será la decisión. Y la forma en que se implementa el
+    sistema de reglas en <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> asegura que toda 
+    la información sobre la query está utilizable. </P
+></DIV
+><DIV
+CLASS="SECT3"
+><H3
+CLASS="SECT3"
+><A
+NAME="AEN1029"
+>Puntos delicados a considerar</A
+></H3
+><P
+>    Hubo un tiempo en el que el sistema de reglas de 
+    <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> se consideraba agotado. El uso de 
+    reglas no se recomendaba, y el único lugar en el que trabajaban era las 
+    reglas de las vistas. E incluso estas reglas de las vistas daban problemas 
+    porque el sistema de reglas no era capaz de aplicarse adecuadamente en más 
+    instrucciones que en SELECT (por ejemplo, no trabajaría en una UPDATE que 
+    utilice datos de una vista).</P
+><P
+>    Durante ese tiempo, el desarrollo se dirigió hacia muchas características 
+    añadidas al traductor y al optimizador. El sistema de reglas fué quedando 
+    cada vez más desactualizado en sus capacidades, y se volvió cada vez más 
+    dificil de actualizar. Y por ello, nadie lo hizo.</P
+><P
+>    En 6.4, alguien cerró la puerta, respiró hondo, y se puso manos a la obra.
+    El resultado fué el sistema de reglas cuyas capacidades se han descrito en
+    este documento. Sin embargo, hay todavía algunas construcciones no 
+    manejadas, y algunas fallan debido a cosas que no son soportadas por el 
+    optimizador de queries de <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+>. 
+
+    <P
+></P
+><UL
+><LI
+><P
+>	    Las vistas con columnas agregadas tienen malos problemas. Las 
+	    expresiones agregadas en las cualificaciones deben utilizarse en 
+	    subselects. Actualmente no es posible hacer una join de dos vistas 
+	    en las que cada una de ellas tenga una columna agregada, y comparar
+	    los dos valores agregados en a cualificación. Mientras tanto, es 
+	    posible colocar estas expresiones agregadas en funciones con los 
+	    argumentos apropiados y utilizarlas en la definición de las vistas.
+  
+	</P
+></LI
+><LI
+><P
+>            Las vistas de uniones no son soportadas. Ciertamente es sencillo 
+	    reescribir una SELECT simple en una unión, pero es un poco más 
+	    dificil si la vista es parte de una join que hace una UPDATE.
+	</P
+></LI
+><LI
+><P
+>            Las clausulas ORDER BY en las definiciones de las vistas no están 
+	    soportadas.
+	</P
+></LI
+><LI
+><P
+>            DISTINCT no está soportada en las definiciones de vistas.
+	</P
+></LI
+></UL
+>
+
+    No hay una buena razon por la que el optimizador no debiera manipular 
+    construcciones de árboles de traducción que el traductor nunca podría 
+    producir debido a las limitaciones de la sintaxis de 
+    <SPAN
+CLASS="ACRONYM"
+>SQL</SPAN
+>. El autor se alegrará de que estas limitaciones 
+    desaparezcan en el futuro.</P
+></DIV
+></DIV
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN1046"
+>Efectos colaterales de la implementación</A
+></H2
+><P
+>    La utilización del sistema de reglas descrito para implementar las vistas 
+    tiene algunos efectos colaterales divertidos. Lo siguiente no parece 
+    trabajar:
+
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    al_bundy=&#62; INSERT INTO shoe (shoename, sh_avail, slcolor)
+    al_bundy-&#62;     VALUES ('sh5', 0, 'black');
+    INSERT 20128 1
+    al_bundy=&#62; SELECT shoename, sh_avail, slcolor FROM shoe_data;
+    shoename  |sh_avail|slcolor   
+    ----------+--------+----------
+    sh1       |       2|black     
+    sh3       |       4|brown     
+    sh2       |       0|black     
+    sh4       |       3|brown     
+    (4 rows)</PRE
+></TD
+></TR
+></TABLE
+>
+
+    Lo interesante es que el código de retorno para la INSERT nos dió una 
+    identificación de objeto, y nos dijo que se ha insertado una fila. Sin 
+    embargo no aparece en <TT
+CLASS="FILENAME"
+>shoe_data</TT
+>. Mirando en el 
+    directorio de la base de datos, podemos ver que el fichero de la base de 
+    datos para la relación de la vista <TT
+CLASS="FILENAME"
+>shoe</TT
+> parece tener 
+    ahora un bloque de datos. Y efectivamente es así.</P
+><P
+>    Podemos también intentar una DELETE, y si no tiene una cualificación, nos 
+    dirá que las filas se han borrado y la siguiente ejecución de vacuum 
+    limpiará el fichero hasta tamaño cero.</P
+><P
+>    La razon para este comportamiento es que el árbol de la traducción para la
+    INSERT no hace referencia a la relación <TT
+CLASS="FILENAME"
+>shoe</TT
+> en 
+    ninguna variable. La lista objetivo contiene sólo valores constantes. Por 
+    ello no hay reglas que aplicar y se mantiene sin cambiar hasta la 
+    ejecución, insertandose la fila. Del mismo modo para la DELETE.</P
+><P
+>    Para cambiar esto, podemos definir reglas que modifiquen el comportamiento 
+    de las queries no-SELECT. Este es el tema de la siguiente sección.</P
+></DIV
+></DIV
+><DIV
+CLASS="NAVFOOTER"
+><HR
+ALIGN="LEFT"
+WIDTH="100%"><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+><A
+HREF="rules.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="programmer.html"
+>Inicio</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+><A
+HREF="x1056.html"
+>Siguiente</A
+></TD
+></TR
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+>El Sistema de reglas de <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+></TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="rules.html"
+>Subir</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+>Reglas sobre INSERT, UPDATE y DELETE</TD
+></TR
+></TABLE
+></DIV
+></BODY
+></HTML
+>

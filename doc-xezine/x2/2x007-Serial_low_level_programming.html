@@ -1,0 +1,446 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML
+><HEAD
+><TITLE
+>Programación a bajo nivel del puerto serie</TITLE
+><META
+NAME="GENERATOR"
+CONTENT="Modular DocBook HTML Stylesheet Version 1.77"></HEAD
+><BODY
+CLASS="ARTICLE"
+BGCOLOR="#FFFFFF"
+TEXT="#000000"
+LINK="#0000FF"
+VLINK="#840084"
+ALINK="#0000FF"
+><DIV
+CLASS="ARTICLE"
+><DIV
+CLASS="TITLEPAGE"
+><H1
+CLASS="TITLE"
+><A
+NAME="AEN1"
+></A
+>Programación a bajo nivel del puerto serie</H1
+><H3
+CLASS="AUTHOR"
+><A
+NAME="AEN4"
+>Sergio Costas Rodrigue		  raster@cibermillenium.com
+	
+      </A
+></H3
+><HR></DIV
+><DIV
+CLASS="TOC"
+><DL
+><DT
+><B
+>Table of Contents</B
+></DT
+><DT
+>1. <A
+HREF="#AEN10"
+>Prefacio</A
+></DT
+><DT
+>2. <A
+HREF="#AEN15"
+>Introduccion</A
+></DT
+><DT
+>3. <A
+HREF="#AEN22"
+>Perifericos</A
+></DT
+><DD
+><DL
+><DT
+>3.1. <A
+HREF="#AEN24"
+>El modelo de Entrada/Salida de UNIX/Linux</A
+></DT
+><DT
+>3.2. <A
+HREF="#AEN28"
+>La funcion IOCTL</A
+></DT
+></DL
+></DD
+><DT
+>4. <A
+HREF="#AEN37"
+>El puerto serie</A
+></DT
+><DT
+>5. <A
+HREF="#AEN45"
+>Cambiando los permisos de acceso</A
+></DT
+><DT
+>6. <A
+HREF="#AEN51"
+>¿De que entradas y salidas dispongo?</A
+></DT
+><DT
+>7. <A
+HREF="#AEN60"
+>Funciones IOCTL disponibles para el puerto serie</A
+></DT
+><DT
+>8. <A
+HREF="#AEN81"
+>Referencias</A
+></DT
+></DL
+></DIV
+><DIV
+CLASS="SECT1"
+><H2
+CLASS="SECT1"
+><A
+NAME="AEN10"
+></A
+>1. Prefacio</H2
+><P
+>        Permission is granted to copy, distribute and/or modify this document
+        under the terms of the GNU Free Documentation License, Version
+        1.1 or any later version published by the Free Software
+        Foundation with no Invariant Sections, no Front-Cover Texts,
+	and no Back-Cover Texts.  A copy of the license can be found
+	in <A
+HREF="http://www.gnu.org/licenses/fdl.sgml"
+TARGET="_top"
+>GNU
+        Free Documentation License</A
+>.</P
+><P
+>Esta es una pequeña guia en la que pretendo explicar como programar a muy
+bajo nivel el puerto serie. En concreto, pretendo explicar como leer y
+escribir en los bits de control del puerto serie (DCD, DTR, DSR, RTS, CTS
+y RI) mediante llamadas IOCTL.</P
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN15"
+></A
+>2. Introduccion</H2
+><P
+>Mucha gente necesita poder acceder a bajo nivel al puerto serie, para asi
+poder realizar diversas funciones basicas. Por ejemplo, si se quiere
+programar un emulador de terminal para el MODEM, además de enviar y recibir
+bytes resulta necesario poder ajustar la velocidad del puerto y tener acceso
+a las señales de control, como RING, DCD, etc. Por desgracia, una tarea tan
+trivial puede convertirse en un autentico calvario, no por su dificultad,
+sino por la falta de documentacion.</P
+><P
+>Si bien la libreria TERMIOS proporciona una gran cantidad de funciones que
+simplifican notablemente la programacion, no es capaz (o al menos yo no lo
+he conseguido) de proporcionar acceso a bajo nivel a las señales de control
+del puerto serie, en concreto DCD, DTR, DSR, RTS, CTS y RI. El acceso a
+estas resulta muy importante, si no crucial, cuando se pretende realizar
+diversas aplicaciones tales como programas de terminal, programadores de
+microcontroladores (por ejemplo para el PIC), y otros cientos de ideas.</P
+><P
+>La primera solucion que se le ocurre al programador suele ser el acceso
+directo a los puertos de Entrada/Salida. Esto tiene dos inconvenientes: la
+necesidad de que el codigo corra con privilegios de superusuario, y el hecho
+de necesitar conocer con precision como esta implementado el dispositivo
+fisico. Este ultimo problema surge tambien si se decide hacer un driver
+especifico para la tarea, ademas de que los potenciales usuarios del
+programa necesitarian instalarlo tambien.</P
+><P
+>Sin embargo, resulta perfectamente posible acceder a dichas señales en modo
+usuario sin peligro para la seguridad y estabilidad del sistema. La forma de
+hacerlo es precisamente lo que voy a intentar explicar aqui.</P
+><P
+>Para el resto de las funciones (como cambiar la velocidad de transmision
+del puerto, por ejemplo) resulta mucho mas comodo usar las funciones TERMIOS.</P
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN22"
+></A
+>3. Perifericos</H2
+><DIV
+CLASS="SECT2"
+><H3
+CLASS="SECT2"
+><A
+NAME="AEN24"
+></A
+>3.1. El modelo de Entrada/Salida de UNIX/Linux</H3
+><P
+>UNIX supuso una revolucion por muchas razones. Sin embargo, una de las mas
+importantes fue, sin duda, su modelo de Entrada/Salida. En UNIX, los
+perifericos se encuentran representados como simples ficheros del sistema de
+archivos. De esta forma, si se quiere enviar datos a, por ejemplo, la
+pantalla, basta con abrir el fichero asociado a ella y escribir con las
+funciones de siempre. El resultado aparecera en el monitor. Lo mismo ocurre
+con los puertos serie, paralelo, etc.</P
+><P
+>El hecho de que se acceda a todos los perifericos de igual forma simplifica
+notablemente la programacion en un sentido, pues el programador no necesita
+aprender cientos de funciones especificas para cada dispositivo, y a fin de
+cuentas, en el 99% de los casos no se pretende hacer filigranas con los
+perifericos, sino simplemente enviar algo y nada mas. Sin embargo ¿que ocurre
+cuando sí hace falta enviar opciones especificas a un dispositivo? ¿Que hago
+para indicar, por ejemplo, la velocidad de transmisión de un puerto serie, o
+las coordenadas de impresion si se trata de un adaptador de video?</P
+></DIV
+><DIV
+CLASS="SECT2"
+><HR><H3
+CLASS="SECT2"
+><A
+NAME="AEN28"
+></A
+>3.2. La funcion IOCTL</H3
+><P
+>Todo driver soporta una serie de funciones basicas. En concreto ha de
+soportar: apertura, lectura, escritura y cierre. Estas funciones (junto a
+alguna que otra mas) son las que permiten acceder a los dispositivos como
+si de ficheros se tratara. Sin embargo, existe una quinta funcion que nos
+permite enviar comandos especificos para cada periferico. Es la funcion IOCTL
+(Input/Output ConTroL).</P
+><P
+>Esta funcion recibe tres parametros y devuelve uno:</P
+><PRE
+CLASS="PROGRAMLISTING"
+>	#include &lt;sys/ioctl.h&gt;
+
+	int ioctl(int d, int request, void *arg);</PRE
+><P
+>El primer parametro (d) es un identificador de dispositivo. Puesto que se trata
+de una variable de tipo int y no de tipo FILE, el fichero del dispositivo ha
+de abrirse usando la funcion open() en lugar de fopen(). Por la misma razon,
+para leer o escribir en el ha de usarse read() y write() en vez de fread() o
+fwrite(), y para cerrarlo se usara close() en vez de fclose(). Como siempre,
+una mirada a las paginas del manual resolveran cualquier duda sobre estas
+cuatro funciones.</P
+><P
+>El segundo parametro (request) especifica el comando que se ha de enviar al
+dispositivo. Estos comandos dependen del periferico con el que se este
+tratando. Asi pues, el comando 1 hara cosas distintas si lo enviamos a un
+puerto serie o a uno paralelo.</P
+><P
+>El tercer parametro (arg) es siempre un puntero al/los parametros que se le han
+de pasar al driver, o bien en donde ha de retornar este los resultados. Como
+tipo de puntero he puesto void simplemente porque dependiendo del comando que
+se envie habra que poner un puntero a int, a char, o incluso a una estructura.</P
+><P
+>Por ultimo, ioctl() nos devuelve un valor que sera cero si la funcion se ha
+ejecutado con exito, o -1 si ha habido algun problema. En este caso, el tipo
+de error lo podremos ver en la variable global errno (para ello no hay que
+olvidarse de hacer un #include &lt;errno.h&gt; al principio del codigo).</P
+></DIV
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN37"
+></A
+>4. El puerto serie</H2
+><P
+>Los puertos serie tienen asociados una serie de ficheros en el directorio /dev.
+En versiones antiguas de Linux estos eran los ficheros</P
+><P
+>	/dev/cua</P
+><P
+>seguidos de un numero que especificaba que puerto era cada uno. Asi pues,
+/dev/cua0 seria el COM1 de MS-DOS.</P
+><P
+>En las versiones mas recientes del nucleo (versiones 2.x) los puertos serie
+tienen asociados los ficheros</P
+><P
+>	/dev/ttyS</P
+><P
+>seguidos tambien de un numero. Asi pues, /dev/ttyS0 es el COM1 de MS-DOS. Por
+razones de compatibilidad con viejos programas, se siguen soportando los viejos
+ficheros cua, pero no se recomienda su uso en programas nuevos.</P
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN45"
+></A
+>5. Cambiando los permisos de acceso</H2
+><P
+>Para poder acceder a un periferico es preciso que su fichero asociado tenga
+permisos de acceso adecuados, igual que ocurre con el resto de los ficheros
+normales del disco duro. Puesto que el dueño de los ficheros de dispositivo
+es el usuario root, es necesario hacer el cambio entrando como el. Asi, para
+permitir que cualquiera pueda leer y escribir en cualquier puerto serie, se
+debe hacer (siempre como root):</P
+><P
+>	chmod 666 /dev/ttyS*</P
+><P
+>Si se quiere permitir que cualquiera acceda al segundo puerto serie, se hara:</P
+><P
+>	chmod 666 /dev/ttyS1</P
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN51"
+></A
+>6. ¿De que entradas y salidas dispongo?</H2
+><P
+>Un puerto serie dispone de los siguientes pines, cuyo numero en el conector
+es el siguiente:</P
+><PRE
+CLASS="SCREEN"
+> Nombre   Sentido    Conector 25 pines    Conector 9 pines
+
+  TXD     salida            2                  3
+  RXD     entrada           3                  2
+  RTS     salida            4                  7
+  CTS     entrada           5                  8
+  DTR     salida           20                  4
+  DSR     entrada           6                  6
+  DCD     entrada           8                  1
+  RI      entrada          22                  9
+  GND     masa              7                  5</PRE
+><P
+>TXD y RXD son respectivamente la salida y la entrada de datos serie. Estos
+datos se envian en el siguiente formato:</P
+><P
+>	Por defecto, TXD se encuentra a -12 voltios (nivel alto).
+	Cuando se quiere enviar un byte, la linea se pone a 12 voltios (nivel
+    bajo) durante el tiempo de un bit. Es el bit de inicio, que marca el
+    comienzo de una transmision.
+	A continuacion se envian los bits del dato, empezando por el menos
+    significativo. El cero (nivel bajo) se representa con 12 voltios, y el uno
+    (nivel alto) se representa con -12 voltios.
+        Por ultimo se envian uno o dos bits de parada a -12 voltios (nivel
+    alto) antes de iniciar la transmision del siguiente.</P
+><P
+>Vemos que los niveles de tension se encuentran invertidos con respecto a lo que
+cabria esperar (el 0 son 12 voltios y el 1 son -12 voltios). Esto solo ocurre
+en estas dos lineas. En el resto, el cero son -12 voltios y el uno son 12.</P
+><P
+>Todas las lineas estan limitadas en corriente a unos 200mA. Esto protege al
+puerto en caso de que ocurra cualquier cortocircuito. Esta caracteristica
+tambien es aprovechada por muchos circuitos simples que se conectan al puerto
+serie, de modo que se consigue una notable economia de componentes.</P
+><P
+>Debido a que las lineas TXD y RXD son controladas por el propio puerto serie
+y no por el procesador, en principio no resulta posible indicar directamente
+un valor de tension en TXD o leer el que se encuentre en RXD. Todo lo que
+podemos hacer es enviar un byte al puerto para que este lo envie por si mismo
+en el formato indicado. Sin embargo, en la practica, las UARTs disponen de
+un bit que, al activarlo, fuerzan un cero (+12 voltios) en dicho pin.</P
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN60"
+></A
+>7. Funciones IOCTL disponibles para el puerto serie</H2
+><P
+>Seis son las funciones ioctl que nos interesan para el control de las lineas
+del puerto serie: TIOCMGET, TIOCMBIS, TIOCMBIC, TIOCMSET, TIOCSBRK y TIOCCBRK.
+Para disponer de estas definiciones es necesario hacer:</P
+><PRE
+CLASS="PROGRAMLISTING"
+>	#include &lt;asm/ioctls.h&gt;</PRE
+><P
+>La funcion TIOCMGET precisa que se le pase un puntero a int como argumento
+de la funcion ioctl(). Asi pues, hariamos:</P
+><PRE
+CLASS="PROGRAMLISTING"
+>	retorno=ioctl(fichero,TIOCMGET,);</PRE
+><P
+>En 'argumento' nos almacenara un patron de bits indicando el estado de las
+distintas entradas y salidas del puerto serie.</P
+><P
+>La funcion TICMBIS tambien precisa de un puntero a int como argumento de la
+funcion ioctl(). Asi pues:</P
+><PRE
+CLASS="PROGRAMLISTING"
+>	retorno=ioctlfichero,TIOCMBIS,);</PRE
+><P
+>activara aquellas salidas que le indiquemos, dejando inalteradas el resto. Por
+su parte, la funcion TICMBIC hace lo contrario: desactiva (pone a cero) las
+salidas que le indiquemos, sin modificar el resto. La usariamos asi:</P
+><PRE
+CLASS="PROGRAMLISTING"
+>	retorno=ioctlfichero,TIOCMBIC,);</PRE
+><P
+>La funcion TIOCMSET activa las salidas que le indiquemos y
+desactiva el resto. Precisa tambien un puntero a int como argumento de la
+funcion ioctl(). Asi pues:</P
+><PRE
+CLASS="PROGRAMLISTING"
+>	retorno=ioctl(fichero,TIOCMSET,);</PRE
+><P
+>activara las salidas que le indiquemos en funcion del patron de bits que
+contenga 'argumento'.</P
+><P
+>El bit que corresponde a cada entrada y salida viene definido tambien en el
+fichero ioctl-types.h. Este fichero se incluye automaticamente con ioctl.h.</P
+><P
+>En concreto, estan las definiciones:</P
+><PRE
+CLASS="SCREEN"
+>	TIOCM_DTR   DTR    0x002
+	TIOCM_RTS   RTS    0x004
+	TIOCM_CTS   CTS    0x020
+	TIOCM_CAR   DCD    0x040
+	TIOCM_CD    DCD    0x040
+	TIOCM_RNG   RI     0x080
+	TIOCM_RI    RI	   0x080
+	TIOCM_DSR   DSR    0x100</PRE
+><P
+>Por ultimo, las funciones TIOCSBRK y TIOCCBRK permiten poner a cero (+12 volts)
+o devolver al estado normal, respectivamente, el pin TXD. Como dicho estado de
+reposo es un uno, estas funciones nos permiten controlar a voluntad dicha
+salida.</P
+><PRE
+CLASS="PROGRAMLISTING"
+>	retorno=ioctl(fichero,TIOCSBRK,);
+	retorno=ioctl(fichero,TIOCCBRK,);</PRE
+><P
+>El puntero  no es modificado, por lo que se puede dar cualquiera.</P
+><P
+>Por supuesto, existen otras muchas funciones IOCTL para el puerto serie (man
+ioctl-list), pero todo lo que se puede hacer con ellas tambien resulta factible
+hacerlo con la libreria TERMIOS.</P
+></DIV
+><DIV
+CLASS="SECT1"
+><HR><H2
+CLASS="SECT1"
+><A
+NAME="AEN81"
+></A
+>8. Referencias</H2
+><P
+>	*Serial-HOWTO y Serial-Programming-HOWTO: explican como trabaja el
+puerto serie y como usar las TERMIOS.</P
+><P
+>	*Coffee: mini-HOWTO en el que se explican las bases para acceso directo
+a puertos de Entrada/Salida.</P
+><P
+>	*IO-Port-Programming: HOWTO donde se explica de forma muy detallada la
+forma de acceder a puertos de Entrada/Salida.</P
+></DIV
+></DIV
+></BODY
+></HTML
+>

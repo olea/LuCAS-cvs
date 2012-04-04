@@ -1,0 +1,401 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<HTML
+><HEAD
+><TITLE
+>El sistema de reglas de
+   Postgres</TITLE
+><META
+NAME="GENERATOR"
+CONTENT="Modular DocBook HTML Stylesheet Version 1.59"><LINK
+REL="HOME"
+TITLE="PostgreSQL"
+HREF="postgres.html"><LINK
+REL="UP"
+TITLE="Revisión de las características internas de PostgreSQL"
+HREF="overview.html"><LINK
+REL="PREVIOUS"
+TITLE="La etapa de traducción"
+HREF="x22843.html"><LINK
+REL="NEXT"
+TITLE="Planificador/optimizador"
+HREF="x23027.html"></HEAD
+><BODY
+CLASS="SECT1"
+BGCOLOR="#FFFFFF"
+TEXT="#000000"
+LINK="#0000FF"
+VLINK="#840084"
+ALINK="#0000FF"
+><DIV
+CLASS="NAVHEADER"
+><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TH
+COLSPAN="3"
+ALIGN="center"
+>PostgreSQL</TH
+></TR
+><TR
+><TD
+WIDTH="10%"
+ALIGN="left"
+VALIGN="bottom"
+><A
+HREF="x22843.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="80%"
+ALIGN="center"
+VALIGN="bottom"
+>Revisión de las características internas de PostgreSQL</TD
+><TD
+WIDTH="10%"
+ALIGN="right"
+VALIGN="bottom"
+><A
+HREF="x23027.html"
+>Siguiente</A
+></TD
+></TR
+></TABLE
+><HR
+ALIGN="LEFT"
+WIDTH="100%"></DIV
+><DIV
+CLASS="SECT1"
+><H1
+CLASS="SECT1"
+><A
+NAME="AEN22971"
+>El sistema de reglas de
+   <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+></A
+></H1
+><P
+>    <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> utiliza un poderoso
+    <I
+CLASS="FIRSTTERM"
+>sistema de reglas</I
+> para la especificación
+    de <I
+CLASS="FIRSTTERM"
+>vistas</I
+> y <I
+CLASS="FIRSTTERM"
+>actualizaciones de
+    vistas</I
+> ambiguas.
+    Originalmente el sistema de reglas de
+    <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> consistía en dos implementaciones:
+
+    <P
+></P
+><UL
+><LI
+><P
+>       El primero trabajaba utilizando el procesado a
+       <I
+CLASS="FIRSTTERM"
+>nivel de tupla</I
+> y se implementaba en
+       el <I
+CLASS="FIRSTTERM"
+>ejecutor</I
+>. El sistema de reglas se
+       disparaba cada vez que se accedía una tupla individual. Esta
+       implementación se retiró en 1.995 cuando la última versión oficial
+       del proyecto <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> se transformó en
+       <SPAN
+CLASS="PRODUCTNAME"
+>Postgres95</SPAN
+>.
+      </P
+></LI
+><LI
+><P
+>       La segunda implementación del sistema de reglas es una técnica
+       llamada <I
+CLASS="FIRSTTERM"
+>reescritura de la consulta</I
+>. El
+       <I
+CLASS="FIRSTTERM"
+>sistema de reescritura</I
+> es un módulo que
+       existe entre la <I
+CLASS="FIRSTTERM"
+>etapa del traductor</I
+> y el
+       <I
+CLASS="FIRSTTERM"
+>planificador/optimizador</I
+>. Está técnica
+       continúa implementada.
+      </P
+></LI
+></UL
+>
+   </P
+><P
+>    Para información sobre la sintaxis y la creación de reglas en sistema
+    <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> Diríjase a la <I
+CLASS="CITETITLE"
+>Guía
+    del Usuario de PostgreSQL</I
+>.
+   </P
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN22996"
+>El sistema de reescritura</A
+></H2
+><P
+>     El <I
+CLASS="FIRSTTERM"
+>sistema de reescritura de la consulta</I
+>
+     es un módulo entre la etapa de traducción y el
+     planificador/optimizador. Procesa el árbol devuelto por la etapa
+     de traducción (que representa una consulta de usuario) y si existe
+     una regla que deba ser aplicada a la consulta reescribe el árbol de
+     una forma alternativa.
+    </P
+><DIV
+CLASS="SECT3"
+><H3
+CLASS="SECT3"
+><A
+NAME="VIEW-IMPL"
+>Técnicas para implementar vistas</A
+></H3
+><P
+>      Ahora esbozaremos el algoritmo del sistema de reescritura de
+      consultas. Para una mejor ilustración, mostraremos como implementar
+      vistas utilizando reglas como ejemplo.
+     </P
+><P
+>      Tengamos la siguiente regla:
+
+      <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>  create rule view_rule
+  as on select
+  to test_view
+  do instead
+     select s.sname, p.pname
+     from supplier s, sells se, part p
+     where s.sno = se.sno and
+           p.pno = se.pno;
+      </PRE
+></TD
+></TR
+></TABLE
+>
+     </P
+><P
+>      Esta regla se <I
+CLASS="FIRSTTERM"
+>disparará</I
+>
+      cada vez que se detecte una SELECT contra la relación
+      <TT
+CLASS="LITERAL"
+>test_view</TT
+>. En lugar de seleccionar las tuplas
+      de <TT
+CLASS="LITERAL"
+>test_view</TT
+>, se ejecutará la instrucción SELECT
+      dada en la <I
+CLASS="FIRSTTERM"
+>parte de la acción</I
+> de la regla.
+     </P
+><P
+>      Tengamos la siguiente consulta de usuario contra
+      <TT
+CLASS="LITERAL"
+>test_view</TT
+>:
+
+      <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>  select sname
+  from test_view
+  where sname &#60;&#62; 'Smith';
+      </PRE
+></TD
+></TR
+></TABLE
+>
+     </P
+><P
+>      Tenemos aquí una lista de los pasos realizados por el sistema de
+      reescritura de la consulta cada vez que aparece una consulta de usuario
+      contra <TT
+CLASS="LITERAL"
+>test_view</TT
+>. (El siguiente listado es
+      una descripción muy informal del algoritmo únicamente para una
+      comprensión básica. Para una descripción detallada diríjase a
+      <A
+HREF="part-appendix.html#AEN27292"
+><I
+>Stonebraker et al, 1989</I
+></A
+>).
+     </P
+><DIV
+CLASS="PROCEDURE"
+><P
+><B
+>Reescritura de <TT
+CLASS="LITERAL"
+>test_view</TT
+></B
+></P
+><OL
+TYPE="1"
+><LI
+><P
+>        Toma la consulta dada por la parte de acción de la regla.
+       </P
+></LI
+><LI
+><P
+>        Adapta la lista-objetivo para recoger el número y orden de los
+        atributos dados en la consulta del usuario.
+       </P
+></LI
+><LI
+><P
+>        Añade la cualificación dada en la cláusula WHERE de la consulta
+        del usuario a la cualificación de la consulta dada en la parte de
+        la acción de la regla.
+       </P
+></LI
+></OL
+></DIV
+><P
+>      Dada la definición de la regla anterior, la consulta del usuario será
+      reescrita a la siguiente forma (Nótese que la reescritura se hace
+      en la representación interna de la consulta del usuario devuelta
+      por la etapa de traducción, pero la nueva estructura de datos
+      representará la siguiente consulta):
+
+      <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>  select s.sname
+  from supplier s, sells se, part p
+  where s.sno = se.sno and
+        p.pno = se.pno and
+        s.sname &#60;&#62; 'Smith';
+      </PRE
+></TD
+></TR
+></TABLE
+>
+     </P
+></DIV
+></DIV
+></DIV
+><DIV
+CLASS="NAVFOOTER"
+><HR
+ALIGN="LEFT"
+WIDTH="100%"><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+><A
+HREF="x22843.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="postgres.html"
+>Inicio</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+><A
+HREF="x23027.html"
+>Siguiente</A
+></TD
+></TR
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+>La etapa de traducción</TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="overview.html"
+>Subir</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+>Planificador/optimizador</TD
+></TR
+></TABLE
+></DIV
+></BODY
+></HTML
+>

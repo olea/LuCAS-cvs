@@ -1,0 +1,251 @@
+<programlisting>
+/*
+ * ejemplo_procfs.c: un ejemplo de la interface proc
+ *
+ * Copyright (C) 2001, Erik Mouw (J.A.K.Mouw@its.tudelft.nl)
+ *
+ * Este archivo acompaña la guía de procfs en el código del 
+ * núcleo Linux. Su uso principal es demostrar los conceptos y
+ * funciones descritas en la guía.
+ *
+ * Este software ha sido desarrollado mientras se trabajaba en
+ * el LART computing board (http://www.lart.tudelft.nl/), que
+ * está patrocinado por los proyectos Mobile Multi-media 
+ * Communications (http://www.mmc.tudelft.nl/) y Ubiquitous 
+ * Communications (http://www.ubicom.tudelft.nl/).
+ *
+ * El autor puede ser encontrado en:
+ *
+ *  Erik Mouw
+ *  Information and Communication Theory Group
+ *  Faculty of Information Technology and Systems
+ *  Delft University of Technology
+ *  P.O. Box 5031
+ *  2600 GA Delft
+ *  The Netherlands
+ *
+ *
+ * Este programa es software libre; puedes redistribuirlo
+ * y/o modificarlo bajo los términos de la GNU General
+ * Public License tal como ha sido publicada por la Free 
+ * Software Foundation; por la versión 2 de la Licencia, 
+ * o (a tu elección) cualquier versión posterior.
+ *
+ * Este programa es distribuido con la esperanza de que 
+ * sea útil, pero SIN NINGUNA GARANTÍA; sin incluso la 
+ * implicada de COMERCIABILIDAD o ADECUACCION PARA UN 
+ * PROPOSITO PARTICULAR. Para más detalles refiérase a la 
+ * GNU General Public License.
+ *
+ * Deberías de haber recibido una copia de la GNU General 
+ * Public License con este programa; si no es así, escribe a
+ * Free Software Foundation, Inc., 59 Temple Place,
+ * Suite 330, Boston, MA  02111-1307  USA
+ *
+ */
+
+#include &lt;linux/module.h&gt;
+#include &lt;linux/kernel.h&gt;
+#include &lt;linux/init.h&gt;
+#include &lt;linux/proc_fs.h&gt;
+#include &lt;linux/sched.h&gt;
+#include &lt;asm/uaccess.h&gt;
+
+
+#define MODULE_VERSION "1.0"
+#define MODULE_NAME "ejemplo_procfs"
+
+#define FOOBAR_LEN 8
+
+struct fb_data_t {
+        char name[FOOBAR_LEN + 1];
+        char value[FOOBAR_LEN + 1];
+};
+
+
+static struct proc_dir_entry *example_dir, *foo_file,
+        *bar_file, *jiffies_file, *tty_device, *symlink;
+
+
+struct fb_data_t foo_data, bar_data;
+
+
+static int proc_read_jiffies(char *page, char **start,
+                             off_t off, int count,
+                             int *eof, void *data)
+{
+        int len;
+
+        MOD_INC_USE_COUNT;
+        
+        len = sprintf(page, "jiffies = %ld\n",
+                      jiffies);
+
+        MOD_DEC_USE_COUNT;
+
+        return len;
+}
+
+
+static int proc_read_foobar(char *page, char **start,
+                            off_t off, int count, 
+                            int *eof, void *data)
+{
+        int len;
+        struct fb_data_t *fb_data = (struct fb_data_t *)data;
+
+        MOD_INC_USE_COUNT;
+        
+        len = sprintf(page, "%s = '%s'\n", 
+                      fb_data-&gt;name, fb_data-&gt;value);
+
+        MOD_DEC_USE_COUNT;
+
+        return len;
+}
+
+
+static int proc_write_foobar(struct file *file,
+                             const char *buffer,
+                             unsigned long count, 
+                             void *data)
+{
+        int len;
+        struct fb_data_t *fb_data = (struct fb_data_t *)data;
+
+        MOD_INC_USE_COUNT;
+
+        if(count &gt; FOOBAR_LEN)
+                len = FOOBAR_LEN;
+        else
+                len = count;
+
+        if(copy_from_user(fb_data-&gt;value, buffer, len)) {
+                MOD_DEC_USE_COUNT;
+                return -EFAULT;
+        }
+
+        fb_data-&gt;value[len] = '\0';
+
+        MOD_DEC_USE_COUNT;
+
+        return len;
+}
+
+
+static int __init init_procfs_example(void)
+{
+        int rv = 0;
+
+        /* crea directorio */
+        example_dir = proc_mkdir(MODULE_NAME, NULL);
+        if(example_dir == NULL) {
+                rv = -ENOMEM;
+                goto out;
+        }
+        
+        example_dir-&gt;owner = THIS_MODULE;
+        
+        /* crea jiffies usando la función conveniente */
+        jiffies_file = create_proc_read_entry("jiffies", 
+                                              0444, example_dir, 
+                                              proc_read_jiffies,
+                                              NULL);
+        if(jiffies_file == NULL) {
+                rv  = -ENOMEM;
+                goto no_jiffies;
+        }
+
+        jiffies_file-&gt;owner = THIS_MODULE;
+
+        /* crea los archivos foo y bar usando las mismas
+         * funciones de retrollamada
+         */
+        foo_file = create_proc_entry("foo", 0644, example_dir);
+        if(foo_file == NULL) {
+                rv = -ENOMEM;
+                goto no_foo;
+        }
+
+        strcpy(foo_data.name, "foo");
+        strcpy(foo_data.value, "foo");
+        foo_file-&gt;data = &amp;foo_data;
+        foo_file-&gt;read_proc = proc_read_foobar;
+        foo_file-&gt;write_proc = proc_write_foobar;
+        foo_file-&gt;owner = THIS_MODULE;
+                
+        bar_file = create_proc_entry("bar", 0644, example_dir);
+        if(bar_file == NULL) {
+                rv = -ENOMEM;
+                goto no_bar;
+        }
+
+        strcpy(bar_data.name, "bar");
+        strcpy(bar_data.value, "bar");
+        bar_file-&gt;data = &amp;bar_data;
+        bar_file-&gt;read_proc = proc_read_foobar;
+        bar_file-&gt;write_proc = proc_write_foobar;
+        bar_file-&gt;owner = THIS_MODULE;
+                
+        /* crea dispositivo tty */
+        tty_device = proc_mknod("tty", S_IFCHR | 0666,
+                                example_dir, MKDEV(5, 0));
+        if(tty_device == NULL) {
+                rv = -ENOMEM;
+                goto no_tty;
+        }
+        
+        tty_device-&gt;owner = THIS_MODULE;
+
+        /* crea enlace simbólico */
+        symlink = proc_symlink("tambien_jiffies", example_dir, 
+                               "jiffies");
+        if(symlink == NULL) {
+                rv = -ENOMEM;
+                goto no_symlink;
+        }
+
+        symlink-&gt;owner = THIS_MODULE;
+
+        /* todo está OK */
+        printk(KERN_INFO "%s %s inicializado\n",
+               MODULE_NAME, MODULE_VERSION);
+        return 0;
+
+no_symlink:
+        remove_proc_entry("tty", example_dir);
+no_tty:
+        remove_proc_entry("bar", example_dir);
+no_bar:
+        remove_proc_entry("foo", example_dir);
+no_foo:
+        remove_proc_entry("jiffies", example_dir);
+no_jiffies:                           
+        remove_proc_entry(MODULE_NAME, NULL);
+out:
+        return rv;
+}
+
+
+static void __exit cleanup_procfs_example(void)
+{
+        remove_proc_entry("tambien_jiffies", example_dir);
+        remove_proc_entry("tty", example_dir);
+        remove_proc_entry("bar", example_dir);
+        remove_proc_entry("foo", example_dir);
+        remove_proc_entry("jiffies", example_dir);
+        remove_proc_entry(MODULE_NAME, NULL);
+
+        printk(KERN_INFO "%s %s borrado\n",
+               MODULE_NAME, MODULE_VERSION);
+}
+
+
+module_init(init_procfs_example);
+module_exit(cleanup_procfs_example);
+
+MODULE_AUTHOR("Erik Mouw");
+MODULE_DESCRIPTION("ejemplos procfs");
+
+EXPORT_NO_SYMBOLS;
+</programlisting>

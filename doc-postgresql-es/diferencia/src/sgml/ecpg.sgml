@@ -1,0 +1,1046 @@
+<!--
+$Header: /home/cvs/lucas/doc-postgresql-es/diferencia/src/sgml/ecpg.sgml,v 1.2 2001/10/08 17:33:22 rssantos Exp $
+-->
+
+ <chapter id="ecpg">
+  <docinfo>
+   <authorgroup>
+    <author>
+     <firstname>Linus</firstname>
+     <surname>Tolke</surname>
+    </author>
+    <author>
+     <firstname>Michael</firstname>
+     <surname>Meskes</surname>
+    </author>
+   </authorgroup>
+   <copyright>
+    <year>1996-1997</year>
+    <holder>Linus Tolke</holder>
+   </copyright>
+   <copyright>
+    <year>1998</year>
+    <holder>Michael Meskes</holder>
+   </copyright>
+   <date>Transcribed 1998-02-12</date>
+  </docinfo>
+
+  <title><application>ecpg</application> - Embedded <acronym>SQL</acronym> 
+   in <acronym>C</acronym></title>
+
+  <para>
+   This describes an embedded <acronym>SQL</acronym> in <acronym>C</acronym> 
+   package for <productname>Postgres</productname>.
+   It was written by Linus Tolke (<email>linus@epact.se</email>)
+   and Michael Meskes (<email>meskes@debian.org</email>).
+   The package is installed with the <productname>Postgres</> distribution.
+
+   <note>
+    <para>
+     Permission is granted to copy and use in the same way as you are allowed
+     to copy and use the rest of <productname>PostgreSQL</productname>.
+    </para>
+   </note>
+  </para>
+
+  <sect1 id="ecpg-why">
+   <title>Why Embedded <acronym>SQL</acronym>?</title>
+
+   <para>
+    Embedded <acronym>SQL</acronym> has some small advantages over other ways 
+    to handle <acronym>SQL</acronym>
+    queries. It takes care of all the tedious moving of information to and
+    from variables in your <acronym>C</acronym> program. 
+    Many <acronym>RDBMS</acronym> packages
+    support this embedded language.
+   </para>
+
+   <para> There is an ANSI-standard describing how the embedded language should
+    work. <application>ecpg</application> was designed to meet this standard 
+    as much as possible. So it is
+    possible to port programs with embedded <acronym>SQL</acronym> written for
+    other <acronym>RDBMS</acronym> packages to
+    <productname>Postgres</productname> and thus promoting the spirit of free
+    software.
+   </para>
+  </sect1>
+
+  <sect1 id="ecpg-concept">
+   <title>The Concept</title>
+
+   <para>
+    You write your program in <acronym>C</acronym> with some 
+    special <acronym>SQL</acronym> things.
+    For declaring variables that can be used in 
+    <acronym>SQL</acronym> statements you need to
+    put them in a special declare section.
+    You use a special syntax for the <acronym>SQL</acronym> queries.
+   </para>
+
+   <para>
+    Before compiling you run the file through 
+    the embedded <acronym>SQL</acronym> <acronym>C</acronym>
+    preprocessor and it converts the <acronym>SQL</acronym> statements you used 
+    to function
+    calls with the variables used as arguments. Both variables that are used
+    as input to the <acronym>SQL</acronym> statements and variables that will 
+    contain the
+    result are passed.
+   </para>
+
+   <para>
+    Then you compile and at link time you link with a special library that
+    contains the functions used. These functions (actually it is mostly one
+    single function) fetches the information from the arguments, performs
+    the <acronym>SQL</acronym> query using the ordinary interface 
+    (<filename>libpq</filename>) and puts back
+    the result in the arguments dedicated for output.
+   </para>
+
+   <para>
+    Then you run your program and when the control arrives to 
+    the <acronym>SQL</acronym>
+    statement the <acronym>SQL</acronym> statement is performed against 
+    the database and you
+    can continue with the result.
+   </para>
+  </sect1>
+
+  <sect1 id="ecpg-use">
+   <title>How To Use <application>ecpg</application></title>
+
+   <para>
+    This section describes how to use the <application>ecpg</application> tool.
+   </para>
+
+   <sect2>
+    <title>Preprocessor</title>
+
+    <para>
+     The preprocessor is called <application>ecpg</application>. 
+     After installation it resides in
+     the <productname>Postgres</productname> <filename>bin/</filename> directory. 
+    </para>
+   </sect2>
+   <sect2>
+    <title>Library</title>
+
+    <para>
+     The <application>ecpg</application> library is called 
+     <filename>libecpg.a</filename> or
+     <filename>libecpg.so</filename>. Additionally, the library
+     uses the <filename>libpq</filename> library for communication to the 
+     <productname>Postgres</productname> server so you will
+     have to link your program with <parameter>-lecpg -lpq</parameter>.
+    </para>
+
+    <para>
+     The library has some methods that are "hidden" but that could prove very
+     useful sometime.
+
+     <itemizedlist>
+      <listitem>
+       <para>
+	<function>ECPGdebug(int <replaceable>on</replaceable>, FILE
+	 *<replaceable>stream</replaceable>)</function>
+	turns on debug logging if called with the first argument non-zero.
+	Debug logging is done on <replaceable>stream</replaceable>.
+	Most <acronym>SQL</acronym> statement logs its arguments and result.
+       </para>
+
+       <para>
+	The most important one (<function>ECPGdo</function>) 
+	that is called on almost all <acronym>SQL</acronym>
+	statements logs both its expanded string,
+	i.e. the string
+	with all the input variables inserted, and the result from the
+	<productname>Postgres</productname> server.
+	This can be very useful when searching for errors
+	in your <acronym>SQL</acronym> statements.
+       </para>
+      </listitem>
+
+      <listitem>
+       <para>
+	<function>ECPGstatus()</function>
+	This method returns TRUE if we are connected to a database and FALSE if not.
+       </para>
+      </listitem>
+     </itemizedlist>
+    </para>
+   </sect2>
+
+   <sect2>
+    <title>Error handling</title>
+
+    <para>
+     To be able to detect errors from the <productname>Postgres</productname> 
+     server you include a line like
+     <programlisting>
+      exec sql include sqlca;
+     </programlisting>
+     in the include section of your file. This will define a struct and a
+     variable with the name <parameter>sqlca</parameter> as following:
+     <programlisting>
+struct sqlca
+{
+ char sqlcaid[8];
+ long sqlabc;
+ long sqlcode;
+ struct
+ {
+  int sqlerrml;
+  char sqlerrmc[70];
+ } sqlerrm;
+ char sqlerrp[8];
+ long sqlerrd[6];
+ /* 0: empty                                         */
+ /* 1: OID of processed tuple if applicable          */
+ /* 2: number of rows processed in an INSERT, UPDATE */
+ /*    or DELETE statement                           */
+ /* 3: empty                                         */
+ /* 4: empty                                         */
+ /* 5: empty                                         */
+ char sqlwarn[8];
+ /* 0: set to 'W' if at least one other is 'W'       */
+ /* 1: if 'W' at least one character string	     */
+ /*    value was truncated when it was               */
+ /*    stored into a host variable.                  */
+ /* 2: empty                                         */
+ /* 3: empty                                         */
+ /* 4: empty                                         */
+ /* 5: empty                                         */
+ /* 6: empty                                         */
+ /* 7: empty                                         */
+ char sqlext[8];
+} sqlca;
+     </programlisting>
+    </para>
+
+    <para>
+     If an error occured in the last <acronym>SQL</acronym> statement 
+     then <parameter>sqlca.sqlcode</parameter>
+     will be non-zero. If <parameter>sqlca.sqlcode</parameter> is less that 0
+     then this is
+     some kind of serious error, like the database definition does not match
+     the query given. If it is bigger than 0 then this is a normal error like
+     the table did not contain the requested row.
+    </para>
+
+    <para>
+     sqlca.sqlerrm.sqlerrmc will contain a string that describes the error.
+     The string ends with the line number
+     in the source file.
+    </para>
+
+    <para>
+     List of errors that can occur:
+
+     <variablelist>
+      <varlistentry>
+       <term>-12, Out of memory in line %d.</term>
+       <listitem>
+	<para>
+	 Does not normally occur. This is a sign that your virtual memory is
+	 exhausted.
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>-200, Unsupported type %s on line %d.</term>
+       <listitem>
+	<para>
+	 Does not normally occur. This is a sign that the preprocessor has
+	 generated something that the library does not know about. Perhaps you
+	 are running incompatible versions of the preprocessor and the library.
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>-201, Too many arguments line %d.</term>
+       <listitem>
+	<para>
+	 This means that <productname>Postgres</productname> has returned more
+	 arguments than we have
+	 matching variables. Perhaps you have forgotten a couple of the host
+	 variables in the <command>INTO :var1,:var2</command>-list.
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>-202, Too few arguments line %d.</term>
+       <listitem>
+	<para>
+	 This means that <productname>Postgres</productname> has returned fewer
+	 arguments than we have
+	 host variables. Perhaps you have too many host variables in the 
+	 <command>INTO :var1,:var2</command>-list.
+	</para> 
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>-203, Too many matches line %d.</term>
+       <listitem>
+	<para>
+	 This means that the query has returned several lines but the
+	 variables specified are no arrays. The <command>SELECT</command> you made
+	 probably was not unique.
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>-204, Not correctly formatted int type: %s line %d.</term>
+       <listitem>
+	<para>
+	 This means that the host variable is of an <type>int</type> type and the field
+	 in the <productname>Postgres</productname> database is of another type and 
+	 contains a value that cannot be interpreted as an <type>int</type>. 
+	 The library uses <function>strtol</function>
+	 for this conversion.
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>-205, Not correctly formatted unsigned type: %s line %d.</term>
+       <listitem>
+	<para>
+	 This means that the host variable is of an <type>unsigned int</type> type and
+	 the field in the <productname>Postgres</productname> database is of another 
+	 type and contains a
+	 value that cannot be interpreted as an <type>unsigned int</type>. The library
+	 uses <function>strtoul</function> for this conversion.
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>-206, Not correctly formatted floating point type: %s line %d.</term>
+       <listitem>
+	<para>
+	 This means that the host variable is of a <type>float</type> type and
+	 the field in the <productname>Postgres</productname> database is of another 
+	 type and contains a
+	 value that cannot be interpreted as an <type>float</type>. The library
+	 uses <function>strtod</function> for this conversion.
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>-207, Unable to convert %s to bool on line %d.</term>
+       <listitem>
+	<para>
+	 This means that the host variable is of a <type>bool</type> type and
+	 the field in the <productname>Postgres</productname> database is neither 't'
+	 nor 'f'.
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>-208, Empty query line %d.</term>
+       <listitem>
+	<para>
+	 <productname>Postgres</productname> returned PGRES_EMPTY_QUERY, probably
+	 because the query indeed was empty.
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>-220, No such connection %s in line %d.</term>
+       <listitem>
+	<para>
+	 The program tries to access a connection that does not exist.
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>-221, Not connected in line %d.</term>
+       <listitem>
+	<para>
+	 The program tries to access a connection that does exist but is not open.
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>-230, Invalid statement name %s in line %d.</term>
+       <listitem>
+	<para>
+	 The statement you are trying to use has not been prepared.
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>-400, Postgres error: %s line %d.</term>
+       <listitem>
+	<para>
+	 Some <productname>Postgres</productname> error. 
+	 The message contains the error message from the
+	 <productname>Postgres</productname> backend.
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>-401, Error in transaction processing line %d. </term>
+       <listitem>
+	<para>
+	 <productname>Postgres</productname> signalled to us that we cannot start,
+	 commit or rollback the transaction.
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>-402, connect: could not open database %s.</term>
+       <listitem>
+	<para>
+	 The connect to the database did not work.
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>100, Data not found line %d.</term>
+       <listitem>
+	<para>
+	 This is a "normal" error that tells you that what you are quering cannot
+	 be found or we have gone through the cursor.
+	</para>
+       </listitem>
+      </varlistentry>
+
+     </variablelist>
+    </para>
+   </sect2>
+  </sect1>
+
+  <sect1 id="ecpg-limitations">
+   <title>Limitations</title>
+
+   <abstract>
+    <para>
+     What will never be included and why or what cannot be done with this
+     concept.
+    </para>
+   </abstract>
+
+   <para>
+    <variablelist>
+     <varlistentry>
+      <term>Oracle's single tasking possibility</term>
+      <listitem>
+       <para>
+	Oracle version 7.0 on AIX 3 uses the OS-supported locks on the shared
+	memory segments and allows the application designer to link an
+	application in a so called single tasking way. Instead of starting one
+	client process per application process both the database part and the
+	application part is run in the same process. In later versions of Oracle
+	this is no longer supported.
+       </para>
+
+       <para>
+	This would require a total redesign of the
+	<productname>Postgres</productname> access model and
+	that effort can not justify the performance gained.
+       </para>
+      </listitem>
+     </varlistentry>
+    </variablelist>
+   </para>
+  </sect1>
+
+  <sect1 id="ecpg-porting">
+   <title>Porting From Other <acronym>RDBMS</acronym> Packages</title>
+
+   <para>
+    The design of <application>ecpg</application> follows SQL standard. So
+    porting from a standard RDBMS should not be a problem. Unfortunately there
+    is no such thing as a standard RDBMS. So <application>ecpg</application>
+    also tries to understand syntax additions as long as they do not create
+    conflicts with the standard. 
+   </para>
+
+   <para>
+    The following list shows all the known incompatibilities. If you find one
+    not listed please notify 
+    <ulink url="meskes@debian.org">Michael Meskes</ulink>.
+    Note, however, that we list only incompatibilities from
+    a precompiler of another RDBMS to <application>ecpg</application> and not
+    additional <application>ecpg</application> features that these RDBMS do not
+    have.
+   </para>
+
+   <para>
+    <variablelist>
+     <varlistentry>
+      <term>Syntax of FETCH command</term>
+      <listitem>
+       <para>
+	The standard syntax of the FETCH command is:
+       </para>
+       <para>
+	FETCH [direction] [amount] IN|FROM <replaceable>cursor name</replaceable>.
+       </para>
+       <para>
+	<application>ORACLE</application>, however, does not use the keywords IN
+	resp. FROM. This feature cannot be added since it would create parsing
+	conflicts.
+       </para>
+      </listitem>
+     </varlistentry>
+    </variablelist>
+   </para>
+  </sect1>
+
+  <sect1 id="ecpg-develop">
+   <title>For the Developer</title>
+
+   <para>
+    This section is for those who want to develop the 
+    <application>ecpg</application> interface. It
+    describes how the things work. The ambition is to make this section
+    contain things for those that want to have a look inside and the section
+    on How to use it should be enough for all normal questions.
+
+    So, read this before looking at the internals of the 
+    <application>ecpg</application>. If
+    you are not interested in how it really works, skip this section.
+   </para>
+
+   <sect2>
+    <title>ToDo List</title>
+
+    <para>
+     This version the preprocessor has some flaws:
+
+     <variablelist>
+      <varlistentry>
+       <term>Library functions</term>
+       <listitem>
+	<para>
+	 to_date et al. do not exists. But then <productname>Postgres</productname>
+	 has some good conversion routines itself. So you probably won't miss these.
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>Structures ans unions</term>
+       <listitem>
+	<para>
+	 Structures and unions have to be defined in the declare section.
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>Missing statements</term>
+       <listitem>
+	<para>
+	 The following statements are not implemented thus far:
+	 <variablelist>
+	  <varlistentry>
+	   <term> exec sql allocate</term>
+	   <listitem>
+	    <para>
+	    </para>
+	   </listitem>
+	  </varlistentry>
+	  <varlistentry>
+	   <term> exec sql deallocate</term>
+	   <listitem>
+	    <para>
+	    </para>
+	   </listitem>
+	  </varlistentry>
+	  <varlistentry>
+	   <term> SQLSTATE</term>
+	   <listitem>
+	    <para>
+	    </para>
+	   </listitem>
+	  </varlistentry>
+	 </variablelist>
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>message 'no data found'</term>
+       <listitem>
+	<para>
+	 The error message for "no data" in an exec sql insert select from statement
+	 has to be 100.
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>sqlwarn[6]</term>
+       <listitem>
+	<para>
+	 sqlwarn[6] should be 'W' if the PRECISION or SCALE value specified in a SET
+	 DESCRIPTOR statement will be ignored.
+	</para>
+       </listitem>
+      </varlistentry>
+     </variablelist>
+    </para>
+   </sect2>
+
+   <sect2>
+    <title>The Preprocessor</title>
+
+    <para>
+     The first four lines written to the output are constant additions by ecpg.
+     These are two comments and two include lines necessary for the interface to the
+     library.
+    </para>
+
+    <para>
+     Then the preprocessor works in one pass only, reading the input file and
+     writing to the output as it goes along. Normally it just echoes
+     everything to the output without looking at it further.
+    </para>
+
+    <para>
+     When it comes to an <command>EXEC SQL</command> statements it intervenes and
+     changes them depending on what it is. 
+     The <command>EXEC SQL</command> statement can be one of these:
+
+     <variablelist>
+      <varlistentry>
+       <term>Declare sections</term>
+       <listitem>
+	<para>
+	 Declare sections begins with
+	 <programlisting>
+exec sql begin declare section;
+	 </programlisting>
+	 and ends with
+	 <programlisting>
+exec sql end declare section;
+	 </programlisting>
+	 In the section only variable declarations are allowed. Every variable
+	 declare within this section is also entered in a list of variables
+	 indexed on their name together with the corresponding type.
+	</para>
+
+	<para>
+	 In particular the definition of a structure or union also has to be listed
+	 inside a declare section. Otherwise <application>ecpg</application> cannot
+	 handle these types since it simply does not know the definition.
+	</para>
+
+	<para>
+	 The declaration is echoed to the file to make the variable a normal
+	 C-variable also.
+	</para>
+
+	<para>
+	 The special types VARCHAR and VARCHAR2 are converted into a named struct
+	 for every variable. A declaration like:
+	 <programlisting>
+VARCHAR var[180];
+	 </programlisting>
+	 is converted into
+	 <programlisting>
+struct varchar_var { int len; char arr[180]; } var;
+	 </programlisting>
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>Include statements</term>
+       <listitem>
+	<para>
+	 An include statement looks like:
+	 <programlisting>
+exec sql include filename;
+	 </programlisting>
+	 Note that this is NOT the same as
+	 <programlisting>
+#include &lt;filename.h&gt;
+	 </programlisting>
+	</para>
+
+	<para>
+	 Instead the file specified is parsed by <application>ecpg</application>
+	 itself. So the contents of the specified file is included in the resulting C
+	 code. This way you are able to specify EXEC SQL commands in an include file.
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>Connect statement</term>
+       <listitem>
+	<para>
+	 A connect statement looks like:
+	 <programlisting>
+exec sql connect to <replaceable>connection target</replaceable>;
+	 </programlisting>
+	 It creates a connection to the specified database.
+	</para>
+
+	<para>
+	 The <replaceable>connection target</replaceable> can be specified in the
+	 following ways:
+	 <variablelist>
+	  <varlistentry>
+	   <term>dbname[@server][:port][as <replaceable>connection
+	     name</replaceable>][user <replaceable>user name</replaceable>]</term>
+	   <listitem><para></para></listitem>
+	  </varlistentry>
+
+	  <varlistentry>
+	   <term>tcp:postgresql://server[:port][/dbname][as
+	    <replaceable>connection name</replaceable>][user <replaceable>user name</replaceable>]</term>
+	   <listitem><para></para></listitem>
+	  </varlistentry>
+
+	  <varlistentry>
+	   <term>unix:postgresql://server[:port][/dbname][as
+	    <replaceable>connection name</replaceable>][user <replaceable>user name</replaceable>]</term>
+	   <listitem><para></para></listitem>
+	  </varlistentry>
+
+	  <varlistentry>
+	   <term><replaceable>character variable</replaceable>[as
+	    <replaceable>connection name</replaceable>][user <replaceable>user name</replaceable>]</term>
+	   <listitem><para></para></listitem>
+	  </varlistentry>
+
+	  <varlistentry>
+	   <term><replaceable>character string</replaceable>[as
+	    <replaceable>connection name</replaceable>][<replaceable>user</replaceable>]</term>
+	   <listitem><para></para></listitem>
+	  </varlistentry>
+
+	  <varlistentry>
+	   <term>default</term>
+	   <listitem><para></para></listitem>
+	  </varlistentry>
+
+	  <varlistentry>
+	   <term>user</term>
+	   <listitem><para></para></listitem>
+	  </varlistentry>
+	 </variablelist>
+	</para>
+
+	<para>
+	 There are also different ways to specify the user name:
+	 <variablelist>
+	  <varlistentry>
+	   <term><replaceable>userid</replaceable></term>
+	   <listitem><para></para></listitem>
+	  </varlistentry>
+	  <varlistentry>
+	   <term><replaceable>userid</replaceable>/<replaceable>password</replaceable></term>
+	   <listitem><para></para></listitem>
+	  </varlistentry>
+	  <varlistentry>
+	   <term><replaceable>userid</replaceable> identified by <replaceable>password</replaceable></term>
+	   <listitem><para></para></listitem>
+	  </varlistentry>
+	  <varlistentry>
+	   <term><replaceable>userid</replaceable> using <replaceable>password</replaceable></term>
+	   <listitem><para></para></listitem>
+	  </varlistentry>
+	 </variablelist>
+	</para>
+
+	<para> Finally the userid and the password. Each may be a constant text, a
+	 character variable or a chararcter string.
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>Disconnect statements</term>
+       <listitem>
+	<para>
+	 A disconnect statement looks loke:
+	 <programlisting>
+exec sql disconnect [<replaceable>connection target</replaceable>];
+	 </programlisting>
+	 It closes the connection to the specified database.
+	</para>
+
+	<para>
+	 The <replaceable>connection target</replaceable> can be specified in the
+	 following ways:
+	 <variablelist>
+	  <varlistentry>
+	   <term><replaceable>connection name</replaceable></term>
+	   <listitem><para></para></listitem>
+	  </varlistentry>
+	  <varlistentry>
+	   <term>default</term>
+	   <listitem><para></para></listitem>
+	  </varlistentry>
+	  <varlistentry>
+	   <term>current</term>
+	   <listitem><para></para></listitem>
+	  </varlistentry>
+	  <varlistentry>
+	   <term>all</term>
+	   <listitem><para></para></listitem>
+	  </varlistentry>
+	 </variablelist>
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <!--WARNING: FROM HERE ON THE TEXT IS OUTDATED!-->
+      <varlistentry>
+       <term>Open cursor statement</term>
+       <listitem>
+	<para>
+	 An open cursor statement looks like:
+	 <programlisting>
+exec sql open <replaceable>cursor</replaceable>;
+	 </programlisting>
+	 and is ignore and not copied from the output.
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>Commit statement</term>
+       <listitem>
+	<para>
+	 A commit statement looks like
+	 <programlisting>
+exec sql commit;
+	 </programlisting>
+	 and is translated on the output to
+	 <programlisting>
+ECPGcommit(__LINE__);
+	 </programlisting>
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>Rollback statement</term>
+       <listitem>
+	<para>
+	 A rollback statement looks like
+	 <programlisting>
+exec sql rollback;
+	 </programlisting>
+	 and is translated on the output to
+	 <programlisting>
+ECPGrollback(__LINE__);
+	 </programlisting>
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <!--STARTING HERE IT IS OKAY AGAIN!-->
+      <varlistentry>
+       <term>Other statements</term>
+       <listitem>
+	<para>
+	 Other <acronym>SQL</acronym> statements are other statements that start with 
+	 <command>exec sql</command> and ends with <command>;</command>. 
+	 Everything inbetween is treated
+	 as an <acronym>SQL</acronym> statement and parsed for variable substitution.
+	</para>
+
+	<para>
+	 Variable substitution occur when a symbol starts with a colon
+	 (<command>:</command>). Then a variable with that name is looked for among
+	 the variables that were previously declared within a declare section and
+	 depending on the variable being for input or output the pointers to the
+	 variables are written to the output to allow for access by the function.
+	</para>
+
+	<para>
+	 For every variable that is part of the <acronym>SQL</acronym> request 
+	 the function gets another ten arguments:
+
+	 <simplelist>
+	  <member>The type as a special symbol.</member>
+	  <member>A pointer to the value or a pointer to the pointer.</member>
+	  <member>The size of the variable if it is a char or varchar.</member>
+	  <member>Number of elements in the array (for array fetches).</member>
+	  <member>The offset to the next element in the array (for array fetches)</member>
+	  <member>The type of the indicator variable as a special symbol.</member>
+	  <member>A pointer to the value of the indicator variable or a pointer to the pointer of the indicator variable.</member>
+	  <member>0.</member>
+	  <member>Number of elements in the indicator array (for array fetches).</member>
+	  <member>The offset to the next element in the indicator array (for array fetches)</member>
+	 </simplelist>
+	</para>
+
+       </listitem>
+      </varlistentry>
+     </variablelist>
+    </para>
+   </sect2>
+
+   <sect2>
+    <title>A Complete Example</title>
+
+    <para>
+     Here is a complete example describing the output of the preprocessor of a
+     file foo.pgc:
+     <programlisting>
+exec sql begin declare section;
+int index;
+int result;
+exec sql end declare section;
+...
+exec sql select res into :result from mytable where index = :index;
+     </programlisting>
+     is translated into:
+     <programlisting>
+/* Processed by ecpg (2.6.0) */
+/* These two include files are added by the preprocessor */
+#include &lt;ecpgtype.h&gt;;
+#include &lt;ecpglib.h&gt;;
+
+/* exec sql begin declare section */
+
+#line 1 "foo.pgc"
+
+ int index;
+ int result;
+/* exec sql end declare section */
+...
+ECPGdo(__LINE__, NULL, "select  res  from mytable where index = ?     ",
+	ECPGt_int,&amp;(index),1L,1L,sizeof(int),
+        ECPGt_NO_INDICATOR, NULL , 0L, 0L, 0L, ECPGt_EOIT,
+        ECPGt_int,&amp;(result),1L,1L,sizeof(int),
+        ECPGt_NO_INDICATOR, NULL , 0L, 0L, 0L, ECPGt_EORT);
+#line 147 "foo.pgc"
+
+     </programlisting>
+     (the indentation in this manual is added for readability and not
+     something that the preprocessor can do.)
+    </para>
+   </sect2>
+
+   <sect2>
+    <title>The Library</title>
+
+    <para>
+     The most important function in the library is the <function>ECPGdo</function>
+     function. It takes a variable amount of arguments. Hopefully we will not run
+     into machines with limits on the amount of variables that can be
+     accepted by a vararg function. This could easily add up to 50 or so
+     arguments.
+    </para>
+
+    <para>
+     The arguments are:
+
+     <variablelist>
+      <varlistentry>
+       <term>A line number</term>
+       <listitem>
+	<para>
+	 This is a line number for the original line used in error messages only.
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>A string</term>
+       <listitem>
+	<para>
+	 This is the <acronym>SQL</acronym> request that is to be issued. 
+	 This request is modified
+	 by the input variables, i.e. the variables that where not known at
+	 compile time but are to be entered in the request. Where the variables
+	 should go the string contains ";".
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>Input variables</term>
+       <listitem>
+	<para>
+	 As described in the section about the preprocessor every input variable
+	 gets ten arguments.
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>ECPGt_EOIT</term>
+       <listitem>
+	<para>
+	 An enum telling that there are no more input variables.
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>Output variables</term>
+       <listitem>
+	<para>
+	 As described in the section about the preprocessor every input variable
+	 gets ten arguments. These variables are filled by the function.
+	</para>
+       </listitem>
+      </varlistentry>
+
+      <varlistentry>
+       <term>ECPGt_EORT</term>
+       <listitem>
+	<para>
+	 An enum telling that there are no more variables.
+	</para>
+       </listitem>
+      </varlistentry>
+     </variablelist>
+    </para>
+
+    <para>
+     All the <acronym>SQL</acronym> statements are performed in one transaction
+     unless you issue a commit transaction. To get this auto-transaction going
+     the first statement or the first after statement after a commit or rollback
+     always begins a transaction. To disable this feature per default use the
+     <option>-t</option> option on the commandline.
+    </para>
+
+    <para>
+     To be completed: entries describing the other entries.
+    </para>
+   </sect2>
+  </sect1>
+ </chapter>
+
+<!-- Keep this comment at the end of the file
+Local variables:
+mode:sgml
+sgml-omittag:nil
+sgml-shorttag:t
+sgml-minimize-attributes:nil
+sgml-always-quote-attributes:t
+sgml-indent-step:1
+sgml-indent-data:t
+sgml-parent-document:nil
+sgml-default-dtd-file:"./reference.ced"
+sgml-exposed-tags:nil
+sgml-local-catalogs:("/usr/lib/sgml/catalog")
+sgml-local-ecat-files:nil
+End:
+-->

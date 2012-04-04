@@ -1,0 +1,221 @@
+.\" Copyright (c) 1993 Michael Haardt (michael@cantor.informatik.rwth-aachen.de), Fri Apr  2 11:32:09 MET DST 1993
+.\"
+.\" This is free documentation; you can redistribute it and/or
+.\" modify it under the terms of the GNU General Public License as
+.\" published by the Free Software Foundation; either version 2 of
+.\" the License, or (at your option) any later version.
+.\"
+.\" The GNU General Public License's references to "object code"
+.\" and "executables" are to be interpreted as the output of any
+.\" document formatting or typesetting system, including
+.\" intermediate and printed output.
+.\"
+.\" This manual is distributed in the hope that it will be useful,
+.\" but WITHOUT ANY WARRANTY; without even the implied warranty of
+.\" MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+.\" GNU General Public License for more details.
+.\"
+.\" You should have received a copy of the GNU General Public
+.\" License along with this manual; if not, write to the Free
+.\" Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111,
+.\" USA.
+.\" 
+.\" Modified Sun Jul 25 10:44:50 1993 by Rik Faith (faith@cs.unc.edu)
+.\" Modified Thu Feb 26 16:08:49 MET 1995 by Michael Haardt
+.\" Modified Sat Jul 20 14:39:03 MET DST 1996 by Michael Haardt
+.\" Modified Wed Jul  2 20:20:53 ART 1997 by Nicolás Lichtmaier <nick@debian.org>
+.\" Traslated Mon Jan 26 21:20:00 by Juan Piernas (piernas@dif.um.es)
+.\"
+.TH UTMP 5 "2 de Julio de 1997" "Linux" "Formatos de fichero"
+.SH NOMBRE
+utmp, wtmp \- registro de sesiones
+.SH SINOPSIS
+#include <utmp.h>
+.SH DESCRIPCIÓN
+El fichero
+.B utmp
+nos permite obtener información de quiénes están usando el sistema
+actualmente. Puede haber más usuarios usando el sistema en el momento actual
+ya que no todos los programas usan utmp como registro de sesiones.
+.PP
+\fBAtención:\fP \fButmp\fP no debe ser modificable ya que muchos programas
+del sistema dependen (tontamente) de su integridad. Corre el riesgo de tener
+ficheros de registro (logfiles) del sistema falsos y de modificaciones en
+ficheros del sistema si deja que cualquiera pueda escribir en \fButmp\fP.
+.PP
+El fichero es una secuencia de entradas con la siguiente estructura
+declarada en el fichero cabecera (dese cuenta que ésta es sólo una de las
+posibles definiciones; los detalles dependen de la versión de libc):
+.RS
+.nf
+.sp
+.ta 3i
+#define UT_UNKNOWN	0
+#define RUN_LVL		1
+#define BOOT_TIME	2
+#define NEW_TIME	3
+#define OLD_TIME	4
+#define INIT_PROCESS	5
+#define LOGIN_PROCESS	6
+#define USER_PROCESS	7
+#define DEAD_PROCESS	8
+#define ACCOUNTING	9
+
+#define UT_LINESIZE	12
+#define UT_NAMESIZE	32
+#define UT_HOSTSIZE	256
+
+struct exit_status {
+  short int e_termination;	/* estado de terminación del
+	   proceso.  */
+  short int e_exit;	/* estado de salida del
+	   proceso.  */
+};
+
+struct utmp {
+  short ut_type;	/* tipo de login */
+  pid_t ut_pid;		/* pid del proceso de login */
+  char ut_line[UT_LINESIZE];	/* nombre de dispositivo de tty */
+  char ut_id[2];	/* id de inicio o nombre abreviado
+	   de tty */
+  char ut_user[UT_NAMESIZE];	/* nombre de usuario */
+  char ut_host[UT_HOSTSIZE];	/* nombre de la máquina para login
+	   remoto */
+  struct exit_status ut_exit;	/* estado de salida de un proceso
+	   marcado como DEAD_PROCESS. */ 
+  long ut_session;	/* ID de sesión, usado para el
+	   manejo de ventanas */
+  struct timeval ut_tv;	/* instante en el que se hizo la
+	   entrada. */
+  int32_t ut_addr_v6[4];	/* dirección IP de la máquina
+	   remota. */
+  char pad[20];	/* Reservado para uso futuro.  */
+};
+
+/* Para compatibilidad hacia atrás.  */
+#define ut_name ut_user
+#ifndef _NO_UT_TIME
+#define ut_time ut_tv.tv_sec
+#endif
+#define ut_xtime ut_tv.tv_sec
+#define ut_addr ut_addr_v6[0]
+.sp
+.fi
+.RE
+Esta estructura nos da el nombre del fichero especial asociado con el
+terminal del usuario, el login del usuario y el momento de inicio de sesión
+en el formato de
+.IR time (2).
+Los campos del tipo cadena terminan en \fB'\e0'\fP si son más cortos que el
+tamaño del campo.
+.PP
+
+Las primeras entradas que se crean siempre proceden del procesamiento de
+\fIinittab\fP(5) por parte de \fIinit\fP(8). Sin embargo, antes de que se
+procese una entrada, \fIinit\fP(8) limpia utmp asignando a \fBut_type\fP el
+valor \fBDEAD_PROCESS\fP, limpiando los campos \fBut_user\fP, \fBut_host\fP
+y \fBut_time\fP con caracteres nulos para cada registro cuyo campo
+\fBut_type\fP no sea \fBDEAD_PROCESS\fP ni \fBRUN_LVL\fP y donde no exista
+ningún proceso con PID \fBut_pid\fP. Si no se puede encontrar ningún
+registro vacío con el \fBut_id\fP que se necesita, init crea uno nuevo.
+Asigna un valor a \fBut_id\fP a partir del inittab, a \fBut_pid\fP y a
+\fBut_time\fP a partir de los valores actuales y asigna a \fBut_type\fP
+el valor \fBINIT_PROCESS\fP.
+.PP
+\fIgetty\fP(8) busca la entrada por el pid, cambia el valor de \fBut_type\fP
+a \fBLOGIN_PROCESS\fP, cambia \fBut_time\fP, asigna un valor a \fBut_line\fP
+y espera a que se establezca la conexión.  \fIlogin\fP(8), después de que se
+haya autenticado un usuario, cambia el valor de \fBut_type\fP a
+\fBUSER_PROCESS\fP, cambia \fBut_time\fP y asigna un valor a \fBut_host\fP y
+a \fBut_addr\fP.  Dependiendo de \fIgetty\fP(8) y \fIlogin\fP(8), los
+registros se pueden buscar por \fBut_line\fP en lugar de por \fBut_pid\fP,
+como es preferible.
+.PP
+Cuando \fIinit\fP(8) encuentra que un proceso ha terminado, busca su entrada
+utmp por \fBut_pid\fP, asinga a \fBut_type\fP el valor \fBDEAD_PROCESS\fP y
+limpia \fBut_user\fP, \fBut_host\fP y \fBut_time\fP con bytes nulos.
+.PP
+\fIxterm\fP(1) y otros emuladores de terminal crean directamente un registro
+\fBUSER_PROCESS\fP y generan \fBut_id\fP utilizando las últimas dos letras
+de \fB/dev/ttyp\fP\fI%c\fP o utilizando \fBp\fP\fI%d\fP para
+\fB/dev/pts/\fP\fI%d\fP. Si encuentran un \fBDEAD_PROCESS\fP para este id,
+lo reutilizan, en caso contrario, crean una nueva entrada. Si pueden, las
+marcarán como \fBDEAD_PROCESS\fP al terminar y se aconseja que también
+rellenen con nulos los campos \fBut_line\fP, \fBut_time\fP, \fBut_user\fP
+y \fBut_host\fP.
+.PP
+\fIxdm\fP(8) no debe crear un registro utmp, ya que no hay un terminal
+asignado. Si se le perimte crear uno provocará problemas del tipo:
+finger: can not stat /dev/machine.dom.  En cambio, debe crear entradas
+wtmp, tal como lo hace \fIftpd\fP(8).
+.PP
+\fItelnetd\fP(8) establece una entrada \fBLOGIN_PROCESS\fP y deja el resto a
+\fIlogin\fP(8), como es habitual.  Después de que termine la sesión de
+telnet, \fItelnetd\fP(8) limpia utmp de la forma descrita.
+.PP
+El fichero\fBwtmp\fP registra todos los inicios y finales de sesión. Su
+formato es como el de \fButmp\fP salvo ue un nombre nulo de usuario indica
+el fin de sesión en la terminal asociada. Además, el nombre de terminal 
+\fB"~"\fP con nombre de usuario \fB"shutdown"\fP r \fB"reboot"\fP indica un
+cierre (shutdown) o rearranque del sistema y el par de nombres de terminal
+\fB"|"\fP/\fB"}"\fP registra la fecha antigua/nueva del sistema cuando la
+cambia \fIdate\fP(1).  \fBwtmp\fP es mantenido por \fIlogin\fP(1), e
+\fIinit\fP(1) y algunas versiones de \fIgetty\fP(1). Ninguno de estos
+programas crea el fichero, por lo que si se borra se desactiva el
+mantenimiento de los registros.
+.SH FICHEROS
+/var/run/utmp
+.br
+/var/log/wtmp
+.SH "CONFORME A"
+Las entradas utmp de Linux no se corresponden ni con las de v7/BSD ni con
+las de SYSV: son una mezcla de ambos tipos. v7/BSD tiene menos campos; lo
+más importante es la falta de \fBut_type\fP, lo que provocará que los
+programas nativos de v7/BSD muestren (por ejemplo) entradas truncadas o de
+sesión. Además, no existe ningún fichero de configuración que asigne
+entradas a las sesiones. BSD lo hace de esta manera por la ausencia de los
+campos \fBut_id\fP. En Linux (como en SYSV), el campo \fBut_id\fP de un
+registro nunca cambiará una vez que se le haya asignado un valor, lo que
+reserva esa entrada sin necesidad de un fichero de configuración. Limpiar el
+campo \fBut_id\fP puede producir condiciones de carrera que conduzcan a
+entradas utmp corruptas y a agujeros de seguridad potenciales. La semántica
+de SYSV no necesita la limpieza de los campos mencionados anteriormente
+rellenándolos con bytes nulos, pero esto permite ejecutar muchos programas
+que suponen una semántica BSD y que no modifican utmp. Linux usa las
+convenciones de BSD para los contenidos de las líneas, tal y como se ha
+documentado más arriba.
+.PP
+SYSV sólo usa el campo de tipo para marcarlas y para grabar en el campo de
+línea mensajes informativos tales como, por ejemplo, 
+\& \fB"new time"\fP. \fBUT_UNKNOWN\fP parece ser un invento de
+Linux. SYSV no tiene los campos
+\fBut_host\fP ni \fBut_addr\fP.
+.PP
+A diferencia de otros sistemas, donde el
+registro de información en utmp se puede desabilitar borrando el fichero, en
+Linux este fichero siempre debe existir. Si quiere deshabilitar \fIwho\fP(1)
+elimine el permiso de lectura de utmp de los permisos correspondientes a
+"otros".
+.PP
+Note que la estructura utmp de libc5 ha cambiado en libc6. Como consecuencia
+de esto, los binarios que usen la antigua estructura de libc5 corromperán
+.IR /var/run/utmp " y/o " /var/log/wtmp .
+Los sistemas Debian incluyen una libc5 parcheada que usa el nuevo formato de
+utmp. El problema todavía existe con wtmp ya que se utiliza directamente en
+libc5.
+.SH FALLOS
+Esta página de manual se basa en la de libc5; ahora las cosas pueden
+funcionar de forma diferente.
+.SH RESTRICCIONES
+El formato del fichero es dependiente de la máquina, por lo que se
+recomienda que sea procesado únicamente en la arquitectura de máquina donde
+se creó.
+.SH "VÉASE TAMBIÉN"
+.BR ac (1),
+.BR date (1),
+.BR getutent (3),
+.BR init (8),
+.BR last (1),
+.BR login (1),
+.BR updwtmp (3),
+.BR who (1)

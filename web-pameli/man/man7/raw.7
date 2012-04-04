@@ -1,0 +1,272 @@
+'\" t
+.\" Don't change the first line, it tells man that we need tbl.
+.\" This man page is Copyright (C) 1999 Andi Kleen <ak@muc.de>.
+.\" Permission is granted to distribute possibly modified copies
+.\" of this page provided the header is included verbatim,
+.\" and in case of nontrivial modification author and date
+.\" of the modification is added to the header.
+.\" Please send bug reports, corrections and suggestions for improvements to 
+.\" <ak@muc.de>
+.\" $Id: raw.7,v 1.1.1.1 2001/11/25 17:34:49 carlos Exp $
+.\"
+.\" Translated on Sat Jul 3 1999 by Juan Piernas <piernas@ditec.um.es>
+.\" Translation revised Fri 21 2000 by Juan Piernas <piernas@ditec.um.es>
+.\"
+.TH RAW  7 "2 octubre 1998" "Página man de Linux" "Manual del Programador de Linux"
+.SH NOMBRE
+raw, SOCK_RAW \- Conectores directos (raw) IPv4 de Linux
+.SH SINOPSIS
+.B #include <sys/socket.h>
+.br
+.B #include <netinet/in.h>
+.br
+.BI "raw_socket = socket(PF_INET, SOCK_RAW, int " protocol ); 
+
+.SH DESCRIPCIÓN
+Los conectores directos permiten implementar nuevos protocolos IPv4 en el
+espacio de usuario. Un conector directo recibe o envía el datagrama crudo
+sin incluir cabeceras del nivel de enlace.
+
+La capa IPv4 genera una cabecera IP cuando se envía un paquete, a menos que
+se active la opción
+.B IP_HDRINCL
+en el conector.
+Cuando se activa, el paquete debe contener una cabecera IP. En la recepción,
+la cabecera IP siempre está incluida en el paquete.
+
+Sólo los procesos con un identificador de usuario efectivo de 0 o la
+capacidad
+.B CAP_NET_RAW
+pueden abrir conectores directos.
+
+Todos los paquetes o errores cuyo protocolo coinciden con el número
+.I protocol
+especificado por el conector directo, se pasan a este conector. Para una
+lista de los protocolos permitidos vea los números asignados en RFC1700 y
+.BR getprotobyname (3).
+
+Un protocolo
+.B IPPROTO_RAW
+implica que 
+.B IP_HDRINCL 
+está activa y recibe todos los protocolos IP. El envío no está permitido.
+
+.TS
+tab(:) allbox;
+c s
+l l.
+Campos de cabecera IP modificados en el envío por IP_HDRINCL
+Suma de comprobación IP:Siempre se rellena.
+Dirección fuente:Se rellena cuando es cero.
+Identificador del paquete:Se rellena cuando es cero.
+Longitud total:Siempre se rellena.
+.TE
+.PP
+
+Si se especifica 
+.B IP_HDRINCL
+y la cabecera IP tiene una dirección de destino distinta de cero, la
+dirección de destino del conector se utiliza para enrutar el paquete.
+Cuando se especifica
+.BR MSG_DONTROUTE ,
+la dirección de destino debe referirse a una interfaz local, de lo
+contrario, se realiza una búsqueda en la tabla de
+enrutamiento, aunque se ignoran las rutas que se dirigen a enrutadores.
+
+Si no se activa
+.BR IP_HDRINCL ,
+se pueden configurar las opciones de la cabecera IP de los conectores
+directos con
+.BR setsockopt (2).
+Vea
+.BR ip (7) 
+para más información.
+
+En Linux 2.2 todas las opciones y campos de las cabeceras IP se pueden
+configurar usando las opciones de los conectores IP. Esto significa que los
+conectores directos son usualmente necesarios sólo para protocolos nuevos o
+protocolos que no tienen una interfaz de usuario (como ICMP).
+
+Cuando se recibe un paquete, se pasa a cualquier conector directo que haya
+sido asociado a su protocolo antes de que sea pasado al manejador de
+cualquier otro protocolo (por ejemplo, los módulos de protocolo del núcleo).
+
+.SH FORMATO DE LAS DIRECCIONES
+Los conectores directos usan la estructura de direcciones estándar
+.B sockaddr_in 
+definida en
+.BR ip (7).
+El campo
+.B sin_port
+se podría usar para especificar el número de protocolo IP,
+pero en Linux 2.2 se ignora al enviar y siempre debería valer 0 (vea
+FALLOS).
+Para los paquetes de entrada, a
+.B sin_port
+se le asigna el protocolo del paquete.
+Vea el fichero cabecera
+.B <netinet/in.h>
+para protocolos IP válidos.
+
+.SH OPCIONES DE LOS CONECTORES
+Las opciones de los conectores directos se pueden configurar con
+.BR setsockopt (2)
+y leer con
+.BR getsockopt (2),
+pasando la opción de familia
+.IR SOL_RAW .
+
+.TP
+.B ICMP_FILTER
+Activa un filtro especial para los conectores directos asociados al
+protocolo
+.BR IPPROTO_ICMP .
+El valor tiene un bit activo para cada tipo de mensaje ICMP que debe
+filtrarse. Por defecto, no se filtra ningún mensaje ICMP.
+
+.PP
+Además, se soportan todas las opciones
+.B SOL_IP
+de
+.BR ip (7)
+válidas.
+
+.SH NOTAS
+Los conectores directos fragmentan un paquete cuando su longitud total
+excede la MTU de la interfaz (no obstante, vea FALLOS). Una alternativa más
+rápida y favorable para la red es implementar el descubrimiento del MTU de
+la ruta como se describe en la sección
+.B IP_PMTU_DISCOVER 
+de
+.BR ip (7).
+
+Se puede asociar un conector directo a una dirección local específica usando
+la llamada
+.BR bind (2).
+Si no está asociado, se reciben todos los paquetes con el protocolo IP
+especificado. Además, se puede asociar un conector directo a un dispositivo
+de red específico usando
+.BR SO_BINDTODEVICE .
+Vea   
+.BR socket (7).
+
+Un conector
+.B IPPROTO_RAW
+es sólo de envío. Si verdaderamente quiere recibir todos los paquetes IP,
+use un conector
+.BR packet (7)
+con el protocolo
+.BR ETH_P_IP .
+Dése cuenta que, a diferencia de los conectores directos, los conectores de
+paquete no reensamblan fragmentos IP.
+
+Si quiere recibir todos los paquetes ICMP para un conector de datagramas,
+normalmente es mejor usar
+.B IP_RECVERR
+en ese conector particular. Vea
+.BR ip (7).
+
+Los conectores directos pueden interceptar todos los protocolos IP de Linux,
+incluso protocolos como ICMP o TCP que poseen un módulo de protocolo dentro
+del núcleo. En este caso, los paquetes se pasan tanto al módulo del núcleo
+como al conector (o conectores) directo. No se debería confiar en esto en
+programas transportables ya que muchas otras implementaciones de conectores
+BSD tienen limitaciones aquí.
+
+Linux nunca cambia las cabeceras pasadas por el usuario (salvo para rellenar
+algunos campos de valor 0 como se ha descrito en
+.BR IP_HDRINCL ).
+Esto es diferente de muchas otras implementaciones de conectores directos.
+
+Generalmente, los conectores directos son poco transportables y deberían
+evitarse en programas destinados a ser transportables.
+
+En el envío a través de conectores directos se debería tomar el protocolo IP
+de
+.B sin_port.
+Esta capacidad se perdió en Linux 2.2. La forma de solucionar esto es usar
+.BR IP_HDRINCL .
+.SH MANEJO DE ERRORES
+
+Sólo se pasan al usuario los errores generados por la red cuando el conector
+está conectado o está activa la opción
+.BR IP_RECVERR .
+Para conectores conectados, sólo se pasan
+.B EMSGSIZE
+y
+.B EPROTO
+por compatibilidad. Con
+.B IP_RECVERR
+todos los errores de red se guardan en la cola de errores.
+.SH ERRORES
+.TP
+.B EMSGSIZE
+Paquete demasiado grande. O bien el descubrimiento del MTU de la ruta está
+activo (la opción
+.B IP_PMTU_DISCOVER
+de los conectores) o bien el tamaño del paquete excede el máximo tamaño de
+64KB permitido por IPv4.
+.TP
+.B EACCES
+El usuario ha intentado enviar a una dirección de difusión sin tener activa
+la opción de difusión en el conector.
+.TP
+.B EPROTO
+Ha llegado un error ICMP informando de un problema de parámetros.
+.TP
+.B EFAULT
+Se ha pasado una dirección de memoria inválida.
+.TP
+.B EOPNOTSUPP
+Se ha pasado a la llamada socket una opción inválida (como
+.BR MSG_OOB ).
+.TP
+.B EINVAL
+Argumento inválido.
+.TP
+.B EPERM
+El usuario no tiene permiso para abrir conectores directos. Sólo los
+procesos con un identificador de usuario efectivo de 0 o el atributo
+.B CAP_NET_RAW 
+pueden hacerlo.
+
+.SH VERSIONES
+.B IP_RECVERR 
+y 
+.B ICMP_FILTER
+son nuevos en la versión 2.2 de Linux. Ambos son extensiones de Linux y no
+deberían usarse en programas transportables.
+
+La versión 2.0 de Linux activaba cierta compatibilidad fallo a fallo con BSD
+en el código de los conectores directos cuando se activaba la opción
+SO_BSDCOMPAT. Ésto se ha eliminado en la versión 2.2.
+
+.SH FALLOS
+No se han descrito las extensiones de proxy transparente.
+
+Cuando se activa la opción
+.BR IP_HDRINCL ,
+los datagramas no se fragmentan y están limitados por la MTU de la interfaz.
+Ésta es una limitación de la versión 2.2 de Linux.
+
+La posibilidad de especificar el protocolo IP en
+.B sin_port
+durante el envío desapareció en Linux 2.2. Siempre se usa el protocolo al que
+se enlazó el conector o el que se especificó en la llamada inicial a
+.BR socket (2).
+.SH AUTOR
+Esta página de manual fue escrita por Andi Kleen. 
+
+.SH VÉASE TAMBIÉN
+.BR ip (7),
+.BR socket (7),
+.BR recvmsg (2),
+.BR sendmsg (2).
+.PP
+.B RFC1191 
+para el descubrimiento del MTU de la ruta.
+
+.B RFC791 
+y el fichero cabecera
+.B <linux/ip.h>
+para el protocolo IP.

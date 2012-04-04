@@ -1,0 +1,519 @@
+  <chapter id="debugging">
+    <title>Debug Logging</title>
+
+      <para>
+        Written by &name-dimitrie-paun; <email>&email-dimitrie-paun;</email>, 28 Mar 1998
+      </para>
+      <para>
+        (Extracted from <filename>wine/documentation/debug-msgs</filename>)
+      </para>
+
+      <note>
+        <para>
+          It is possible to turn on and of debugging output from
+          within the debuger using the set command. Please see the
+          WineDbg Command Reference section for how to do this.
+        </para>
+      </note>
+
+      <important>
+        <para>
+          At the end of the document, there is a "Style Guide" for
+          debugging messages. Please read it.
+        </para>
+      </important>
+
+      <sect1 id="dbg-classes">
+        <title>Debugging classes</title>
+
+        <para>
+          There are 4 types (or classes) of messages:
+        </para>
+        <variablelist>
+          <varlistentry>
+            <term><literal>FIXME</literal></term>
+            <listitem>
+              <para>
+                Messages in this class are meant to signal unimplemented
+		features, known bugs, etc. They serve as a constant and
+		active reminder of what needs to be done.
+              </para>
+              <para>Examples: stubs, semi-implemented features, etc.</para>
+            </listitem>
+          </varlistentry>
+          <varlistentry>
+            <term><literal>ERR</literal></term>
+            <listitem>
+              <para>
+                Messages in this class relate to serious errors in
+                Wine. This sort of messages signal an inconsistent
+		internal state, or more general, a condition which
+		should never happen by design.
+              </para>
+              <para>
+                Examples: unexpected change in internal state, etc.
+              </para>
+            </listitem>
+          </varlistentry>
+          <varlistentry>
+            <term><literal>WARN</literal></term>
+            <listitem>
+              <para>
+                These are warning messages. You should report a
+                warning when something unwanted happen but the
+                function behaves properly. That is, output a warning
+                when you encounter something unexpected (ex: could not
+                open a file) but the function deals correctly with the
+                situation (that is, according to the docs). If you do
+                not deal correctly with it, output a fixme.
+              </para>
+              <para>
+                Examples: fail to access a resource required by the app.
+              </para>
+            </listitem>
+          </varlistentry>
+          <varlistentry>
+            <term><literal>TRACE</literal></term>
+            <listitem>
+              <para>
+                These are detailed debugging messages that are mainly
+                useful to debug a component. These are usually turned
+                off.
+              </para>
+              <para>
+                Examples: everything else that does not fall in one of
+                the above mentioned categories and the user does not
+                need to know about it.
+              </para>
+            </listitem>
+          </varlistentry>
+        </variablelist>
+      </sect1>
+
+      <sect1 id="dbg-channels">
+        <title>Debugging channels</title>
+
+        <para>
+          To better manage the large volume of debugging messages that
+	  Wine can generate, we divide them also on a component basis.
+          Each component is assigned a debugging channel. The
+          identifier of the channel must be a valid C identifier but
+          note that it may also be a reserved word like
+          <type>int</type> or <type>static</type>.
+        </para>
+        <para>
+          Examples of debugging channels:
+          <simplelist type="inline">
+            <member><literal>reg</literal></member>
+            <member><literal>updown</literal></member>
+            <member><literal>string</literal></member>
+          </simplelist>
+        </para>
+        <para>
+          We will refer to a generic channel as <literal>xxx</literal>.
+        </para>
+      </sect1>
+
+      <sect1 id="dbg-using">
+        <title>How to use it</title>
+
+        <para>
+	Typically, a file contains code pertaining to only one component,
+	and as such, there is only one channel to output to. To simplify
+	usage, you can declare that channel at the beginning of the file,
+	and simply write FIXMEs, ERRs, etc. as such:
+
+        <programlisting>
+#include "wine/debug.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(xxx);
+...
+
+    FIXME("some unimplemented feature", ...);
+...
+    if (zero != 0)
+        ERR("This should never be non-null: %d", zero);
+...
+        </programlisting>
+	</para>
+	<para>
+	  I rare situations there is a need to output to more then one
+	  debug channel per file. In such cases, you need to declare
+	  all the additional channels at the top of the file, and
+	  use the _-version of the debugging macros:
+        <programlisting>
+#include "wine/debug.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(xxx);
+WINE_DECLARE_DEBUG_CHANNEL(yyy);
+WINE_DECLARE_DEBUG_CHANNEL(zzz);
+...
+
+    FIXME("this one goes to xxx channel");
+...
+    FIXME_(yyy)("Some other msg for the yyy channel");
+...
+    WARN_(zzz)("And yet another msg on another channel!");
+...
+        </programlisting>
+	</para>
+
+        <para>
+          If you need to declare a new debugging channel, simply use it in
+          your code. It will be picked up automatically by the build process.
+        </para>
+
+      </sect1>
+
+      <sect1 id="dbg-checking">
+        <title>Are we debugging?</title>
+
+        <para>
+          To test whether the debugging output of class
+          <literal>yyy</literal> on channel <literal>xxx</literal> is
+          enabled, use:
+        </para>
+        <screen>
+TRACE_ON  to test if TRACE is enabled
+WARN_ON   to test if WARN is enabled
+FIXME_ON  to test if FIXME is enabled
+ERR_ON    to test if ERR is enabled
+        </screen>
+        <para>
+          Examples:
+        </para>
+        <programlisting>
+if(TRACE_ON(atom)){
+  ...blah...
+}
+        </programlisting>
+
+        <note>
+          <para>
+            You should normally need to test only if
+            <literal>TRACE_ON</literal>. At present, none of the other
+            3 tests (except for <literal>ERR_ON</literal> which is
+            used only once!) are used in Wine.
+          </para>
+        </note>
+      </sect1>
+
+      <sect1 id="dbg-resource-ids">
+        <title>Resource identifiers</title>
+
+        <para>
+          Resource identifiers can be either strings or numbers. To
+          make life a bit easier for outputting these beasts (and to
+          help you avoid the need to build the message in memory), I
+          introduced a new function called <function>debugres</function>.
+        </para>
+        <para>
+          The function is defined in <filename>wine/debug.h</filename>
+          and has the following prototype:
+        </para>
+        <programlisting>
+LPSTR debugres(const void *id);
+        </programlisting>
+        <para>
+          It takes a pointer to the resource id and returns a nicely
+          formatted string of the identifier (which can be a string or
+	  a number, depending on the value of the high word).
+	  Numbers are formatted as such:
+        </para>
+        <programlisting>
+#xxxx
+        </programlisting>
+        <para>
+	  while strings as:
+        </para>
+        <programlisting>
+'some-string'
+        </programlisting>
+        <para>
+	  Simply use it in your code like this:
+        </para>
+        <programlisting>
+#include "wine/debug.h"
+
+...
+
+   TRACE("resource is %s", debugres(myresource));
+        </programlisting>
+      </sect1>
+
+      <sect1 id="dbg-param">
+        <title>The <parameter>--debugmsg</parameter> command line option</title>
+
+        <para>
+          The <parameter>--debugmsg</parameter> command line
+          option controls the output of the debug messages.
+	  It has the following syntax:
+	  <parameter>--debugmsg [yyy]#xxx[,[yyy1]#xxx1]*</parameter>
+        </para>
+        <itemizedlist>
+          <listitem>
+            <para>
+	      where
+              <literal>#</literal> is either <literal>+</literal> or
+              <literal>-</literal>
+            </para>
+          </listitem>
+          <listitem>
+            <para>
+              when the optional class argument (<literal>yyy</literal>)
+              is not present, then the statement will
+              enable(<literal>+</literal>)/disable(<literal>-</literal>)
+              all messages for the given channel (<literal>xxx</literal>)
+              on all classes. For example:
+            </para>
+            <programlisting>
+--debugmsg +reg,-file
+            </programlisting>
+            <para>
+              enables all messages on the <literal>reg</literal>
+              channel and disables all messages on the
+              <literal>file</literal> channel.
+            </para>
+          </listitem>
+          <listitem>
+            <para>
+              when the optional class argument (<literal>yyy</literal>)
+              is present,  then the statement will enable
+              (<literal>+</literal>)/disable(<literal>-</literal>)
+              messages for the given channel (<literal>xxx</literal>)
+              only on the given class. For example:
+            </para>
+            <programlisting>
+--debugmsg trace+reg,warn-file
+            </programlisting>
+            <para>
+              enables trace messages on the <literal>reg</literal>
+              channel and disables warning messages on the
+              <literal>file</literal> channel.
+            </para>
+          </listitem>
+          <listitem>
+            <para>
+              also, the pseudo-channel all is also supported and it
+              has the  intuitive semantics:
+            </para>
+            <screen>
+    --debugmsg +all      -- enables all debug messages
+    --debugmsg -all      -- disables all debug messages
+    --debugmsg yyy+all   -- enables debug messages for class yyy on all
+                           channels.
+    --debugmsg yyy-all   -- disables debug messages for class yyy on all
+                           channels.
+            </screen>
+            <para>
+              So, for example:
+            </para>
+            <screen>
+    --debugmsg warn-all  -- disables all warning messages.
+            </screen>
+          </listitem>
+        </itemizedlist>
+
+        <para>
+          Also, note that at the moment:
+        </para>
+        <itemizedlist>
+          <listitem>
+            <para>the <literal>FIXME</literal> and <literal>ERR</literal>
+              classes are enabled by default</para>
+          </listitem>
+          <listitem>
+            <para>the <literal>TRACE</literal> and
+              <literal>WARN</literal> classes are disabled by
+              default</para>
+          </listitem>
+        </itemizedlist>
+      </sect1>
+
+      <sect1 id="dbg-compiling">
+        <title>Compiling Out Debugging Messages</title>
+
+        <para>
+          To compile out the debugging messages, provide
+          <command>configure</command> with the following options:
+        </para>
+        <screen>
+    --disable-debug      -- turns off TRACE, WARN, and FIXME (and DUMP).
+    --disable-trace      -- turns off TRACE only.
+        </screen>
+        <para>
+          This will result in an executable that, when stripped, is
+          about 15%-20% smaller.  Note, however, that you will not be
+          able to effectively debug Wine without these messages.
+        </para>
+        <para>
+          This feature has not been extensively tested--it may subtly
+          break some things.
+        </para>
+      </sect1>
+
+      <sect1 id="dbg-notes">
+        <title>A Few Notes on Style</title>
+
+        <para>
+          This new scheme makes certain things more consistent but
+          there is still room for improvement by using a common style
+          of debug messages. Before I continue, let me note that the
+          output format is the following:
+        </para>
+        <screen>
+yyy:xxx:fff &lt;message>
+
+where:
+  yyy = the class (fixme, err, warn, trace)
+  xxx = the channel (atom, win, font, etc)
+  fff = the function name
+        </screen>
+        <para>
+          these fields are output automatically. All you have to
+          provide is the &lt;message> part.
+        </para>
+        <para>
+          So here are some ideas:
+        </para>
+
+        <itemizedlist>
+          <listitem>
+            <para>do NOT include the name of the function: it is included automatically</para>
+          </listitem>
+          <listitem>
+            <para>
+              if you want to output the parameters of the function, do
+              it as the first thing and include them in parentheses,
+              like this:
+              <programlisting>
+TRACE("(%d, %p, ...)\n", par1, par2, ...);
+              </programlisting>
+            </para>
+          </listitem>
+          <listitem>
+            <para>
+              for stubs, you should output a <literal>FIXME</literal>
+              message. I suggest this style:
+              <programlisting>
+FIXME("(%x, %d, ...): stub\n", par1, par2, ...);
+              </programlisting>
+            </para>
+          </listitem>
+          <listitem>
+            <para>
+              try to output one line per message. That is, the format
+              string should contain only one <literal>\n</literal> and it
+              should always appear at the end of the string. (there are
+              many reasons  for this requirement, one of them is that
+              each debug macro adds things to the beginning of the line)
+            </para>
+          </listitem>
+          <listitem>
+            <para>
+              if you want to name a value, use <literal>=</literal> and
+              NOT <literal>:</literal>. That is, instead of saying:
+              <programlisting>
+FIXME("(fd: %d, file: %s): stub\n", fd, name);
+              </programlisting>
+              say:
+              <programlisting>
+FIXME("(fd=%d, file=%s): stub\n", fd, name);
+              </programlisting>
+              use <literal>:</literal> to separate categories.
+            </para>
+          </listitem>
+          <listitem>
+            <para>
+              try to avoid the style:
+              <programlisting>
+FIXME(xxx, "(fd=%d, file=%s)\n", fd, name);
+              </programlisting>
+              instead use:
+              <programlisting>
+FIXME(xxx, "(fd=%d, file=%s): stub\n", fd, name);
+              </programlisting>
+              The reason is that if you want to <command>grep</command>
+              for things, you would search for <literal>FIXME</literal>
+              but in the first case there is no additional information
+              available, where in the second one, there is (e.g. the word
+              stub)
+            </para>
+          </listitem>
+          <listitem>
+            <para>
+              if you output a string s that might contain control
+              characters, or if <parameter>s</parameter> may be
+              <literal>NULL</literal>, use
+              <function>debugstr_a</function> (for ASCII strings, or
+              <function>debugstr_w</function> for Unicode strings) to
+              convert <parameter>s</parameter> to a C string, like  this:
+              <programlisting>
+HANDLE32 WINAPI YourFunc(LPCSTR s)
+{
+    FIXME("(%s): stub\n", debugstr_a(s));
+}
+              </programlisting>
+            </para>
+          </listitem>
+          <listitem>
+            <para>
+              if you want to output a resource identifier, use debugres to
+              convert it to a string first, like this:
+              <programlisting>
+HANDLE32 WINAPI YourFunc(LPCSTR res)
+{
+    FIXME("(res=%s): stub\n", debugres(s));
+}
+              </programlisting>
+              if the resource identifier is a <type>SEGPTR</type>, use
+              <function>PTR_SEG_TO_LIN</function> to get a
+              liner pointer first:
+              <programlisting>
+HRSRC16 WINAPI FindResource16( HMODULE16 hModule, SEGPTR name, SEGPTR type )
+{
+[...]
+    TRACE(resource, "module=%04x name=%s type=%s\n",
+		 hModule, debugres(PTR_SEG_TO_LIN(name)),
+		 debugres(PTR_SEG_TO_LIN(type)) );
+[...]
+}
+              </programlisting>
+            </para>
+          </listitem>
+          <listitem>
+            <para>
+              for messages intended for the user (specifically those that
+              report errors in the wine config file), use the
+              <literal>MSG</literal> macro. Use it like a
+              <function>printf</function>:
+              <programlisting>
+MSG( "Definition of drive %d is incorrect!\n", drive );
+              </programlisting>
+              However, note that there are <emphasis>very</emphasis> few
+              valid uses of this macro. Most messages are debugging
+              messages, so chances are you will not need to use this
+              macro. Grep the source to get an idea where it is
+              appropriate to use it.
+            </para>
+          </listitem>
+          <listitem>
+            <para>
+              For structure dumps, use the <function>DUMP</function>
+              macro. Use it like a <function>printf</function>, just like
+              the <literal>MSG</literal> macro. Similarly, there are only
+              a few valid uses of this macro. Grep the source to see when
+              to use it.
+            </para>
+          </listitem>
+        </itemizedlist>
+      </sect1>
+
+  </chapter>
+
+<!-- Keep this comment at the end of the file
+Local variables:
+mode: sgml
+sgml-parent-document:("wine-doc.sgml" "set" "book" "part" "chapter" "")
+End:
+-->

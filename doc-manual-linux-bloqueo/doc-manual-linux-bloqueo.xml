@@ -1,0 +1,1254 @@
+<?xml version='1.0' encoding='ISO-8859-1'?>
+<!DOCTYPE book PUBLIC "-//OASIS//DTD DocBook XML V4.2//EN" 
+              "http://www.oasis-open.org/docbook/xml/4.2/docbookx.dtd">
+<book id="LKLockingGuide" lang="es">
+ <bookinfo>
+  <title>Guía Informal al Bloqueo</title>
+  
+  <authorgroup>
+   <author>
+    <firstname>Paul</firstname>
+    <othername>Rusty</othername>
+    <surname>Russell</surname>
+    <affiliation>
+     <address>
+      <email>rusty@rustcorp.com.au</email>
+     </address>
+    </affiliation>
+   </author>
+  </authorgroup>
+
+  <copyright>
+   <year>2000</year>
+   <holder>Paul Russell</holder>
+  </copyright>
+
+  <legalnotice>
+
+<para>
+     Esta documentación es software libre; puedes redistrubuirla
+     y/o modificarla bajo los términos de la GNU General Public
+     License tal como ha sido publicada por la Free Software
+     Foundation; por la versión 2 de la licencia, o (a tu elección)
+     por cualquier versión posterior.
+   </para>
+
+   <para>
+    Este programa es distribuido con la esperanza de que sea útil,
+    pero SIN NINGUNA GARANTIA; sin incluso la garantía implicada
+    de COMERCIABILIDAD o ADECUACCION PARA UN PROPOSITO PARTICULAR.
+    Para más detalles refiérase a la GNU General Public License.
+   </para>
+
+   <para>
+     Debería de haber recibido una copia de la GNU General Public
+     License con este programa; si no es así, escriba a la Free
+     Software Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+     MA 02111-1307 USA
+   </para>
+
+   <para>
+     Para más detalles véase el archivo COPYING en la
+     distribución fuente de Linux.
+   </para>
+  </legalnotice>
+ </bookinfo>
+
+ <toc></toc>
+  <chapter id="intro">
+   <title>Introducción</title>
+   <para>
+     Bienvenido, a la Guía Informal de Bloqueo de Núcleo
+     de Rusty. Este documento describe los sistemas de bloqueo en el núcleo Linux como
+     aproximación al 2.4.
+   </para>
+   <para>
+     Parece que es aquí donde tiene que estar <firstterm
+     linkend="gloss-smp"><acronym>SMP</acronym> </firstterm>;
+     por lo tanto todo el mundo que esté en estos días
+     hackeando el núcleo necesita conocer los fundamentos de
+     la concurrencia y el bloqueos para SMP.
+   </para>
+
+   <sect1 id="races">
+    <title>El Problema con la Concurrencia</title>
+    <para>
+      (Sáltate esto si sabes lo que es una Condición de Carrera (Race Condition).
+    </para>
+    <para>
+      En un programa normal, puedes incrementar un contador de la forma:
+    </para>
+    <programlisting>
+      contador_muy_importante++;
+    </programlisting>
+
+    <para>
+      Esto es lo que esperarías que pasase:
+    </para>
+
+    <table>
+     <title>Resultados Esperados</title>
+
+
+     <tgroup cols="2" align="left">
+
+      <thead>
+       <row>
+        <entry>Instancia 1</entry>
+        <entry>Instancia 2</entry>
+       </row>
+      </thead>
+
+      <tbody>
+       <row>
+        <entry>lee contador_muy_importante (5)</entry>
+        <entry></entry>
+       </row>
+       <row>
+        <entry>añade 1 (6)</entry>
+        <entry></entry>
+       </row>
+       <row>
+        <entry>escribe contador_muy_importante (6)</entry>
+        <entry></entry>
+       </row>
+       <row>
+        <entry></entry>
+        <entry>lee contador_muy_importante (6)</entry>
+       </row>
+       <row>
+        <entry></entry>
+        <entry>añade 1 (7)</entry>
+       </row>
+       <row>
+        <entry></entry>
+        <entry>escribe contador_muy_importante (7)</entry>
+       </row>
+      </tbody>
+
+     </tgroup>
+    </table>
+
+    <para>
+     Esto es lo que quizás pase:
+    </para>
+
+    <table>
+     <title>Resultados Posibles</title>
+
+     <tgroup cols="2" align="left">
+      <thead>
+       <row>
+        <entry>Instancia 1</entry>
+        <entry>Instancia 2</entry>
+       </row>
+      </thead>
+
+      <tbody>
+       <row>
+        <entry>lee contador_muy_importante (5)</entry>
+        <entry></entry>
+       </row>
+       <row>
+        <entry></entry>
+        <entry>lee contador_muy_importante (5)</entry>
+       </row>
+       <row>
+        <entry>añade 1 (6)</entry>
+        <entry></entry>
+       </row>
+       <row>
+        <entry></entry>
+        <entry>añade 1 (6)</entry>
+       </row>
+       <row>
+        <entry>escribe contador_muy_importante (6)</entry>
+        <entry></entry>
+       </row>
+       <row>
+        <entry></entry>
+        <entry>escribe contador_muy_importante (6)</entry>
+       </row>
+      </tbody>
+     </tgroup>
+    </table>
+
+    <para>
+      Este solapamiento, donde lo que sucede depende
+      del tiempo relativo de múltiples tareas, es llamado condición
+      de carrera. La parte de código que contenie al punto de concurrencia
+      se llamado región crítica.  Y especialmente desde que Linux se
+      empezó a ejecutar en máquinas SMP, se ha convertido en uno de
+      los puntos más grandes del diseño e implementación del núcleo. 
+    </para>
+    <para>
+      La solución es reconocer cuando ocurren estos accesos simultáneos, 
+      y usar bloqueos para asegurar que sólo una instancia puede entrar
+      en la región crítica en cada instante. Hay muchas primitivas amigables
+      en el núcleo Linux que te ayudan a hacer esto. Y entonces hay
+      primitivas no amigables, pero yo intento que no existan.
+    </para>
+   </sect1>
+  </chapter>
+
+  <chapter id="locks">
+   <title>Dos Tipos Principales de Bloqueos del Núcleo: Spinlocks y Semáforos</title>
+
+   <para>
+     Hay dos tipos principales de bloqueos del núcleo. El tipo fundamental
+     es el spinlock
+     (<filename class="headerfile">include/asm/spinlock.h</filename>), 
+     que es un bloqueo muy simple receptáculo-simple; si no puedes coger
+     el spinlock, entonces te mantienes intentándolo (spinning) hasta que
+     puedas. Los spinlocks son muy pequeños y rápidos, y pueden ser usados
+     en cualquier sitio. 
+   </para>
+   <para>
+     El segundo tipo es el semáforo
+     (<filename class="headerfile">include/asm/semaphore.h</filename>):
+     puede tener más de un receptáculo en algún momento (el número se
+     decide en tiempo de inicialización), aunque es usado más comúnmente 
+     como un bloqueo de receptáculo-simple (un mutex). Si no puedes obtener
+     el semáforo, tus tareas se pondrán en una cola, y serán despertadas
+     cuando el semáforo sea liberado. Esto significa que la CPU hará algo
+     mientras que estás esperando, pero hay muchos casos en los que 
+     simplemente no puedes dormir (ver <xref linkend="sleeping-things"/>), y
+     por lo tanto tienes que usar un spinlock en vez del semáforo.
+   </para>
+   <para>
+     Ningún tipo de bloqueo es recursivo: ver
+     <xref linkend="techniques-deadlocks"/>.
+   </para>
+ 
+   <sect1 id="uniprocessor">
+    <title>Bloqueos y Núcleos Monoprocesador</title>
+
+    <para>
+      Para núcleos compilados sin <symbol>CONFIG_SMP</symbol>, los spinlocks
+      no existen. Esta es una excelente decisión de diseño; cuando
+      nadie se puede ejecutar al mismo tiempo, no hay motivo para tener un bloqueo.
+    </para>
+
+    <para>
+      Deberías siempre de probar tu código de bloqueo con <symbol>CONFIG_SMP</symbol>
+      habilitado, incluso si no tienes un equipo de prueba SMP, porque
+      aún así pillará algunos tipos (simples) de deadlock.
+    </para>
+
+    <para>
+      Los semáforos todavía existen, porque son requeridos para
+      la sincronización entre <firstterm linkend="gloss-usercontext">
+      contextos de usuario</firstterm>, tal como veremos a continuación. 
+    </para>
+   </sect1>
+
+   <sect1 id="rwlocks">
+    <title>Variantes de Bloqueo Lectura/Escritura</title>
+
+    <para>
+      Los spinlocks y los semáforos tienen variantes de lectura/escritura:
+      <type>rwlock_t</type> y <structname>struct rw_semaphore</structname>.
+      Estos dividen a los usuarios en dos clases: los lectores y los escritores.
+      Si sólo estás leyendo datos, puedes coger un bloqueo de lectura, pero 
+      para escribir los datos necesitas un bloqueo de escritura. Mucha gente
+      puede tener un bloqueo de lectura, pero uno de escritura debe de ser
+      único. 
+    </para>
+
+    <para>
+      Esto significa que es mucho más fácil bloquear si tu código
+      se divide ordenadamente entre líneas lectoras y escritoras. Toda
+      las discusiones posteriores también se aplican a las variantes de
+      lectura/escritura.
+    </para>
+   </sect1>
+
+    <sect1 id="usercontextlocking">
+     <title>Bloqueando Sólo en el Contexto de Usuario</title>
+
+     <para>
+       Si tienes una estructura de datos que siempre es accedida desde
+       el contexto de usuario, entonces puedes usar un semáforo simple
+       (<filename>linux/asm/semaphore.h</filename>) para protegerla. Este
+       es el caso más trivial; inicializas el semáforo al número de recursos
+       disponibles (usualmente 1), y llamas a <function>down_interruptible()</function>
+       para coger el semáforo, y <function>up()</function> para liberarlo.
+       Hay también una función <function>down()</function>, que debería de
+       ser evitada, porque no regresará si se recibe una señal. 
+     </para>
+
+     <para>
+       Ejemplo: <filename>linux/net/core/netfilter.c</filename> permite
+       el registro de unas nuevas llamadas <function>setsockopt()</function> y
+       <function>getsockopt()</function>. El registro y desregistro sólo son
+       realizadas en la carga y descarga de un módulo (y tiempo de arranque, 
+       donde no hay concurrencia), y la lista de registros sólo es consultada
+       por una llamada al sistema desconocida <function>setsockopt()</function>
+       o <function>getsockopt()</function>. La <varname>nf_sockopt_mutex</varname>
+       es perfecta para proteger esto, especialmente desde que las llamadas
+       setsockopt y getsockopt quizás se vayan a dormir.
+       sleep.
+     </para>
+   </sect1>
+
+   <sect1 id="lock-user-bh">
+    <title>Bloqueando entre Contexto de Usuario y BHs (Bottom Halves) </title>
+
+    <para>
+      Si un <firstterm linkend="gloss-bh">bottom half</firstterm> comparte
+      datos con el contexto de usuario, tienes dos problemas. El primero, el
+      actual contexto de usuario puede ser interrumpido por un bottom half, y
+      el segundo, la región crítica puede ser ejecutada desde otra CPU. Aquí
+      es donde es usado <function>spin_lock_bh()</function>
+      (<filename class="headerfile">include/linux/spinlock.h</filename>).  
+      El deshabilita los bottom halves es esta CPU, entonces coge el bloqueo.
+      <function>spin_unlock_bh()</function> realiza lo inverso.
+    </para>
+
+    <para>
+      Esto además funciona perfectamente para <firstterm linkend="gloss-up"><acronym>UP
+      </acronym></firstterm>; el spinlock desaparece, y esta macro simplemente
+      se transforma en <function>local_bh_disable()</function> 
+      (<filename class="headerfile">include/asm/softirq.h</filename>), la cual
+      te protege de que el bottom half se ejecute.
+    </para>
+   </sect1>
+
+   <sect1 id="lock-user-tasklet">
+    <title>Bloqueando Entre Contexto de Usuario y Tasklets/Soft IRQs</title>
+
+    <para>
+      Esto es exactamente lo mismo que lo anterior, porque 
+      <function>local_bh_disable()</function> actualmente también deshabilita
+      todas las softirqs y <firstterm linkend="gloss-tasklet">tasklets</firstterm>
+      en esta CPU. Debería de ser llamada `local_softirq_disable()', pero
+      el nombre ha sido preservado por motivos históricos. De forma
+      similar, en un mundo perfecto <function>spin_lock_bh()</function> debería de ser
+      llamada spin_lock_softirq().
+    </para>
+   </sect1>
+
+   <sect1 id="lock-bh">
+    <title>Bloqueando Entre Bottom Halves</title>
+
+    <para>
+      Algunas veces un bottom half quizás quiera compartir datos con
+      otro bottom half (recuerda especialmente que los cronómetros
+      se ejecutan en un bottom half).
+    </para>
+
+    <sect2 id="lock-bh-same">
+     <title>El Mismo BH</title>
+
+     <para>
+       Como un bottom half nunca se ejecutará en dos CPUs a la
+       vez, no necesitas preocuparte sobre que tu bottom half se
+       encuentre ejecutando dos veces al mismo tiempo, incluso en SMP.
+     </para>
+    </sect2>
+
+    <sect2 id="lock-bh-different">
+     <title>Diferentes BHs</title>
+
+     <para>
+       Como sólo un bottom half se ejecuta en un mismo instante, no
+       necesitas preocuparte sobre las condiciones de carrera con otros
+       bottom halves. Cuidate de las cosas que quizás cambien debajo de ti,
+       por ejemplo, si alguien cambia tu bottom half a una tasklet.
+       Si quieres hacer tu código preparado para el futuro, finge 
+       que ya te estás ejecutando desde una tasklet (ver después), y 
+       haz el bloqueo extra. Por supuesto, si esto es cinco años antes de que
+       ocurra parecerás una maldición tonta.
+     </para>
+    </sect2>
+   </sect1>
+
+   <sect1 id="lock-tasklets">
+    <title>Bloqueando Entre Tasklets</title>
+
+    <para>
+      Algunas veces una tasklet quizás quiera compartir datos con otra
+      tasklet, o con un bottom half.
+    </para>
+
+    <sect2 id="lock-tasklets-same">
+     <title>La Misma Tasklet</title>
+     <para>
+       Como una tasklet nunca se ejecutará en dos CPUs al mismo tiempo, 
+       no tienes que preocuparte sobre que tu tasklet sea reentrante
+       (ejecutándose dos veces al mismo tiempo), incluso en SMP.
+     </para>
+    </sect2>
+
+    <sect2 id="lock-tasklets-different">
+     <title>Diferentes Tasklets</title>
+     <para>
+       Si otra tasklet (o bottom half, tales como cronómetros) quiere
+       compartir datos con tu tasklet, necesitarás usar las llamadas
+       <function>spin_lock()</function> y
+       <function>spin_unlock()</function>.  
+       <function>spin_lock_bh()</function> es innecesaria aquí,
+       tal y como ya has visto en una tasklet, y
+       ninguna será ejecutada en la misma CPU,
+     </para>
+    </sect2>
+   </sect1>
+
+   <sect1 id="lock-softirqs">
+    <title>Bloqueando entre Softirqs</title>
+
+    <para>
+      Frecuentemente una <firstterm linkend="gloss-softirq">softirq</firstterm>
+      quizás quiera compartir datos con ella misma, con una tasklet, o con
+      un bottom half.
+    </para>
+
+    <sect2 id="lock-softirqs-same">
+     <title>La Misma Softirq</title>
+
+     <para>
+       La misma softirq puede ejecutarse en otras CPUs: puedes usar
+       un array para cada CPU (ver <xref linkend="per-cpu"/>) para
+       un mejor rendimiento. Si vas a llegar tan lejos como el uso
+       de una softirq, probablemente te preocupes suficientemente sobre el 
+       rendimiento escalable para justificar la 
+       complejidad extra.
+     </para>
+
+     <para>
+       Necesitarás usar <function>spin_lock()</function> y
+       <function>spin_unlock()</function> para compartir datos.
+     </para>
+    </sect2>
+
+    <sect2 id="lock-softirqs-different">
+     <title>Diferentes Softirqs</title>
+
+     <para>
+       Necesitarás usar <function>spin_lock()</function> y
+       <function>spin_unlock()</function> para datos compartidos, 
+       cuando sea un cronómetro (que puede ejecutarse en una CPU 
+       diferente), bottom halt, tasklet o la misma u otra softirq.
+     </para>
+    </sect2>
+   </sect1>
+  </chapter>
+
+  <chapter id="hardirq-context">
+   <title>Contexto de IRQ de Hardware</title>
+
+   <para>
+     Las interrupciones hardware usualmente se comunican con un bottom
+     half, tasklet o softirq. Frecuentemente esto complica el poner
+     el trabajo en una cola, que el BH/softirq debería de sacar.
+   </para>
+
+   <sect1 id="hardirq-softirq">
+    <title>Bloqueando entre IRQs Hardware y Softirqs/Tasklets/BHs</title>
+
+    <para>
+      Si un manejador irq hardware comparte datos con una softirq, tienes
+      dos problemas. Primeramente, la softirq procesando puede ser
+      interrumpida por una interrupción hardware, y segundo, la región
+      crítica podría ser entrada por una interrupción hardware en
+      otra CPU. Aquí es donde se usa <function>spin_lock_irq()</function>.
+      Está definida para deshabilitar las interrupciones en esa cpu, entonces
+      coge el bloqueo. <function>spin_unlock_irq()</function> hace lo inverso.
+    </para>
+
+    <para>
+      Esto también trabaja perfectamente para UP: el spinlock se desvanece, 
+      y esta macro simplemente se convierte en <function>local_irq_disable()</function>
+      (<filename class="headerfile">include/asm/smp.h</filename>),
+      qye te protege de que las softirq/tasklet/BH se ejecuten.
+    </para>
+
+    <para>
+      <function>spin_lock_irqsave()</function> 
+      (<filename>include/linux/spinlock.h</filename>) es una variante
+      que salva cuando las interrupciones estaban habilidatas o deshabilitadas
+      en una palabra de flags, que es pasada a
+      <function>spin_lock_irqrestore()</function>. 
+      Esto significa que el mismo código puede ser usado dentro de un
+      manejador irq hardware (donde las interrupciones ya estan deshabilitadas)
+      y en softirqs (donde se requiere el deshabilitar las irqs).
+    </para>
+   </sect1>
+  </chapter>
+
+  <chapter id="common-techniques">
+   <title>Técnicas Comunes</title>
+
+   <para>
+     Esta sección lista algunos dilemas comunes y las soluciones
+     estándar usadas en el código del núcleo Linux. Si usas estas,
+     la gente encontrará tu código más fácil de entender.
+   </para>
+
+   <para>
+     Si pudiera darte una parte de un aviso sería: nunca duermas con alguien
+     más loco/a que tú. Pero si tuviera que darte un aviso en el
+     bloqueo: <emphasis>mantente sólo</emphasis>.
+   </para>
+
+   <para>
+     Bloquea a los datos, no al código. 
+   </para>
+
+   <para>
+     Se reacio a introducir nuevos bloqueos. 
+   </para>
+
+   <para>
+     Suficientemente ajeno, esto es justo lo contrario de mi aviso
+     cuando <emphasis>tienes</emphasis> que dormir con alguien más loco/a que tú.
+   </para>
+
+   <sect1 id="techniques-no-writers">
+    <title>En un Contexto de Interrupciones No Escritores</title>
+
+    <para>
+      Hay un caso bastante común donde un manejador de interrupciones
+      necesita acceder a la región crítica, pero no necesita acceso 
+      de escritura. En este caso, no necesitas usar <function>read_lock_irq()</function>,
+      únicamente <function>read_lock()</function> en todos los sitios (desde que
+      ocurre una interrupción, el manejador irq sólo intentará
+      coger el bloqueo, que no hará deadlock). Todavía necesitas
+      usar <function>write_lock_irq()</function>.
+    </para>
+
+    <para>
+      Una lógica similar se aplica al bloqueo entre softirqs/tasklets/BHs
+      que nunca necesitan un bloqueo de escritura, y al contexto de
+      usuario:
+      <function>read_lock()</function> y
+      <function>write_lock_bh()</function>.
+    </para>
+   </sect1>
+
+   <sect1 id="techniques-deadlocks">
+    <title>Deadlock: Simple y Avanzado</title>
+
+    <para>
+      Hay un fallo de codificación donde un pedazo de código intenta
+      obtener un spinlock dos veces: él esperará siempre, esperando a
+      que el bloqueo sea liberado (spinlocks, rwlocks y semáforos no son
+      recursivos en Linux). Esto es trivial de diagnosticar: no es
+      un tipo de problema de
+      estar-cinco-noches-despierto-hablando-con-los-suaves-conejitos-del-código.
+    </para>
+
+    <para>
+      Para un caso ligeramente más complejo, imagínate que tienes una
+      región compartida por un bottom half y un contexto de usuario. Si
+      usas una llamada <function>spin_lock()</function> para protegerla, 
+      es posible que el contexto de usuario sea interrumpido por el bottom
+      half mientras mantiene el bloqueo, y el bottom half entonces
+      esperará para siempre para obtener el mismo bloqueo.
+    </para>
+
+    <para>
+      Ambas son llamadas deadlock (bloqueo muerto), y como se mostró antes, 
+      puede ocurrir con una CPU simple (aunque no en compilaciones para UP, 
+      ya que los spinlocks se desvanecen en la compilación del núcleo con
+      <symbol>CONFIG_SMP</symbol>=n. Aún tendrás corrupción de datos en 
+      el segundo ejemplo).
+    </para>
+
+    <para>
+      Este bloqueo completo es fácil de diagnosticar: en equipos SMP el
+      cronómetro guardián o compilado con <symbol>DEBUG_SPINLOCKS</symbol>
+      establecido (<filename>include/linux/spinlock.h</filename>) nos
+      mostrará esto inmediatamente cuando suceda.
+    </para>
+
+    <para>
+      Un problema más complejo es el también llamado `abrazo mortal', 
+      involucrando a dos o más bloqueos. Digamos que tienes una tabla
+      hash: cada entrada en la tabla es un spinlock, y una cadena de
+      objetos ordenados. Dentro de un manejador softirq, algunas veces 
+      quieres alterar un objeto de un lugar de la tabla hash a otro:
+      coges el spinlock de la vieja cadena hash y el spinlock de la
+      nueva cadena hash, y borras el objeto de la vieja y lo insertas
+      en la nueva. 
+    </para>
+
+    <para>
+      Aquí hay dos problemas. El primero es que si tu código siempre
+      intenta mover el objeto a la misma cadena, él se hará un deadlock
+      cuando se intente bloquear dos veces. El segundo es que si la
+      misma softirq u otra CPU está intentando mover otro objeto en la
+      dirección inversa podría pasar lo siguiente:
+    </para>
+
+    <table>
+     <title>Consecuencias</title>
+
+     <tgroup cols="2" align="left">
+
+      <thead>
+       <row>
+        <entry>CPU 1</entry>
+        <entry>CPU 2</entry>
+       </row>
+      </thead>
+
+      <tbody>
+       <row>
+        <entry>Pilla bloqueo A -&gt; OK</entry>
+        <entry>Pilla bloqueo B -&gt; OK</entry>
+       </row>
+       <row>
+        <entry>Pilla bloqueo B -&gt; spin</entry>
+        <entry>Pilla bloqueo A -&gt; spin</entry>
+       </row>
+      </tbody>
+     </tgroup>
+    </table>
+
+    <para>
+      Las dos CPUs esperarán para siempre, esperando a que el otro libere
+      su bloqueo.  Él parecerá, olerá, y se sentirá como si cayera el sistema.
+    </para>
+
+    <sect2 id="techs-deadlock-prevent">
+     <title>Preveniendo los Deadlocks</title>
+
+     <para>
+       Los libros de texto te dirán que si siempre bloqueas en el mismo
+       orden, nunca obtendrás esta clase de deadlock. La práctica te
+       dirá que este tipo de aproximación no escala bien: cuando creo
+       un nuevo bloqueo, no entiendo suficientemente el núcleo para imaginarme
+       dónde está él en la jerarquía de los 5000 bloqueos.
+     </para>
+
+     <para>
+       Los mejores bloqueos están encapsulados; nunca estarán
+       expuestos en las cabeceras, y nunca se mantendrán a través de
+       llamadas a funciones no triviales fuera del mismo archivo. Puedes
+       leer a través de este código y ver que nunca hará deadlock, porque
+       nunca intenta tener otro bloqueo mientras tiene el uso. La gente
+       usando tu código no necesita saber nunca que estás usando
+       un bloqueo. 
+     </para>
+
+     <para>
+       Un problema clásico aquí es cuando suministras retrollamadas
+       o trampas: si las llamas con el bloqueo mantenido, arriesgas
+       un deadlock simple, o un abrazo mortal (¿quién sabe lo que
+       hará la llamada?). Recuerda, los otros programadores andan 
+       detrás de ti, por lo tanto no hagas esto.
+     </para>
+    </sect2>
+
+    <sect2 id="techs-deadlock-overprevent">
+     <title>Sobreentusiasmo en la Prevención de Deadlocks</title>
+
+     <para>
+       Los deadlocks son problemáticos, pero no son tan malos como
+       la corrupción de datos. El código que obtiene un bloqueo de
+       lectura, busca una lista, falla al encontrar lo que quiere, 
+       tira el bloqueo de lectura, obtiene un bloqueo de escritura
+       e inserta el objeto tiene una condición de carrera.
+     </para>
+
+     <para>
+       Si no ves porqué, por favor permanece jodidamente lejos de mi código.
+     </para>
+    </sect2>
+   </sect1>
+
+   <sect1 id="per-cpu">
+    <title>Datos por cada CPU</title>
+      
+    <para>
+      Una gran técnica usada ampliamente para eliminar el bloqueo 
+      es duplicar la información para cada CPU. Por ejemplo, si quieres
+      mantener una cuenta de una condición común, puedes usar un spinlock
+      y un contador simple. Bonito y simple.
+    </para>
+
+    <para>
+      Si esto era muy lento [probablemente no], puedes en vez de esto
+      usar un contador para cada CPU [no lo hagas], entonces ninguno
+      de ellos necesitarán un bloqueo exclusivo [estás gastando tu
+      tiempo aquí]. Para asegurarte de que las CPUs no tienen que
+      sincronizar las cachés todo el tiempo, alinea los contadores al
+      límite de las cachés añadiendo `__cacheline_aligned' a la
+      declaración (<filename
+      class="headerfile">include/linux/cache.h</filename>).  [¿No
+      puedes pensar en alguna cosa mejor que hacer?]
+    </para>
+
+    <para>
+      De cualquier forma necesitarán un bloqueo de lectura para acceder a sus propios
+      contadores. De esta forma puedes usar un bloqueo de escritura para garantizar
+      acceso exclusivo a todos ellos a la vez, para llevar cuenta de ellos.
+    </para>
+   </sect1>
+
+   <sect1 id="brlock">
+    <title>Bloqueos Gran Lector</title>
+
+    <para>
+      Un ejemplo clásico de información para cada CPU son los
+      bloqueos `gran lector' de Ingo (<filename
+      class="headerfile">linux/include/brlock.h</filename>).
+      Estos usan técnicas de datos de cada CPU descritas más adelante para
+      crear un bloqueo que es muy rápido en obtener un bloqueo de lectura, 
+      pero agonizantemente lento para un bloqueo de escritura.      
+    </para>
+
+    <para>
+      Afortunadamente, hay un número limitado disponible de estos 
+      bloqueos: tienes que ir a través de un proceso de entrevista 
+      estricta para obtener uno.
+    </para>
+   </sect1>
+
+   <sect1 id="lock-avoidance-rw">
+    <title>Eliminando los bloqueos: Ordenamiento de Lecturas y Escrituras</title>
+
+    <para>
+      Algunas veces es posible eliminar el bloqueo. Considera el siguiente caso
+      del código del cortafuegos 2.2, que inserta un elemento en una lista
+      simplemente enlazada en el contexto de usuario:
+    </para>
+
+    <programlisting>
+        new-&gt;next = i-&gt;next;
+        i-&gt;next = new;
+    </programlisting>
+
+    <para>
+      Aquí el autor (Alan Cox, que sabía lo que estaba haciendo) asume
+      que el asignamiento de punteros es atómico. Esto es importante, 
+      porque los paquetes de red atravesarían esta lista en bottom halves
+      sin un bloqueo. Dependiendo del tiempo exacto, ellos verían el nuevo
+      elemento en las lista con un puntero <structfield>next</structfield>
+      válido, o no verían la lista todavía. Aún se requiere un bloqueo
+      contra otras CPUs insertando o borrando de la lista, por supuesto.
+    </para>
+
+    <para>
+      Por supuesto, las escrituras <emphasis>deben</emphasis> estar
+      en este orden, en otro caso el nuevo elemento aparece en la lista
+      con un puntero <structfield>next</structfield> inválido, y alguna
+      otra CPU iterando en el tiempo equivocado saltará a través de él
+      a la basura. Porque las modernas CPUs reordenan, el código de
+      Alan actualmente se lee como sigue: 
+    </para>
+      
+<programlisting>
+        new-&gt;next = i-&gt;next;
+        wmb();
+        i-&gt;next = new;
+</programlisting>
+
+    <para>
+      La función <function>wmb()</function> es una barrera de escritura de
+      memoria (<filename class="headerfile">include/asm/system.h</filename>):
+      ni el compilador ni la CPU permitirán alguna escritura a memoria después
+      de que <function>wmb()</function> sea visible a otro hardware antes de que
+      alguna otra escritura se encuentre antes de <function>wmb()</function>. 
+    </para>
+
+    <para>
+      Como i386 no realiza reordenamiento de escritura, este bug nunca
+      fue mostrada en esta plataforma. Es otras plataformas SMP, de cualquier
+      forma, si que fue mostrado.
+    </para>
+
+    <para>
+      También hay <function>rmb()</function> para ordenamiento de lectura: 
+      para asegurar que cualquier lectura previa de una variable ocurre antes
+      de la siguiente lectura. La macro simple <function>mb()</function>
+      combina <function>rmb()</function> y <function>wmb()</function>.
+    </para>
+
+    <para>
+      Algunas operaciones atómicas están definidas para actuar como
+      una barrera de memoria (esto es, como la macro <function>mb()</function>,
+      pero si dudas, se explícito.
+      <!-- Rusty Russell 2 de Mayo 2001, 2.4.4 -->
+      También, las operaciones de spinlock actuan como barreras
+      parciales: las operaciones después de obtener un spinlock nunca
+      serán movidas para preceder a la llamada <function>spin_lock()</function>,
+      y las operaciones antes de liberar un spinlock nunca serán movidas
+      después de la llamada <function>spin_unlock()</function>.
+      <!-- Manfred Spraul <manfreds@colorfullife.com>
+           24 de Mayo 2000 2.3.99-pre9 -->
+    </para>
+   </sect1>
+
+   <sect1 id="lock-avoidance-atomic-ops">
+    <title>Eliminando los Bloqueos: Operaciones Atómicas</title>
+
+    <para>
+      Hay un número de operaciones atómicas definidas en
+      <filename class="headerfile">include/asm/atomic.h</filename>: estas
+      están garantizadas que serán atómicas para todas las CPUs en el sistema, 
+      entonces eliminando las carreras. Si tus datos compartidos consisten, digamos, en
+      un simple contador, estas operaciones quizás sean más simples que usar
+      spinlocks (aunque para algo no trivial el uso de spinlocks es más claro).
+    </para>
+
+    <para>
+      Destacar que las operaciones atómicas están definidas para actuar
+      como barreras de escritura y lectura en todas las plataformas.
+    </para>
+   </sect1>
+
+   <sect1 id="ref-counts">
+    <title>Protegiendo Una Colección de Objetos: Cuentas de Referencia</title>
+
+    <para>
+      Bloqueando una colección de objetos es bastante fácil: coges
+      un spinlock simple, y te aseguras de obtenerlo antes de
+      buscar, añadir o borrar un objeto.
+    </para>
+
+    <para>
+      El propósito de este bloqueo no es proteger los objetos individuales:
+      quizás tengas un bloqueo separado dentro de cada uno de ellos. Es
+      para proteger la <emphasis>estructura de datos conteniendo el objeto
+      </emphasis> de las condiciones de carrera. Frecuentemente el 
+      mismo bloqueo es usado también para proteger los contenidos de
+      todos los objetos, por simplicidad, pero ellos son inherentemente
+      ortogonales (y muchas otras grandes palabras diseñadas para
+      confundir). 
+    </para>
+
+    <para>
+      Cambiando esto a un bloqueo de lectura-escritura frecuentemente
+      ayudará notablemente si las lecturas son más frecuentes que las
+      escrituras. Si no, hay otra aproximación que puedes usar para
+      reducir el tiempo que es mantenido el bloqueo: las cuentas
+      de referencia. 
+    </para>
+
+    <para>
+      En esta aproximación, un objeto tiene un dueño, quien establece
+      la cuenta de referencia a uno. Cuando obtienes un puntero al
+      objeto, incrementas la cuenta de referencia (una operación 'obtener').
+      Cuando abandonas un puntero, decrementas la cuenta de referencia
+      (una operación 'poner'). Cuando el dueño quiere destruirlo, lo marca
+      como muerto y hace una operación poner.
+    </para>
+
+    <para>
+      Cualquiera que ponga la cuenta de referencia a cero (usualmente
+      implementado con <function>atomic_dec_and_test()</function>) 
+      limpia y libera el objeto.
+    </para>
+
+    <para>
+      Esto significa que se garantiza que el objeto no se desvanecerá
+      debajo de ti, incluso aunque no tengas más un bloqueo para la 
+      colección.
+    </para>
+
+    <para>
+      Aquí hay algún código esqueleto:
+    </para>
+
+    <programlisting>
+        void create_foo(struct foo *x)
+        {
+                atomic_set(&amp;x-&gt;use, 1);
+                spin_lock_bh(&amp;list_lock);
+                ... inserta en la lista ...
+                spin_unlock_bh(&amp;list_lock);
+        }
+
+        struct foo *get_foo(int desc)
+        {
+                struct foo *ret;
+
+                spin_lock_bh(&amp;list_lock);
+                ... encuentra en la lista ...
+                if (ret) atomic_inc(&amp;ret-&gt;use);
+                spin_unlock_bh(&amp;list_lock);
+
+                return ret;
+        }
+
+        void put_foo(struct foo *x)
+        {
+                if (atomic_dec_and_test(&amp;x-&gt;use))
+                        kfree(foo);
+        }
+
+        void destroy_foo(struct foo *x)
+        {
+                spin_lock_bh(&amp;list_lock);
+                ... borra de la lista ...
+                spin_unlock_bh(&amp;list_lock);
+
+                put_foo(x);
+        }
+    </programlisting>
+
+    <sect2 id="helpful-macros">
+     <title>Macros Para Ayudarte</title>
+     <para>
+       Hay un conjunto de macros de depuración recogidas dentro de
+       <filename class="headerfile">include/linux/netfilter_ipv4/lockhelp.h</filename>
+       y <filename class="headerfile">listhelp.h</filename>: estas son muy útiles
+       para asegurarnos de que los bloqueos son mantenidos en los sitios
+       correctos para proteger la infraestructura.
+     </para>
+    </sect2>
+   </sect1>
+   
+   <sect1 id="sleeping-things">
+    <title>Cosas Que Duermen</title>
+
+    <para>
+      Nunca puedes llamar a las siguientes rutinas mientras estás
+      manteniendo un spinlock, porque ellas quizás se vayan a dormir.
+      Esto también significa que necesitas estar en el contexto de usuario.
+    </para>
+
+    <itemizedlist>
+     <listitem>
+      <para>
+        Accesos a
+        <firstterm linkend="gloss-userspace">userspace</firstterm>:
+      </para>
+      <itemizedlist>
+       <listitem>
+        <para>
+          <function>copy_from_user()</function>
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+          <function>copy_to_user()</function>
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+          <function>get_user()</function>
+        </para>
+       </listitem>
+       <listitem>
+        <para>
+          <function> put_user()</function>
+        </para>
+       </listitem>
+      </itemizedlist>
+     </listitem>
+
+     <listitem>
+      <para>
+        <function>kmalloc(GFP_KERNEL)</function>
+      </para>
+     </listitem>
+
+     <listitem>
+      <para>
+      <function>down_interruptible()</function> y
+      <function>down()</function>
+      </para>
+      <para>
+       Hay una función <function>down_trylock()</function> que puede
+       ser usada dentro del contexto de interrupción, ya que no dormirá.
+       <function>up()</function> tampoco dormirá.
+      </para>
+     </listitem>
+    </itemizedlist>
+
+    <para>
+     <function>printk()</function> puede ser llamada en
+     <emphasis>cualquier</emphasis> contexto, suficientemente interesante.
+    </para>
+   </sect1>
+
+   <sect1 id="sparc">
+    <title>La Follonera Sparc</title>
+
+    <para>
+      Alan Cox dice <quote>la deshabilitación/habilitación de una sparc es en
+      la ventana registrada</quote>.  Andi Kleen dice <quote>cuando 
+      restore_flags (restauras las banderas) en una función diferente
+      ensucias todas las ventanas de registros</quote>.
+    </para>
+
+    <para>
+      Por lo tanto nunca pases el conjunto de palabras de flags por
+      <function>spin_lock_irqsave()</function> y hermanos a otra función
+      (a menos que sea declarada <type>inline</type>). Usualmente nadie
+      hace esto, pero ahora ya estás advertido. Dave Miller nunca puede
+      hacer nada de una forma directa (Puedo decir esto porque tengo
+      fotos de él y de cierto defensor de PowerPC en una posición
+      comprometida). 
+    </para>
+   </sect1>
+
+   <sect1 id="racing-timers">
+    <title>Cronómetros de Carreras: Un Pasatiempo del Núcleo</title>
+
+    <para>
+      Los cronómetros pueden producir sus propios problemas con las
+      carreras. Considera una colección de objeros (listas, hash, etc) 
+      donde cada objeto tiene un cronómetro que lo va a destruir.
+    </para>
+
+    <para>
+      Si quieres destruir la colección entera (digamos en el borrado
+      de un módulo), quizás realices lo siguiente:
+    </para>
+
+    <programlisting>
+        /* ESTE CÓDIGO ES MALO MALO MALO MALO: SI HUBIERA ALGO PEOR
+           USUARÍA NOTACIÓN HÚNGARA */
+        spin_lock_bh(&amp;list_lock);
+
+        while (list) {
+                struct foo *next = list-&gt;next;
+                del_timer(&amp;list-&gt;timer);
+                kfree(list);
+                list = next;
+        }
+
+        spin_unlock_bh(&amp;list_lock);
+    </programlisting>
+
+    <para>
+      Tarde o temprano, esto rompería en SMP, porque un cronómetro puede
+      acabar antes que <function>spin_lock_bh()</function>, y sólo
+      obtendría el bloqueo después de <function>spin_unlock_bh()</function>,
+      y entonces intentaría liberar el elemento (¡el cual ya ha sido liberado!).
+    </para>
+
+    <para>
+      Esto puede ser eliminado comprobando el resultado de
+      <function>del_timer()</function>: si retorna
+      <returnvalue>1</returnvalue>, el cronómetro ha sido borrado.
+      Si <returnvalue>0</returnvalue>, significa (en este caso)
+      que está actualmente ejecutándose, por lo tanto lo que podemos
+      hacer es:
+    </para>
+
+    <programlisting>
+        retry:  
+                spin_lock_bh(&amp;list_lock);
+
+                while (list) {
+                        struct foo *next = list-&gt;next;
+                        if (!del_timer(&amp;list-&gt;timer)) {
+                                /* Le da al cronómetro una oportunidad para borrarlo */
+                                spin_unlock_bh(&amp;list_lock);
+                                goto retry;
+                        }
+                        kfree(list);
+                        list = next;
+                }
+
+                spin_unlock_bh(&amp;list_lock);
+    </programlisting>
+
+    <para>
+      Otro problema común es el borrando de cronómetros que se reinician a ellos
+      mismos (llamando a <function>add_timer()</function> al final de
+      su función cronómetro). Porque este es un caso bastante común que es
+      propenso a carreras, puedes poner una llamada a <function>timer_exit()</function>
+      muy al funal de tu función cronómetro, y usar <function>del_timer_sync()</function>
+      para manejar este caso.  Él retorna el número de veces que el cronómetro
+      tuvo que ser borrado antes de que finalmente lo paráramos añadiéndolo
+      otra vez.
+    </para>
+   </sect1>
+  </chapter>
+
+  <chapter id="references">
+   <title>Lecturas Adicionales</title>
+
+   <itemizedlist>
+    <listitem>
+     <para>
+       <filename>Documentation/spinlocks.txt</filename>:
+       El tutorial de spinlocks de Linus Torvalds en los códigos del núcleo. 
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+       Unix Systems for Modern Architectures: Symmetric
+       Multiprocessing and Caching for Kernel Programmers:
+     </para>
+
+     <para>
+       Muy buena introdución de Curt Schimel al nivel de
+       bloqueo de núcleo (no escrito para Linux, pero cercanamente
+       a todo lo aplicado).  El libro es caro, pero realmente vale
+       cada penique para entender el bloqueo en SMP. [ISBN: 0201633388]
+     </para>
+    </listitem>
+   </itemizedlist>
+  </chapter>
+
+  <chapter id="thanks">
+    <title>Gracias</title>
+
+    <para>
+      Gracias a Telsa Gwynne por darle el formato DocBook, ordenando
+      y añadiéndole estilo.
+    </para>
+
+    <para>
+      Gracias a Martin Pool, Philipp Rumpf, Stephen Rothwell, Paul
+      Mackerras, Ruedi Aschwanden, Alan Cox, Manfred Spraul y Tim
+      Waugh por la profunda lectura, corrección, encendido y comentarios.
+    </para>
+
+    <para>
+      Gracias a la intriga por no tener influencia en este documento.
+    </para>
+  </chapter>
+
+<chapter id="traduccion">
+     <title>Sobre la Traducción</title>
+        <para>
+        Este documento es la traducción de "Unreliable Guide To Locking", documento que
+        acompaña al código del núcleo de Linux, versión 2.4.18.
+        </para>
+
+        <para>
+        Este documento ha sido traducido por Rubén Melcón
+        <email>melkon@terra.es</email>; y es publicado por el <ulink
+        url="http://lucas.hispalinux.es">Proyecto Lucas</ulink>
+        </para>
+
+        <para>
+        Versión de la tradución 0.04 ( Julio de 2002 ).
+        </para>
+
+        <para>
+        Si tienes comentarios sobre la traducción, ponte en contacto con Rubén Melcón
+        <email>melkon@terra.es</email>
+        </para>
+
+  </chapter>
+
+
+
+  <glossary id="glossary">
+   <title>Glosario</title>
+
+   <glossentry id="gloss-bh">
+    <glossterm>bh</glossterm>
+     <glossdef>
+      <para>
+       	Bottom Half: por motivos históricos, las funciones con
+        `_bh' en ellas frecuentemente ahora se refieren a cualquier
+        interrupción software, ej. <function>spin_lock_bh()</function>
+        bloquea cualquier interrupción software en la CPU actual. Los
+        Bottom Halves están desaprobados, y serán eventualmente 
+        reemplazados por las tasklets. Sólo un bottom half se estará
+        ejecutando a la vez.
+     </para>
+    </glossdef>
+   </glossentry>
+
+   <glossentry id="gloss-hwinterrupt">
+    <glossterm>Interrupción Hardware / IRQ Hardware</glossterm>
+    <glossdef>
+     <para>
+       Petición de interrupción Hardware. <function>in_irq()</function>
+       retorna <returnvalue>true</returnvalue> en un manejador de interrupciones
+       hardware (también retorna true cuando las interrupciones son bloqueadas).
+     </para>
+    </glossdef>
+   </glossentry>
+
+   <glossentry id="gloss-interruptcontext">
+    <glossterm>Contexto de Interrupciones</glossterm>
+    <glossdef>
+     <para>
+       No el contexto de usuario: procesando una irq hardware o software.
+       Indicado por la macro <function>in_interrupt()</function> retornando
+       <returnvalue>true</returnvalue> (aunque también retorna true
+       cuando las interrupciones o los BHs son bloqueados).
+     </para>
+    </glossdef>
+   </glossentry>
+
+   <glossentry id="gloss-smp">
+    <glossterm><acronym>SMP</acronym></glossterm>
+    <glossdef>
+     <para>
+       Symmetric Multi-Processor (Multi-Procesamiento Simétrico): núcleos
+       compilados para máquinas con múltiples CPUs.  (CONFIG_SMP=y).
+     </para>
+    </glossdef>
+   </glossentry>
+
+   <glossentry id="gloss-softirq">
+    <glossterm>softirq</glossterm>
+    <glossdef>
+     <para>
+       Estrictamente hablando, una de las 32 interuupciones software enumeradas
+       que pueden ejecutarse en múltiples CPUs a la vez.
+       Algunas veces usadas también para referirse a las tasklets y
+       bottom halves (esto es, todas las interrupciones software).
+     </para>
+    </glossdef>
+   </glossentry>
+
+   <glossentry id="gloss-swinterrupt">
+    <glossterm>Interrupción Software / IRQ Software</glossterm>
+    <glossdef>
+     <para>
+       Manejador de interrupciones software.  <function>in_irq()</function>
+       retorna <returnvalue>false</returnvalue>; <function>in_softirq()</function>
+       retorna <returnvalue>true</returnvalue>.  Tasklets, softirqs y
+       bottom halves caen todos en la categoría de `interrupciones software'.
+     </para>
+    </glossdef>
+   </glossentry>
+
+   <glossentry id="gloss-tasklet">
+    <glossterm>tasklet</glossterm>
+    <glossdef>
+     <para>
+       Una interrupción software dinámicamente registrable, que
+       está garantizada que sólo se ejecutará en una CPU a la vez.
+     </para>
+    </glossdef>
+   </glossentry>
+
+   <glossentry id="gloss-up">
+    <glossterm><acronym>UP</acronym></glossterm>
+    <glossdef>
+     <para>
+       Uni-Processor (Mono-Procesador): No-SMP.  (CONFIG_SMP=n).
+     </para>
+    </glossdef>
+   </glossentry>
+
+   <glossentry id="gloss-usercontext">
+    <glossterm>Contexto de Usuario</glossterm>
+    <glossdef>
+     <para>
+       El núcleo ejecutándose en nombre de un proceso particular o hilo
+       del núcleo (dado por la macro <function>current()</function>).
+       No te confundas con el espacio de usuario. Puede ser interrumpido
+       por las interrupciones software o hardware.
+     </para>
+    </glossdef>
+   </glossentry>
+
+   <glossentry id="gloss-userspace">
+    <glossterm>Espacio de Usuario</glossterm>
+    <glossdef>
+     <para>
+       Un proceso ejecutando su propio código fuera del núcleo.
+     </para>
+    </glossdef>
+   </glossentry>      
+
+  </glossary>
+</book>
+

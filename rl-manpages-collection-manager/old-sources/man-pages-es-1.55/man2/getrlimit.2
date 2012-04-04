@@ -1,0 +1,297 @@
+.\" Hey Emacs! This file is -*- nroff -*- source.
+.\"
+.\" Copyright (c) 1992 Drew Eckhardt, March 28, 1992
+.\" Copyright (c) 2002 Michael Kerrisk
+.\"
+.\" Permission is granted to make and distribute verbatim copies of this
+.\" manual provided the copyright notice and this permission notice are
+.\" preserved on all copies.
+.\"
+.\" Permission is granted to copy and distribute modified versions of this
+.\" manual under the conditions for verbatim copying, provided that the
+.\" entire resulting derived work is distributed under the terms of a
+.\" permission notice identical to this one
+.\" 
+.\" Since the Linux kernel and libraries are constantly changing, this
+.\" manual page may be incorrect or out-of-date.  The author(s) assume no
+.\" responsibility for errors or omissions, or for damages resulting from
+.\" the use of the information contained herein.  The author(s) may not
+.\" have taken the same level of care in the production of this manual,
+.\" which is licensed free of charge, as they might when working
+.\" professionally.
+.\" 
+.\" Formatted or processed versions of this manual, if unaccompanied by
+.\" the source, must acknowledge the copyright and authors of this work.
+.\"
+.\" Modified by Michael Haardt <michael@moria.de>
+.\" Modified Fri Jul 23 21:18:14 1993 by Rik Faith <faith@cs.unc.edu>
+.\" Modified Jan 13, 1996 by Arnt Gulbrandsen <agulbra@troll.no>
+.\" Modified Jan 22, 1996 by aeb, following a remark by
+.\"          Tigran Aivazian <tigran@sco.com>
+.\" Modified Apr 14, 1996 by aeb, following a remark by
+.\"          Robert Bihlmeyer <robbe@orcus.ping.at>
+.\" Modified Tue Oct 22 17:34:42 1996 by Eric S. Raymond <esr@thyrsus.com>
+.\" Modified May  4, 2001 by aeb, following a remark by
+.\"          Håvard Lygre <hklygre@online.no>
+.\" Modified 17 Apr 2001 by Michael Kerrisk <mtk16@ext.canterbury.ac.nz>
+.\" Modified 13 Jun 02, Michael Kerrisk <mtk16@ext.canterbury.ac.nz>
+.\"     Added note on non-standard behaviour when SIGCHLD is ignored.
+.\" Modified  9 Jul 02, Michael Kerrisk <mtk16@ext.canterbury.ac.nz>
+.\"	Enhanced descriptions of 'resource' values for [gs]etrlimit()
+.\"
+.\" Revisado el Vie 2 de Oct de 1998 por Juan Piernas <piernas@ditec.um.es>
+.\" Revisado el Mié 30 de Dic de 1998 por Juan Piernas <piernas@ditec.um.es>
+.\" Revisado por Miguel Pérez Ibars <mpi79470@alu.um.es> el 18-noviembre-2004
+.\"
+.TH GETRLIMIT 2 "9 julio 2002" "Linux" "Manual del programador de Linux"
+.SH NOMBRE
+getrlimit, getrusage, setrlimit \- devuelve/establece el límite de recursos y
+su utilización
+.SH SINOPSIS
+.B #include <sys/time.h>
+.br
+.B #include <sys/resource.h>
+.br
+.B #include <unistd.h>
+.sp
+.BI "int getrlimit(int " resource ", struct rlimit *" rlim );
+.br
+.BI "int getrusage(int " who ", struct rusage *" usage );
+.br
+.BI "int setrlimit(int " resource ", const struct rlimit *" rlim );
+.SH DESCRIPCIÓN
+.B getrlimit
+y
+.B setrlimit
+devuelve / establece el límite de recursos, respectivamente.  
+Cada recurso tiene asociado un límite flexible y otro estricto, tal como 
+se define en la estructura
+.B rlimit (el argumento
+.I rlim
+de las rutinas
+.BR getrlimit "() y " setrlimit ()):
+.PP
+.in +0.5i
+.nf
+struct rlimit {
+    rlim_t rlim_cur;   /* Límite flexible (Soft limit) */
+    rlim_t rlim_max;   /* Límite estricto (Hard limit) 
+                          (tope para rlim_cur) */
+};
+
+.fi
+.in -0.5i
+El límite flexible es el valor que impone el núcleo para
+el recurso correspondiente.
+El límite estricto actúa como un tope para el límite flexible:
+un proceso no privilegiado puede solamente establecer su límite flexible
+a un valor comprendido entre 0 y el límite estricto, y (irreversiblemente) menor
+que su límite estricto.
+Un proceso privilegiado puede hacer cualquier cambio sobre ambos valores límite.
+.PP
+El valor
+.B RLIM_INFINITY
+no impone ningún límite sobre un recurso (tanto en la estructura devuelta por
+.BR getrlimit ()
+como en la estructura pasada a
+.BR setrlimit ()).
+.PP
+.I resource
+debe ser uno de los siguientes valores:
+.TP
+.B RLIMIT_CPU
+Tiempo de CPU en segundos.
+Cuando el proceso alcanza el límite flexible, se le envía una señal
+.B SIGXCPU.
+La acción por defecto para esta señal es terminar el proceso.
+Sin embargo, la señal puede ser atrapada, y el manejador puede devolver el
+control al programa principal.
+Si el proceso continúa consumiendo tiempo de CPU, se le enviará
+.B SIGXCPU
+una vez por segundo hasta que se alcance el límite estricto, momento
+en el cual se le enviará la señal
+.BR SIGKILL .
+(Este último punto describe el comportamiento de Linux 2.2 y 2.4.
+Las implementaciones varían en el tratamiento de los procesos que continúna
+consumiendo tiempo de CPU después de alcanzar el límite flexible.
+Las aplicaciones portables que necesiten atrapar esta señal deberían
+realizar una terminación ordenada después de recibir la primera señal
+.BR SIGXCPU .)
+.TP
+.B RLIMIT_DATA
+El tamaño máximo del segmento de datos del proceso (datos inicializados,
+no inicializados y el montículo).
+Este límite afecta a las llamadas a
+.BR brk "() and " sbrk (),
+que fallan con el error
+.B ENOMEM
+al llegarse al límite flexible de este recurso.
+.TP
+.B RLIMIT_FSIZE
+El tamaño máximo de los ficheros que puede crear el proceso.
+Los intentos por sobrepasar este límite provocan la comunicación 
+de una señal
+.B SIGXFSZ.
+Por defecto, esta señal termina el proceso, pero un proceso puede
+atrapar esta señal en su lugar, en cuyo caso la llamada al sistema relevante
+(p.e., 
+.BR write "(), " truncate ())
+falla con el error
+.BR EFBIG .
+.TP
+.B RLIMIT_LOCKS
+Un límite sobre el número combinado de bloqueos
+.BR flock ()
+y arrendamientos
+.BR fcntl()
+que este proceso puede establecer
+(Linux 2.4 y posteriores).
+.\" to be precise: Linux 2.4.0-test9 and later
+.TP
+.B RLIMIT_MEMLOCK
+El número máximo de bytes de memoria virtual que pueden ser bloqueados
+en RAM usando
+.BR mlock "() y " mlockall ().
+.TP
+.B RLIMIT_NOFILE
+Especifica un valor que es el número máximo de descriptor de fichero
+que puede ser abierto por este proceso.
+Los intentos de
+.RB ( open "(), " pipe "(), " dup "(), etc.)"
+por exceder este límite provocarán el error
+.BR EMFILE .
+.TP
+.B RLIMIT_NPROC
+El número máximo de procesos que pueden ser creados por el identificador
+de usuario real del proceso invocador.
+Al alcanzar este límite,
+.BR fork ()
+falla con el error
+.BR EAGAIN .
+.TP
+.B RLIMIT_RSS
+Especifica el límite (en páginas) del conjunto residente del proceso
+(el número de páginas virtuales residentes en RAM).
+Este límite sólo tiene efecto en Linux 2.4 en adelante, y sólo
+afecta a las llamadas a
+.BR madvise ()
+especificando
+.BR MADVISE_WILLNEED .
+.TP
+.B RLIMIT_STACK
+El tamaño máximo de la pila del proceso, en bytes.
+Al alcanzar este límite, se genera una señal
+.B SIGSEGV.
+Para manejar esta señal, un proceso debe emplear una pila de señales alternativa
+.RB ( sigaltstack (2)).
+.PP
+.B RLIMIT_OFILE
+es el nombre BSD para
+.BR RLIMIT_NOFILE .
+.PP
+.B getrusage
+devuelve la utilización actual de los recursos, para un \fIwho\fP
+de cualquiera de los siguientes, bien
+.B RUSAGE_SELF
+oo
+.BR RUSAGE_CHILDREN.
+.PP 
+.in +0.5i
+.nf
+struct rusage {
+        struct timeval ru_utime; /* tiempo de usuario utilizado */
+        struct timeval ru_stime; /* tiempo de sistema utilizado */
+        long    ru_maxrss;       /* tamaño máximo de la parte
+                                    establecida como residente */
+        long    ru_ixrss;        /* tamaño total de la memoria
+                                    compartida */
+        long    ru_idrss;        /* tamaño total de la memoria
+                                    no compartida */
+        long    ru_isrss;        /* tamaño de pila no compartido */
+        long    ru_minflt;       /* peticiones de página */
+        long    ru_majflt;       /* fallos de página */
+        long    ru_nswap;        /* intercambios */
+        long    ru_inblock;      /* operaciones de entrada de
+                                    bloques */
+        long    ru_oublock;      /* operaciones de salida de
+                                    bloques */
+        long    ru_msgsnd;       /* mensajes enviados */
+        long    ru_msgrcv;       /* mensajes recibidos */
+        long    ru_nsignals;     /* señales recibidas */
+        long    ru_nvcsw;        /* cambios de contexto
+                                    voluntarios */
+        long    ru_nivcsw;       /* cambios de contexto
+                                    involuntarios */
+};
+
+.fi
+.in -0.5i
+.SH "VALOR DEVUELTO"
+Si tiene éxito, devuelve cero. Si hay error, devuelve \-1, y
+.I errno
+toma el correspondiente valor.
+.SH ERRORES
+.TP
+.B EFAULT
+.I rlim
+o
+.I usage
+apuntan fuera del espacio de direcciones accesible.
+.TP
+.B EINVAL
+.BR getrlimit " o " setrlimit
+es llamado con un \fIresource\fP erróneo, o \fBgetrusage\fP es llamado con un
+\fIwho\fP erróneo.
+.TP
+.B EPERM
+Un no-superusuario intenta utilizar \fBsetrlimit()\fP para incrementar el
+límite `flexible' o `estricto' por encima del límite estricto actual, o un
+superusuario intenta incrementar RLIMIT_NOFILE por encima del máximo actual
+del núcleo.
+.SH "CONFORME A"
+SVr4, BSD 4.3
+.SH NOTA
+Incluir
+.I <sys/time.h>
+no es necesario actualmente, pero incrementa la transportabilidad.
+(De hecho,
+.I struct timeval
+está definida en
+.IR <sys/time.h> .)
+.PP
+En Linux, si la acción asociada a
+.B SIGCHLD
+es
+.B SIG_IGN
+los usos del recurso por los procesos hijo
+son incluidos automáticamente en el valor devuelto por
+.BR RUSAGE_CHILDREN ,
+aunque POSIX 1003.1-2001 prohíbe ésto explícitamente.
+.\" See the description of getrusage() in XSH.
+.\" A similar statement was also in SUSv2.
+.LP
+La estructura de arriba fue tomada de BSD 4.3 Reno.
+No todos los campos son significativos bajo Linux.
+En la actualidad (Linux 2.4) sólo los campos
+.BR ru_utime ,
+.BR ru_stime ,
+.BR ru_minflt ,
+.BR ru_majflt ,
+y
+.BR ru_nswap
+son mantenidos.
+.SH "VÉASE TAMBIÉN"
+.BR dup (2),
+.BR fcntl (2),
+.BR fork (2),
+.BR mlock (2),
+.BR mlockall (2),
+.BR mmap (2),
+.BR open (2),
+.BR quotactl (2),
+.BR sbrk (2),
+.BR wait3 (2),
+.BR wait4 (2),
+.BR malloc (3),
+.BR ulimit (3),
+.BR signal (7)

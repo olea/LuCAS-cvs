@@ -1,0 +1,262 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!DOCTYPE article PUBLIC "-//OASIS//DTD DocBook XML V4.2//EN" "http://www.oasis-open.org/docbook/xml/4.2/docbookx.dtd">
+<article lang="es">
+  <articleinfo>
+    <title>Instalación de un sistema Debian chroot</title>
+    <author>
+      <firstname>Colin</firstname>
+      <surname>Walters</surname>
+      <affiliation>
+        <address>walters@debian.org</address>
+      </affiliation>
+    </author>
+    <othercredit role="translator">
+      <firstname>Javier</firstname>
+      <surname>Linares Sánchez</surname>
+      <contrib>Traducción al castellano</contrib>
+    </othercredit>
+    <othercredit role="translator">
+      <firstname>Teófilo</firstname>
+      <surname>Ruiz Suárez</surname>
+      <contrib>Traducción al castellano</contrib>
+    </othercredit>
+  </articleinfo>
+  <sect1 id="pagina01">
+    <title>Introducción</title>
+    <para>Con frecuencia, como desarrollador Debian, necesito probar los
+	paquetes antes de subirlos. Sin embargo, si mis paquetes tienen
+	fallos importantes que hicieran cosas equivalentes a <command>rm
+	-rf /</command>, no es agradable probarlos en mi instalación
+	principal.</para>
+    <para> Con la combinación de los programas
+	<command>chroot</command> y <command>debootstrap</command>, es
+	posible configurar un sistema Debian aislado en el cual
+	poder entrar e instalar el paquete, sin temor alguno a destruir su
+	sistema principal. Actualmente, estoy usando esta configuración
+	para tener GNOME 2 y GNOME 1 instalados a través de paquetes Debian
+	en diferentes chroots, para poder probar scripts para la
+	transición de GNOME 1 a GNOME 2.</para>
+    <sect2>
+      <title>Requisitos</title>
+      <itemizedlist>
+        <listitem>
+          <para> chroot (parte del paquete <emphasis>coreutils</emphasis>
+    en Debian <literal>sarge</literal> y <literal>sid</literal>)
+    </para>
+        </listitem>
+        <listitem>
+          <para>debootstrap</para>
+        </listitem>
+        <listitem>
+          <para>login</para>
+        </listitem>
+        <listitem>
+          <para><emphasis>(opcional)</emphasis>gdm</para>
+        </listitem>
+      </itemizedlist>
+    </sect2>
+  </sect1>
+  <sect1 id="pagina02">
+    <title>Creando el <literal>chroot</literal></title>
+    <para>
+      A través de <command>debootstrap</command> puede configurar un
+      entorno chroot para <literal>woody</literal>,
+      <literal>sarge</literal> o <literal>sid</literal>. En adelante 
+      este documento asume que está creando un chroot para
+      <literal>sid</literal>.
+    </para>
+    <orderedlist>
+      <listitem>
+        <para>
+	  Cree un directorio, por ejemplo <filename>/sid/</filename>. Si no
+	  elige ese nombre, asegúrese de sustituir el que seleccione por
+	  <filename>/sid/</filename> en el resto de este documento.
+	</para>
+        <programlisting>
+mkdir /sid/
+</programlisting>
+      </listitem>
+      <listitem>
+        <para>
+	  Es necesario instalar primero <literal>woody</literal> y, a
+	  continuación, actualizar a <literal>sid</literal>.
+	  <literal>sid</literal> cambia con suficiente periodicidad como para
+	  usar <command>debootsrap</command> con esta rama de Debian. Así que
+	  ejecutamos <command>debootstrap</command>:
+	</para>
+        <programlisting>
+debootstrap woody /sid/ http://ftp.debian.org/debian/
+</programlisting>
+      </listitem>
+      <listitem>
+        <para>
+	  Establezca en el archivo <filename>/etc/fstab</filename> de
+	  <emphasis>su sistema principal</emphasis> el montaje del sistema
+	  de fichero <filename>/proc</filename> del entorno
+	  <literal>chroot</literal>.
+	</para>
+        <programlisting>
+echo proc-sid /sid/proc proc none 0 0 &gt;&gt; /etc/fstab
+mount /sid/proc
+</programlisting>
+      </listitem>
+      <listitem>
+        <para>
+	  Configure la red en el <literal>chroot</literal>.
+	</para>
+        <programlisting>
+echo 127.0.0.1 localhost $(hostname) &gt; /sid/etc/hosts
+</programlisting>
+      </listitem>
+      <listitem>
+        <para>
+	  Ahora ya está listo para usar el chroot. Usaremos el programa
+	  <literal>chroot</literal> para acceder a él.
+	</para>
+        <programlisting>
+chroot /sid/ /bin/sh
+</programlisting>
+      </listitem>
+      <listitem>
+        <para>
+	  Actualizamos la instalación de <literal>woody</literal> a
+	  <literal>sid</literal>. Si desea ejecutar
+	  <literal>woody</literal> debería saltarse este paso.
+	</para>
+        <programlisting>
+(echo deb http://ftp.debian.org/debian/ sid main; echo deb-src http://ftp.debian.org/debian/ sid main) &gt; /etc/apt/sources.list
+apt-get update
+apt-get dist-upgrade
+</programlisting>
+      </listitem>
+      <listitem>
+        <para>
+	Llegados a este punto ya debería tener un sistema completamente
+	usable en el que poder jugar sin miedo a interferir con su
+	instalación Debian principal.
+	</para>
+      </listitem>
+    </orderedlist>
+  </sect1>
+  <sect1 id="pagina03">
+    <title>Estableciendo el acceso o <literal>login</literal></title>
+    <para>
+      Ejecutar <command>chroot /sid/</command> es sencillo, pero mantiene
+      todo tipo de variables de entorno alrededor que tal vez no desee, y
+      algunas otras cosas más. Una aproximación mucho mejor es ejecutar
+      otro proceso <literal>login</literal> en un terminal virtual
+      diferente, donde poder entrar en el <literal>chroot</literal> de
+      forma directa.
+    </para>
+    <orderedlist>
+      <listitem>
+        <para>
+	  En su sistema principal, edite el archivo
+	  <filename>/etc/inittab</filename>, buscando y modificando las
+	  siguientes líneas:
+	</para>
+        <programlisting>
+# Note que en la mayoría de los sistemas Debian tty7 se usa para el sistema
+# de ventanas X (X Windows System). Si desea, por tanto, añadir más accesos
+# en modo texto (FIXME getty's) siga añadiendo líneas como esta pero
+# sáltese el tty7 si ejecuta X.
+#
+1:2345:respawn:/sbin/getty 38400 tty1
+2:23:respawn:/sbin/getty 38400 tty2
+3:23:respawn:/sbin/getty 38400 tty3
+4:23:respawn:/sbin/getty 38400 tty4
+5:23:respawn:/sbin/getty 38400 tty5
+6:23:respawn:/sbin/getty 38400 tty6
+</programlisting>
+      </listitem>
+      <listitem>
+        <para> 
+	  Ahora, añada una línea similar a la siguiente:
+	</para>
+        <programlisting>
+8:23:respawn:chroot /sid/ /sbin/getty 38400 tty8
+</programlisting>
+        <para>
+	  El <quote>8</quote> hace referencia a la terminar en la cual se
+	  ejecutará el nuevo acceso (<literal>login</literal>). Puede
+	  elegir otra si así lo desea.
+	</para>
+      </listitem>
+      <listitem>
+        <para>
+	  Reiniciamos <literal>init</literal>:
+	</para>
+        <programlisting>
+init q
+</programlisting>
+      </listitem>
+    </orderedlist>
+  </sect1>
+  <sect1 id="pagina04">
+    <title>Configurando <literal>gdm</literal></title>
+    <para>
+      ¿Desearía ejecutar <literal>X</literal> y <literal>GNOME</literal>
+      en su <literal>chroot</literal>? ¡Es totalmente posible!  El
+      siguiente ejemplo hará que <literal>GDM</literal> se ejecute en la
+      terminal virtual 8; debería seleccionar otra (como 9) si ya ha
+      configurado <literal>login</literal> para ejecutarse en vt8 en el
+      ejemplo anterior. A continuación encontrará lo que hay que hacer:
+    </para>
+    <orderedlist>
+      <listitem>
+        <para>
+          <emphasis>(entre en su chroot, ya sea con <command>chroot
+	  /sid/</command> o con el <literal>login</literal> configurado
+	  previamente)</emphasis>
+        </para>
+        <programlisting>
+apt-get install gdm gnome x-window-system
+</programlisting>
+      </listitem>
+      <listitem>
+        <para>Copie su <filename>/etc/X11/XF86Config-4</filename> desde el
+	sistema principal al entorno chroot, como:</para>
+        <programlisting>
+cp /etc/X11/XF86Config-4 /sid/etc/X11/XF86Config-4
+</programlisting>
+      </listitem>
+      <listitem>
+        <para>
+	  A continuación entre en el chroot de nuevo y edite el archivo
+	  <filename>/etc/gdm/gdm.conf</filename> dentro de él. Baje
+	  hasta la sección <literal>[servers]</literal>. Verá una línea
+	  parecida a:
+	</para>
+        <programlisting>
+0=Standard vt7
+</programlisting>
+        <para>
+	  Cambie esa línea a:
+	</para>
+        <programlisting>
+0=Standard vt8
+</programlisting>
+        <para>
+	  De nuevo, sustituya 8 por la terminal virtual que desee en lugar
+	  de <quote>8</quote>.
+	</para>
+      </listitem>
+      <listitem>
+        <para>
+	  Y, todavía dentro del chroot, ejecute:
+	</para>
+        <programlisting>
+/etc/init.d/gdm start
+</programlisting>
+      </listitem>
+    </orderedlist>
+    <para>
+      Ahora puede conmutar entre el entorno X de su chroot y el entorno X
+      de su sistema principal, simplemente conmutando como lo haría entre
+      terminales virtuales en Linux; por ejemplo, usando
+      <keycap>Ctrl</keycap>+<keycap>Alt</keycap>+<keycap>F7</keycap> y
+      <keycap>Ctrl</keycap>+<keycap>Alt</keycap>+<keycap>F8</keycap>.
+      ¡Diviértase!
+    </para>
+  </sect1>
+</article>

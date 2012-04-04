@@ -1,0 +1,150 @@
+.\" Copyright 1995 Mark D. Roth (roth@uiuc.edu)
+.\"
+.\" This is free documentation; you can redistribute it and/or
+.\" modify it under the terms of the GNU General Public License as
+.\" published by the Free Software Foundation; either version 2 of
+.\" the License, or (at your option) any later version.
+.\"
+.\" The GNU General Public License's references to "object code"
+.\" and "executables" are to be interpreted as the output of any
+.\" document formatting or typesetting system, including
+.\" intermediate and printed output.
+.\"
+.\" This manual is distributed in the hope that it will be useful,
+.\" but WITHOUT ANY WARRANTY; without even the implied warranty of
+.\" MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+.\" GNU General Public License for more details.
+.\"
+.\" You should have received a copy of the GNU General Public
+.\" License along with this manual; if not, write to the Free
+.\" Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111,
+.\" USA.
+.\"
+.\" References consulted:
+.\"     Linux libc source code
+.\"     Solaris manpages
+.\"
+.\" Modified Thu Jul 25 14:43:46 MET DST 1996 by Michael Haardt
+.\" <michael@cantor.informatik.rwth-aachen.de> 
+.\" Translated into Spanish Wed Feb 25 20:49:51 CET 1998 by Gerardo
+.\" Aburruzaga García <gerardo.aburruzaga@uca.es>
+.\"
+.TH GETUTENT 3 "25 Febrero 1998" "Linux" "Funciones de biblioteca"
+.SH NOMBRE
+getutent, getutid, getutline, pututline, setutent, endutent, utmpname
+\- acceden a las entradas del fichero utmp
+.SH SINOPSIS
+.B #include <utmp.h>
+.sp
+.B struct utmp *getutent(void);
+.br
+.BI "struct utmp *getutid(struct utmp *" ut ");"
+.br
+.BI "struct utmp *getutline(struct utmp *" ut ");"
+.sp
+.BI "void pututline(struct utmp *" ut ");"
+.sp
+.B void setutent(void);
+.br
+.B void endutent(void);
+.sp
+.BI "void utmpname(const char *" fichero ");"
+.SH DESCRIPCIÓN
+\fButmpname\fP() establece qué nombre tiene el fichero en formato utmp
+al que van a acceder las otras funciones descritas aquí. Si
+\fButmpname\fP() no se llama para establecer el nombre de fichero
+antes de que se usen las otras funciones, se asume el nombre
+\fB_PATH_UTMP\fP, como se define en \fI<paths.h>\fP.
+.PP
+\fBsetutent\fP() rebobina el indicador de fichero al principio del
+fichero utmp. Generalmente es una Buena Idea llamar a esta función
+antes que cualquiera de las siguientes.
+.PP
+\fBendutent\fP() cierra el fichero utmp. Debe llamarse cuando el
+código de usuario ha terminado de acceder al fichero con las otras
+funciones. 
+.PP
+\fBgetutent\fP() lee una línea desde donde está actualmente el
+indicador de posición del fichero en el de formato utmp. Devuelve un
+puntero a una estructura que contiene los campos correspondientes a la
+línea.
+.PP
+\fBgetutid\fP() busca hacia adelante desde la posición actual en el
+fichero utmp según \fIut\fP.  Si \fIut\fP\fB->ut_type\fP es \fBRUN_LVL\fP,
+\fBBOOT_TIME\fP, \fBNEW_TIME\fP, u \fBOLD_TIME\fP, \fBgetutid\fP()
+encontrará la primera entrada cuyo campo \fBut_type\fP concuerde con
+\fIut\fP\fB->ut_type\fP. 
+Si \fIut\fP\fB->ut_type\fP es uno de \fBINIT_PROCESS\fP, \fBLOGIN_PROCESS\fP,
+\fBUSER_PROCESS\fP, o \fBDEAD_PROCESS\fP, \fBgetutid\fP() encontrará la
+primera entrada cuyo campo \fBut_id\fP coincida con \fIut\fP\fB->ut_id\fP.
+.PP
+\fBgetutline\fP() busca hacia adelante desde la posición actual en el
+fichero utmp.  Rastrea las entradas cuyo campo ut_type sea \fBUSER_PROCESS\fP
+o \fBLOGIN_PROCESS\fP y devuelve la primera cuyo campo \fBut_line\fP
+coincida con \fIut\fP\fB->ut_line\fP.
+.PP
+\fBpututline\fP() escribe la estructura utmp \fIut\fP en el fichero
+utmp. Utiliza \fBgetutid\fP() para buscar el sitio correcto en el
+fichero donde insertar la nueva entrada. Si no puede encontrar un
+sitio apropiado para \fIut\fP,
+\fBpututline\fP() añadirá la nueva entrada al final del fichero.
+.SH "VALOR DEVUELTO"
+\fBgetutent\fP(), \fBgetutid\fP() y \fBgetutline\fP() devuelven un
+puntero a una \fBstatic struct utmp\fP.
+.SH "ERRORES"
+En caso de error, se devuelve \fB(struct utmp*)0\fP.
+.SH EJEMPLO
+El siguiente ejemplo añade y quita un registro utmp, suponiendo que se
+ejecuta desde una pseudo-terminal. Para un uso correcto en una
+aplicación más realística, se deberían comprobar los valores devueltos
+por getpwuid() y ttyname().
+.PP
+.nf
+#include <string.h>
+#include <stdlib.h>
+#include <pwd.h>
+#include <unistd.h>
+#include <time.h>
+#include <utmp.h>
+
+int main(int argc, char *argv[])
+{
+  struct utmp entrada;
+
+  system("echo antes de añadir la entrada:;who");
+
+  entrada.ut_type = USER_PROCESS;
+  entrada.ut_pid = getpid();
+  strcpy(entrada.ut_line, ttyname(0) + strlen("/dev/"));
+  /* sólo correcto para ptys llamadas /dev/tty[pqr][0-9a-z] */
+  strcpy(entrada.ut_id, ttyname(0) + strlen("/dev/tty"));
+  time(&entrada.ut_time);
+  strcpy(entrada.ut_user, getpwuid(getuid())->pw_name);
+  memset(entrada.ut_host, 0, UT_HOSTSIZE);
+  entrada.ut_addr = 0;
+  setutent();
+  pututline(&entrada);
+
+  system("echo tras añadir la entrada:;who");
+
+  entrada.ut_type = DEAD_PROCESS;
+  memset(entrada.ut_line, 0, UT_LINESIZE);
+  entrada.ut_time = 0;
+  memset(entrada.ut_user, 0, UT_NAMESIZE);
+  setutent();
+  pututline(&entrada);
+
+  system("echo tras borrar la entrada:;who");
+
+  endutent();
+  return 0;
+}
+.fi
+.SH FICHEROS
+/var/run/utmp	datos de los usuarios que están en el sistema
+.br
+/var/log/wtmp	datos de entradas de usuario anteriores
+.SH "CONFORME A"
+XPG 2, SVID 2, Linux FSSTND 1.2
+.SH "VÉASE TAMBIÉN"
+\fButmp\fP(5)

@@ -1,0 +1,235 @@
+<Chapter Id="arrays">
+<Title>Matrices</Title>
+
+<para>
+<productname>Postgres</productname> permite definir las columnas de una tabla como matrices
+multidimensionales de longitud variable. Se puede crear matrices de cualquier tipo de datos
+predefinido o definidos por el usuario. Para ilustrar su uso, crearemos esta tabla:
+
+<ProgramListing>
+CREATE TABLE sal_emp (
+    nombre             text,
+    salario_trimestral integer[],
+    agenda             text[][]);
+</ProgramListing>
+
+    La consulta de arriba creará una tabla llamada <structname>sal_emp</structname> con
+    una cadena de tipo <FirstTerm>text</FirstTerm> (<strucfield>nombre</strucfield>),
+    una matriz unidimensional de tipo <FirstTerm>integer</FirstTerm> 
+    (<strucfield>salario_trimestral</strucfield>), que representa el salario trimestral 
+    del empleado y una matriz bidimensional de tipo <FirstTerm>text</FirstTerm> 
+    (<strucfield>agenda</strucfield>), que representa
+    la agenda semanal del empleado.
+</para>
+
+<para>
+    Ahora hacemos algunos <FirstTerm>INSERT</FirstTerm>,s; fíjese que cuando se agregan elementos a una matriz,
+    encerramos los valores entre llaves y los separamos con comas. Si usted conoce
+    el lenguaje C, esto no es muy diferente de la
+    sintáxis que se utiliza para inicializar estructuras.
+
+<ProgramListing>
+INSERT INTO sal_emp
+    VALUES ('Bill',
+    '{10000, 10000, 10000, 10000}',
+    '{{"reunión", "almuerzo"}, {}}');
+
+INSERT INTO sal_emp
+    VALUES ('Carol',
+    '{20000, 25000, 25000, 25000}',
+    '{{"llamada", "consulta"}, {"reunión"}}');
+</ProgramListing>
+</para>
+
+<para>
+    Ahora podemos empezar a hacer algunas consultas en <strucname>sal_emp</strucname>.
+    Mostraremos primero como acceder a un único elemento de una tabla en cada momento.
+    La consulta muestra el nombre de los empleados cuyo salario ha cambiado en el segundo
+    trimestre.    
+
+<ProgramListing>
+SELECT nombre
+    FROM sal_emp
+    WHERE sal_emp.salario_trimestral[1] &lt;&gt;
+    sal_emp.salario_trimestral[2];
+
+
+ nombre
+-------
+  Carol 
+(1 row)
+</ProgramListing>
+
+    <ProductName>Postgres</ProductName> utiliza la convención de
+    «numeración basada en uno» para las matrices, esto es, una matriz de n
+    elementos comienza con <literal>array[1]</literal> y finaliza con array[n].
+</para>
+<para>
+    Esta consulta muestra el tercer pago trimestral de los empleados:
+
+<programlisting>
+SELECT salario_trimestral>[3] FROM sal_emp;
+
+ salario_trimestral
+------------------
+             10000
+             25000
+(2 rows)
+</programlisting>
+</para>
+
+<Para>
+    También podemos acceder arbitrariamente a distintas
+    porciones rectangulares de la matriz o submatrices. Se denota una porción indicando
+    <literal><replaceable>índice inferior</replaceable></literal>:
+    <literal><replaceable>índice superior</replaceable></literal> para una o más dimensiones
+    de la tabla. Esta consulta recupera el primer elemento de la agenda de Bill para 
+    los primeros dos días de la semana.
+
+<ProgramListing>
+SELECT sal_emp.agenda[1:2][1:1]
+    FROM sal_emp
+    WHERE sal_emp.nombre = 'Bill';
+
+            agenda           
+-------------------
+{{"reunión"},{""}} 
+(1 row)
+</ProgramListing>
+</Para>
+
+  También podríamos haber escrito
+
+<programlisting>
+SELECT agenda[1:2][1] FROM sal_emp WHERE nombre = 'Bill';
+</programlisting>
+
+  con el mismo resultado.  Se realiza una operación de suscripción de una matriz para
+  representar una fracción de la matriz si cualquiera de los índices están escritos en la 
+  forma <replaceable>inferior</replaceable><literal>:</literal>
+  <replaceable>superior</replaceable>.  Se asume un límite inferior de 1 para cualquier 
+  índice para el que no se haya asignado un valor.
+ </para>
+
+ <para>
+  Se puede reemplazar completamente un valor de una matriz:
+
+<programlisting>
+UPDATE sal_emp SET salario_trimestral = '{25000,25000,27000,27000}'
+    WHERE nombre = 'Carol';
+</programlisting>
+
+  o se puede actualizar un único elemento:
+
+<programlisting>
+UPDATE sal_emp SET salario_trimestral[4] = 15000
+    WHERE nombre = 'Bill';
+</programListing>
+
+  o se puede actualizar una fracción:
+
+<programlisting>
+UPDATE sal_emp SET salario_trimestral[1:2] = '{27000,27000}'
+    WHERE nombre = 'Carol';
+</programlisting>
+ </para>
+
+ <para>
+  Se puede hacer más grande una matriz asignandole un elemento adyacente a aquellos
+  ya presentes, o asignando a una fracción adyacente o que se solapa con los datos
+  ya presentes. Por ejemplo, si el valor de una matriz en este momento tiene cuatro
+  elementos, tendrá cinco elementos tras una actualización que realice una asignación
+  al elemento(5).  Actualmente, este tipo de ampliaciones sólo se permiten para 
+  matrices uni-dimensionales, no para matrices multidimensionales.
+ </para>
+
+ <para>
+  La sintaxis de <command>CREATE TABLE</command> permite definir matrices de
+  longitud fija:
+
+<programlisting>
+CREATE TABLE tictactoe (
+    cuadro   integer[3][3]
+);
+</programlisting>
+
+  Sin embargo, la implementación actual no garantiza los límites del tamaño de la 
+  matriz --- el comportamiento es el mismo que para matrices de longitud no especificada.
+ </para>
+
+ <para>
+  Actualmente, la implementación actual tampoco garantiza el número de dimensiones declaradas.
+  Las matrices de un tipo base particular se consideran todas del mismo tipo, sin mirar el
+  tamaño o el número de sus dimensiones.
+ </para>
+
+ <para>
+  Las dimensiones reales de cualquier tipo de matriz se pueden recuperar con la función
+  <function>array_dims</function>:
+
+<programlisting>
+SELECT array_dims(agenda) FROM sal_emp WHERE nombre = 'Carol';
+
+ array_dims
+------------
+ [1:2][1:1]
+(1 row)
+</programlisting>
+
+  <function>array_dims</function> produce un resultado de tipo <type>text</type>,
+  adecuado para una persona que lea la respuesta, pero que no lo es para utilizarlo
+  en programas.
+ </para>
+
+ <para>
+  Para buscar un valor en una tabla, se deberá chequear cada valor de la matriz. 
+  Se puede hacer esto a mano (si se conoce el tamaño de la matriz):
+
+<programlisting>
+SELECT * FROM sal_emp WHERE salario_trimestral[1] = 10000 OR
+                            salario_trimestral[2] = 10000 OR
+                            salario_trimestral[3] = 10000 OR
+                            salario_trimestral[4] = 10000;
+</programlisting>
+
+  Sin embargo, esto rápidamente se vuelve tedioso para matrices grandes, y no es utilizable
+  si el tamaño de la matriz se desconoce.  Aunque no forma parte de la distribución
+  original de <productname>PostgreSQL</productname>, en el directorio de contribuciones
+  hay una extensión a <productname>PostgreSQL</productname> que define nuevas funciones
+  y operadores para iterar sobre valores de matrices. Utilizándolas, la consulta anterior
+  podría ser:
+
+<programlisting>
+SELECT * FROM sal_emp WHERE salario_trimestral[1:4] *= 10000;
+</programlisting>
+
+  Para buscar en toda la matriz (no sólo en las columnas especificadas), se podría utilizar:
+
+<programlisting>
+SELECT * FROM sal_emp WHERE salario_trimestral *= 10000;
+</programlisting>
+
+  Además, se podrían encontrar filas donde toda la matriz tiene todos los valores iguales
+  a 10.000 con:
+
+<programlisting>
+SELECT * FROM sal_emp WHERE salario_trimestral **= 10000;
+</programlisting>
+
+  Para instalar este módulo opcional, mire en el directorio 
+  <filename>contrib/array</filename> de la distribución fuente de 
+  <productname>PostgreSQL</productname>.
+ </para>
+
+ <tip>
+  <para>
+   Las matrices no son listas; el uso de matrices en la forma descrita en el párrafo anterior
+   es una muestra de errores de diseño en la base de datos.  El campo matriz generalmente se
+   debería retirar a una tabla separada. Las tablas obviamente se pueden buscar con mayor 
+   facilidad.
+  </para>
+ </tip>
+
+
+</Chapter>
+

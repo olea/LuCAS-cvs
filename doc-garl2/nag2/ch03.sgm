@@ -1,0 +1,1408 @@
+<!-- $Id: ch03.sgm,v 1.15 2002/11/17 17:43:43 pakojavi2000 Exp $ -->
+<!--
+Nota legal:
+
+   Linux Network Administration Guide, por Olaf Kirch et al.
+
+   La traducción al español se publica bajo la licencia GFDL,
+siendo texto de portada el siguiente:
+
+Linux Network Administrator's Guide
+by Olaf Kirch and Terry Dawson
+Copyright  (c) 1993 Olaf Kirch
+Copyright  (c) 2000 Terry Dawson
+Copyright on O'Reilly printed version (c) 2000 O'Reilly & Associates
+
+y siendo secciones invariantes, la sección de Agradecimientos,
+la sección titulada «La traducción al español», el apéndice C; así
+como esta nota.
+
+Capítulo traducido por:
+
+  Raúl Mahiques, raul2000@mailandnews.com
+  Revisión 1 por Francisco Javier Fernández
+-->
+<chapter id="X-087-2-hardware"><title>Configuración<?lb> del hardware <?lb>de red </title> <indexterm id="idx-configuringnetworkhardware-1"
+class="startofrange"><primary>configuración</primary><secondary>redes</secondary><tertiary>hardware</tertiary></indexterm>
+<indexterm id="idx-hardwarenetworking-1"
+class="startofrange"><primary>hardware</primary><secondary>configuración
+de rede</secondary></indexterm> <indexterm
+id="ch03.net.hw.config"
+class="startofrange"><primary>redes</primary><secondary>hardware,
+configuración</secondary></indexterm>
+
+<indexterm><primary>redes</primary><secondary>dispositivos</secondary></indexterm>
+<indexterm><primary>interfaces</primary></indexterm>
+<para>
+Hasta ahora, hemos estado hablando bastante sobre las interfaces de
+red pero sin explicar realmente qué es lo que pasa cuando el &ldquo;código de red&rdquo;
+del núcleo accede a una parte del hardware. Para ello, y antes que nada,
+tenemos que hablar un poco sobre los conceptos de interfaz y controladores.
+</para>
+
+<para>
+Primero, evidentemente, está el hardware por sí mismo; por ejemplo,
+una tarjeta Ethernet, FDDI o Token Ring: es una oblea de silicio, atiborrada
+de montones de pequeños chips con extraños números encima e insertada en
+una ranura de su PC. Esto es lo que por lo general denominamos un dispositivo físico.
+</para>
+
+<para>
+<indexterm><primary>Ethernet</primary><secondary>tarjetas</secondary></indexterm>
+<indexterm><primary>controladores de dispositivo</primary></indexterm> Para poder utilizar
+una tarjeta de red son necesarias una serie de funciones especiales definidas en el
+núcleo de Linux que seran capaces de entender la forma particular de acceso al dispositivo.
+Al software que implementa estas funciones se le llama <emphasis>
+controlador</emphasis>(N. del T.: Con frecuencia, la bibliografía especializada en español
+también los llama <emphasis>manejadores</emphasis> o <emphasis>drivers</emphasis>).
+Linux tiene controladores para muchos tipos de tarjetas de red: ISA, PCI, MCA, EISA,
+puerto paralelo, PCMCIA, y más recientemente, USB.
+</para>
+
+<para>
+¿Pero qué es lo que queremos decir con que un controlador &ldquo;gestione&rdquo; un dispositivo?
+Vamos a tratar sobre esto con una tarjeta Ethernet. El controlador tiene que ser capaz de comunicarse
+de alguna forma con la lógica interna de la tarjeta: tiene que enviar órdenes y datos a la
+tarjeta, mientras que la tarjeta debe transmitir al controlador cualquier dato recibido.
+</para>
+
+<para>
+En un PC compatible, esta comunicación se establece por medio de una serie de direcciones de
+E/S que son mapeadas a los registros de la tarjeta y/o a través de transferencias directas
+o compartidas a memoria. Todos las órdenes y datos que el núcleo envía
+a la tarjeta tienen que ir a estas direcciones. Las direcciones de memoria y E/S son obtenidas
+generalmente por medio del arranque o de las <emphasis>direcciones base</emphasis>.
+Las direcciones base típicas para las tarjetas Ethernet por bus ISA son
+<literal>0x280</literal> o <literal>0x300</literal>. Las tarjetas de red por bus
+PCI generalmente ya tienen asignada automáticamente su dirección de E/S.
+</para>
+
+<para>
+Normalmente no hay que preocuparse por asuntos de hardware como las
+direcciones base porque al arrancar el núcleo intenta detectar la localización de
+la tarjeta. Esto es llamado <emphasis>autoverificación</emphasis>
+(N. del T.: Del inglés autoprobe), que significa que el núcleo lee varias posiciones
+de memoria y compara los datos que ha encontrado con los que esperaría ver si una tarjeta
+de red en concreto estuviese instalada en esa posición. De todas maneras, puede haber
+tarjetas de red que no puedan ser detectadas automáticamente; esto ocurre a veces con
+tarjetas de red baratas que no son réplicas exactas de tarjetas estándar de otros
+fabricantes. Por otro lado, el núcleo intentará detectar solamente un único dispositivo de
+red al arrancar. Si está usando más de una tarjeta, tendrá que informar al núcleo de las
+otras tarjetas explícitamente.
+</para>
+
+<para>
+<indexterm><primary>IRQ (petición de interrupción)</primary></indexterm>
+<footnote><para>N. del T.: Del inglés Interrupt ReQuest</para></footnote>
+Otro de los parámetros del que puede tener que informar al núcleo es
+la línea de petición de interrupción. Los componentes hardware normalmente
+interrumpen al núcleo cuando tienen la necesidad de que éste se ocupe de ellos,
+por ejemplo, cuando han llegado datos o se presenta una condición especial.
+En un bus ISA, las interrupciones pueden ocurrir en uno de los 15 canales de
+interrupción numerados asi: 0, 1, y del 3 al 15. Al número de interrupción
+asignado a un componente hardware se le denomina número de <emphasis>
+petición de interrupción</emphasis> (IRQ)..<footnote id="X-087-2-FNHW01">
+<para> Las IRQs 2 y 9 son las mismas porque el diseño del IBM PC tiene 2
+procesadores de interrupciones en cascada con 8 IRQs cada uno, el procesador
+secundario es conectado a la IRQ 2 del primario.</para>
+</footnote>
+
+</para>
+
+<para>
+<indexterm><primary>Interfaces</primary><secondary>interfaz</secondary></indexterm>
+<indexterm><primary>IP (Internet Protocol)</primary></indexterm>
+Como se describe en <xref linkend="X-087-2-issues">, el núcleo accede a un dispositivo
+mediante lo que llamamos un <emphasis>interfaz</emphasis>. Los interfaces ofrecen un
+conjunto abstracto de funciones que es el mismo para todo tipo de hardware. Por ejemplo,
+las funciones para enviar o recibir datagramas.</para>
+
+<para>
+<indexterm><primary>Ficheros de dispositivos</primary></indexterm>
+<indexterm><primary>dispositivos</primary><secondary>números
+primarios/secundarios</secondary></indexterm>
+Los interfaces se identifican por medio de nombres.
+En muchos sistemas operativos tipo Unix, el interfaz de red se implementa
+como un fichero de dispositivo especial en el directorio <filename>/dev/</filename>.
+Si usted teclea la orden <literal>ls -las /dev/</literal>, verá como aparecen sus ficheros
+de dispositivos. En la columna de permisos de los ficheros (segunda) verá que los ficheros
+de dispositivos comienzan con una letra en vez del guión visto con los ficheros
+normales. Este carácter indica el tipo de dispositivo. Los tipos de dispositivos más
+comunes son los <literal>b</literal>, que indica que es un dispositivo
+de <emphasis>bloque</emphasis> y maneja grandes bloques de datos
+cada vez que lee y escribe, y <literal>c</literal>, que indica
+que el dispositivo es un dispositvo de <emphasis>carácter</emphasis>
+y maneja datos de un solo carácter cada vez. Donde normalmente desearía
+ver el tamaño del fichero en la salida de <command>ls</command>,
+en vez de eso verá dos números, llamados los números de dispositivo
+"major" y "minor" (primario y secundario). Estos números indican el dispositivo
+actual al que está asociado el fichero de dispositivo.
+</para>
+
+<para>
+Cada controlador de dispositivo registra un unico número primario para el núcleo.
+En cada <emphasis>caso</emphasis> los registros de dispositivos
+tienen un único número secundario para dicho dispositivo primario.
+Los interfaces <literal>tty</literal>,&thinsp;<filename>/dev/tty*</filename>, son
+unos dispositivos  de modo carácter por lo que indica la &ldquo;<literal>c</literal>&rdquo;,
+y tienen un maximo número de <literal>4</literal>, pero
+<filename>/dev/tty1</filename> tiene un número menor de
+<literal>1</literal>, y <filename>/dev/tty2</filename> tiene un número
+menor de <literal>2</literal>. Los ficheros de dispositivos son muy útiles para
+muchos tipos de dispositivos, pero pueden ser pesados de usar cuando
+intentamos encontrar un dispositivo sin usar para abrir.
+</para>
+
+
+<para>
+Los nombres de las interfaces de Linux son definidos internamente en el núcleo y no
+son ficheros de dispositivos del directorio  <filename>/dev</filename>.
+Algunos nombres de dispositivos típicos serán listados después en <xref
+linkend="X-087-2-hwconfig.tour">.&rdquo; La asignación de interfaces
+a los dispositivos depende normalmente del orden en que los dispositivos
+son configurados. Por ejemplo, la primera tarjeta Ethernet instalada será
+<filename>eth0</filename>, la siguiente <filename>eth1</filename>, y así
+sucesivamente. Las interfaces SLIP son manejadas de forma diferente a otras
+porque éstas son asignadas dinámicamente. Cuando se establece
+una conexion SLIP, una interfaz es asignada al puerto serie.
+</para>
+
+<para>
+<xref linkend="X-087-2-hardware.fig.controladores"> Ilustra la relación entre el
+hardware, los controladores de dispositivos, y las interfaces.
+</para>
+
+<figure id="X-087-2-hardware.fig.controladores">
+<title>Relación entre controladores, interfaces, y hardware</title>
+<mediaobject>
+  <imageobject><imagedata fileref="lag2_0301" format="eps"></imageobject>
+  <imageobject><imagedata fileref="lag2_0301.jpg" format="jpg"></imageobject>
+</mediaobject>
+</figure>
+
+<para>
+Al arrancar, el núcleo muestra los dispositivos detectados y las interfaces
+que instala. Lo siguiente es un extracto de la pantalla de arranque:
+<screen>
+ .
+ .  This processor honors the WP bit even when in supervisor mode./
+    Good.
+Swansea University Computer Society NET3.035 for Linux 2.0
+NET3: Unix domain sockets 0.13 for Linux NET3.035.
+Swansea University Computer Society TCP/IP for NET3.034
+IP Protocols: IGMP,ICMP, UDP, TCP
+Swansea University Computer Society IPX 0.34 for NET3.035
+IPX Portions Copyright (c) 1995 Caldera, Inc.
+Serial driver version 4.13 with no serial options enabled
+tty00 at 0x03f8 (irq = 4) is a 16550A
+tty01 at 0x02f8 (irq = 3) is a 16550A
+CSLIP: code copyright 1989 Regents of the University of California
+PPP: Version 2.2.0 (dynamic channel allocation)
+PPP Dynamic channel allocation code copyright 1995 Caldera, Inc.
+PPP line discipline registered.
+eth0: 3c509 at 0x300 tag 1, 10baseT port, address 00 a0 24 0e e4 e0,/
+    IRQ 10.
+3c509.c:1.12 6/4/97 becker@cesdis.gsfc.nasa.gov
+Linux Version 2.0.32 (root@perf) (gcc Version 2.7.2.1)
+#1 Tue Oct 21 15:30:44 EST 1997
+ .
+ .
+</screen>
+</para>
+
+<para>
+Este ejemplo muestra que el núcleo ha sido compilado con el TCP/IP
+activado e incluyendo controladores para SLIP, CSLIP, y PPP. La tercera línea
+empezando desde abajo muestra que una tarjeta Ethernet 3C509 ha sido
+detectada e instalada como la interfaz <filename>eth0</filename>. Si tiene
+algún otro tipo de tarjeta de red; quizás un adaptador de bolsillo D-Link, por
+ejemplo&mdash;el núcleo  normalmente mostrará una línea que empieza con
+el nombre del dispositivo&mdash;<filename>dl0</filename> en el caso del ejemplo
+del D-Link&mdash;seguido por el tipo de tarjeta detectada. Si tiene una
+tarjeta de red instalada pero no aparece ningún mensaje similar significa que
+el núcleo es incapaz de detectar su tarjeta correctamente. Esta situación
+será tratada más adelante en la sección&ldquo;Ethernet Autoprobing.&rdquo;
+</para>
+
+
+<sect1 id="X-087-2-hardware.kernel.config"><title>Configuracion del núcleo</title>
+<indexterm id="ch03.kernel.config" class="startofrange">
+<primary>Configuración del</primary><secondary>núcleo</secondary></indexterm>
+<para>
+Muchas distribuciones de GNU/Linux vienen con discos de arranque que funcionan
+con el hardware para PC más común. Normalmente, el núcleo suministrado es
+altamente modulable e incluye casi cualquier controlador que pueda necesitar. Esta es una
+gran idea para los discos de arranque, pero no es lo que usted probablemente
+quiera para un uso a largo plazo. No es un buen sistema tener almacenados
+controladores en su disco que nunca va a usar. Por lo tanto, será conveniente crear
+su propio núcleo e incluir sólo aquellos controladores que realmente necesite o desee;
+de esta forma ahorrará un poco de espacio en disco y reduce el tiempo
+que lleva compilar un núcleo nuevo.
+</para>
+
+<para>
+En cualquier caso, al trabajar con un sistema GNU/Linux, le deberá ser familiar
+la compilación de un núcleo. Piense en esto como si fuera un tránsito, una afirmación de
+una de las cosas que hace al software libre más poderoso de lo que ya es&mdash;
+usted tiene las fuentes. Este no es un caso de, &ldquo;tengo que compilar un
+núcleo,&rdquo; más bien es el caso de, &ldquo;<emphasis>puedo</emphasis>
+compilar un núcleo.&rdquo; Los conceptos básicos de la compilacion de un núcleo
+Linux se explican en la Guía de Matt Welsh: <emphasis>"instalación y primeros pasos"
+</emphasis>, que también forma parte de la serie del Proyecto de Documentación de
+GNU/Linux. Por tanto, en esta sección solo trataremos las opciones de
+configuración que afectan a la red.
+</para>
+
+<para>
+
+<indexterm><primary>Numeración de la versión del núcleo</primary></indexterm>
+<indexterm><primary>Núcleo Linux</primary><secondary>Numeración de la versión
+del</secondary></indexterm> Un punto importante que vamos a repetir aquí es
+la forma en que funciona el esquema de numeración de la versión del núcleo.
+Los núcleos Linux son numerados en el siguiente formato:
+<literal>2.2.14</literal>. El primer dígito indica el número de versión
+<emphasis>primario</emphasis>. Este dígito cambia cuando hay cambios numerosos y significativos
+en el diseño del núcleo. Por ejemplo, el núcleo cambio del 1 al 2 cuando
+obtuvo soporte para máquinas de diferente arquitectura a la Intel x86 (la del PC).
+
+El segundo número es el número de versión <emphasis>secundario</emphasis>.
+En muchos aspectos, este número es el más importante a tener en cuenta.
+La comunidad de desarrolladores de Linux ha adoptado un estándar en el cual un
+número de versión secundario <emphasis>par</emphasis> indica que el núcleo está en
+<emphasis>producción</emphasis>,
+o  es <emphasis>estable</emphasis>, y un número de versión
+ secundario <emphasis>impar</emphasis> indica que el núcleo esta en
+<emphasis>desarrollo</emphasis>, o es <emphasis>inestable</emphasis>.
+Debe usar los núcleos estables para los equipos importantes, ya que
+han sido comprobados más a fondo. Los núcleos en desarrollo son
+los que debe de usar si está interesado en experimentar con las
+últimas características de Linux., pero éstos pueden tener muchos problemas
+que todavía no han sido corregidos. El tercer número es simplemente un
+incremento por cada liberación de una versión secundaria.<footnote id="X-087-2-FNHW02"><para>
+<?troff .hw REPORTING>
+La gente suele usar núcleos en desarrollo e informar de los fallos que encuentra,
+hacer esto es algo muy útil si tiene una máquina que pueda usar como
+máquina de pruebas. Las instrucciones de cómo informar de los fallos están detalladas
+en el fichero <filename>/usr/src/linux/REPORTING-BUGS</filename> del código fuente
+del núcleo Linux.
+</para>
+</footnote>
+</para>
+
+<para>
+Al ejecutar <command>make menuconfig</command>, aparecerá un menú de texto que
+le mostrará una lista de cuestiones sobre la configuración, como por ejemplo,
+si desea usar la emulación del coprocesador matemático en el núcleo. Una de esas
+cuestiones pregunta si desea soporte para redes TCP/IP. Debe contestar con
+<literal>y</literal> para que el núcleo sea capaz de trabajar con redes TCP/IP.
+</para>
+
+<sect2><title>Opciones del Núcleo Linux 2.0 y superiores</title>
+<indexterm><primary>configurando el</primary><secondary>núcleo</secondary></indexterm>
+<indexterm><primary>redes</primary><secondary>opciones del núcleo</secondary></indexterm>
+<indexterm><primary>configurando</primary><secondary>Ethernet</secondary></indexterm>
+<indexterm><primary>configuración</primary><secondary>SLIP</secondary></indexterm>
+<indexterm><primary>configuración</primary><secondary>PLIP</secondary></indexterm>
+<indexterm><primary>configuración</primary><secondary>PPP</secondary></indexterm>
+<para>
+
+Después de completar la sección de opciones generales,
+se le preguntará si quiere incluir soporte para varios tipos de dispositivos,
+como controladoras SCSI o tarjetas de sonido. El cursor le indicará qué
+opciones están disponibles. Puede pulsar <prompt>?</prompt> para obtener
+una descripción de la opción en la que se encuentre. Siempre tiene la
+opción de sí (<prompt>y</prompt>) para incluir dicho componente de forma
+estática en el núcleo, o no (<prompt>n</prompt>) para excluir el
+componente completamente. Aparte puede ver la opción de módulo (<prompt>m</prompt>)
+para que dicho componente sea compilado como un módulo cargable.
+Los módulos necesitan ser cargados antes para que puedan ser usados,
+ésto es útil para controladores de componentes que no usa muy a menudo.
+</para>
+
+<para>
+La siguiente lista de preguntas trata sobre el soporte de red.
+El juego exacto de opciones de configuración cambia constantemente debido
+al continuo desarrollo. Una lista típica de las opciones ofrecidas por la mayoría
+de las versiones del núcleo en torno a las 2.0 y 2.1 puede ser ésta:
+
+<screen>
+*
+* Network device support
+*
+Network device support (CONFIG_NETDEVICES) [Y/n/?]
+</screen>
+</para>
+
+<para>
+Debe responder a esta cuestión con <literal>y</literal> si quiere
+usar <emphasis>cualquier</emphasis> tipo de dispositivo de red,
+ya sea Ethernet, SLIP, PPP, o el que sea. Cuando conteste a la
+pregunta con<literal>y</literal>, el soporte para los dispositivos
+Ethernet será activado automáticamente. Deberá responer a otras
+preguntas si quiere habilitar el soporte de otros tipos de controladores de red:
+</para>
+
+<para>
+<screen>
+PLIP (parallel port) support (CONFIG_PLIP) [N/y/m/?] y
+PPP (point-to-point) support (CONFIG_PPP) [N/y/m/?] y
+*
+* CCP compressors for PPP are only built as modules.
+*
+SLIP (serial line) support (CONFIG_SLIP) [N/y/m/?] m
+CSLIP compressed headers (CONFIG_SLIP_COMPRESSED) [N/y/?] (NEW) y
+Keepalive and linefill (CONFIG_SLIP_SMART) [N/y/?] (NEW) y
+Six bit SLIP encapsulation (CONFIG_SLIP_MODE_SLIP6) [N/y/?] (NEW) y
+</screen>
+</para>
+
+<para>
+<indexterm><primary>IPX (Internet Packet eXchange)</primary><secondary>protocolo de red PPP</secondary></indexterm>
+<indexterm><primary>PPP (Point-to-Point Protocol)</primary><secondary>transporte de IPX</secondary></indexterm>
+Estas cuestiones conciernen a varios protocolos de la capa de enlace que Linux soporta.
+PPP y SLIP le permiten transportar datagramas IP a través de líneas serie.
+PPP es usado actualmente por un grupo de protocolos para enviar
+el tráfico de la red a través de líneas serie. Algunos de los protocolos
+que forman  PPP gestionan la manera de poderse autentificar en el servidor,
+mientras otros gestionan el modo en que ciertos protocolos son transportados
+por el enlace&mdash;PPP no esta limitado a transportar solo datagrama TCP/IP;
+además de este protocolo también puede transportar otros como el IPX.
+</para>
+
+<para>
+Si responde <literal>y</literal> o <literal>m</literal> al soporte para SLIP,
+le serán preguntadas tres cuestiones que trataremos más abajo. La opción de
+comprimir las cabeceras permite el soporte para CSLIP, una técnica
+que comprime las cabeceras TCP/IP a solo 3 pequeños bytes. Recuerde
+que esta opción del núcleo no activa automáticmente el CSLIP; simplemente
+provee las funciones necesarias al núcleo para ello. La opción <literal>Keepalive and
+linefill</literal> causa que el soporte de SLIP genere periódicamente actividad
+en la línea para prevenir que ésta sea desconectada por inactividad. La
+opción <literal>Six bit SLIP encapsulation</literal> le permite ejecutar
+SLIP sobre líneas y circuitos que no son capaces de transmitir el grupo
+de 8-bit de datos correctamente. Esto es similar al uuencoding o la técnica
+binhex usada para enviar ficheros binarios por e-mail.
+</para>
+
+<para>
+PLIP proporciona una forma de enviar datagramas IP a través de una conexión
+por puerto paralelo. Esto es usado comúnmente para comunicarse con PCs que usan DOS.
+En el hardware tíipico de PC, PLIP puede ser más rápido que PPP o SLIP, pero
+requiere mucha más CPU para funcionar, además cuando la tasa de transferencia
+sea buena, otras tareas en la máquina podrían volverse más lentas.
+</para>
+
+<para>
+A medida que se desarrollan más controladores, la lista de preguntas en esta
+sección se hace mayor. Si desea compilar un núcleo que se pueda usar en varias
+máquinas, o si su máquina tiene más de un tipo de tarjeta de red instalada,
+puede activar más de un controlador:
+</para>
+
+<para>
+<screen>
+ .
+ .
+Ethernet (10 or 100Mbit) (CONFIG_NET_ETHERNET) [Y/n/?]
+3COM cards (CONFIG_NET_VENDOR_3COM) [Y/n/?]
+3c501 support (CONFIG_EL1) [N/y/m/?]
+3c503 support (CONFIG_EL2) [N/y/m/?]
+3c509/3c579 support (CONFIG_EL3) [Y/m/n/?]
+3c590/3c900 series (592/595/597/900/905) "Vortex/Boomerang" support/
+    (CONFIG_VORTEX) [N/y/m/?]
+AMD LANCE and PCnet (AT1500 and NE2100) support (CONFIG_LANCE) [N/y/?]
+AMD PCInet32 (VLB and PCI) support (CONFIG_LANCE32) [N/y/?] (NEW)
+Western Digital/SMC cards (CONFIG_NET_VENDOR_SMC) [N/y/?]
+WD80*3 support (CONFIG_WD80x3) [N/y/m/?] (NEW)
+SMC Ultra support (CONFIG_ULTRA) [N/y/m/?] (NEW)
+SMC Ultra32 support (CONFIG_ULTRA32) [N/y/m/?] (NEW)
+SMC 9194 support (CONFIG_SMC9194) [N/y/m/?] (NEW)
+Other ISA cards (CONFIG_NET_ISA) [N/y/?]
+Cabletron E21xx support (CONFIG_E2100) [N/y/m/?] (NEW)
+DEPCA, DE10x, DE200, DE201, DE202, DE422 support (CONFIG_DEPCA) [N/y/m/?]/
+    (NEW)
+EtherWORKS 3 (DE203, DE204, DE205) support (CONFIG_EWRK3) [N/y/m/?] (NEW)
+EtherExpress 16 support (CONFIG_EEXPRESS) [N/y/m/?] (NEW)
+HP PCLAN+ (27247B and 27252A) support (CONFIG_HPLAN_PLUS) [N/y/m/?] (NEW)
+HP PCLAN (27245 and other 27xxx series) support (CONFIG_HPLAN) [N/y/m/?]/
+    (NEW)
+HP 10/100VG PCLAN (ISA, EISA, PCI) support (CONFIG_HP100) [N/y/m/?] (NEW)
+NE2000/NE1000 support (CONFIG_NE2000) [N/y/m/?] (NEW)
+SK_G16 support (CONFIG_SK_G16) [N/y/?] (NEW)
+EISA, VLB, PCI and on card controllers (CONFIG_NET_EISA) [N/y/?]
+Apricot Xen-II on card ethernet (CONFIG_APRICOT) [N/y/m/?] (NEW)
+Intel EtherExpress/Pro 100B support (CONFIG_EEXPRESS_PRO100B) [N/y/m/?]/
+    (NEW)
+DE425, DE434, DE435, DE450, DE500 support (CONFIG_DE4X5) [N/y/m/?] (NEW)
+DECchip Tulip (dc21x4x) PCI support (CONFIG_DEC_ELCP) [N/y/m/?] (NEW)
+Digi Intl. RightSwitch SE-X support (CONFIG_DGRS) [N/y/m/?] (NEW)
+Pocket and portable adaptors (CONFIG_NET_POCKET) [N/y/?]
+AT-LAN-TEC/RealTek pocket adaptor support (CONFIG_ATP) [N/y/?] (NEW)
+D-Link DE600 pocket adaptor support (CONFIG_DE600) [N/y/m/?] (NEW)
+D-Link DE620 pocket adaptor support (CONFIG_DE620) [N/y/m/?] (NEW)
+Token Ring controlador support (CONFIG_TR) [N/y/?]
+IBM Tropic chipset based adaptor support (CONFIG_IBMTR) [N/y/m/?] (NEW)
+FDDI controlador support (CONFIG_FDDI) [N/y/?]
+Digital DEFEA and DEFPA adapter support (CONFIG_DEFXX) [N/y/?] (NEW)
+ARCnet support (CONFIG_ARCNET) [N/y/m/?]
+  Enable arc0e (ARCnet "Ether-Encap" packet format) (CONFIG_ARCNET_ETH)/
+      [N/y/?] (NEW)
+  Enable arc0s (ARCnet RFC1051 packet format) (CONFIG_ARCNET_1051)/
+      [N/y/?] (NEW)
+ .
+ .
+</screen>
+</para>
+
+<para>
+<indexterm><primary>configurando</primary><secondary>NFS</secondary></indexterm>
+Finalmente, en la sección de los sistemas de ficheros, el script de configuración le
+preguntará si desea soporte para NFS (networking file system), el sistema de ficheros en
+red. NFS le permite exportar sistemas de ficheros en varios hosts, haciendo que los
+ficheros aparezcan como si estuvieran en un disco duro normal y corriente conectado
+al host.
+</para>
+
+<para>
+<screen>
+NFS file system support (CONFIG_NFS_FS) [y]
+</screen>
+
+Describiremos el NFS con detalle en <xref linkend="X-087-2-nfs">.
+</para>
+
+</sect2>
+
+<sect2><title>Opciónes de red del núcleo de GNU/Linux 2.0.0 <?lb>and Higher</title>
+
+<para>
+<indexterm><primary>Networking HOWTO</primary></indexterm>
+<INDEXTERM><PRIMARY>HOWTOs</PRIMARY><SECONDARY>Networking</SECONDARY></INDEXTERM>
+<indexterm><primary>Redes COMO</primary></indexterm>
+<INDEXTERM><PRIMARY>COMOSs</PRIMARY><SECONDARY>Redes</SECONDARY></INDEXTERM>
+Linux 2.0.0 marcó un cambio significativo en el trabajo en red de GNU/Linux. Muchas
+características formaron parte estándar del núcleo, como el soporte para IPX.
+También fueron añadidas y hechas configurables un buen número de opciones.
+Muchas de esas opciones son usadas sólo en circunstancias muy especiales
+y no vamos a tratarlas en detalle. El Redes COMO tratará probablemente
+lo que no está tratado aquí. Vamos a listar unas cuantas opciones útiles en
+esta sección, y explicaremos cuando debe usar cada una.
+</para>
+
+<variablelist>
+<varlistentry>
+<term>Basics</term>
+<listitem><para> Para trabajar en redes TCP/IP, debe contestar a esta cuestión con
+<literal>y</literal>. Aun contestando con <literal>n</literal> podra compilar el núcleo
+con soporte para IPX.
+</para></listitem>
+</varlistentry>
+</variablelist>
+
+<para>
+<screen>
+Networking options  --->
+    [*] TCP/IP networking
+</screen>
+</para>
+
+<variablelist>
+<varlistentry>
+<term>Pasarelas</term>
+<listitem>
+<para>
+<indexterm><primary>reenvío o redifusión</primary><secondary>IP</secondary></indexterm>
+<indexterm><primary>IP (Internet Protocol)</primary><secondary>reenvío o redifusión</secondary></indexterm>
+Tiene que activar esta opción si su sistema va a actuar como una pasarela entre dos redes,
+entre una red y un enlace SLIP, etc.. Aunque no cuesta nada activarla, así lo está por
+omisión, podría querer desactivarla para configurar el nodo como un
+<emphasis>cortafuegos</emphasis>.
+Los cortafuegos(o firewalls) son nodos que están conectados a dos o más redes,
+pero que no enrutan el tráfico entre ellas. Son comúnmente usados para
+proporcionar a los usuarios acceso a Internet con un riesgo mínimo para la red
+interna. Los usuarios tienen permitido acceder al cortafuegos y usar los servicios de
+Internet, pero las máquinas de la compañía estan protegidas frente ataques del exterior
+porque las conexiones entrantes no pueden atravesar el cortafuegos
+(los cortafuegoss son tratados con más detalle en
+<xref linkend="X-087-2-firewall">&thinsp;):
+</para>
+</listitem>
+</varlistentry>
+</variablelist>
+
+<para>
+<screen>
+    [*] IP: forwarding/gatewaying
+</screen>
+</para>
+
+<variablelist>
+<varlistentry><term>Virtual hosting</term>
+<listitem>
+<para>
+
+<INDEXTERM><PRIMARY>IP (Internet
+Protocol)</PRIMARY><SECONDARY>aliasing</SECONDARY></INDEXTERM>
+<indexterm><primary>aliasing, IP (Internet Protocol)</primary></indexterm>
+Estas opciones permiten configurar más de una dirección IP para
+una única interfaz. Esto es útil si quiere hacer
+&ldquo;virtual hosting,&rdquo; (alojamiento virtual),
+con una sola máquina que puede ser configurada para escuchar y actuar
+como si esta fuera varias máquinas separadas entre sí, cada una con su
+propia configuración de red. Más adelante hablaremos acerca del IP aliasing:
+</para>
+</listitem>
+</varlistentry>
+</variablelist>
+
+<para>
+<screen>
+    [*] Network aliasing
+	<*> IP: aliasing support
+</screen>
+</para>
+
+
+<variablelist>
+<varlistentry>
+<term>Accounting</term>
+<listitem>
+<para>
+<indexterm><primary>IP accounting</primary></indexterm>
+Esta opción le permite recolectar los datos en el caudal del tráfico IP
+enviados o recibidos en su máquina (trataremos esto con más detalle en
+<xref linkend="X-087-2-accounting">&thinsp;):
+</para>
+</listitem>
+</varlistentry>
+</variablelist>
+
+<para>
+<screen>
+    [*] IP: accounting
+</screen>
+</para>
+<variablelist>
+<varlistentry>
+<term>PC hug</term>
+<listitem>
+<para>
+<indexterm><primary>PC/TCP compatibility</primary></indexterm>
+
+Esta opción evita incompatibilidades con algunas versiones de PC/TCP,
+una implementación comercial de TCP/IP basada en DOS para PCs. Si
+activa esta opción, todavía será capaz de comunicarse con máquinas
+UNIX normales, pero bajará el rendimiento cuando el enlace sea
+lento.
+</para>
+</listitem>
+</varlistentry>
+</variablelist>
+
+<para>
+<screen>
+    --- (it is safe to leave these untouched)
+    [*] IP: PC/TCP compatibility mode
+</screen>
+</para>
+
+<variablelist>
+<varlistentry>
+<term>Diskless booting</term>
+<listitem>
+<para>
+<indexterm><primary>RARP (Reverse Address Resolution Protocol)</primary></indexterm>
+Esta función activa el <emphasis>Protocolo de Resolución de Direcciones Inverso</emphasis>
+(RARP). RARP se utiliza en clientes sin disco y terminales X para pedir su dirección IP al
+arrancar. Deberá activar RARP si planea ofrecer este tipo de servicios. Un pequeño programa
+llamado <command>rarp</command>, incluido con las utilidades de red estándares, se usa
+para añadir entradas a la tabla RARP del núcleo:
+</para>
+</listitem>
+</varlistentry>
+</variablelist>
+
+<para>
+<screen>
+    <*> IP: Reverse ARP
+</screen>
+</para>
+
+<variablelist>
+<varlistentry>
+<term>MTU</term>
+<listitem>
+<para>
+<indexterm><primary>IP (Internet Protocol)</primary><secondary>routing</secondary></indexterm>
+<indexterm><primary>IP (Internet Protocol)</primary><secondary>subnets</secondary></indexterm>
+<indexterm><primary>subnets</primary><secondary>IP</secondary></indexterm>
+<indexterm><primary>Maximum Transmission Unit (MTU)</primary><secondary>IP</secondary></indexterm>
+<INDEXTERM><PRIMARY>IP (Internet Protocol)</PRIMARY><SECONDARY>MTU</SECONDARY></INDEXTERM>
+Cuando enviamos datos sobre TCP, el núcleo tiene que dividir éstos en varios bloques
+de datos para pasarlos al nivel IP. El tamaño de estos bloques es llamado la
+<emphasis>Unidad Maxima de Transmisión</emphasis> (Maximum Transmission Unit),
+o MTU. Para los nodos accesibles a través de una red local como una Ethernet,
+se usa un MTU tan alto como la máxima longitud permitida para los paquetes Ethernet
+&mdash;1,500 bytes. Cuando enrutamos IP sobre una WAN como Internet, es
+preferible usar datagramas de menor tamaño para asegurarnos de que no necesitan
+ser partidos de nuevo a lo largo de la ruta mediante el proceso llamado
+<emphasis>fragmentación IP </emphasis>.<footnote id="X-087-2-FNHW03"><para>
+Recuerde, el protocolo IP puede ser transportado sobre multitud de tipos diferentes de
+redes, y no todas las redes podrán soportar tamaños de paquetes tan largos como
+los de las Ethernet.
+</para></footnote> El núcleo es capaz de determinar automáticamente el MTU más bajo de una ruta IP y configurar
+automáticamente una conexión TCP para usar éste. Este comportamiento es activado
+por defecto. Si contesta con <literal>y</literal> a esta opción, esta característica será
+deshabilitada.
+</para>
+
+<para>
+Si desea usar un tamaño de paquete menor para enviar datos a nodos específicos
+(porque, por ejemplo, los datos irán a través de un enlace SLIP), puede hacer ésto
+usando la opción <command>mss</command> de la orden <command>route</command>,
+que está descrita brevemente al final del capítulo:
+</para>
+</listitem>
+</varlistentry>
+</variablelist>
+
+
+<para>
+<screen>
+    [ ] IP: Disable Path MTU Discovery (normally enabled)
+</screen>
+</para>
+
+<variablelist>
+<varlistentry>
+<term>Security feature</term>
+<listitem>
+<para>
+<indexterm><primary>source routing</primary></indexterm>
+<indexterm><primary>IP (Internet Protocol)</primary><secondary>source routing</secondary></indexterm>
+<indexterm><primary>RIP (Routing Information Protocol)</primary></indexterm>
+<INDEXTERM><PRIMARY>Routing Information Protocol (RIP)</PRIMARY></INDEXTERM>
+<indexterm><primary>protocols</primary><secondary>Routing Information
+Protocol (RIP)</secondary></indexterm>
+<indexterm><primary>OSPF (Open Shortest Path First) protocol</primary></indexterm>
+<indexterm><primary>protocols</primary><secondary>OSPF</secondary></indexterm>
+El protocolo IP soporta una característica llamada <emphasis>Source Routing</emphasis>
+Source Routing le permite especificar la ruta que un datagrama debe seguir
+mediante la grabación por usted mismo de la ruta dentro del datagrama.
+Esto fue alguna vez útil antes de que los protocolos de enrutamiento como
+RIP y OSPF se hicieran usuales. Pero hoy  día es considerado una amenaza
+de seguridad debido a que puede facilitar a los  atacantes inteligentes una forma de
+rodear ciertos tipos de cortafuegos evitando la tabla de enrutamiento de un enrutador.
+Normalmente deseará filtrar la procedencia de los datagramas externos enrutados,
+por lo que esta opción está activada normalmente.
+</para>
+</listitem>
+</varlistentry>
+</variablelist>
+
+<para>
+<screen>
+    [*] IP: Drop source routed frames
+</screen>
+</para>
+
+<variablelist>
+<varlistentry>
+<term>Novell support</term>
+<listitem>
+<para>
+<indexterm><primary>configuración</primary><secondary>IPX</secondary></indexterm>
+<indexterm><primary>protocolos</primary><secondary>Internet Packet eXchange (IPX)</secondary></indexterm>
+<indexterm><primary>IPX (Internet Packet eXchange)</primary><secondary>enrotamiento</secondary></indexterm>
+Esta opción activa el soporte para IPX, el protoco de transmisión para redes
+que usa Novell. GNU/Linux  podría funcionar fácilmente como un enrutador IPX
+y su soporte es útil en entornos donde tiene servidores de ficheros Novell.
+El sistema de ficheros NCP también requiere tener el soporte de IPX activado
+en el núcleo; si desea añadir o montar sus sistemas de ficheros Novell
+deberá activar esta opción (hablaremos más sobre IPX y el sistema de ficheros
+NCP en <xref linkend="X-087-2-ipx">):
+</para>
+</listitem>
+</varlistentry>
+</variablelist>
+
+<para>
+<screen>
+    <*> The IPX protocol
+</screen>
+</para>
+
+<variablelist>
+<varlistentry>
+<term>Amateur radio</term>
+<listitem>
+<para>
+<INDEXTERM><PRIMARY>protocolos de radio amateur</PRIMARY></INDEXTERM>
+<indexterm><primary>AX.25, protocolo</primary></indexterm>
+<indexterm><primary>protocolos</primary><secondary>AX.25</secondary></indexterm>
+<indexterm><primary>NetRom, protocolo</primary></indexterm>
+<indexterm><primary>protocolos</primary><secondary>NetRom</secondary></indexterm>
+<indexterm><primary>Rose, protocolo</primary></indexterm>
+<indexterm><primary>protocolos</primary><secondary>Rose</secondary></indexterm>
+<indexterm><primary>AX25 HOWTO</primary></indexterm>
+<INDEXTERM><PRIMARY>HOWTOs</PRIMARY><SECONDARY>AX25</SECONDARY></INDEXTERM>
+Estas tres opciones seleccionadas dan soporte para los tres protocolos de Radio
+soportados por Linux: AX.25, NetRom y Rose (No vamos a describirlos en este
+libro, pero puede encontrar más informacion en el AX25 HOWTO):
+
+<screen>
+    <*> Amateur Radio AX.25 Level 2
+    <*> Amateur Radio NET/ROM
+    <*> Amateur Radio X.25 PLP (Rose)
+</screen>
+</para>
+
+<para> Linux soporta otro tipo de controlador: el controlador vacío (dummy). la siguiente
+pregunta aparece hacia el comienzo de la sección de controladores de dispositivos:
+
+<screen>
+    <*> Dummy net controller support
+</screen>
+</para>
+
+<para>
+El controlador vacío no hace realmente gran cosa, pero es bastante útil en
+nodos aislados o conectados mediante PPP/SLIP. Es básicamente una interfaz
+enmascarada del bucle local. En nodos que tienen PPP/SLIP pero  no
+otras interfaces de red, es necesario tener una interfaz que continuamente gestione
+las direcciones IP. Ésto se tratará con más detalle en
+<xref linkend="X-087-2-iface.interfaz.dummy"> en
+<xref linkend="X-087-2-iface">. Recuerde que actualmente puede obtener el mismo
+resultado usando la característica IP alias y configurando sus direcciones IP como
+alias en la interfaz de bucle local.
+<indexterm class="endofrange" startref="ch03.kernel.config">
+</para>
+</listitem>
+</varlistentry>
+</variablelist>
+
+
+</sect2>
+
+</sect1>
+
+<sect1 id="X-087-2-hwconfig.tour"><title>Un vistazo a los dispositivos de red de Linux</title>
+<indexterm><primary>dispositivos</primary><secondary>redes GNU/Linux</secondary></indexterm>
+<indexterm><primary>redes</primary></indexterm>
+<para>
+El núcleo Linux soporta multitud de controladores para varios tipos de hardware.
+En esta sección daremos un breve repaso de las familias de controladores disponibles
+y los nombres de interfaz que usan.
+</para>
+
+<para>
+<indexterm><primary>interfaces</primary></indexterm> Hay un conjunto de
+nombres estándares para los interfaces en GNU/Linux que se enumeraran a continuación.
+La mayoría de los controladores soportan más de un interfaz, en cuyo caso los
+interfaces son numeradas, como en <filename>eth0</filename> y
+<filename>eth1</filename>:
+</para>
+
+<para>
+<variablelist>
+<varlistentry><term>
+<filename>lo</filename></term>
+<listitem><para>
+<indexterm><primary>interfaces</primary><secondary>bucle local</secondary></indexterm>
+<indexterm><primary>bucle local</primary><secondary>dispositivo interfaz</secondary></indexterm>
+Éste es el interfaz de bucle local (loopback). Es usado para realizar tests,
+y para un par de aplicaciones de red.  Funciona como un circuito cerrado que
+devuelve cualquier datagrama recibido a la capa de red del host.
+Siempre hay un dispositibo loopback presente en el núcleo y no tiene mucho
+sentido tener más.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term>
+<filename>eth0</filename>, <filename>eth1</filename>, &hellip;</term>
+<listitem><para>
+<indexterm><primary>eth1, dispositivo</primary></indexterm>
+<indexterm><primary>interfaces</primary><secondary>Ethernet</secondary></indexterm>
+Éstos son los interfaces de las tarjetas Ethernet. Son unsados para la mayoría de las
+tarjetas Ethernet, incluyendo algunas de las tarjetas Ethernet por puerto paralelo.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term>
+<filename>tr0</filename>, <filename>tr1</filename>, &hellip;</term>
+<listitem><para>
+<indexterm><primary>tr0, dispositivo</primary></indexterm>
+<indexterm><primary>interfaces</primary><secondary>Token Ring</secondary></indexterm>
+Éstos son las interfaces de las tarjetas Token Ring. Son usados para la mayoría de las
+tarjetas Token Ring, incluyendo tarjetas que no han sido fabricadas por IBM.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term>
+<filename>sl0</filename>, <filename>sl1</filename>, &hellip;</term>
+<listitem><para>
+<indexterm><primary>sl1, dispositivoe</primary></indexterm>
+<indexterm><primary>interfaces</primary><secondary>SLIP</secondary></indexterm>
+Éstos son los interfaces SLIP. Los interfaces SLIP se asocian a líneas
+serie en el orden en el que son instaladas
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term>
+<filename>ppp0</filename>, <filename>ppp1</filename>, &hellip;</term>
+<listitem><para>
+<indexterm><primary>ppp1,  dispositivos</primary></indexterm>
+<indexterm><primary>interfaces</primary><secondary>PPP</secondary></indexterm>
+Éstos son los interfaces PPP. Como ocurre con los interfaces SLIP, cada interfaz PPP
+se asocia a una línea serie una vez convertida al modo PPP.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term> <filename>plip0</filename>,
+<filename>plip1</filename>, &hellip;</term> <listitem><para>
+<indexterm><primary>plip1, dispositivo</primary></indexterm>
+<indexterm><primary>interfaces</primary><secondary>PLIP</secondary></indexterm>
+Éstas son los interfaces PLIP. PLIP transporta datagramas IP sobre líneas
+paralelas. Los interfaces son asignados por el controlador PLIP al arrancar el sistema
+y son mapeadas a los puertos paralelos. En los núcleos
+<emphasis>2.0.x</emphasis> hay una relación directa entre el nombre
+del dispositivo y el puerto E/S del puerto paralelo, pero en los
+núcleos posteriores los nombres de dispositivos son asignados secuencialmente,
+como para los dispositivos SLIP y PPP.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry><term> <filename>ax0</filename>,
+<filename>ax1</filename>, &hellip;</term> <listitem><para>
+<indexterm><primary>AX.25, dispositivos</primary></indexterm>
+<indexterm><primary>interfaces</primary><secondary>AX.25</secondary></indexterm>
+<indexterm><primary>protocolos</primary><secondary>AX.25</secondary></indexterm>
+Estas son las interfaces AX.25. AX.25 es el principal protocolo usado por
+los radioaficionados. Las interfaces AX.25 son asignadas y mapeadas
+en modo similar a los dispositivos SLIP.
+</para>
+</listitem>
+</varlistentry>
+</variablelist>
+</para>
+
+<para>
+Hay muchos otros tipos de interfaces disponibles para otros controladores de red.
+Nosotros solo mostramos los más comunes.
+</para>
+
+<para>
+En las siguientes secciones, trataremos en detalle el uso de los controladores
+descritos anteriormente. El Networking HOWTO ofrece más detalles sobre como
+configurar la mayoría de los que faltan aquí y el AX25 HOWTO explica cómo
+configurar los dispositivos de red para radioaficionados.
+</para>
+
+</sect1>
+
+<sect1 id="X-087-2-hardware.controllers.ethernet"><title>Instalación de una Ethernet</title>
+<indexterm id="idx-configuringEthernet-1" class="startofrange"><primary>configuración</primary><secondary>Ethernet</secondary></indexterm>
+<indexterm><primary>Ethernet</primary><secondary>Becker, controladores</secondary></indexterm>
+<indexterm id="ch03.ethernet.install" class="startofrange"><primary>Ethernet</primary><secondary>instalación</secondary></indexterm>
+<indexterm><primary>redes</primary><secondary>Ethernet</secondary></indexterm>
+<indexterm><primary>Becker, Donald</primary></indexterm>
+<indexterm><primary>controladores</primary><secondary>Ethernet</secondary></indexterm>
+<indexterm><primary>Ekwall, Bj&oslash;rn</primary></indexterm>
+<indexterm><primary>Davies, David C.</primary></indexterm>
+<indexterm><primary>Ethernet</primary><secondary>through parallel port</secondary></indexterm>
+<indexterm><primary>aralelo, puerto</primary><secondary>Ethernet</secondary></indexterm>
+<indexterm><primary>D-Link adapatador de bolsillo</primary></indexterm>
+<indexterm><primary>controladores</primary><secondary>D-Link</secondary></indexterm>
+
+<para>
+Las versiones actuales de GNU/Linux soportan una gran variedad de tarjetas Ethernet.
+La mayoria de los controladores fueron escritos por Donald Becker, que es el
+autor de los controladores para una familia de tarjetas basadas en el chip de National
+Semiconductor 8390; éstos son conocidos como las Series de Controladores de Becker.
+Aunque muchos desarrolladores también han contribuido, actualmente hay algunas
+tarjetas Ethernet comunes que no están soportadas por GNU/Linux. La lista de las
+tarjetas Ethernet soportadas crece continuamente,  así que si su
+tarjeta de red no esta soportada ahora, pronto lo estará.
+</para>
+
+<para>
+Algunas veces en la temprana historia de GNU/Linux hemos intentado
+hacer un listado de todas las tarjetas Ethernet soportadas, pero esto
+podría llevarnos mucho tiempo y espacio. Afortunadamente, Paul Gortmaker
+mantiene una lista con cada una de las tarjetas soportadas y el método para
+hacerlas funcionar bajo GNU/Linux, <footnote id="X-087-2-FNHW04"><para>
+en el Ethernet HOWTO, Paul puede ser localizado en <systemitem
+role="emailaddr">gpg109@rsphy1.anu.edu.au</systemitem>
+</para>
+</footnote> Éste es enviado mensualmente al grupo de noticias  <systemitem
+role="newsgroup">comp.os.linux.answers</systemitem>, y también está disponible
+en cualquiera de las réplicas de la web del Linux Documentation Project.
+</para>
+
+<para>
+Aun si está seguro de saber como instalar una tarjeta Ethernet particular
+en su máquina, a menudo merece la pena echar un vistazo a
+lo que pone en el Ethernet HOWTO. Podrá encontrar mucha información
+a parte de los simples asuntos de configuración. Por ejemplo, puede
+ahorrarle un montón de dolores de cabeza conocer el comportamiento
+de muchas tarjetas Ethernet basadas en DMA que usan el mismo canal
+DMA que la controladora SCSI Adaptec 1542 por omisión. Si no cambia
+una de ellas a un canal DMA diferente puede terminar con la tarjeta
+Ethernet escribiendo paketes de datos en lugares al azar de su disco 
+duro.
+</para>
+
+<para>
+Para usar cualquiera de las tarjetas Ethernet soportadas con GNU/Linux, debe usar
+un núcleo precompilado procedente de alguna de las principales distribuciones de GNU/Linux.
+Estos generalmente tienen modulos disponibles para todos los controladores soportados, y
+el proceso de instalación normalmente permite seleccionar qué controladores quiere cargar.
+A largo plazo, sin embargo, es mejor contruirse su propio núcleo y compilarlo sólo
+con los controladores que necesita; esto ahorra espacio y memoria.
+</para>
+
+<sect2><title>Ethernet Autoprobing</title>
+<indexterm id="idx-Ethernetautoprobing-1" class="startofrange"><primary>Ethernet</primary><secondary>autoprobing</secondary></indexterm>
+<indexterm><primary>autoprobing</primary><secondary>Ethernet</secondary></indexterm>
+
+<para>
+Muchos de los controladores Ethernet de GNU/Linux son lo suficientemente listos
+para saber como encontrar a su tarjeta Ethernet. Esto le ahorra tener que
+decirle al núcleo dónde está. El Ethernet HOWTO tiene un listado donde
+pone qué controladores usan autoverificación y en qué orden buscan por las
+direcciones E/S a la tarjeta.
+</para>
+
+<para>
+Hay tres limitaciones en el código de autoverificación. Primero, éste no
+reconoce bien todas las tarjetas. Esto es especialmente cierto para algunos
+clones de tarjetas habituales. Segundo, el núcleo no autocomprobará para buscar
+más de una tarjeta a no ser que se le ordene. Esto fue una concisa decisión
+de diseño, asumiendo que se quería tener el control sobre qué tarjeta es asignada
+a cada interfaz. La mejor manera de hacer esto con seguridad es configurar
+manualmente cada tarjeta Ethernet en su máquina. Tercero, el controlador puede que
+no busque en las direcciones en que su tarjeta está configurada.
+Generalmente hablando, los controladores autocomprobarán en las direcciones en que
+el dispositivo en particular es capaz de ser configurado, pero algunas veces
+ciertas direcciones son ignoradas para evitar conflictos de hardware con otros
+tipos de tarjetas que usan normalmente la misma dirección.
+</para>
+
+<para>
+Las tarjetas de red PCI suelen ser detectadas correctamente. Pero si está usando
+más de una tarjeta, o si la autodetección falla, tiene una forma de decirle
+al núcleo la dirección base y el nombre de la tarjeta.
+</para>
+
+<para>
+<indexterm><primary>configuración</primary><secondary>Ethernet</secondary></indexterm>
+<indexterm><primary>configuración manual</primary><secondary>Ethernet</secondary></indexterm>
+<indexterm><primary>autoprobing</primary><secondary>fallo</secondary></indexterm>
+<indexterm><primary>órdenes lilo</primary></indexterm>
+En el arranque puede dar al núcleo información y mandatos que cualquiera de los
+componentes de éste leerán. Este mecanismo le permite enviar información al núcleo
+que el controlador Ethernet pueda usar para localizar a su tarjeta Ethernet o hacer
+que la detecte.
+</para>
+
+<para>
+Si usa lilo para arrancar, puede enviarle al núcleo parámetros
+ especificándolos a través de la opción
+<systemitem role="keyword">append</systemitem> en el fichero
+<filename>lilo.conf</filename>. Para informar al núcleo acerca de
+un dispositivo Ethernet puede escribir los siguientes parámetros:
+</para>
+
+<para>
+<screen>
+ether=<replaceable>irq</replaceable>,<replaceable>base_addr</replaceable>,[<replaceable>param1</replaceable>,][<replaceable>param2</replaceable>,]<replaceable>name</replaceable>
+</screen>
+</para>
+
+<para>
+Los primeros cuatro parámetros son numéricos, mientras que el último es el
+nombre del dispositivo. Los parámetros <replaceable>irq</replaceable>,
+<replaceable>base_addr</replaceable>, y
+<replaceable>name</replaceable> son necesarios, pero los dos parámetros
+<replaceable>param</replaceable> son opcionales. Si cualquiera de los
+valores numéricos es puesto a cero, el núcleo determinará el valor por
+medio de la autoverificación.
+</para>
+
+<para>
+<indexterm><primary>auto-IRQ</primary></indexterm>
+<indexterm><primary>IRQ (Interrupt Request)</primary></indexterm>
+El primer parámetro especifica el IRQ asignado al dispositivo. Por defecto,
+el núcleo intentará autocomprobar el canal IRQ del dispositivo. El controlador 3c503,
+por ejemplo, tiene una característica especial que selecciona un IRQ libre
+de entre el 5, 9, 3, 4 y configura la tarjeta para usar uno.
+El párametro <replaceable>base_addr</replaceable> proporciona la dirección base de
+E/S de la tarjeta, un valor de 0 le dirá al núcleo que pruebe las direcciones listadas
+arriba.
+</para>
+
+<para>
+Varios controladores usan los dos parámetros siguentes de forma diferentes.
+Para tarjetas de memoria-compartida, como la WD80x3, éstos especificarán las
+direcciones de principio y final del área de memoria compartida. Otras tarjetas
+normalmente usan el <replaceable>param1</replaceable> para especificar el nivel de
+información para debuging que es mostrada. Con valores del 1 al 7 variará la
+cantidad de información mostrada, con 8 no se mostrará nada; con 0 se usará el valor por
+omisión.
+El controlador 3c503 usa el <replaceable>param2</replaceable> para elegir entre el
+transceptor (transceiver) interno (por defecto) o el transceptor externo (el valor de 1).
+El anterior usa el conector BNC de la tarjeta, el posterior usa el puerto AUI.
+Los argumentos de <replaceable>param</replaceable> no son necesarios
+en todo si no tiene nada especial que configurar.
+</para>
+
+<para>El primer argumento no numerico es interpretado por el núcleo como el nombre del
+dispositivo. Debe especificar un nombre de dispositivo para cada tarjeta Ethernet.
+</para>
+
+<para>
+Si tiene dos tarjetas Ethernet, puede dejar que Linux autodetecte una e
+indicarle los parámetros de la segunda con <command>lilo</command>,
+pero probablemente querrá configurar manualmente las dos. Si decide
+que el núcleo busque la primera y configurar manualmente la segunda,
+tendrá que asegurarse de que el núcleo no ha encontrado accidentalmente
+la segunda tarjeta primero, o cualquiera que no quiera que sea registrada.
+Haga esto introduciendo en <command>lilo</command> la opción
+<systemitem role="keyword">reserve</systemitem>, con esto le dice
+al núcleo que evite la comprobacion de la direccion base E/S que usa la
+segunda tarjeta. Para hacer que Linux instale una segunda tarjeta Ethernet en
+<literal>0x300</literal> como <filename>eth1</filename>, tendrá que usar
+los siguientes argumentos en el núcleo:
+</para>
+<?troff .wcon_off>
+<para>
+<screen>
+reserve=0x300,32 ether=0,0x300,eth1
+</screen>
+</para>
+<?troff .Nd 10>
+<para>
+La opción <emphasis>reserve</emphasis> asegura que ningún controlador accederá
+a la dirección E/S de la segunda tarjeta cuando compruebe algún dispositivo. También
+puede usar los parámetros del núcleo para evitar la autoverificación para
+<filename>eth0</filename>&thinsp;:
+</para>
+
+<para>
+<screen>
+reserve=0x340,32 ether=0,0x340,eth0
+</screen>
+</para>
+
+<para>
+También puede desactivar la autoverificación. Debe de hacer esto, por ejemlo,
+para detener la búsqueda de una tarjeta Ethernet que ha quitado temporalmente.
+Deshabilitar la autoverificación es tan simple como especificar el
+<replaceable>base_addr</replaceable> con un &ndash;1:
+</para>
+
+<para>
+<screen>
+ether=0,-1,eth0
+</screen>
+</para>
+
+<para>
+Para indicar al núcleo éstos parámetros antes de arrancar, introducirá los parámetros
+en el indicador "boot:" del lilo. Para que <command>lilo</command> muestre
+el indicador <prompt>"boot:"</prompt>, tiene que pulsar una de las siguientes
+teclas: Control, Alt o Shift, mientras
+<command>lilo</command> esté arrancando. Si pulsa la tecla del tabulador
+en el indicador, le aparecerá la lista de núcleos que puede arrancar.
+Para arrancar un núcleo con los parámetos suministrados escriba el nombre
+del núcleo que desea que arranque, seguido de un espacio, acompañándolo
+con el parámetro que desea. Cuando pulse la tecla Enter,
+<command>lilo</command> cargará ese núcleo y lo iniciará con el parámetro
+que ha escrito.
+</para>
+
+<para>
+Para que este cambio ocurra automáticamente en cada arranque, introduzca los
+parámetros en el fichero <filename>/etc/lilo.conf</filename> usando la palabra
+<literal>append=</literal>. Quedando algo parecido a esto por ejemplo:
+
+<screen>
+boot=/dev/hda
+root=/dev/hda2
+install=/boot/boot.b
+map=/boot/map
+vga=normal
+delay=20
+append="ether=10,300,eth0"
+
+image=/boot/vmlinuz-2.2.14
+label=2.2.14
+read-only
+</screen>
+</para>
+
+<para>
+Después de que haya editado <filename>lilo.conf</filename>, debe ejecutar
+<command>lilo</command> para activar el cambio.
+</para>
+
+<para>
+<indexterm class="endofrange" startref="idx-Ethernetautoprobing-1">
+<indexterm class="endofrange" startref="idx-configuringEthernet-1">
+<indexterm class="endofrange" startref="ch03.ethernet.install">
+</para>
+
+</sect2>
+
+</sect1>
+
+<sect1 id="X-087-2-hardware.controllers.plip"><title>El controlador PLIP</title>
+<indexterm><primary>configuración</primary><secondary>PLIP</secondary></indexterm>
+<indexterm><primary>parallel port</primary><secondary>IP</secondary></indexterm>
+<indexterm><primary>controladores</primary><secondary>PLIP</secondary></indexterm>
+<indexterm><primary>PLIP (Parallel Line IP) protocol</primary><secondary>controlador</secondary></indexterm>
+<indexterm><primary>protocols</primary><secondary>PLIP</secondary></indexterm>
+<para>
+<emphasis>Parallel Line IP</emphasis> (PLIP) es una forma barata de
+trabajar en red cuando sólo quiere conectar dos máquinas. Esta usa un puerto
+paralelo y un cable especial y llega a alcanzar velocidades desde los 10KB/s hasta
+los 20KB/s
+</para>
+
+<para>
+PLIP fue desarrollada originalmente por Crynwr, Inc. Este diseño fue muy ingenioso
+en su tiempo (o, si lo prefiere, un hack), porque el
+puerto paralelo original de los IBM PCs fue diseñado
+para perder su tiempo sólo con puertos de impresoras unidireccionales;
+las ocho líneas de datos pueden ser usadas sólo para enviar datos desde el PC
+al periférico, pero no al contrario. <footnote id="X-087-2-FNHW05">
+<para>
+¡Luche para limpiar el nombre del haking! Use siempre &ldquo;cracker&rdquo;
+cuando se refiera a gente que intenta conscientemente saltarse la seguridad
+de un sistema, y &ldquo;hacker&rdquo; cuando se refiera a gente que
+encuentra una forma inteligente de solucionar un problema. Los hackers
+pueden ser crackers, pero nunca se debe confundirlos. Consulte el nuevo
+diccionario de hackers (popularmente llamado the Jargon file) para entender
+mejor el significado de los términos. </para></footnote> El diseño de Cyrnwr
+del PLIP trabajaba evitando esta limitación mediante el uso de las 5 líneas de estado
+del puerto para la entrada, lo cual limitaba a transferir todos los datos sólo como
+nibbles (medios bytes), pero permitía la transferencia bidireccional.
+Este modo de operación fue llamado PLIP &ldquo;mode 0.&rdquo;
+Actualmente, el puerto paralelo de los PCs permite la transmision de 8-bits
+de datos bidireccionalmente, y PLIP ha sido ampliado para acomodarse a
+esta situacion con la adición del PLIP &ldquo;mode 1.&rdquo;
+</para>
+
+<para>
+<indexterm><primary>NCSA telnet</primary></indexterm>
+<?troff .ffn>
+Los núcleos Linux version 2.0 e inferiores sólo soportan PLIP mode 0,
+y existe un controlador para puerto paralelo mejorado en forma de parche para el
+núcleo 2.0, y como parte estándar del codigo del núcleo 2.2, para realizar
+operaciones en PLIP mode 1.
+<footnote id="X-087-2-FNHW06">
+<para>
+El parche del adaptador de puerto paralelo mejorado para el núcleo 2.0 está disponible
+en <systemitem role="url">http://www.cyberelk.demon.co.uk/parport.html</systemitem>.
+</para>
+</footnote>
+A pesar de las últimas versiones del código de PLIP, el controlador continúa siendo
+compatible con la implementacion de Crynwr del PLIP, como por ejemplo el controlador
+PLIP del NCSA <command>telnet</command> .<footnote id="X-087-2-FNHW07">
+<para>
+El NCSA <command>telnet</command> es un programa popular  para DOS que
+corre TCP/IP sobre Ethernet o PLIP, y soporta <command>telnet</command> y FTP.
+</para>
+</footnote>
+Para conectar dos máquinas usando PLIP, necesitas un cable especial que se
+vende en las tiendas como Cable de Impresora Nulor o cable Laplink Turbo.
+Puede, además, hacer usted mismo uno fácilmente;
+<xref linkend="X-087-2-appendix.cables"> aquí le muestran cómo.
+</para>
+
+<para>
+<indexterm><primary>Yutaka, Niibe</primary></indexterm>
+El controlador PLIP para Linux es el resultado del trabajo de muchas personas.
+Actualmente esta mantenido por Niibe Yutaka.<footnote id="X-087-2-FNHW08"><para>
+Niibe puede ser localizado en
+<systemitem role="emailaddr">gniibe@mri.co.jp</systemitem>.
+</para>
+</footnote>
+Si es compilado dentro del núcleo, éste creara una interfaz de red para cada
+uno de los posibles puertos de impresora, <filename>plip0</filename> corresponderá al
+puerto paralelo <filename>lp0</filename>, <filename>plip1</filename>,
+<?troff .endwcd>
+corresponderá al <filename>lp1</filename>, etc. El mapeado de interfaces a
+puertos cambia de los núcleos 2.0 a los núcleos 2.2.
+<?troff .hw hardwired>
+En los 2.0, el mapeado estaba especificado en el fichero
+<filename>drivers/net/Spacd.c</filename> del código fuente
+<?troff .hw hard-wired>
+<?troff .ne 10>
+del núcleo. El mapeado por defecto en este fichero es:
+</para>
+
+<informaltable>
+<tgroup cols=3>
+<thead>
+<row>
+  <entry>Interface</entry>
+  <entry>I/O Port</entry>
+  <entry>IRQ</entry>
+</row>
+</thead>
+<tbody>
+<row>
+  <entry><filename>plip0</filename></entry>
+  <entry><literal>0x3BC</literal></entry>
+  <entry>7</entry>
+</row>
+<row>
+  <entry><filename>plip1</filename></entry>
+  <entry><literal>0x378</literal></entry>
+  <entry>7</entry>
+</row>
+<row>
+  <entry><filename>plip2</filename></entry>
+  <entry><literal>0x278</literal></entry>
+  <entry>5</entry>
+</row>
+</tbody></tgroup>
+</informaltable>
+
+<para>
+<indexterm><primary>configuración manual</primary><secondary>PLIP</secondary></indexterm>
+Si configuró su puerto de impresora de una forma diferente, tiene que cambiar estos
+valores en <filename>drivers/net/Space.c</filename> dentro del código fuente del núcleo
+ Linux y compilar un núcleo nuevo.
+</para>
+
+<para>
+En los núcleos 2.2, el controlador PLIP usa el controlador compartido de puerto paralelo &ldquo;parport&rdquo;  
+desarrollado por Philip Blundell.<footnote id="X-087-2-FNHW09"><para>
+Puede contactar con Philip en <emphasis><systemitem role="emailadd">Philip.Blundell@pobox.com</systemitem></emphasis>.
+</para>
+</footnote> El controlador nuevo asigna en serie los nombres a los dispostivos de red PLIP,
+como pasa con los controladores Ethernet o PPP, por lo tanto el primer dispositivo PLIP creado
+es <filename>plip0</filename>, el segundo es <filename>plip1</filename>, etc...
+Los puertos paralelos hardware son también asignados en serie. Por omisión, el
+controlador de puerto paralelo intentará detectarlos con una rutina de autoverificación,
+guardando la información física del dispositivo en el orden en que la encuentra.
+Ésto es mejor que decirle con parámetros al núcleo la E/S.
+Puede hacer ésto introduciendo la información en el
+módulo <filename>parport_pc.o</filename> cuando lo carga, o si tiene
+compilado el controlador dentro del núcleo, usando lilo como hemos explicado antes
+La IRQ de cada dispositivo puede cambiarse después escribiendo
+un nuevo valor en el fichero que le corresponda:
+<filename>/proc/parport/*/irq</filename>.
+</para>
+
+<para>
+Configurar los parámetros de E/S en un núcleo 2.2 cuando cargamos un módulo
+es sencillo. Por ejemplo, para decirle al controlador que tienes dos puertos
+paralelos de PC en las direcciones E/S <literal>0x278</literal> y
+<literal>0c378</literal> y los IRQs 5 y 7, respectivamente, tendrá que cargar
+el módulo con los siguientes argumentos:
+
+<screen>
+modprobe parport_&thinsp;pc io=0x278,0x378 irq=5,7
+</screen>
+
+Los argumentos correspondientes para un controlador ya compilado en el núcleo son:
+
+<screen>
+parport=0x278,5 parport=0x378,7
+</screen>
+
+Puede usar la orden <systemitem role="keyword">append</systemitem>
+de lilo para mandar esos argumentos al núcleo
+cada vez que arranque.
+</para>
+
+<para>
+Cuando el controlador PLIP es inicializado, cada arranque, si éste esta dentro
+del núcleo, o cuando el módulo <filename>plip.o</filename> es cargado,
+cada puerto paralelo tendráa un dispositivo de red <filename>plip</filename>
+asociado. El <filename>plip0</filename> será asignado al
+primer dispositivo de puerto paralelo, <filename>plip1</filename>
+al segundo, etc... Puede evitar manualmente la asignacióon automática
+enviando otro parámetro al núcleo. Por ejemplo, para asignar el
+
+<literal>parport0</literal> al dispositivo de red
+<?troff .ne 10>
+<literal>plip0</literal>, y el <literal>parport1</literal> al dispositivo de
+red <literal>plip1</literal>, usará los argumentos del núcleo:
+
+
+<screen>
+plip=parport1 plip=parport0
+</screen>
+
+</para>
+
+<para>
+Este mapeado no significa que aparte no pueda usar esos puertos paralelos
+para imprimir u otros propóositos. El controlador PLIP sólo usa el dispositivo de puerto
+paralelo cuando la correspondiente interfaz esté
+<systemitem role="keyword">activada</systemitem>.
+</para>
+
+</sect1>
+
+<sect1 id="X-087-2-hardware.controladores.slip"><title>Los controladores PPP y SLIP</title>
+<indexterm><primary>controladores</primary><secondary>SLIP</secondary></indexterm>
+<indexterm><primary>controladores</primary><secondary>PPP</secondary></indexterm>
+<indexterm><primary>SLIP (Serial Line IP), protocolo</primary><secondary>controlador</secondary></indexterm>
+<indexterm><primary>PLIP (Parallel Line IP), protocolo</primary><secondary>controlador</secondary></indexterm>
+<para>
+El Point-to-Point Protocol (PPP) y Serial Line IP (SLIP) son protocolos muy usados
+para transportar paquetes IP sobre un enlace serie. Un gran número de instituciones
+ofrecen acceso a Internet por conexiones PPP y SLIP proporcionando conectividad IP
+a personas privadas.
+</para>
+
+<para>
+No son necesarias modificaciones de hardware para ejecutar PPP o SLIP,
+puede usar cualquier puerto serie. Desde que la configuración del puerto serie
+no es especifica para el trabajo en red con TCP/IP, hemos dedicado un capítulo
+a parte para esto. Acuda a <xref linkend="X-087-2-serial"> para más información.
+Tratamos el PPP en detalle en <xref linkend="X-087-2-ppp">, y SLIP en
+<xref linkend="X-087-2-slip">.
+</para>
+</sect1>
+
+<sect1 id="X-087-2-hardware.other"><title>Otros tipos de redes</title>
+<para>
+<indexterm><primary>controladores</primary><secondary>Token Ring</secondary></indexterm>
+<indexterm><primary>controladores</primary><secondary>ArcNet</secondary></indexterm>
+<indexterm><primary>controladores</primary><secondary>FDDI</secondary></indexterm>
+<indexterm><primary>Token Ring</primary><secondary>controlador</secondary></indexterm>
+<indexterm><primary>ArcNet protocol controlador</primary></indexterm>
+<indexterm><primary>FDDI (Fiber Distributed Data Interface)</primary></indexterm>
+<indexterm><primary>Fiber Distributed Data Interface (FDDI)</primary></indexterm>
+
+Muchos otros tipos de redes se configuran de forma similar a una Ethernet. Los
+argumentos que pueden llevar los módulos serán diferentes y algunos
+controladores puede que no soporten más de una tarjeta, pero en cuanto a lo demás
+son iguales. Normalmente hay documentacion disponible sobre estas tarjetas en el directorio
+<filename>/usr/src/linux&thinsp;/Documentation/networking/</filename> del código
+fuente del núcleo Linux.
+</para>
+
+<para>
+<indexterm class="endofrange" startref="idx-configuringnetworkhardware-1">
+<indexterm class="endofrange" startref="idx-hardwarenetworking-1">
+<indexterm class="endofrange" startref="ch03.net.hw.config">
+</para>
+
+</sect1>
+
+</chapter>
+
+

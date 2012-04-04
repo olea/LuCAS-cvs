@@ -1,0 +1,340 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<HTML
+><HEAD
+><TITLE
+>Revisión de las características internas de PostgreSQL</TITLE
+><META
+NAME="GENERATOR"
+CONTENT="Modular DocBook HTML Stylesheet Version 1.59"><LINK
+REL="HOME"
+TITLE="Guia del Programador de PostgreSQL"
+HREF="programmer.html"><LINK
+REL="PREVIOUS"
+TITLE="Codigo Fuente Postgres"
+HREF="c6335.html"><LINK
+REL="NEXT"
+TITLE="Cómo se establecen las conexiones"
+HREF="x6399.html"></HEAD
+><BODY
+CLASS="CHAPTER"
+BGCOLOR="#FFFFFF"
+TEXT="#000000"
+LINK="#0000FF"
+VLINK="#840084"
+ALINK="#0000FF"
+><DIV
+CLASS="NAVHEADER"
+><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TH
+COLSPAN="3"
+ALIGN="center"
+>Guia del Programador de PostgreSQL</TH
+></TR
+><TR
+><TD
+WIDTH="10%"
+ALIGN="left"
+VALIGN="bottom"
+><A
+HREF="c6335.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="80%"
+ALIGN="center"
+VALIGN="bottom"
+></TD
+><TD
+WIDTH="10%"
+ALIGN="right"
+VALIGN="bottom"
+><A
+HREF="x6399.html"
+>Siguiente</A
+></TD
+></TR
+></TABLE
+><HR
+ALIGN="LEFT"
+WIDTH="100%"></DIV
+><DIV
+CLASS="CHAPTER"
+><H1
+><A
+NAME="OVERVIEW"
+>Revisión de las características internas de PostgreSQL</A
+></H1
+><DIV
+CLASS="NOTE"
+><P
+></P
+><TABLE
+CLASS="NOTE"
+WIDTH="100%"
+BORDER="0"
+><TR
+><TD
+WIDTH="25"
+ALIGN="CENTER"
+VALIGN="TOP"
+><IMG
+SRC="./stylesheet-images/note.gif"
+HSPACE="5"
+ALT="Nota"></TD
+><TH
+ALIGN="LEFT"
+VALIGN="CENTER"
+><B
+>Autor</B
+></TH
+></TR
+><TR
+><TD
+>&nbsp;</TD
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+><P
+>    Este capítulo apareció originalmente como parte de la tesis doctoral
+    de Stefan Simkovic
+    preparada en la Universidad de Tecnología de Viena bajo la dirección
+    de O.Univ.Prof.Dr.
+    Georg Gottlob y Univ.Ass. Mag. Katrin Seyr.
+   </P
+></TD
+></TR
+></TABLE
+></DIV
+><P
+>   Este capítulo da una visión general de la estructura interna del
+   motor de <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+>. Tras la lectura de
+   las siguientes secciones, usted tendrá una idea de como se procesa
+   una consulta. No espere aquí una descripción detallada (¡creo que esa
+   descripción detallada incluyendo todas las estructuras de datos y
+   funciones utilizadas en <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> excedería
+   de 1000 páginas!). Este capítulo intenta ayudar en la comprensión
+   del control general y del flujo de datos dentro del motor desde
+   que se recibe una consulta hasta que se emiten los resultados.
+  </P
+><DIV
+CLASS="SECT1"
+><H1
+CLASS="SECT1"
+><A
+NAME="AEN6360"
+>El camino de una consulta</A
+></H1
+><P
+>    Damos aquí una corta revisión a los pasos que debe seguir una consulta
+    hasta obtener un resultado.
+   </P
+><DIV
+CLASS="PROCEDURE"
+><OL
+TYPE="1"
+><LI
+><P
+>      Se ha establecido una conexión desde un programa de aplicación
+      al servidor <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+>. El programa de
+      aplicación transmite una consulta y recibe el resultado enviado por
+      el servidor.
+     </P
+></LI
+><LI
+><P
+>      La <I
+CLASS="FIRSTTERM"
+>etapa del parser (traductor)</I
+> chequea
+      la consulta transmitida por el programa de aplicación (cliente) para
+      comprobar que la sintaxis es correcta y crear un <I
+CLASS="FIRSTTERM"
+>árbol
+      de la consulta</I
+>.
+     </P
+></LI
+><LI
+><P
+>      El <I
+CLASS="FIRSTTERM"
+>sistema de reescritura</I
+> toma
+      el árbol de la consulta creado en el paso del traductor y
+      busca <I
+CLASS="FIRSTTERM"
+>reglas</I
+> (almacenadas en los
+      <I
+CLASS="FIRSTTERM"
+>catálogos del sistema</I
+>) que pueda
+      aplicarle al <I
+CLASS="FIRSTTERM"
+>árbol de la consulta</I
+> y realiza
+      las transformaciones que se dan en el/los <I
+CLASS="FIRSTTERM"
+>cuerpo/s de
+      la/s regla/s</I
+>. Encontramos una aplicación del sistema
+      de reescritura en la realización de las <I
+CLASS="FIRSTTERM"
+>vistas</I
+>.
+     </P
+><P
+>      Siempre que se realiza una consulta contra una vista (es decir, una
+      <I
+CLASS="FIRSTTERM"
+>tabla virtual</I
+>), el sistema de reescritura
+      reescribe la consulta del usuario en una consulta que accede a las
+      <I
+CLASS="FIRSTTERM"
+>tablas base</I
+> dadas en la <I
+CLASS="FIRSTTERM"
+>definición
+      de la vista</I
+> inicial.
+     </P
+></LI
+><LI
+><P
+>      El <I
+CLASS="FIRSTTERM"
+>planeador/optimizador</I
+> toma el árbol de la
+      consulta (reescrita) y crea un <I
+CLASS="FIRSTTERM"
+>plan de la consulta</I
+>
+      que será el input para el <I
+CLASS="FIRSTTERM"
+>ejecutor</I
+>.
+     </P
+><P
+>      Hace esto creando previamente todas las posibles
+      <I
+CLASS="FIRSTTERM"
+>rutas</I
+> que le conducen a un mismo
+      resultado. Por ejemplo, si hay un índice en una relación que debe
+      ser comprobada, hay dos rutas para comprobarla. Una posibilidad
+      es un simple barrido secuencial y la otra posibilidad es utilizar
+      el índice. Luego se estima el coste de ejecución de cada plan,
+      y se elige y ejecuta el plan más rápido.
+     </P
+></LI
+><LI
+><P
+>      El ejecutor realiza de modo recursivo el <I
+CLASS="FIRSTTERM"
+>árbol del
+      plan</I
+> y recupera tuplas en la forma representada
+      en el plan. El ejecutor hace uso del <I
+CLASS="FIRSTTERM"
+>sistema
+      de almacenamiento</I
+> mientras está revisando
+      las relaciones, realiza <I
+CLASS="FIRSTTERM"
+>ordenaciones
+      (sorts)</I
+> y <I
+CLASS="FIRSTTERM"
+>joins</I
+>, evalúa
+      <I
+CLASS="FIRSTTERM"
+>cualificaciones</I
+> y finalmente devuelve las
+      tuplas derivadas.
+     </P
+></LI
+></OL
+></DIV
+><P
+>    En las siguientes secciones, cubriremos todos los pasos listados antes
+    en más detalle, para dar un mejor conocimiento de las estructuras
+    de datos y de control interno de <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+>.
+   </P
+></DIV
+></DIV
+><DIV
+CLASS="NAVFOOTER"
+><HR
+ALIGN="LEFT"
+WIDTH="100%"><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+><A
+HREF="c6335.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="programmer.html"
+>Inicio</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+><A
+HREF="x6399.html"
+>Siguiente</A
+></TD
+></TR
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+>Codigo Fuente Postgres</TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+>&nbsp;</TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+>Cómo se establecen las conexiones</TD
+></TR
+></TABLE
+></DIV
+></BODY
+></HTML
+>

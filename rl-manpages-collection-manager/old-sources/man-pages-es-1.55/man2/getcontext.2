@@ -1,0 +1,127 @@
+.\" Copyright (C) 2001 Andries Brouwer (aeb@cwi.nl)
+.\"
+.\" Permission is granted to make and distribute verbatim copies of this
+.\" manual provided the copyright notice and this permission notice are
+.\" preserved on all copies.
+.\"
+.\" Permission is granted to copy and distribute modified versions of this
+.\" manual under the conditions for verbatim copying, provided that the
+.\" entire resulting derived work is distributed under the terms of a
+.\" permission notice identical to this one
+.\" 
+.\" Since the Linux kernel and libraries are constantly changing, this
+.\" manual page may be incorrect or out-of-date.  The author(s) assume no
+.\" responsibility for errors or omissions, or for damages resulting from
+.\" the use of the information contained herein.  The author(s) may not
+.\" have taken the same level of care in the production of this manual,
+.\" which is licensed free of charge, as they might when working
+.\" professionally.
+.\" 
+.\" Formatted or processed versions of this manual, if unaccompanied by
+.\" the source, must acknowledge the copyright and authors of this work.
+.\"
+.\" Traducido por Miguel Pérez Ibars <mpi79470@alu.um.es> el 5-julio-2004
+.\"
+.TH GETCONTEXT 2 "15 noviembre 2001" "Linux 2.4" "Manual del Programador de Linux"
+.SH NOMBRE
+getcontext, setcontext \- consulta o establece el contexto de usuario
+.SH SINOPSIS
+.B #include <ucontext.h>
+.sp
+.BI "int getcontext(ucontext_t *" ucp );
+.br
+.BI "int setcontext(const ucontext_t *" ucp );
+.SH DESCRIPCIÓN
+En un entorno del tipo SysV, se encuentran los dos tipos
+\fBmcontext_t\fP y \fBucontext_t\fP definidos en
+.I <ucontext.h>
+y las cuatro funciones
+\fBgetcontext()\fP, \fBsetcontext()\fP, \fBmakecontext()\fP
+y \fBswapcontext()\fP
+que permiten el intercambio del contexto del nivel de usuario entre
+múltiples hilos de control dentro de un proceso.
+.LP
+El tipo \fBmcontext_t\fP es dependiente de la máquina y opaco.
+El tipo \fBucontext_t\fP es una estructura que tiene al menos
+los campos siguientes:
+.RS
+.nf
+typedef struct ucontext {
+	struct ucontext *uc_link;
+	sigset_t uc_sigmask;
+	stack_t uc_stack;
+	mcontext_t uc_mcontext;
+	...
+} ucontext_t;
+.fi
+.RE
+de los cuales \fBsigset_t\fP y \fBstack_t\fP están definidos en
+.IR <signal.h> .
+\fIuc_link\fP apunta al contexto que será reanudado cuando
+termine el contexto actual (en el caso de que el contexto actual
+haya sido creado usando \fBmakecontext()\fP), \fIuc_sigmask\fP es el
+conjunto de señales bloqueadas en este contexto (véase
+.BR sigprocmask (2)),
+\fIuc_stack\fP es la pila usada por este contexto (véase
+.BR sigaltstack (2)),
+y \fIuc_mcontext\fP es la
+representación del contexto guardado específica de la máquina,
+que incluye los registros de la máquina para el hilo invocador.
+.LP
+La función \fBgetcontext()\fP inicializa la estructura
+apuntada por \fIucp\fP al contexto activo actualmente.
+.LP
+La función \fBsetcontext()\fP restablece el contexto de usuario
+apuntado por \fIucp\fP. Si la llamada tiene éxito no regresa.
+El contexto debería haber sido obtenido mediante una llamada a \fBgetcontext()\fP,
+o \fBmakecontext()\fP, o pasada como tercer argumento al manejador de señales.
+.LP
+Si el contexto se obtuvo mediante una llamada a \fBgetcontext()\fP,
+la ejecución del programa continúa como si esta llamada simplemente regresara.
+.LP
+Si el contexto fue obtenido mediante una llamada a \fBmakecontext()\fP,
+la ejecución del programa continua por la llamada a la función \fIfunc\fP
+especificada como segundo argumento en la llamada a \fBmakecontext()\fP.
+Cuando la función \fIfunc\fP regresa, se continua con el miembro
+\fIuc_link\fP de la estructura \fIucp\fP especificada como
+primer argumento en la llamada a \fBmakecontext()\fP.
+Cuando este miembro es NULL, el hilo termina.
+.LP
+Cuando el contexto se obtiene mediante una llamada a un manejador de señales,
+se solía decir que "la ejecución del programa continua con la 
+instrucción de programa siguiente a la instrucción interrumpida 
+por la señal". Sin embargo, esta sentencia fue eliminada en SUSv2,
+y ahora se establece que "el resultado es indefinido".
+.SH "VALOR DEVUELTO"
+Cuando tiene éxito,\fBgetcontext()\fP devuelve 0 y \fBsetcontext()\fP
+no regresa. En caso de error, ambas devuelven \-1 y modifican \fIerrno\fP
+con el valor apropiado.
+.SH ERRORES
+No se definen errores.
+.SH OBSERVACIONES
+La primera manifestación de este mecanismo fue el mecanismo
+\fIsetjmp()\fP/\fIlongjmp()\fP. Puesto que no define 
+el manejo del contexto de señales, el siguiente paso fue el par
+\fIsigsetjmp()\fP/\fIsiglongjmp()\fP.
+El presente mecanismo proporciona mucho más control. Por otra parte,
+no hay un método sencillo de detectar si un regreso de \fBgetcontext()\fP
+es de la primera llamada o via una llamada a \fBsetcontext()\fP.
+El usuario tiene que inventar su propio mecanismo de `contabilidad' y
+no se servirá una variable de tipo registro ya que los registros se
+restauran.
+.LP
+Cuando ocurre una señal, el contexto de usuario actual se guarda y
+el kernel crea un nuevo contexto para el manejador de señales.
+No deje al manejador usar \fIlongjmp()\fP - es indefinido
+que ocurriría con contextos. Use \fIsiglongjmp()\fP o
+\fIsetcontext()\fP en su lugar.
+.SH "CONFORME A"
+SUSv2
+.SH "VÉASE TAMBIÉN"
+.BR sigaction (2),
+.BR sigaltstack (2),
+.BR sigprocmask (2),
+.BR longjmp (3),
+.BR sigsetjmp (3),
+.BR makecontext (3)
+

@@ -1,0 +1,112 @@
+#!/bin/bash
+# Script para extraer los ficheros del árbol oficial que se han parcheado.
+# También muestra los encargados de cada fichero.
+#
+# Ender <ender@rediris.es> para el proyecto NuLies.
+# Última actualización: 31 de Noviembre de 2001
+#
+# Forma de utilización: "revisaparche [-v] parche.gz"
+# Opciones: -v más explícito (verbose)
+#
+# Por hacer:
+# - El parche podría ser .gz o .bz2. (¿quizás procesándolo antes con file?)
+#
+# Cambios:
+# revisaparche (1.4)
+#
+# - El parche ha de mirar no sólo en el directorio Documentation/, sino en
+#   el resto, ya que ahora los config.in también se traducen.
+#
+#   -- Ender <ender@rediris.es> sáb mar 31 01:16:03 CEST 2001
+#
+# revisaparche (1.3)
+#
+# - Las palabras "ha cambiado" hacían las frases demasiado largas, y casi
+#   todas ocupaban dos líneas.
+#
+#   -- Ender <ender@rediris.es> vie nov 10 20:17:11 MET 2000
+#
+# revisaparche (1.2)
+#
+# - Ahora el script es capaz de sacar la dirección del encargado del fichero
+#   que se ha parcheado. Para ello he creado unos directorios llamados
+#   MANTENEDORES justo por encima del directorio Documentation de cada árbol,
+#   y que tienen de formato "nombredefichero:encargado <dirección>"
+#
+#   -- Ender <ender@rediris.es> vie nov 10 19:44:38 MET 2000
+#
+# revisaparche (1.1)
+#
+# - Creación.
+# 
+#   -- Ender <ender@rediris.es> vie nov 10 18:07:41 MET 2000
+
+if [ "$#" -eq 0 ]
+then
+	echo "Forma de uso: `basename $0` [-v] parche.gz" >&2
+	echo "Opciones: -v más explícito (verbose)" >&2
+	exit 1
+fi
+
+if [ "$1" = "-v" ]
+then
+	PARCHE="$2"
+	EXPLICITO=1
+else
+	PARCHE="$1"
+	EXPLICITO=0
+fi
+
+# ¿Existe el parche?
+if [ ! -r "$PARCHE" ]
+then 
+	echo "`basename $0`: no se puede leer $PARCHE." >&2
+	exit 1
+fi
+
+# Fichero donde almacenamos los diferentes mantenedores. El formato que ha de
+#  tener es:
+#  nombredefichero:encargado <dirección>
+#  nombredefichero:encargado <dirección>
+#  ...
+MANTENEDORES="MANTENEDORES"
+
+# Lista de ficheros que hay en el parche.
+LISTA=`zcat $PARCHE|grep ^diff|awk -F " linux/" '{print $2}'`
+
+if [ "$EXPLICITO" -eq 1 ]
+then
+	#echo $LISTA -- Esto no funciona bien, ya que "echo" se come los LF.
+	zcat $PARCHE|grep ^diff|awk -F " linux/" '{print "Parche para " $2}'
+	echo
+fi
+
+# Chequeo de seguridad
+if [ -z "$LISTA" ]
+then
+	echo "Parche inválido. Por alguna razón no es un diff."
+	exit 1
+fi
+
+# Revisamos si tenemos esos ficheros en el repositorio.
+
+echo "Cambios en el repositorio"
+echo "========================="
+
+for FICHERO in $LISTA
+do
+	if [ -f "$FICHERO" ]
+	then
+		ENCARGADO=`grep $FICHERO $MANTENEDORES | cut -d: -f 2`
+		if [ -z "$ENCARGADO" ]
+		then ENCARGADO="Sin encargado"
+		fi
+		echo "$FICHERO -> $ENCARGADO."
+		CAMBIOS=1
+	fi
+done
+
+if [ "$CAMBIOS" -ne 1 ]
+then
+	echo "Sin cambios en el repositorio."
+fi

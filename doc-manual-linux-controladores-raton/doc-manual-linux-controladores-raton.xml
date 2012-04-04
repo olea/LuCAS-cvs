@@ -1,0 +1,1089 @@
+<?xml version='1.0' encoding='ISO-8859-1'?>
+<!DOCTYPE book PUBLIC "-//OASIS//DTD DocBook XML V4.2//EN" 
+              "http://www.oasis-open.org/docbook/xml/4.2/docbookx.dtd">
+
+<book id="GuiaRaton">
+ <bookinfo>
+  <title>Controladores de Ratón</title>
+  
+  <authorgroup>
+   <author>
+    <firstname>Alan</firstname>
+    <surname>Cox</surname>
+    <affiliation>
+     <address>
+      <email>alan@redhat.com</email>
+     </address>
+    </affiliation>
+   </author>
+  </authorgroup>
+
+  <copyright>
+   <year>2000</year>
+   <holder>Alan Cox</holder>
+  </copyright>
+
+  <legalnotice>
+
+  <para>
+     Esta documentación es software libre; puedes redistrubuirla
+     y/o modificarla bajo los términos de la GNU General Public
+     License tal como ha sido publicada por la Free Software
+     Foundation; por la versión 2 de la licencia, o (a tu elección)
+     por cualquier versión posterior.
+   </para>
+
+   <para>
+    Este programa es distribuido con la esperanza de que sea útil,
+    pero SIN NINGUNA GARANTIA; sin incluso la garantía implicada
+    de COMERCIABILIDAD o ADECUACCION PARA UN PROPOSITO PARTICULAR.
+    Para más detalles refiérase a la GNU General Public License.
+   </para>
+
+   <para>
+     Debería de haber recibido una copia de la GNU General Public
+     License con este programa; si no es así, escriba a la Free
+     Software Foundation, Inc., 59 Temple Place, Suite 330, Boston,
+     MA 02111-1307 USA
+   </para>
+
+   <para>
+     Para más detalles véase el archivo COPYING en la
+     distribución fuente de Linux.
+   </para>
+
+  </legalnotice>
+ </bookinfo>
+
+ <toc></toc>
+
+ <chapter id="intro">
+  <title>Introducción</title>
+  <note>
+   <title>Publicación Anterior</title>
+    <para>
+      Algunas partes de este documento aparecieron primero en Linux Magazine bajo
+      una exclusividad de noventa dias.
+   </para>
+  </note> 
+
+  <para>
+    Los ratones son conceptualmente uno de los interfaces de dispositivos
+    más simples en el sistema operativo Linux. No todos los ratones son
+    manejados por el núcleo. Es vez de eso, hay una abstracción de dos capas.
+  </para>
+
+  <para>
+    Los controladores de ratón del núcleo y los controladores del espacio de
+    usuario para los ratones serie son todos administrados por un demonio
+    del sistema llamado <application>gpm</application> - el controlador de
+    propósito general de ratón. <application>gpm</application> maneja la acción de
+    cortar y pegar en los textos de las consolas. Suministra una biblioteca
+    general para aplicaciones que conocen el ratón y administra la compartición de los
+    servicios del ratón con la interfaz de usuario del <application>X Window
+    System</application>.
+  </para>
+  <para>
+    Algunas veces un ratón habla un protocolo suficientemente complicado como para
+    que sea manejado por el propio <application>Gpm</application>. La 
+    mayoría de los controladores de ratón siguen una interfaz común llamada
+    protocolo de bus del ratón. 
+  </para>
+  <para>
+    Cada lectura de un dispositivo de una interfaz del bus de ratón retorna
+    un bloque de datos. Los tres primeros bytes de cada lectura están 
+    definidos de la siguiente forma:
+
+   <table frame="all">
+    <title>Codificación de Datos del Ratón</title>
+    <tgroup cols="2" align="left">
+     <tbody>
+      <row>
+       <entry>Byte 0</entry>
+       <entry>0x80 + los botones actualmente pulsados.</entry>
+      </row>
+      <row>
+       <entry>Byte 1</entry>
+       <entry>Un valor con signo para el desplazamiento en la posición X</entry>
+      </row>
+      <row>
+       <entry>Byte 2</entry>
+       <entry>Un valor con signo para el desplazamiento en la posición Y</entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </table>
+
+    Una aplicación puede escoger leer más de 3 bytes. El resto de los bytes
+    serán cero, o quizás opcionalmente retornen alguna información 
+    específica del dispositivo.
+  </para>
+  <para>
+    Los valores de la posición son truncados si es que exceden del rango
+    de los 8 bits (que es -127 &lt;= delta &lt;= 127). Como el valor -128
+    no encaja en un byte no es permitido.
+  </para>
+  <para>
+    Los <mousebutton>botones</mousebutton> son numerados de izquierda a derecha
+    como 0, 1, 2, 3.. y cada botón establece el bit relevante. Por lo tanto un
+    usuario presionando los botonoes de la izquierda y de la derecha en un
+    ratón de tres botones establecerán los bits 0 y 2.
+  </para>
+  <para>
+    Todos los ratones están requeridos a soportar la operación
+    <function>poll</function>. Sería algo verdaderamente muy bonito si todos los usuarios
+    de un controlador de un dispositivo usaran <function>poll</function> para
+    esperar a que tuvieran lugar los eventos.
+  </para>
+  <para>
+    Finalmente el soporte asíncrono de E/S de los ratonoes. Este es un tópico
+    que todavía no hemos cubierto pero que explicaré más tarde, después de
+    mirar en un controlador simple de ratón.
+  </para>
+ </chapter>
+
+ <chapter id="driver">
+  <title>Un controlador simple de ratón</title>
+  <para>
+    Primero necesitaremos inicializar las funciones para nuestro dispositivo ratón.
+    Para mantener esto simple, nuestro dispositivo imaginario de ratón tiene
+    tres puertos de E/S en las direcciones de E/S 0x300 y siempre vivirá en la
+    interrupción 5.  Los puertos serán la posición X, la posición Y y los
+    botones, en este orden.
+  </para>
+
+  <programlisting>
+#define OURMOUSE_BASE        0x300
+
+static struct miscdevice our_mouse = {
+        OURMOUSE_MINOR, "ourmouse", &amp;our_mouse_fops
+};
+
+__init ourmouse_init(void)
+{
+
+        if(check_region(OURMOUSE_BASE, 3))
+                return -ENODEV;
+        request_region(OURMOUSE_BASE, 3, "ourmouse");
+
+        misc_register(&amp;our_mouse);
+        return 0;
+}
+  </programlisting>
+
+  <para>
+    El <structname>miscdevice</structname> es nuevo aquí. Linux normalmente
+    divide los dispositivos por su número mayor, y cada dispositivo tiene
+    256 unidades. Para cosas como los ratones esto es extremadamente 
+    derrochador para la existencia de un dispositivo que es usado 
+    para acumular todos los dispositivos individuales sueltos que las
+    computadoras tienden a tener.
+  </para>
+  <para>
+    Los números menores en este espacio son asignados por un código central, 
+    aunque puedes mirar en el el archivo <filename>Documentation/devices.txt</filename> del
+    núcleo y coger uno libre para un uso de desarrollo. Este archivo de núcleo
+    también contiene instrucciones para registrar un dispositivo. Esto puede
+    cambiar con respecto al tiempo y es, por lo tanto, una buena idea obtener
+    primero una copia actualizada de este archivo.
+  </para>
+  <para>
+    Nuestro código es entonces bastante simple. Chequeamos si nadie más
+    ha tomado nuestro espacio de direcciones. Habiéndolo hecho, lo reservamos
+    para asegurarnos de que nadie pisa a nuestro dispositivo mientras estamos
+    probando otros dispositivos del bus ISA. Ya que una prueba quizás
+    confunda a nuestro dispositivo.
+  </para>
+  <para>
+    Entonces le decimos al controlador misc que queremos nuestro propio
+    número menor. También cogemos nuestro nombre (que es usado en
+    <filename class="directory">/proc/misc</filename>) y establecemos las
+    operaciones de archivo que van a ser usadas. Las operaciones de archivo
+    trabajan exactamente como las operaciones de archivo para registrar un
+    dispositivo de carácter normal. El dispositivo misc simplemente actúa como
+    redirector para las peticiones.
+  </para>
+  <para>
+    Lo siguiente, en orden a ser capaz de usar y probar nuestro propio código, es
+    que necesitamos añadir algún código de módulo para soportarlo. Esto  
+    también es bastante simple:
+  </para>
+  <programlisting>
+#ifdef MODULE
+
+int init_module(void)
+{
+        if(ourmouse_init()&lt;0)
+                return -ENODEV:
+        return 0;
+}
+
+void cleanup_module(void)
+{
+        misc_deregister(&amp;our_mouse);
+        free_region(OURMOUSE_BASE, 3);
+}
+
+
+#endif
+  </programlisting>
+
+  <para>
+    El código del módulo suministra las dos funciones normales. La
+    función <function>init_module</function>  es llamada cuando el módulo
+    es cargado. En nuestro caso simplemente llama a la función de inicialización
+    que escribimos y retorna un error si esta falla. Esto asegura que el
+    módulo sólo será cargado si fue correctamente configurado.
+  </para>
+  <para>
+    La función <function>cleanup_module</function> es llamada cuando el
+    módulo es descargado. Devolvemos nuestra entrada de dispositivo 
+    misceláneo, y entonces liberamos nuestros recursos de E/S. Si no 
+    liberamos nuestros recursos de E/S entonces la siguiente vez que
+    el módulo es cargado pensaremos que alguien tiene este
+    espacio de E/S.
+  </para>
+  <para>
+    Una vez que <function>misc_deregister</function> ha sido llamada
+    cualquier intento de abrir el dispositivo del ratón fallará con el
+    error <errorcode>ENODEV</errorcode> (<errorname>No tal dispositivo</errorname>).
+  </para>
+  <para>
+    Lo siguiente que necesitamos es rellenar nuestras operaciones de archivo.
+    Un ratón no necesita muchas de estas. Necesitamos suministrar open (abrir), 
+    release (liberar), read (leer) y poll (encuesta). Esto hace una bonita 
+    y simple estructura:
+  </para>
+
+  <programlisting>
+struct file_operations our_mouse_fops = {
+        owner: THIS_MODULE,            /* Automática administración de uso */
+        read:  read_mouse,             /* Puedes leer un ratón */
+        write: write_mouse,            /* Esto debería de hacer un montón */
+        poll:  poll_mouse,             /* Encuesta */
+        open:  open_mouse,             /* Llamado en open */
+        release: close_mouse,          /* Llamado en close */
+};
+  </programlisting>
+
+  <para>
+    No hay nada particularmente especial necesitado aquí. Suministramos
+    funciones para todas las operaciones relevantes o requiridas y algunas
+    pocas más. No hay nada que nos pare para suministrar una función ioctl
+    para este ratón. Verdaderamente si tienes un ratón configurable 
+    quizás sea muy apropiado suministrar interfaces de configuración 
+    a través de llamadas ioctl.
+  </para>
+  <para>
+    La sintaxis que usamos no es la del C estándar. GCC suministra la habilidad
+    de inicializar campos por el nombre, y esto generalmente hace la tabla
+    de métodos mucho más fácil de leer y contar a través de los punteros NULL
+    y de recordar el orden a mano.
+  </para>
+  <para>
+    El dueño del campo es usado para administrar el bloqueo de la carga y
+    descarga de un módulo. Esto es obviamente importante para que un módulo no
+    sea descargado mientras esté siendo usado. Cuando tu dispositivo es abierto,
+    el módulo especificado por "owner" es bloqueado. Cuando el módulo es finalmente 
+    liberado es desbloqueado.
+  </para>
+  <para>
+    Las rutinas open y close necesitan administrar el habilitamiento y
+    deshabilitamiento de las interrupciones para el ratón y también 
+    el parar el ratón siendo descargado cuando no se requiere más.
+  </para>
+
+  <programlisting>
+static int mouse_users = 0;                /* Cuenta de Usuarios */
+static int mouse_dx = 0;                   /* Cambios de Posición */
+static int mouse_dy = 0;
+static int mouse_event = 0;                /* El ratón se movió */
+
+static int open_mouse(struct inode *inode, struct file *file)
+{
+        if(mouse_users++)
+                return 0;
+
+        if(request_irq(mouse_intr, OURMOUSE_IRQ, 0, "ourmouse", NULL))
+        {
+                mouse_users--;
+                return -EBUSY;
+        }
+        mouse_dx = 0;
+        mouse_dy = 0;
+        mouse_event = 0;
+        mouse_buttons = 0;
+	return 0;
+}
+  </programlisting>
+  <para>    
+    La función open tiene que hacer una pequeña cantidad de tareas domésticas.
+    Mantenemos una cuenta del número de veces que el ratón está abierto. Esto
+    es porque no queremos pedir la interrupción múltiples veces. Si el ratón
+    tiene por lo menos un usuario, es configurado y simplemente añadimos el usuario
+    a la cuenta y retornamos <returnvalue>0</returnvalue> para indicar que
+    tuvo éxito.
+  </para>
+  <para>
+    Cogemos la interrupción y entonces comienzan las interrupciones del ratón.
+    Si la interrupción ha sido apropiada por otro controlador entonces
+    <function>request_irq</function> fallará y retornará un error. Si fuimos
+    capaces de compartir una línea de interrupción deberíamos de especificar
+    <constant>SA_SHIRQ</constant> en vez de <constant>zero</constant>.
+    Siempre que todo el mundo que coga una interrupción establezca este
+    flag, compartirán la línea. <hardware>PCI</hardware> puede compartir
+    interrupciones, <hardware>ISA</hardware> normalmente no. 
+  </para>
+  <para>
+    Hacemos las tareas domésticas. Hacemos a la actual posición del ratón el punto
+    de comienzo para los cambios acumulados y declaramos que no ha pasado
+    nada desde que el controlador del ratón ha sido abierto.
+  </para>
+  <para>
+    La función release (liberar) necesita desenrollar todas estas:
+  </para>
+  <programlisting>
+static int close_mouse(struct inode *inode, struct file *file)
+{
+        if(--mouse_users)
+                return 0;
+        free_irq(OURMOUSE_IRQ, NULL);
+        return 0;
+}
+  </programlisting>
+  <para>
+    Descontamos un usuario y siempre que todavía halla otros usuarios
+    que no necesiten acciones adicionales. La última persona cerrando el 
+    ratón causa que liberemos la interrupción. Esto para las interrupciones
+    desde el ratón usando nuestro tiempo de CPU, y asegura que el ratón
+    puede ser ahora descargado.
+  </para>
+  <para>
+    Podemos rellenar el manejador de escritura en este punto como la función
+    write para la que nuestro ratón simplemente declina permitir escrituras:
+  </para>
+
+  <programlisting>
+static ssize_t write_mouse(struct file *file, const char *buffer, size_t
+                                count, loff_t *ppos)
+{
+        return -EINVAL;
+}
+  </programlisting>
+
+  <para>
+    Esto es bastante auto-explicativo. Siempre que escribes dirán que
+    era una función inválida. 
+  </para>
+  <para>
+    Para hacer que las funciones read y poll trabajen tenemos que considerar
+    como manejar las interrupciones de ratón.
+  </para>
+
+  <programlisting>
+static struct wait_queue *mouse_wait;
+static spinlock_t mouse_lock = SPIN_LOCK_UNLOCKED;
+
+static void ourmouse_interrupt(int irq, void *dev_id, struct pt_regs *regs)
+{
+        char delta_x;
+        char delta_y;
+        unsigned char new_buttons;
+
+        delta_x = inb(OURMOUSE_BASE);
+        delta_y = inb(OURMOUSE_BASE+1);
+        new_buttons = inb(OURMOUSE_BASE+2);
+
+        if(delta_x || delta_y || new_buttons != mouse_buttons)
+        {
+                /* Algo ha pasado */
+
+                spin_lock(&amp;mouse_lock);
+                mouse_event = 1;
+                mouse_dx += delta_x;
+                mouse_dy += delta_y;
+                mouse_buttons = new_buttons;
+                spin_unlock(&amp;mouse_lock);
+                
+                wake_up_interruptible(&amp;mouse_wait);
+        }
+}
+  </programlisting>
+
+  <para>
+    El manejador de interrupciones lee el status del ratón. La siguiente
+    cosa que hacemos es chequear cuando algo ha cambiado. Si el ratón estaba
+    listo sólo nos debería de interrumpir si algo a cambiado, pero 
+    asumamos que nuestro ratón es estúpido, tal como tienden a ser la mayoria de los
+    ratones.
+  </para>
+  <para>
+    Si el ratón ha cambiado necesitamos actualizar las variables de estado.
+    Lo que no queremos es que las funciones del ratón leyendo estas variables
+    lean durante un cambio. Añadimos un spinlock que protega estas variables
+    mientras jugamos con ellas.
+  </para>
+  <para>
+    Si ha ocurrido un cambio también necesitamos despertar a los procesos
+    que estén durmiendo, por lo tanto añadimos una llamada wakeup (despertar)
+    y una <structname>wait_queue</structname> para usar cuando queremos 
+    esperar un evento de ratón.
+  </para>
+  <para>
+    Ahora que tenemos la cola de espera podemos implementar la función
+    poll para el ratón de una forma relativamente fácil:
+  </para>
+
+  <programlisting>
+static unsigned int mouse_poll(struct file *file, poll_table *wait)
+{
+        poll_wait(file, &amp;mouse_wait, wait);
+        if(mouse_event)
+                return POLLIN | POLLRDNORM;
+        return 0;
+}
+  </programlisting>
+
+  <para>
+    Esto es un código de encuesta bastante estándar. Primero añadimos la cola de
+    espera a la lista de colas que queremos monitorizar para un evento. Lo
+    segundo es chequear si ha ocurrido un evento. Nosotros sólo tenemos un
+    tipo de evento - el flag <varname>mouse_event</varname> nos dice
+    que algo ha pasado. Conocemos que esto sólo pueden ser datos del ratón.
+    Retornamos las flags indicando entrada y realizaremos una lectura normal.
+  </para>
+  <para>
+    Quizás te asombres de lo que pasa si la función retorna diciendo
+    'todavía no ocurrió un evento'. En esto caso el despertar de la cola
+    de espera que añadimos a la tabla poll caurará que la función sea
+    llamada otra vez. Eventualmente despertaremos y tendremos un evento 
+    listo. En este punto la llamada <function>poll</function> puede
+    regresar al usuario.
+  </para>
+  <para>
+    Después de que poll finalice, el usuario querrá leer los datos. Ahora
+    necesitamos pensar cómo trabajará nuestra función <function>mouse_read</function>:
+  </para>
+  <programlisting>
+static ssize_t mouse_read(struct file *file, char *buffer, 
+                size_t count, loff_t *pos)
+{
+        int dx, dy;
+        unsigned char button;
+        unsigned long flags;
+        int n;
+
+        if(count&lt;3)
+                return -EINVAL;
+
+        /*
+          *        Espera por un evento
+         */
+
+        while(!mouse_event)
+        {
+                if(file-&gt;f_flags&amp;O_NDELAY)
+                        return -EAGAIN;
+                interruptible_sleep_on(&amp;mouse_wait);
+                if(signal_pending(current))
+                        return -ERESTARTSYS;
+        }
+  </programlisting>
+
+  <para>
+    Empezamos validando que el usuario está leyendo suficientes datos. 
+    Podríamos manejar lecturas parciales si quisiéramos, pero esto no es
+    terriblemente útil y los controladores de los ratones no se preocupan
+    de intentarlo.
+  </para>
+  <para>
+    Acto seguido esperamos que ocurra un evento. El bucle es bastante
+    estándar en Linux para la espera de un evento. Habiendo chequeado que el evento
+    todavía no ha ocurrido, entonces chequeamos si un evento está pendiente
+    y si no es así necesitamos dormir.
+  </para>
+  <para>
+    Un proceso de usuario puede establecer la flag <constant>O_NDELAY</constant>
+    en un archivo para indicar que desea comunicar inmediatamente si no
+    hay algún evento pendiente. Chequeamos esto y le damos el error 
+    apropiado si es así.
+  </para>
+  <para>
+    A continuación dormimos hasta que el ratón o una señal nos despierte.
+    Una señal nos despertará si hemos usado <function>wakeup_interruptible</function>.
+    Esto es importante, ya que significa que un usuario puede matar
+    procesos que estén esperando por el ratón - propiedad limpia y deseable.
+    Si somos interrumpidos salimos de la llamada y el núcleo, entonces,
+    procesará las señales y quizás reinicialice la llamada otra vez - desde
+    el principio. 
+  </para>
+  <para>
+    Este código contiene un fallo clásico de Linux. Todo será revelado después 
+    en este articulo, al igual que las explicaciones de cómo eliminarlas.
+  </para>
+  <programlisting>
+        /* Coge el evento */
+
+        spinlock_irqsave(&amp;mouse_lock, flags);
+
+        dx = mouse_dx;
+        dy = mouse_dy;
+        button = mouse_buttons;
+
+        if(dx&lt;=-127)
+                dx=-127;
+        if(dx&gt;=127)
+                dx=127;
+        if(dy&lt;=-127)
+                dy=-127;
+        if(dy&gt;=127)
+                dy=127;
+
+        mouse_dx -= dx;
+        mouse_dy -= dy;
+        
+        if(mouse_dx == 0 &amp;&amp; mouse_dy == 0)
+                mouse_event = 0;
+
+        spin_unlock_irqrestore(&amp;mouse_lock, flags);
+  </programlisting>
+  <para>
+    Esta es la siguiente etapa. Habiendo establecido que hay un evento
+    viniendo, lo capturamos. Para asegurarnos de que el evento no está
+    siedo actualizado cuando lo capturamos también tomamos el spinlock
+    y esto previene las actualizaciones paralelas. Destacar que aquí 
+    usamos <function>spinlock_irqsave</function>. Necesitamos deshabilitar
+    las interrupciones en el procesador local o en otro caso sucederán 
+    cosas malas.
+  </para>
+  <para>
+    Lo que ocurrirá es que cogeremos el spinlock. Mientras tenemos el 
+    bloqueo ocurrirá una interrupción. En este pundo nuestro manejador de
+    interrupciones intentará coger el spinlock. El se sentará en un bucle
+    esperando  por la rutina de lectura para que libere el bloqueo. De 
+    cualquier forma como estamos sentados en un bucle en el manejador
+    de interrupciones nunca liberaremos el bloqueo. La máquina se cuelga
+    y el usuario se trastorna.
+  </para>
+  <para>
+    Bloqueando la interrupción en este procesador nos aseguramos de
+    que el mantener el bloqueo siempre nos devolverá el bloqueo sin
+    hacer un deadlocking.
+  </para>
+  <para>
+    También hay un pequeño truco en el mecanismo de reporte. Sólo podemos
+    reportar un movimiento de 127 por lectura. En todo caso no queremos
+    perder información lanzando movimientos adicionales. En vez de esto, nos
+    mantenemos retornando tanta información como sea posible. Cada vez que
+    retornamos un reporte quitamos la cantidad de movimiento pendiente en
+    <varname>mouse_dx</varname> y <varname>mouse_dy</varname>. Eventualmente
+    cuando estas cuentas llegan a cero, limpiamos el flag 
+    <varname>mouse_event</varname> porque ya no queda nada que reportar. 
+  </para>
+
+<programlisting>
+        if(put_user(button|0x80, buffer))
+                return -EFAULT;
+        if(put_user((char)dx, buffer+1))
+                return -EFAULT;
+        if(put_user((char)dy, buffer+2))
+                return -EFAULT;
+
+        for(n=3; n &lt; count; n++)
+                if(put_user(0x00, buffer+n))
+                        return -EFAULT;
+
+        return count;
+}
+</programlisting>
+
+  <para>
+    Finalmente tenemos que poner los resultados en el buffer suministrado
+    por el usuario. No podemos hacer esto mientras mantenemos el bloqueo,
+    ya que una escritura a la memoria de usuario quizás duerma.
+    Por ejemplo, la memoria de usuario quizás esté residiendo en disco en
+    este instante. Entonces hicimos nuestra computación de antemano y 
+    ahora copiamos los datos. Cada <function>put_user call</function> está
+    rellenando en una byte del buffer. Si retorna un error nosotros
+    informamos al programa que nos está pasando un buffer inválido y abortamos.
+  </para>
+  <para>
+    Habiendo escrito los datos vaciamos el resto del buffer que leimos y
+    reportamos que la lectura tuvo éxito.
+  </para>
+ </chapter>
+
+ <chapter id="debugging">
+  <title>Depurando el Controlador del Ratón</title>
+
+  <para>
+    Ahora tenemos un controlador de ratón usable bastante perfecto. Si 
+    realmente fueras a probarlo y usarlo en todos los casos eventualmente
+    encontrarías un par de problemas con el. Unos pocos programas no 
+    trabajarán con ya que todavía no soporta E/S asíncrona.
+  </para>
+  <para>
+    Primero déjanos mirar los fallos. El más obvio no es realmente un 
+    fallo del controlador sino un fallo al considerar las consecuencias. 
+    Imagínate que accidentalmente golpees fuerte el ratón y lo envíes 
+    deslizándose sobre la mesa. La rutina de interrupción del ratón añadirá
+    todo el movimiento y lo reportará en pasos de 127 hasta que lo haya 
+    reportado todo. Claramente hay un punto lejano desde el cual el valor del  
+    movimiento del ratón no es reportado. Necesitamos añadir esto como un 
+    límite al manejador de interrupciones: 
+  </para>
+
+  <programlisting>
+static void ourmouse_interrupt(int irq, void *dev_id, struct pt_regs *regs)
+{
+        char delta_x;
+        char delta_y;
+        unsigned char new_buttons;
+
+        delta_x = inb(OURMOUSE_BASE);
+        delta_y = inb(OURMOUSE_BASE+1);
+        new_buttons = inb(OURMOUSE_BASE+2);
+
+        if(delta_x || delta_y || new_buttons != mouse_buttons)
+        {
+                /* Algo ha pasado */
+
+                spin_lock(&amp;mouse_lock);
+                mouse_event = 1;
+                mouse_dx += delta_x;
+                mouse_dy += delta_y;
+
+                if(mouse_dx &lt; -4096)
+                        mouse_dx = -4096;
+                if(mouse_dx &gt; 4096)
+                        mouse_dx = 4096;
+
+                if(mouse_dy &lt; -4096)
+                        mouse_dy = -4096;
+                if(mouse_dy &gt; 4096)
+                        mouse_dy = 4096;
+
+                mouse_buttons = new_buttons;
+                spin_unlock(&amp;mouse_lock);
+                
+                wake_up_interruptible(&amp;mouse_wait);
+        }
+}
+  </programlisting>
+
+  <para>
+    Añadiendo estos chequeos limitamos el rango de movimiento acumulado
+    a algo sensible.
+  </para>
+  <para>
+    El segundo fallo es un poco más disimulado, y quizás porque
+    es un fallo común. Recuerda, dije que esperando en el bucle por el
+    manejador de lecturas tenía un fallo. Piensa en qué pasa cuando
+    ejecutamos:
+  </para>
+
+  <programlisting>
+        while(!mouse_event)
+        {
+  </programlisting>
+
+  <para>
+    y una interrupción ocurre aquí, en este punto. Esto causa un movimento del
+    ratón y despierta la cola.
+  </para>
+
+  <programlisting>
+                interruptible_sleep_on(&amp;mouse_wait);
+  </programlisting>
+
+  <para>
+    Ahora dormimos en la cola. Perdimos el despertar y la aplicación no 
+    verá el evento hasta que ocurra el siguiente evento del ratón. Esto
+    llevará justamente a la instancia suelta cuando un botón del ratón
+    se retrasa. Las consecuencias para el usuario serán bastante
+    indetectables con un controlador de ratón. Con otros controladores
+    este fallo podría ser mucho más severo.
+  </para>
+  <para>
+    Hay dos formas de solucionar esto. La primera es deshabilitar las 
+    interrupciones mientras el testeo y mientras que dormimos. Esto 
+    funciona porque cuando una tarea duerme cesa de deshabilitar las
+    interrupciones, y cuando se reinicia las deshabilita otra vez. 
+    Nuestro código entonces se convierte en:
+  </para>
+
+  <programlisting>
+        save_flags(flags);
+        cli();
+
+        while(!mouse_event)
+        {
+                if(file-&gt;f_flags&amp;O_NDELAY)
+                {
+                        restore_flags(flags);
+                        return -EAGAIN;
+                }
+                interruptible_sleep_on(&amp;mouse_wait);
+                if(signal_pending(current))
+                {
+                        restore_flags(flags);
+                        return -ERESTARTSYS;
+                }
+        }
+        restore_flags(flags);
+  </programlisting>
+
+  <para>
+    Esta es la aproximación bruta. Funciona pero significa que gastamos
+    un montón de tiempo adicional cambiando las interrupciones de habilitadas
+    a deshabilitadas. También afecta a las interrupciones globalmente
+    y tiene malas propiedades en máquinas multiprocesadores donde
+    el apagar las interrupciones no es una operación simple, sino que
+    significa hacerlo en cada procesador, esperando por ellos para
+    que deshabiliten las interrupciones y repliquen.
+  </para>
+  <para>
+    El problema real es la carrera entre la prueba de eventos y el dormir.
+    Podemos eliminar esto usando directamente las funciones de planificación.
+    Realmente esta es la forma que generalmente deberíamos de usar para una
+    interrupción.
+  </para>
+
+  <programlisting>
+        struct wait_queue wait = { current, NULL };
+
+        add_wait_queue(&amp;mouse_wait, &amp;wait);
+        set_current_state(TASK_INTERRUPTIBLE);
+        
+        while(!mouse_event)
+        {
+                if(file-&gt;f_flags&amp;O_NDELAY)
+                {
+                        remove_wait_queue(&amp;mouse_wait, &amp;wait);
+                        set_current_state(TASK_RUNNING);
+                        return -EWOULDBLOCK;
+                }
+                if(signal_pending(current))
+                {
+                        remove_wait_queue(&amp;mouse_wait, &amp;wait);
+                        current-&gt;state = TASK_RUNNING;
+                        return -ERESTARTSYS;
+                }
+                schedule();
+                set_current_state(TASK_INTERRUPTIBLE);
+        }
+        
+        remove_wait_wait(&amp;mouse_wait, &amp;wait);
+        set_current_state(TASK_RUNNING);
+  </programlisting>
+
+  <para>
+    A primera vista esto probablemente parezca magia profunda. Para entender
+    cómo trabaja esto necesitas entender cómo trabajan la planificación
+    y los eventos en Linux. Teniendo un buen dominio de esto es una de las
+    claves para escribir controladores de dispositivos eficientes y claros.
+  </para>
+  <para>
+    <function>add_wait_queue</function> hace lo que su nombre sugiere.
+    Añade una entrada a la lista <varname>mouse_wait</varname>. La entrada
+    en este caso es la entrada para nuestro proceso actual 
+    (<varname>current</varname> es el puntero de la tarea actual).
+  </para>
+  <para>
+    Por lo tanto, empezamos añadiendo una entrada para nosotros mismos en
+    la lista <varname>mouse_wait</varname>. Esto de cualquier forma no
+    nos pone a dormir. Meramente estamos unidos a la lista. 
+  </para>
+  <para>
+    A continuación establecemos nuestro status a <constant>TASK_INTERRUPTIBLE</constant>.
+    Otra vez esto no significa que no estamos dormidos. Este flag dice
+    lo que debería de pasar la siguiente vez que el proceso duerma. 
+    <constant>TASK_INTERRUPTIBLE</constant> dice que el proceso no debería
+    de ser replanificado. Él se ejecutará desde ahora hasta que duerma y 
+    entonces necesitará ser despertado.
+  </para>
+  <para>
+    La llamada <function>wakeup_interruptible</function> en el manejador de
+    interrupciones puede ahora ser explicada con más detalle. Esta función 
+    es también muy simple. Va a través de la lista de procesos en la tarea
+    que le es dada y cualquiera que esté marcada como
+    <constant>TASK_INTERRUPTIBLE</constant> la cambia a <constant>TASK_RUNNING</constant>
+    y dice al núcleo que son ejecutables nuevos procesos.
+  </para>
+  <para>
+    Detrás de todos los envoltorios en el código original lo que está 
+    sucediendo es esto:
+  </para>
+
+  <procedure>
+   <step>
+    <para>
+      Nos añadimos nosotros mismos a la cola de espera del ratón
+    </para>
+   </step>
+   <step>
+    <para>
+      Nos marcamos como durmiendo
+    </para>
+   </step>
+   <step>
+    <para>
+      Preguntamos al núcleo para planificar tareas otra vez
+    </para>
+   </step>
+   <step>
+    <para>
+      El núcleo ve que estamos durmiento y planifica algún otro.
+    </para>
+   </step>
+   <step>
+    <para>
+      La interrupción del ratón establece nuestro estado a
+      <constant>TASK_RUNNING</constant> y destaca que el
+      núcleo debería replanificar tareas
+    </para>
+   </step>
+   <step>
+    <para>
+      El núcleo ve que estamos ejecutándonos otra vez y continúa nuestra
+      ejecución
+    </para>
+   </step>
+  </procedure>
+  <para>
+    Esto es porque funciona la aparentemente magia. Porque nos marcamos
+    como <constant>TASK_INTERRUPTIBLE</constant> y nos añadimos a la
+    cola antes de chequear si hay eventos pendientes, la condición
+    de carrera es eliminada.
+  </para>
+  <para>
+    Ahora si ocurre una interrupción después de que chequeemos el estado
+    de la cola y antes de llamar a la función <function>schedule</function>
+    en orden a dormir, las cosas resultan. En vez de perder un evento, 
+    estamos volviendo a establecer <constant>TASK_RUNNING</constant> 
+    por la interrupción del ratón. Todavía llamamos a 
+    <function>schedule</function> pero el continuará ejecutando nuestra
+    tarea. Volvemos a través del bucle y esta vez quizás exista un evento. 
+  </para>
+  <para>
+    No habrá siempre un evento. Entonces nos volveremos a establecer
+    a <constant>TASK_INTERRUPTIBLE</constant> antes de continuar el
+    bucle. Otro proceso haciendo una lectura quizás haya limpiado
+    el flag de eventos y si es así necesitaremos regresar a dormir otra
+    vez. Eventualmente obtendremos nuestro evento y salimos.
+  </para>
+  <para>
+    Finalmente cuando salimos del bucle nos quitamos de la cola
+    <varname>mouse_wait</varname>, ya que no estamos más interesados en
+    eventos del ratón, y ahora nos volvemos a establecer a 
+    <constant>TASK_RUNNABLE</constant> ya que todavía no queremos ir a 
+    dormir otra vez.
+  </para>
+  <note>
+   <title>Nota</title> 
+   <para>
+     Este no es un tópico fácil. No tengas miedo de releer la descripción 
+     unas pocas veces y también de mirar en otros controladores de dispositivos
+     para ver si funciona. Finalmente si todavía no puedes cogerlo, puedes
+     usar el código como modelo para escribir otros controladores de dispositivos
+     y confiar en mí. 
+   </para>
+  </note>
+ </chapter>
+
+ <chapter id="asyncio">
+  <title>E/S Asíncrona</title>
+  <para>
+    Esto deja la característica perdida - E/S Asíncrona. Normalmente los
+    programas UNIX usan la llamada <function>poll</function> (o su 
+    forma variante <function>select</function>) para esperar a que ocurra
+    un evento en uno de los múltiples dispositivos de entrada o salida. Este
+    modelo trabaja bien para la mayoría de las tareas porque las esperas
+    <function>poll</function> y <function>select</function> para un evento
+    no son convenientes para tareas que están continuamente haciendo 
+    trabajo computacional. Tales programas realmente quieren que el núcleo
+    les golpee cuando pasa algo en vez de mirar por los eventos.
+  </para>
+  <para>
+    Poll es semejante a tener una fila de luces delante de tí. Puedes ver en
+    un instante cuales de ellas están encendidas. No puedes, de cualquier forma,
+    hacer nada útil mientras las estás mirando. La E/S asíncrona usa señales
+    que trabajan más bien como un timbre. Es vez de mirar, dice que algo
+    se ha manifestado.
+  </para>
+  <para>
+    La E/S asíncrona envía la señal SIGIO al proceso de usuario cuando ocurre el
+    evento de E/S. En este caso esto significa cuando la gente
+    mueve el ratón. La señal SIGIO causa que el proceso de usuario salga
+    a su manejador de señales y ejecute el código en ese manejador antes de
+    regresar a lo que estuviera haciendo previamente. Esta es la aplicación
+    equivalente a un manejador de interrupciones.
+  </para>
+  <para>
+    La mayor parte del código necesitado para esta operación es común a todos
+    los usuarios. El núcleo suministra un conjunto simple de funciones para
+    administrar la E/S asíncrona.
+  </para>
+  <para>
+    Nuestro primer trabajo es permitir a los usuarioes establecer E/S
+    asíncrona en el manejadores de archivos. Para hacer esto necesitamos añadir
+    una nueva funciónn a la tabla de operaciones de archivo para nuestro ratón:
+  </para>
+
+  <programlisting>
+struct file_operations our_mouse_fops = {
+        owner: THIS_MODULE
+        read:  read_mouse,      /* Puedes leer un ratón */
+        write: write_mouse,     /* Esto no hará mucho */
+        poll:  poll_mouse,      /* Encuesta */
+        open:  open_mouse,      /* Llamado en open */
+        release: close_mouse,   /* Llamado en close */
+        fasync: fasync_mouse,   /* E/S asíncrona */
+};
+  </programlisting>
+
+  <para>
+    Una vez que hemos instalado esta entrada, el núcleo conoce que soportamos
+    E/S asíncrona y permitirá todas las operaciones relevantes en el 
+    dispositivo. Siempre que un usuario añade o quita la notificación de
+    E/S asíncrona de un manejador de archivos, llama a nuestra rutina
+    <function>fasync_mouse</function> que acabamos de añadir. Esta rutina
+    usa las funciones de ayuda para mantener actualizada la cola de manejadores:
+  </para>
+
+  <programlisting>
+static struct fasync_struct *mouse_fasync = NULL;
+
+static int fasync_mouse(int fd, struct file *filp, int on)
+{
+         int retval = fasync_helper(fd, filp, on, &amp;mouse_fasync);
+
+         if (retval &lt; 0)
+                 return retval;
+        return 0;
+}
+  </programlisting>
+
+  <para>
+    La fasync helper añade y borra entradas administrando la lista 
+    suministrada. También necesitamos quitar entradas de esta lista
+    cuando es cerradi el archivo. Esto requiere añadir una línea
+    a nuestra función close:
+  </para>
+
+  <programlisting>
+static int close_mouse(struct inode *inode, struct file *file)
+{
+        fasync_mouse(-1, file, 0)
+        if(--mouse_users)
+                return 0;
+        free_irq(OURMOUSE_IRQ, NULL);
+        MOD_DEC_USE_COUNT;
+        return 0;
+}
+  </programlisting>
+
+  <para>
+    Cuando cerramos el archivo podemos llamar a nuestro propio manejador
+    fasync como si el usuario pidiera que este archivo cesara de ser 
+    usado para E/S asíncrona. Esto aproximadamente limpia cualesquiera
+    finales perdidos. Seguramente no esperamos por la llegada de una
+    señal para un archivo que no existirá más.
+  </para>
+  <para>
+    En este punto, el controlador del ratón soporta todas las operaciones
+    de E/S asíncrona, y las aplicaciones usándolas no fallarán. Estas
+    de todas formas no trabajarán todavía. Necesitamos realmente 
+    enviar las señales. Otra vez el núcleo suministra una función
+    para manejar esto.
+  </para>
+  <para>
+    Actualizamos un poco nuestro manejador de interrupciones:
+  </para>
+
+  <programlisting>
+static void ourmouse_interrupt(int irq, void *dev_id, struct pt_regs *regs)
+{
+        char delta_x;
+        char delta_y;
+        unsigned char new_buttons;
+
+        delta_x = inb(OURMOUSE_BASE);
+        delta_y = inb(OURMOUSE_BASE+1);
+        new_buttons = inb(OURMOUSE_BASE+2);
+
+        if(delta_x || delta_y || new_buttons != mouse_buttons)
+        {
+                /* Algo ha pasado */
+
+                spin_lock(&amp;mouse_lock);
+                mouse_event = 1;
+                mouse_dx += delta_x;
+                mouse_dy += delta_y;
+
+                if(mouse_dx &lt; -4096)
+                        mouse_dx = -4096;
+                if(mouse_dx &gt; 4096)
+                        mouse_dx = 4096;
+
+                if(mouse_dy &lt; -4096)
+                        mouse_dy = -4096;
+                if(mouse_dy &gt; 4096)
+                        mouse_dy = 4096;
+
+                mouse_buttons = new_buttons;
+                spin_unlock(&amp;mouse_lock);
+
+                /* Ahora hacemos E/S asíncrona */
+                kill_fasync(&amp;mouse_fasync, SIGIO); 
+                
+                wake_up_interruptible(&amp;mouse_wait);
+        }
+}
+  </programlisting>
+
+  <para>
+    El nuevo código simplemente llama a la rutina <function>kill_fasync</function> 
+    suminstrada por el núcleo si la cola no está vacía. Esto envía la
+    señal requerida (SIGIO en este caso) al proceso que cada manejador de
+    archivo dijo que quería ser informado sobre el excitante nuevo 
+    movimiento del ratón que acaba de ocurrir.
+  </para>
+  <para>
+    Con esto en su sitio y arreglados los fallos en la versión original, 
+    tienes ahora un controlador de ratón totalmente funcional usando el 
+    protocolo del bus del ratón. El trabajará con <application>X window
+    system</application>, trabajará con <application>GPM</application>
+    y debería de trabajar con todas las otras aplicaciones que necesites.
+    <application>Doom</application> es, por supuesto, la forma ideal
+    para probar que tu nuevo controlador de ratón está funcionando
+    de forma adecuada. Asegúrate de probarlo de todas las formas posibles.
+  </para>
+ </chapter>
+
+  <chapter id="traduccion">
+  <title>Sobre la traducción</title>
+        <para>
+        Este documento es la traducción de "Mouse Drivers", documento que
+        acompaña al código del núcleo de Linux, versión 2.4.18.
+        </para>
+
+        <para>
+        Este documento ha sido traducido por Rubén Melcón <email>melkon@terra.es</email>; y
+        es publicado por el <ulink url="http://lucas.hispalinux.es">Proyecto Lucas</ulink>
+        </para>
+
+        <para>
+        Versión de la tradución 0.04 ( Julio de 2002 ).
+        </para>
+
+        <para>
+        Si tienes comentarios sobre la traducción, ponte en contacto con Rubén Melcón
+        <email>melkon@terra.es</email>
+        </para>
+
+  </chapter>
+
+
+</book>
+

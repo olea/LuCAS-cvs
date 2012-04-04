@@ -1,0 +1,589 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<HTML
+><HEAD
+><TITLE
+>pg_options</TITLE
+><META
+NAME="GENERATOR"
+CONTENT="Modular DocBook HTML Stylesheet Version 1.59"><LINK
+REL="HOME"
+TITLE="PostgreSQL"
+HREF="postgres.html"><LINK
+REL="UP"
+TITLE="Guía del Desarrollador"
+HREF="part-developer.html"><LINK
+REL="PREVIOUS"
+TITLE="Ejecutor"
+HREF="x23081.html"><LINK
+REL="NEXT"
+TITLE="Optimización Genética de Consulta en Sistemas de Base de Datos"
+HREF="geqo.html"></HEAD
+><BODY
+CLASS="CHAPTER"
+BGCOLOR="#FFFFFF"
+TEXT="#000000"
+LINK="#0000FF"
+VLINK="#840084"
+ALINK="#0000FF"
+><DIV
+CLASS="NAVHEADER"
+><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TH
+COLSPAN="3"
+ALIGN="center"
+>PostgreSQL</TH
+></TR
+><TR
+><TD
+WIDTH="10%"
+ALIGN="left"
+VALIGN="bottom"
+><A
+HREF="x23081.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="80%"
+ALIGN="center"
+VALIGN="bottom"
+></TD
+><TD
+WIDTH="10%"
+ALIGN="right"
+VALIGN="bottom"
+><A
+HREF="geqo.html"
+>Siguiente</A
+></TD
+></TR
+></TABLE
+><HR
+ALIGN="LEFT"
+WIDTH="100%"></DIV
+><DIV
+CLASS="CHAPTER"
+><H1
+><A
+NAME="PG-OPTIONS-DEV"
+>pg_options</A
+></H1
+><P
+>   <DIV
+CLASS="NOTE"
+><P
+></P
+><TABLE
+CLASS="NOTE"
+WIDTH="100%"
+BORDER="0"
+><TR
+><TD
+WIDTH="25"
+ALIGN="CENTER"
+VALIGN="TOP"
+><IMG
+SRC="./stylesheet-images/note.gif"
+HSPACE="5"
+ALT="Nota"></TD
+><TD
+ALIGN="LEFT"
+VALIGN="TOP"
+><P
+>     Aportado por <A
+HREF="mailto:dz@cs.unitn.it"
+TARGET="_top"
+>Massimo Dal Zotto</A
+>
+    </P
+></TD
+></TR
+></TABLE
+></DIV
+>
+  </P
+><P
+>   El fichero opcional <TT
+CLASS="FILENAME"
+>data/pg_options</TT
+> contiene opciones
+   de tiempo de ejecución utilizadas por el servidor para controlar los 
+   mensajes de seguimiento y otros parámetros ajustables de servidor.
+   Lo que hace a este fichero interesante es el hecho de que es re-leido por 
+   un servidor qeu recibe una señal SIGHUP, haciendo así posible cambiar 
+   opciones de tiempo de ejecución sobre la marcha sin necesidad de rearrancar 
+   <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+>.
+   Las opciones especificadas en este fichero pueden ser banderas de debugging 
+   utilizadas por el paquete de seguimiento 
+   (<TT
+CLASS="FILENAME"
+>backend/utils/misc/trace.c</TT
+>) o parámetros numéricos 
+   que pueden ser usados por el servidor para controlar su comportamiento.
+   Las nuevas opciones y parámetros deben ser definidos en 
+   <TT
+CLASS="FILENAME"
+>backend/utils/misc/trace.c</TT
+> y
+   <TT
+CLASS="FILENAME"
+>backend/include/utils/trace.h</TT
+>.
+  </P
+><P
+>   Por ejemplo, supongamos que queremos añadir mensajes de seguimiento 
+   condicional y un parámetro numérico ajustable al código en el fichero 
+   <TT
+CLASS="FILENAME"
+>foo.c</TT
+>.
+   Todo lo que necesitamos hacer es añadir la constante TRACE_FOO y 
+   OPT_FOO_PARAM en
+   <TT
+CLASS="FILENAME"
+>backend/include/utils/trace.h</TT
+>:
+
+   <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>/* file trace.h */
+enum pg_option_enum {
+    ...
+    TRACE_FOO,			/* trace foo functions */
+    OPT_FOO_PARAM,		/* foo tunable parameter */
+
+    NUM_PG_OPTIONS              /* must be the last item of enum */
+};
+   </PRE
+></TD
+></TR
+></TABLE
+>
+
+   y una línea correspondiente en 
+   <TT
+CLASS="FILENAME"
+>backend/utils/misc/trace.c</TT
+>:
+
+   <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>/* file trace.c */
+static char *opt_names[] = {
+    ...
+    "foo",            		/* trace foo functions */
+    "fooparam"         		/* foo tunable parameter */
+};
+   </PRE
+></TD
+></TR
+></TABLE
+>
+
+   Las opciones se deben especificar en los dos ficheros exáctamente en el 
+   mismo orden.
+   En los ficheros fuente foo podemos ahora hacer referencia a las nuevas 
+   banderas con:
+
+   <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>/* file foo.c */
+#include "trace.h"
+#define foo_param pg_options[OPT_FOO_PARAM]
+
+int
+foo_function(int x, int y)
+{
+    TPRINTF(TRACE_FOO, "entering foo_function, foo_param=%d", foo_param);
+    if (foo_param &#62; 10) {
+        do_more_foo(x, y);
+    }
+}
+   </PRE
+></TD
+></TR
+></TABLE
+>
+  </P
+><P
+>   Los ficheros existentes que utilizan banderas de seguimiento privadas 
+   pueden cambiarse simplemente añadiendo el siguiente código:
+
+   <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>#include "trace.h"
+/* int my_own_flag = 0; -- removed */
+#define my_own_flag pg_options[OPT_MY_OWN_FLAG]
+   </PRE
+></TD
+></TR
+></TABLE
+>
+  </P
+><P
+>   Todas las pg_options son inicializadas a cero en el arranque del servidor. 
+   Si necesitamos un valor de defecto diferente necesitaremos añadir algún 
+   código de inicialización en el principio de 
+   <TT
+CLASS="FUNCTION"
+>PostgresMain</TT
+>.
+
+   Ahora podemos fijar el parámetro foo_param y activar el seguimiento foo 
+   escribiendo valores en el fichero <TT
+CLASS="FILENAME"
+>data/pg_options</TT
+>:
+
+   <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+># file pg_options
+....
+foo=1
+fooparam=17
+   </PRE
+></TD
+></TR
+></TABLE
+>
+  </P
+><P
+>   Las nuevas opciones serán leidas por todos los nuevos servidores conforme 
+   van arrancando. Para hacer efectivos los cambios para todos los servidores 
+   que están en funcionamiento, necesitaremos enviar un SIGHUP al postmaster. 
+   La señal será enviada automáticamente a todos los servidores. Podemos 
+   activar los cambios también para un servidor específico individual 
+   enviandole la señal SIGHUP directamente a él.
+  </P
+><P
+>   Las pg_options pueden también especificarse con el interruptor (switch) 
+   <TT
+CLASS="OPTION"
+>-T</TT
+> de <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+>:
+
+   <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>postgres <TT
+CLASS="REPLACEABLE"
+><I
+>options</I
+></TT
+> -T "verbose=2,query,hostlookup-"
+   </PRE
+></TD
+></TR
+></TABLE
+>
+  </P
+><P
+>   Las funciones utilizadas para imprimir los errores y los mensajes de debug 
+   pueden hacer uso ahora de la facilidad <I
+CLASS="CITETITLE"
+>sislog(2)</I
+>. 
+   Los mensajes impresos en stdout y stderr son preformatados con una marca 
+   horaria que contiene también la identificación del proceso del servidor:
+   
+   <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>#timestamp          #pid    #message
+980127.17:52:14.173 [29271] StartTransactionCommand
+980127.17:52:14.174 [29271] ProcessUtility: drop table t;
+980127.17:52:14.186 [29271] SIIncNumEntries: table is 70% full
+980127.17:52:14.186 [29286] Async_NotifyHandler
+980127.17:52:14.186 [29286] Waking up sleeping backend process
+980127.19:52:14.292 [29286] Async_NotifyFrontEnd
+980127.19:52:14.413 [29286] Async_NotifyFrontEnd done
+980127.19:52:14.466 [29286] Async_NotifyHandler done
+   </PRE
+></TD
+></TR
+></TABLE
+>
+  </P
+><P
+>   Este formato incrementa también la capacidad de leer los ficheros de 
+   mensajes y permite a las personas el conocimiento exacto de lo que cada 
+   servidor está haciendo y en qué momento. También hace más fácil escribir 
+   programas con awk o perl que revisen el rastro para detectar errores o 
+   problemas en la base de datos, o calcular estadisticas de tiempo de las 
+   transacciones.
+  </P
+><P
+>   Los mensajes impresos en el syslog utilizan la facilidad de rastro 
+   LOG_LOCAL0. El uso de syslog puede ser controlada con la pg_option syslog. 
+   Desgraciadamente, muchas funciones llaman directamente a 
+   <TT
+CLASS="FUNCTION"
+>printf()</TT
+> para imprimir sus mensajes en stdout o stderr 
+   y su salida no puede ser redirigida a syslog o tener indicaciones 
+   cronológicas en ella.
+   Sería deseable que todas las llamadas a printf fueran reemplazadas con la 
+   macro PRINTF y la salida a stderr fuese cambiada para utilizar EPRINTF en 
+   su lugar, de modo que podamos controlar todas las salidas de un modo 
+   uniforme.
+  </P
+><P
+>   El nuevo mecanismo de las pg_options es más conveniente que definir nuevas 
+   opciones de switch en los servidores porque:
+
+   <P
+></P
+><UL
+COMPACT="COMPACT"
+><LI
+STYLE="list-style-type: disc"
+><P
+>      No tenemos que definir un switch diferente para cada idea que queramos 
+      controlar. Todas las opciones están definidas como palabras claves en un 
+      fichero externo almacenado en el directorio de datos.
+     </P
+></LI
+><LI
+STYLE="list-style-type: disc"
+><P
+>      No tenemos que rearrancar <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> para 
+      cambiar el valor de alguna opción. Normalmente las opciones del servidor 
+      se especifican al postmaster y pasados a cada servidor cuando sea 
+      arrancado. Ahora son leidos de un fichero.
+     </P
+></LI
+><LI
+STYLE="list-style-type: disc"
+><P
+>      Podemos cambiar las opciones sobre la marcha mientras el servidor está 
+      corriendo. Podemos de este modo investigar algunos problemas activando 
+      los mensajes de seguimiento sólo cuando aparece el problema. Podemos 
+      también intentar diferentes valores de parámetros ajustables.
+     </P
+></LI
+></UL
+>
+
+   El formato de las <TT
+CLASS="FILENAME"
+>pg_options</TT
+> es como sigue:
+
+   <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+># <TT
+CLASS="REPLACEABLE"
+><I
+>comment</I
+></TT
+>
+<TT
+CLASS="REPLACEABLE"
+><I
+>option</I
+></TT
+>=<TT
+CLASS="REPLACEABLE"
+><I
+>integer_value</I
+></TT
+>  # set value for <TT
+CLASS="REPLACEABLE"
+><I
+>option</I
+></TT
+>
+<TT
+CLASS="REPLACEABLE"
+><I
+>option</I
+></TT
+>                # set <TT
+CLASS="REPLACEABLE"
+><I
+>option</I
+></TT
+> = 1
+<TT
+CLASS="REPLACEABLE"
+><I
+>option</I
+></TT
+>+               # set <TT
+CLASS="REPLACEABLE"
+><I
+>option</I
+></TT
+> = 1
+<TT
+CLASS="REPLACEABLE"
+><I
+>option</I
+></TT
+>-               # set <TT
+CLASS="REPLACEABLE"
+><I
+>option</I
+></TT
+> = 0
+   </PRE
+></TD
+></TR
+></TABLE
+>
+
+   Notese que <TT
+CLASS="REPLACEABLE"
+><I
+>keyword</I
+></TT
+> puede 
+   también ser una abreviatura del nombre de opción definida en
+   <TT
+CLASS="FILENAME"
+>backend/utils/misc/trace.c</TT
+>.
+  </P
+><P
+>   Refierase al capítulo de la <I
+CLASS="CITETITLE"
+>Guía del Administrador</I
+> 
+   sobre las opciones de tiempo de ejecución para una lista completa de 
+   opciones soportadas actualmente.
+  </P
+><P
+>   Algo del código existente que utiliza variables privadas e interruptores de 
+   opciones se han cambiado para hacer uso de las posibilidades de las
+   pg_options, fundamentalmente en <TT
+CLASS="FILENAME"
+>postgres.c</TT
+>. Sería 
+   deseable modificar todo el codigo existente en este sentido, de modo que 
+   podamos hacer uso de muchos de los switches en la línea de comando de 
+   <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> y poder tener más opciones ajustables 
+   con un lugar único para situar los valores de las opciones. 
+  </P
+></DIV
+><DIV
+CLASS="NAVFOOTER"
+><HR
+ALIGN="LEFT"
+WIDTH="100%"><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+><A
+HREF="x23081.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="postgres.html"
+>Inicio</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+><A
+HREF="geqo.html"
+>Siguiente</A
+></TD
+></TR
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+>Ejecutor</TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="part-developer.html"
+>Subir</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+>Optimización Genética de Consulta en Sistemas de Base de Datos</TD
+></TR
+></TABLE
+></DIV
+></BODY
+></HTML
+>

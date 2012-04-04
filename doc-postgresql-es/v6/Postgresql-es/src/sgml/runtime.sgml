@@ -1,0 +1,627 @@
+ <Chapter Id="runtime">
+  <Title>Entorno de tiempo de ejecuci&oacute;n</Title>
+
+  <Para>
+    En este cap&iacute;tulo se detalla la interacci&oacute;n entre <Productname>Postgres</Productname> y el 
+    sistema operativo. 
+  </para>
+
+  <sect1>
+   <title>Utilizando <Productname>Postgres</Productname> desde Unix</title>
+
+   <para>
+    Todas las &oacute;rdenes de <Productname>Postgres</Productname> que se ejecutan directamente 
+    desde un shell de Unix se encuentran en el directorio
+    <quote>.../bin</quote>. Incluir este directorio en su variable de entorno path facilitar&aacute; 
+    mucho la ejecuci&oacute;n de los mismos. 
+   </para>
+
+   <para>
+    Existe una colecci&oacute;n de cat&aacute;logos del sistema en cada servidor. La misma incluye una clase 
+    (<literal>pg_user</literal>) que contiene una
+    instancia para cada usuario v&aacute;lido en <Productname>Postgres</Productname>. 
+    La instancia especifica un conjunto de privilegios sobre <Productname>Postgres</Productname>, 
+    como la posibilidad de actuar como superusuario en <Productname>Postgres</Productname>, la 
+    posibilidad de crear/destruir bases de datos y la posibilidad de actualizar los cat&aacute;logos 
+    del sistema. Un usuario de Unix no puede hacer nada con <Productname>Postgres</Productname> 
+    hasta que se instale una instancia apropiada en dicha clase. Puede encontrarse m&aacute;s informaci&oacute;n 
+    sobre los cat&aacute;logos del sistema ejecutando consultas sobre las clases apropiadas. 
+   </para>
+  </sect1>
+
+  <sect1 Id="postmaster">
+   <Title>Iniciando <Application>postmaster</Application></Title>
+
+   <Para>
+    No le puede suceder nada a una base de datos 
+    a menos que est&eacute; corriendo el proceso <Application>postmaster</Application>.
+    Como administrador, hay una serie de cosas que debe 
+    recordar antes de iniciar <Application>postmaster</Application>. 
+    Vea las secciones de instalaci&oacute;n y configuraci&oacute;n en este 
+    mismo manual.
+    De todos modos, si ha unstalado <ProductName>Postgres</ProductName> 
+    siguiendo las instrucciones de instalaci&oacute;n al pie de la letra, lo 
+    &uacute;nico que tendr&aacute; que hacer para iniciar el proceso <Application>postmaster</Application>
+    es introducir esta simple &oacute;rden:
+
+    <ProgramListing>
+% postmaster
+    </ProgramListing>
+   </para>
+
+   <para>
+    Ocasionalmente, <Application>postmaster</Application> escribe mensajes 
+    que le ser&aacute;n de ayuda para resolver problemas. Si desea ver los mensajes 
+    de diagn&oacute;stico de <Application>postmaster</Application>, puede iniciarlo 
+    con la opci&oacute;n -d y redirigir la salida al archivo de registro:
+
+    <ProgramListing>
+% postmaster -d > pm.log 2>&1 &
+    </ProgramListing>
+
+    Si no desea ver los mensajes, in&iacute;cielo de la forma
+    <ProgramListing>
+% postmaster -S
+    </ProgramListing>
+    y <Application>postmaster</Application> ser&aacute; "S"ilencioso.
+    Observe que al no haber el signo ampersand ("&amp") al final
+    del &uacute;ltimo ejemplo, no se ejecuta como proceso de fondo.
+   </Para>
+  </sect1>
+
+  <sect1 Id="pg-options">
+   <Title id="pg-options-title">Usando pg_options</Title>
+
+   <Para>
+    <Note>
+     <Para>
+      Contribuci&oacute;n de <ULink url="mailto:dz@cs.unitn.it">Massimo Dal Zotto</ULink>
+     </Para>
+    </Note>
+   </para>
+   <Para>
+    El archivo opcional <filename>data/pg_options</filename> contiene opciones
+    usadas por el backend para controlar los mensajes de trazado y
+    otros par&aacute;metros ajustables del mismo.
+    El archivo se vuelve a leer cuando el backend recibe la señal
+    SIGHUP, permitiendo cambiar las opciones de tiempo de ejecuci&oacute;n al vuelo, sin 
+    que sea preciso reiniciar <productname>Postgres</productname>.
+    En este archivo se pueden inclu&iacute;r opciones de depuraci&oacute;n usadas por el paquete
+    de trazado (<filename>backend/utils/misc/trace.c</filename>) o par&aacute;metros num&eacute;ricos 
+    usados por el backend para controlar su comportamiento.
+   </para>
+
+   <para>
+    Todas las pg_options se inicializan a cero al iniciar el backend.
+    Si se añaden o se modifican opciones, ser&aacute;n le&iacute;das por todos los backend
+    que se inicien a continuaci&oacute;n.
+    Para que cualquier cambio tome efecto en los backend que est&aacute;n
+    activos, es preciso enviar una señal SIGHUP al postmaster, quien reenviar&aacute;
+    la señal a todos los backend activos. Se pueden activar los cambios 
+    para un backend espec&iacute;fico envi&aacute;ndole directamente una señal SIGHUP.
+   </para>
+   <para>
+    Las pg_options pueden especificarse tambi&eacute;n con la opci&oacute;n <option>-T</option> de 
+    <productname>Postgres</productname>:
+
+    <programlisting>
+postgres <replaceable>opciones</replaceable> -T "verbose=2,query,hostlookup-"
+    </programlisting>
+   </para>
+
+   <Para>
+    Las funciones usadas para indicar errores y mensajes de depuraci&oacute;n pueden usar
+    la facilidad <citetitle>syslog(2)</citetitle>. Los mensajes que se escriben en 
+    stdout o stderr incluyen un prefijo con la fecha, la hora y el n&uacute;mero de proceso del 
+    backend que las genera.
+
+    <programlisting>
+#timestamp          #pid    #message
+980127.17:52:14.173 [29271] StartTransactionCommand
+980127.17:52:14.174 [29271] ProcessUtility: drop table t;
+980127.17:52:14.186 [29271] SIIncNumEntries: table is 70% full
+980127.17:52:14.186 [29286] Async_NotifyHandler
+980127.17:52:14.186 [29286] Waking up sleeping backend process
+980127.19:52:14.292 [29286] Async_NotifyFrontEnd
+980127.19:52:14.413 [29286] Async_NotifyFrontEnd done
+980127.19:52:14.466 [29286] Async_NotifyHandler done
+    </programlisting>
+   </para>
+   <para>
+    Este formato facilita la lectura de los mensajes y permite saber exactamete 
+    lo que hace cada backend y en qu&eacute; momento. Tambi&eacute;n facilita la escritura
+    de scripts awk o perl sencillos que analicen los historiales para detectar 
+    errores o problemas en la base de datos o para calcular estad&iacute;sticas temporales
+    de transaciones.
+   </para>
+   <para>
+    Los mensajes escritos a trav&eacute;s de syslog utilizan la facilidad LOG_LOCAL0.
+    El uso de syslog se controla mediante la opci&oacute;n syslog en pg_options.
+    Por desgracia, muchas funciones llaman directamente a <function>printf()</function> 
+    para escribir sus mensajes a stdout o stderr, cuya salida no se puede 
+    controlar mediante la opci&oacute;n syslog ni puede inclu&iacute;r fecha y hora.
+    Ser&iacute;a recomendable sustituir todas las llamadas a printf con la macro PRINTF, 
+    y todas las escrituras a stderr por la macro EPRINTF, para poder controlar 
+    toda la salida de un modo uniforme.
+   </Para>
+
+   <para>
+    El formato del archivo <filename>pg_options</filename> es como sigue:
+
+    <programlisting>
+# <replaceable>comentario</replaceable>
+<replaceable>option</replaceable>=<replaceable class="parameter">valor_entero</replaceable>  # Establece el valor de  <replaceable>option</replaceable>
+<replaceable>option</replaceable>                # establece <replaceable>option</replaceable> = 1
+<replaceable>option</replaceable>+               # establece <replaceable>option</replaceable> = 1
+<replaceable>option</replaceable>-               # establece <replaceable>option</replaceable> = 0
+    </programlisting>
+
+    Observe que <replaceable class="parameter">keyword</replaceable> puede ser 
+    una abreviatura de un nombre de opci&oacute;n de los definidos en
+    <filename>backend/utils/misc/trace.c</filename>.
+
+    <example>
+     <title>Archivo pg_options</title>
+
+     <para>
+      Por ejemplo, mi archivo pg_options contiene los siguientes valores:
+
+      <programlisting>
+verbose=2
+query
+hostlookup
+showportnumber
+      </programlisting>
+     </para>
+    </example>
+   </para>
+
+   <sect2>
+    <title>Opciones reconocidas</title>
+
+    <Para>
+     Actualmente est&aacute;n definidas las opciones:
+
+     <variablelist>
+      <varlistentry>
+       <term>
+	all
+       </term>
+       <listitem>
+	<para>
+	 Marca de traza global. Los valores permitidos son:
+	</para>
+
+       <variablelist>
+	<varlistentry>
+	 <term>
+	  0
+	 </term>
+	 <listitem>
+	  <para>
+	   Mensajes de trazado activados individualmente
+	  </para>
+	 </listitem>
+	</varlistentry>
+
+	<varlistentry>
+	 <term>
+	  1
+	 </term>
+	 <listitem>
+	  <para>
+	   Activar todos los mensajes de trazado
+	  </para>
+	 </listitem>
+	</varlistentry>
+	
+	<varlistentry>
+	 <term>
+	  -1
+	 </term>
+	 <listitem>
+	  <para>
+	   Inhibir todos los mensajes de trazado
+	  </para>
+	 </listitem>
+	</varlistentry>
+
+       </variablelist>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       verbose
+      </term>
+      <listitem>
+       <para>
+        Marca de verbosidad. Valores permitidos:
+       </para>
+
+       <variablelist>
+	<varlistentry>
+	 <term>
+	  0
+	 </term>
+	 <listitem>
+	  <para>
+	   Sin mensajes, &eacute;ste es el valor por omisi&oacute;n.
+	  </para>
+	 </listitem>
+	</varlistentry>
+
+	<varlistentry>
+	 <term>
+	  1
+	 </term>
+	 <listitem>
+	  <para>
+	   Escribir mensajes de informaci&oacute;n.
+	  </para>
+	 </listitem>
+	</varlistentry>
+
+	<varlistentry>
+	 <term>
+	  2
+	 </term>
+	 <listitem>
+	  <para>
+	   Escribir m&aacute;s mensajes de informaci&oacute;n.
+	  </para>
+	 </listitem>
+	</varlistentry>
+
+       </variablelist>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       query
+      </term>
+      <listitem>
+       <para>
+        Trazar peticiones. Valores permitidos:
+       </para>
+
+       <variablelist>
+	<varlistentry>
+	 <term>
+	  0
+	 </term>
+	 <listitem>
+	  <para>
+	   No escribir la petici&oacute;n.
+	  </para>
+	 </listitem>
+	</varlistentry>
+
+	<varlistentry>
+	 <term>
+	  1
+	 </term>
+	 <listitem>
+	  <para>
+	   Escribir una versi&oacute;n condensada de la petici&oacute;n en una l&iacute;nea.
+	  </para>
+	 </listitem>
+	</varlistentry>
+
+	<varlistentry>
+	 <term>
+	  4
+	 </term>
+	 <listitem>
+	  <para>
+	   Escribir la consulta completa.
+	  </para>
+	 </listitem>
+	</varlistentry>
+
+       </variablelist>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       plan
+      </term>
+      <listitem>
+       <para>
+        Escribir el plan de consulta. 
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       parse
+      </term>
+      <listitem>
+       <para>
+        Escribir la salida del traductor de consultas.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       rewritten
+      </term>
+      <listitem>
+       <para>
+	Escribir la consulta reescrita.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       parserstats
+      </term>
+      <listitem>
+       <para>
+        Escribir las estad&iacute;sticas del traductor de consultas.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       plannerstats
+      </term>
+      <listitem>
+       <para>
+        Escribir las estad&iacute;sticas del planificador.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       executorstats
+      </term>
+      <listitem>
+       <para>
+        Escribir las estad&iacute;sticas de ejecuci&oacute;n.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       shortlocks
+      </term>
+      <listitem>
+       <para>
+        De momento no se usa, pero se precisa para habilitar nuevas caracter&iacute;sticas en el futuro.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       locks
+      </term>
+      <listitem>
+       <para>
+	Trazar bloqueos.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       userlocks
+      </term>
+      <listitem>
+       <para>
+	Trazar bloqueos de usuario.
+       </para>
+      </listitem>
+     </varlistentry>
+     
+     <varlistentry>
+      <term>
+       spinlocks
+      </term>
+      <listitem>
+       <para>
+	Trazar 'spin locks'.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       notify
+      </term>
+      <listitem>
+       <para>
+        Trazar funciones de notificaci&oacute;n.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       malloc
+      </term>
+      <listitem>
+       <para>
+	Sin uso por el momento.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       palloc
+      </term>
+      <listitem>
+       <para>
+	Sin uso por el momento.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       lock_debug_oidmin
+      </term>
+      <listitem>
+       <para>
+	Minimum relation oid traced by locks.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       lock_debug_relid
+      </term>
+      <listitem>
+       <para>
+	oid, if not zero, of relation traced by locks.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       lock_read_priority
+      </term>
+      <listitem>
+       <para>
+	Sin uso por el momento.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       deadlock_timeout
+      </term>
+      <listitem>
+       <para>
+	Temporizador de comprobaci&oacute;n de bloqueos circulares..
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       syslog
+      </term>
+      <listitem>
+       <para>
+        Marca de syslog. Valores permitidos:
+       </para>
+
+       <variablelist>
+	<varlistentry>
+	 <term>
+	  0
+	 </term>
+	 <listitem>
+	  <para>
+	   Mensajes a stdout/stderr.
+	  </para>
+	 </listitem>
+	</varlistentry>
+
+	<varlistentry>
+	 <term>
+	  1
+	 </term>
+	 <listitem>
+	  <para>
+	   Mensajes a stdout/stderr y syslog.
+	  </para>
+	 </listitem>
+	</varlistentry>
+
+	<varlistentry>
+	 <term>
+	  2
+	 </term>
+	 <listitem>
+	  <para>
+	   Mensajes solamente a syslog.
+	  </para>
+	 </listitem>
+	</varlistentry>
+
+       </variablelist>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       hostlookup
+      </term>
+      <listitem>
+       <para>
+	Habilitar la consulta de nombre de host en ps_status.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       showportnumber
+      </term>
+      <listitem>
+       <para>
+	Mostrar el n&uacute;mero de puerto en ps_status.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       notifyunlock
+      </term>
+      <listitem>
+       <para>
+	Desbloqueo de pg_listener despu&eacute;s de notify.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term>
+       notifyhack
+      </term>
+      <listitem>
+       <para>
+        Borrar tuplas duplicadas de pg_listener.
+       </para>
+      </listitem>
+     </varlistentry>
+
+    </variablelist>
+    </para>
+   </sect2>
+  </sect1>
+
+</Chapter>
+
+<!-- Keep this comment at the end of the file
+Local variables:
+mode: sgml
+sgml-omittag:nil
+sgml-shorttag:t
+sgml-minimize-attributes:nil
+sgml-always-quote-attributes:t
+sgml-indent-step:1
+sgml-indent-data:t
+sgml-parent-document:nil
+sgml-default-dtd-file:"./reference.ced"
+sgml-exposed-tags:nil
+sgml-local-catalogs:"/usr/lib/sgml/CATALOG"
+sgml-local-ecat-files:nil
+End:
+-->

@@ -1,0 +1,1951 @@
+
+-=|=======================[ x-eZine #0 / Art. 009 ]=======================|=-
+-=|================================[ RPC ]================================|=-
+-=|=====================[ By A-Tui <atui@x0und.net> ]=====================|=-
+
+INDICE:
+
+    1.- Introduccion.
+    
+    2.- RPC, ¿Que es eso?.
+    
+    3.- Especificaciones a tener en cuenta sobre RPC.
+    
+	3.1    * El PortMapper
+        3.2    * Como identificamos un proceso de forma unica
+        3.3    * XDR (eXternal Data Representation)
+	3.4    * Autentificacion en RPC
+	
+    4.-Rutinas q nos brinda la libreria estandar C para implementar RPC
+    
+	4.1    * NIVEL SIMPLIFICADO (simplified level)
+        4.2    * NIVEL ALTO (TOP LEVEL)
+        4.3    * NIVEL BAJO (BOTTON LEVEL)
+	
+    5.-Mas sobre XDR.
+	
+    6.-Uso de caracteristicas RPC en aplicaciones q no son RPC
+    
+    7.-DESARROLLO DE UNA APLICACION SENCILLA (Codigo de ejemplo)
+    
+    8.-CIERRE
+
+
+1.- Introduccion.
+~~~~~~~~~~~~~~~~~
+Saludos a todos los q tengais este e-zine en vuestras manos (o vuestros hd).
+En este articulo voi a tratar  de  explicar como funciona, que es y para que
+sirve el RPC o Remote  Procedure  Call  (Llamadas  de procedimiento remoto).
+También voi a tratar de dar una  definicion de los tipos de datos que usa el
+RPC ( el lenguaje XDR-  eXternal  Data  Representation) y de las rutinas que 
+tenemos para implementar RPC en  C.  Como aviso decir que si hay algo que no
+es correcto en este documento (cosa  q puede ser posible) por favor mandadme
+un email  a atuin@interlap.com.ar para tener constancia de ello.
+
+Bueno, empezemos:
+
+
+2.- RPC, ¿Que es eso?
+~~~~~~~~~~~~~~~~~~~~~
+Bien, pues RPC es un protocolo  de  mensage q funciona a nivel de apliacion,
+es decir q es independiente de  los  protocolos que existan por debajo de el
+(TCP/IP, UDP/IP...). Este protocolo propuesto por Sun Microsystems (no se si
+habra alguna  otra  comañia)  por  primera  vez  en  una  RFC, paso a ser un
+protocolo estandar de la  Internet  con  la publicacion del RFC 1831 en 1995
+(ver el STD 1). Existen otras  implementaciones  de  RPC (alguna mas antigua
+como Courier de XeroX, ARGUS del Mit...), pero nosotros hablaremos de la ONC
+de Sun, por ser la estandarizada y liberada  desde el principio en los RFCs.
+ 
+Este protocolo se basa para funcionar en el siguiente esquema:
+	
+	* Una parte que realiza la peticion del procedimiento, (generalmente
+	  se le llama caller) donde indica "que es lo que quiere" y entonces
+	  se queda a la espera de que  le  envien  la  respuesta (como luego
+	  veremos esto puede  no  ser  cierto  pero es el modelo mas basico,
+	  aunque se puede implementar q  el  cliente  ejecute otras acciones
+	  mientras espera). 
+	
+	* Una parte que recibe esa peticion de procedimiento y q se queda en
+	  estado de dormido hasta recibir  una  peticion, una vez q le llega
+	  una llamada de  procedimiento,  y  comprobada  la autenticidad del
+	  emisor lo ke hace es ejecutar esa llamada, y enviar los resultados
+	  a el caller (ke requirio el procedimiento) y se queda en espera de 
+	  nuevas peticiones. A esta  parte  se  la  suele  llamar server (la
+	  terminilogia no es lo importante ;) ).
+
+	* El caller entonces recive la  respuesta  y  la  procesa como tenga
+	  previsto en la maquina local  (por  ejemplo  saca el resultado por
+	  pantalla).
+
+	* Para hacer esto de forma  transparente a la arquitectura q se este
+	  usando se usa entre medias  XDR (eXternal Data Representation) que
+	  es un estandar para la  descripcion  y  codificacion de datos para
+	  poder ser transmitidos entre diferentes  plataformas sin problemas 
+	  de una manera sencilla. Mas  adelante comento algo sobre los tipos
+	  de datos q nos  podemos encontrar en este estandar y como funciona
+	  la capa XDR.
+	  
+
+Como podemos ver en este modelo, que es el basico, solo uno de los dos proce-
+sos esta activo a la vez. Pero como dije arriba este modelo no impone restri-
+cciones a la hora de implementar el protocolo, con lo que una aplicacion pue-
+de perfectamente usar un modelo distinto, como q el servidor ejecute la peti-
+cion como proceso independiente y asi pueda recibir mas llamadas de clientes,
+o q el cliente no se quede  "bloqueado"  mientras  espera la respuesta de una
+llamada. Como vemos nos ofrece mucha libertad.
+
+Vemos q funciona de  manera  mas  o  menos  similar a las llamadas a procesos
+locales, solo que utilizando  el  interfase  de  red (dije mas o menos -;) ).
+Aunque no todo son ventajas al usar RPC, veamos algunos de los problemas:
+
+	* Al ser RPC un protocolo de  alto  nivel que no se preocupa por como
+	  se transmiten las  llamadas  entre las maquinas (es decir es trans-
+	  parente al protocolo que se use  en el  nivel de transporte) el ma-
+	  nejo de errores tiene q ser  llevado  a  cabo por la aplicacion que
+	  implemente el RPC. Como RPC se puede usar sobre cualquier protocolo
+	  de transporte,  si usamos uno  orientado a conexion (y por lo tanto
+	  fiable) como TCP/IP, entonces  el  trabajo  estara  casi echo y los
+	  controles q tenga q llevar a cabo la aplicacion seran minimos. Pero
+	  el problema llega cuando nos interese  usar  RPC sobre un protocolo
+	  no seguro (no orientado a conexion) como UDP/IP por ejemplo, enton-
+	  ces no hay manera  de  asegurar  que  los  datos  viajen por la red
+	  correctamente y llegen completos (o q  ni siquiera llegen). En este
+	  caso debe de ser la aplicacion la que  se encarge de asegurarse que
+	  no haya errores en la transmision, y si  los hay comunicarlos a los
+	  procesos que  intervienen  y  llevar a cabo  las operaciones q sean
+	  convenientes segun el tipo  de datos q se  esperaban y de operacion
+	  q se requirio.
+	  
+	* Rendimiento, logicamente como todos sabeis no es lo mismo ejecutar
+	  procesos locales que hacerlo a traves de red. No Comment.
+	  
+	* Otro problema con el que nos podemos encontrar por el echo de usar
+	  procesos a traves de red es la seguridad. Nuestras llamadas pueden
+	  pasar por redes inseguras por  lo  que se hace necesario el uso de
+	  algun mecanismo de autentificacion. Que como veremos luego existen
+	  en el RPC.
+		  
+	  
+Es por esto por lo que debemos de tener cuidado al implementar una aplicacion
+que haga uso de RPC, ya que deberemos de  tener en cuenta las limitacione que
+posee y los problemas q nos pudiera generar  mas adelante. De todo esto saca-
+mos la conclusion que cuando desarrollemos una aplicacion que use RPC debemos
+de tener en cuenta:
+		
+	* Solo se puede llamar a un unico proceso en una llamada.
+		
+	* Tener en cuenta q haya concoordancia entre los mensages de respues-
+	  ta y los mesages q reqerian el  proceso (esto es necesario ya q XDR
+	  es un estandar canonico, es decir  q las dos partes de la comunica-
+	  cion han de estar de acuerdo en  el tipo de datos q se envian, esta
+	  informacion no viaja en los datos).
+		
+	* Tener en cuenta la autentificacion entre el cliente y el servicio y
+	  viceversa.
+	
+	* Y por supuesto tener muy claro q en contra a los IPC, aqui cada co-
+	  digo se ejecuta en zonas de  memoria distintas, con lo que no pode-
+	  mos usar variables comunes ni  compartir datos entre ellas de forma
+	  implicita.
+
+Veremos q las rutinas  q  podemos  usar  para  programar RPC sobre C permiten
+varios niveles de control sobre  nuestro  codigo. Puediendo emplear el uso de
+rutinas basicas y mas sencillas q  nos  facilitan la programacion a consta de
+controlar menos nuestro programa. Mas adelante las ojeamos un poco.
+	
+Ahora que ya sabemos como  funciona  a  grandes  rasgos el RPC y los posibles
+"problemas" que tendriamos que tener en cuenta vamos a meternos un poco mas a
+fondo en el protocolo, indicando como  se pueden formar los mensages de peti-
+cion, como se peuden formar  los  mesages  de respuesta, que errores es capaz
+de manejar RPC etc... Para esto es  necesario conocer algo de XDR, ya que los
+datos que usa RPC vienen codificados  segun  ese  estandar,  por eso luego lo
+comento tambien. 
+
+
+3.- Especificaciones a tener en cuenta sobre RPC.
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Antes de nada vamos a ver la sintaxis definida para definir un procedimiento
+sobre RPC:
+
+ program NOMBRE_PROGRAMA {
+    version NOMBRE_PROGRAMA_VERSION {
+	definicion_proceso1;
+	definicion_proceso2;
+	[...]
+	} = constante;
+   } = constante;
+   
+donde: NOMBRE_PROGRAMA es l nombre q le daremos al programa, NOMBRE_PROGRAMA_
+VER es el nombre del  programa  seguido  de _VERS q es un numero indicando la
+version. Dentro de la version se  definen  los procedimientos q contendra esa 
+version de ese programa. Y las constantes son los int con los q nos referire-
+mos a el programa y a la version.
+
+Ejemplo:
+
+program HELLO {
+    version HELLO_VERS_1 {
+	void HELLO_NULL(void) = 0; --> procedimiento 1
+	struct uno HELLO_PUTS(string text<>) = 1; --> procedimiento 2
+	} = 1; --> numero de version
+} = 400000; --> numero de programa
+
+Los procedimientos usan lenguaje XDR para definir los datos, mas adelante vemos en q consiste.
+
+3.1.- El PortMapper:
+~~~~~~~~~~~~~~~~~~~~
+Portmapper es un servicio q sera  necesario  q  ejecutemos en el servidor para
+poder acceder desde el cliente a  los procesos  proporcionados por una aplica-
+cion servidor. Esto es asi ya  que  el portmapper  sera el que nos localize el
+proceso requerido en el host en  el  q  se  ejecuta  el  servidor de procesos.
+El servicio del portmapper es otro  programa  RPC como vemos mas adelante. Se
+basa en llamadas a procedimientos  q el  portmapper pone a disposicion de los
+clientes (en el siguiente apartado vemos q procedimientos dispone). 
+
+  Veamos como funciona:
+ 
+    * El servidor de procesos  al  arrancarse y quedarse a la espera de peti-
+      ciones de procesos  tiene q registrar  el numero de puerto asignado con
+      el programa y la  version  que  identifica  el  conjunto  de procesos q
+      ofrece. Es decir debe de decirle al portmapper quien escucha y donde lo
+      hace. Mas adelante cuando pasemos a  explicar el codigo veremos como el
+      servidor (en el main() se encarga de registrarse ante portmapper).
+     
+    * La primera vez q un cliente  quiere  solicitar  un proceso al servidor,
+      este tiene q hacer una consulta al  portmapper del servidor primero. El
+      cliente le pasa como argumentos  el  numero  de programa y el numero de
+      version y el servidor retorna  si  el programa  esta registrado (de ahi
+      la importancia de  regsitrar  el  programa  por  parte del servidor) el
+      puerto en el q el  programa  escucha. De  esta forma el cliente ya sabe
+      donde debe dirigirse para requerir el proceso. En las sucesivas comuni-
+      caciones el cliente ya no  necesita  comunicarse  con  el portmaper, lo 
+      hara de forma directa con el  servidor a traves del puerto que el port-
+      mapper le indico.
+     
+Esto nos lleva a plantearnos la siguiente pregunta: ¿como distingo cada uno d
+los procesos q existen en el servidor?. Vamos con ello:
+
+3.2- Como identificamos un proceso de forma unica:
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Debemos de tener en cuenta q cada proceso debe ser unico para q el cliente
+pueda referirse de forma unequivoca a el. Esto se logra asignando a cada pro-
+ceso un numero de programa, un numero de version y un numero de proceso, don-
+de:
+
+    * Numero de Programa: este numero especifica un grupo concreto d procesos
+     
+    * Numero de Version: cada programa a  su vez poseera un numero de version 
+      propio.
+      
+    * Numero de procesos: como hemos dicho  antes  un programa es um conjunto
+      de procesos, por eso cada proceso tiene asignado un numero que lo iden-
+      tifica dentro de ese grupo.
+      
+Existen una serie  de  numeros  estandar  reservados para aplicaciones, estos
+pueden encontrarse en /etc/rpc. Aqui listo algunos:
+
+ portmapper      100000  portmap sunrpc
+ rstatd          100001  rstat rstat_svc rup perfmeter
+ rusersd         100002  rusers
+ nfs             100003  nfsprog
+ ypserv          100004  ypprog
+ mountd          100005  mount showmount
+ ypbind          100007
+ walld           100008  rwall shutdown
+ yppasswdd       100009  yppasswd
+ etherstatd      100010  etherstat
+ rquotad         100011  rquotaprog quota rquota
+ sprayd          100012  spray
+ 3270_mapper     100013
+ rje_mapper      100014
+ selection_svc   100015  selnsvc
+ database_svc    100016
+ rexd            100017  rex
+ alis            100018
+ sched           100019
+ llockmgr        100020
+ nlockmgr        100021
+ x25.inr         100022
+ statmon         100023
+ status          100024
+ bootparam       100026
+ ypupdated       100028  ypupdate
+ keyserv         100029  keyserver
+ tfsd            100037 
+ nsed            100038
+ nsemntd         100039
+ pcnfsd          150001
+ amd             300019  amq
+ ugidd           545580417
+ bwnfsd          788585389
+     
+Estos numeros de programa  son  asignados  segun lo especifica el estandar (y
+hay q seguir para evitar conflictos) de la siguiente manera:
+ 
+Los numeros son dados en hexadecimal y deben pertenecer a los siguientes ran-
+gos segun su uso:
+
+	0 - 1fffffff Definidos por Sun, aqui  solo  existiran numeros de pro-
+	             grama q hayan sido estandarizados por SUN.
+	    
+        20000000 - 3fffffff Definidos por  el  usuario,  para cualquier apli-
+	                    cacion que generemos usaremos estos numeros, ya q
+			    son los q el estandar  reserva  para aplicaciones
+			    no estandarizadas.
+	    
+	40000000 - 5fffffff Los usaremos cuando el numero de programa sea ge-
+	                    nerado de forma aleatoria.
+	
+	60000000 - ffffffff Este rango esta  reservado  para  uso futuro y no
+	                    deberia de ser usado.
+	
+Ahora q ya sabemos como se  identifica  un determinado proceso vamos a ver un
+poco como es asociado en el portmaper, las estructuras q se usan:
+
+La estructura q mapea cada procedimiento en el protmapper es asi:
+
+    struct mapping {
+	unsigned int prog; --> numero de programa
+	unsigned int vers; --> version de programa
+	unsigned int prot; --> numero de protocolo (6=TPC, 17=UDP).
+	unsinged int port; --> numero de puerto, definido por defecto como 
+				    const PMAP_PORT = 111;
+	};
+	
+los programas mapeados estan en una lista enlazada de estructuras del tipo
+anterior:
+
+    struct *pmaplist {
+	mapping list;
+	pmaplist next;
+	};
+	
+La estructura donde recibe los datos el protmapper es esta:
+
+    struct call_args {
+	unsigned int prog; --> numero de programa
+	unsigned int vers; --> numero de version
+	unsigned proc; --> numero de procedimiento
+	opaque res<>; --> los resultados en tipo opaque (XDR).
+	};
+	
+y los resultados son devueltos en esta estructura:
+    
+    struct call_result {
+	unsigned int port; --> puerto;
+	opauqe res<>; --> resultados
+	};
+	
+La definicion dl programa portmapper (segun el esquema q definimos antes) es:
+
+    program PMAP_PROG {
+	version PMAP_VERS {
+	    void PMAPPROC_NULL(void) = 0;
+	    bool PMAPPROC_SET (mapping) = 1;
+	    bool PMAPPROC_UNSET (mapping) = 2;
+	    unsigned int PMAPPROC_GETPORT (mapping) = 3;
+	    pmaplist PMAPPROC_DUMP (void) = 4;
+	    call_result PMAPPROC_CALLIT (call_args) = 5;
+	    } = 2; --> numero de version
+	} = 100000; --> numero de programa del portmapper.
+	
+
+Los procedimientos q soporta el portmapper son:
+
+PMAPPROC_NULL:
+
+    Este procedimiento no hace nada, es convencion q se añada un proceso q no
+    haga nada.
+    
+PMAPPROC_SET:
+
+    Este procedimiento registra un  procedimiento,  se  le pasa la estructura
+    mapping q contiene los datos  del  procedimiento  y retorna un booleano q 
+    es o TRUE o FALSE.
+    
+PMAPPROC_UNSET:
+
+    Lo contrario al procedimiento  anterior,  quita el registro a un procedi-
+    miento en el portmapper.
+    
+PMAPPROC_GETPORT:
+
+    Retorna el puerto sobre el q escucha un determinado proceso q se requie-
+    re. Si retorna un valor de 0 es q el proceso no esta disponible.
+    
+PMAPPROC_DUMP:
+
+    Retorna la lista de todos los procesos q estan disponibles y registrados
+    en el protmapper.
+    
+PMAPPROC_CALLIT:
+
+    Permite q un cliente  haga  una  llamada  a  un  proceso  remoto del q se
+    desconoce el numero  de  puerto. Como  vemos  este  procedimiento permite
+    realizar la llamda  directamente  (evitando  un  paso inicial de pedir el
+    puerto y realizar una nueva llamada  al procedimiento). Este proceso solo
+    retorna algo (los  resultados  y  el  numero  de  puerto) en caso de q la
+    llamada se realizara con exito. Hay  q tener en cuenta q es el portmapper
+    el q realiza la llamada en ultima  instancia con el proceso requerido (en
+    vez de ser el cliente q lo pide) y este portmapper lo hace via UDP.
+
+
+
+3.3.- XDR (eXternal Data Representation).
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Como comentamos antes en la  introduccion  a RPC, es necesario un mecanismo q
+nos otorge una minima transparencia a la hora de compartir datos entre maqui-
+nas de diferentes arquitecturas (recordemos q RPC esta orientado a aplicacio-
+nes distribuidas). Pues bien, esto se logra gracias a XDR. XDR es un interfa-
+ce q va convertir los datos que pasamos por  parte del cliente al servidor (y
+bicebersa) a un formato estandar ya definido  logrando de esta forma compati-
+bilidad entre diferentes  arquitecturas.  XDR  se  encargara de convertir los
+datos en el cliente a estructuras XDR  justo  antes de enviarlos al servidor.
+A este paso se le llama serializing.  En el  otro lado el servidor justo des-
+pues de recibir los datos codificados  en XDR  se encargara de convertirlos a
+structuras de datos legibles por  la  arquitectura  de  la maquina donde este
+corriendo. A este proceso inverso se le llama deserializing.
+ 
+ 
+ CLIENTE------>XDR serializing<-network->XDR deserializing------->SERVIDOR
+ 
+	    la respuesta:
+ 
+ CLIENTE<------XDR deserializing<-network->XDR serializing<-------SERVIDOR
+ 
+Los stubs situados en el cliente  y  en  el  servidor seran los encargados de
+codificar y decodificar los datos. En las  respuestas del servidor el proceso
+de codificacion se realiza a la inversa como es logico.
+ 
+Las conversiones necesarias las hora la utilidad rpcgen como veremos mas ade-
+lante, pero en nuestro caso nosotros crearemos alguna funcion a mano para ver
+como codificar  estructuras  de  datos  mas  complejas  q  simples  enteros o
+caracteres.
+ 
+Veamos como hace XDR la codificacion:
+
+XDR asume que la unidad minima es un byte, y q esos bytes pueden ser portados
+de una maquina a otra sin q estos pierdan significados. Para ello trabaja con
+blques de 4 bytes, q son transportados en orden creciente:
+
+    BYTE0-----BYTE1-----BYTE3-----BYTE4-----.......-----BYTE(n-1)
+    
+donde como es obvio: (n mod 4) = 0.
+
+Por lo tanto  quedamos  en q XDR  usa  bloues multiplos de 4 bytes, veamos la
+notacion q es usada para la codificacion:
+
+    <-----4 bytes-----><-byte0 - byte1 - .... - byte(n-1)- [relleno] ->
+
+Los 4 primeros bytes forman  el  campo  longitud, q es opcional y se usa para
+codificar arreglos de longitud variable. Con lo q ya intuimos q podemos defi-
+nir tipos de datos ajustados (donde declaramos el tamaño previamente y por lo
+tanto no necesitaran de ese campo) y  tipos  de datos q necesitaran ese campo
+para saber el tamaño del mensage  q se codifico. Aqui vemos q es importante q
+el cliente y el servidor sepan  exactamente  q tipos de datos se mandan en la
+comunicacion.
+
+Luego vienen los bytes de datos  q son codificados, fijemonos en van de forma 
+creciente y usan codificacion big-endian  (es decir el byte mas significativo
+primero).
+
+El campo de relleno se usa para formar bloques q sean multiplos de 4.
+
+Esta es la parte mas peliaguda d la programacion de RPC, ya q la comunicacion
+entre cliente y servidor ha de ser posible, para ello es encesario q entenda-
+mos este proceso intermedio q realiza XDR (q sera generalment transparente al
+programador). Por eso segun  analizemos el  codigo veremos como codificamos y
+decodificamos en nuestra aplicacion.
+
+Tipos de datos que maneja XDR:
+
+Recordemos q XDR usa  codificacion  big-endian  (MSB----->LSB), al igual q la
+red Internet y algunas maquinas (entre las q NO se encuentran las arquitectu-
+ras Intel). 
+
+ENTEROS:
+
+    int --> 32 bits
+    unsigned int --> 32 bits (sin signo)
+    hyper int --> 64 bits
+    unsigned hyper int --> 64 bits (sin signo)
+    
+BOOLEANOS Y ENUMERACIONES:
+
+    enum --> similar a c
+	enum { TRUE = 1, FALSE = 0 } state;
+	
+    bool --> son casos particulares de tipos enum
+	bool stat1;
+	
+COMA FLOTANTE:
+
+    float --> usa 4 bytes
+    
+    double --> usa 8 bytes
+    
+    quadruple --> usa 16 bytes
+    
+ quedan distribuidos usando el  1er  bit para el signo, los siguientes 8, 11,
+ 15 bits para la parte entera segun sean float, double o quadruple, y el res-
+ to de bits libres en cada tipo se usa para la parte fracionaria.
+ 
+OPAQUE:
+
+    opaque --> se usan para codificar datos sin especificar, pudiendo ser de
+               longitud fija o variable. En este ultimo caso se usan 4 bytes
+	       para indicar el campo longitud.
+	       
+	opaque flujo[]; --> longitud fija, no llevaria el campo longitud.
+	
+	opaque flujo<>; --> longitud variable, seria necesario indicar en el
+	                    campo longitud el tamaño.
+	
+STRINGS:
+
+    string --> para codificar texto en ascii, al igual q opaque puede ser de
+               long. variable o fija:
+	       
+	string nombre [];
+	
+	string nombre <>;
+
+ARRAYS:
+
+    Usados para crear arreglos de datos de un determinado tipo:
+    
+    tipo nombre <> --> long. variable
+    
+    tipo nombre [] --> long. fija 
+    
+VOID:
+
+    Pues eso un tipo void, q no devuelve nada. Util para cuando hay datos,
+    pero necesitamos declararlos, ver uniones.
+    
+
+Tambien podemos definir estructuras, uniones (para dsicriminar los datos
+segun una condicion dada):
+
+ESTRUCTURAS:
+
+    Usados al igual q en C para aunar en una sola estructura de datos varios
+    tipos de datos distintos, con valores independientes:
+    
+    struct {
+	componente 1;
+	componente 2;
+	[...]    
+	} nombre;
+	
+    Al codificar los datos quedaran codificados en el orden en q se definie-
+    ron en la estructura.
+    
+UNIONES (con un discriminante):
+
+    Son usadas para codificar datos  segun  el  valor  de un discriminante, q
+    sera el q nos indique q datos codificaremos y cuales no. El tipo del dato
+    discriminante ha de ser  un  entero  (con  o  sin signo) o un booleano (o
+    cualquier dato definido con el  tipo  enum comentado atras, q no va a ser
+    otra cosa q un int al final):
+    
+    union swicth (declaracion_discriminante) {
+	case valor_discriminante_1:
+	    declaracion_tipo_caso_1;
+	case valor_discriminante_2:
+	    declaracion_tipo_caso_2;
+	[case ... :
+	    declaracion ... ;]
+	    } nombre;
+
+    Como curiosidad saber q a  cada  declaracion segun el valor del discrimi-
+    nante se le llama "arm" (arm1,arm2,...).
+
+    Tambien podremos utilizar  el  typedef  y el const, cuya funcion es iden-
+    tica a la q reciben en el lenguaje C.
+    
+Hay q tener bien claro q XDR no es un  lenguaje de programacion, sino para la
+definicion de tipos de datos. Para mas informacion ver el rfc del XDR. Al
+final listo los rfc q pueden interesar.
+
+La biblioteca de C nos proporciona una  serie de rutinas q nos seran utiles a
+la hora de convertir datos de la  mquina  al estadar XDR (man xdr :) ), estas
+funciones nos permiten codificar enteros, strings, arrays, punteros etc... Si
+queremos usar alguna estructura q  mezcle varios de esos tipos de datos nece-
+sitaremos una funcion q se encarge  de convertir cada uno de los datos q com-
+ponen nuestra estructura. Esto se puede hacer o bien por medio de la utilidad
+rpcgen o a mano, como en nuestro caso).
+
+Para ver las primiticas q nos ofrece la libreria C estandar para la codifica-
+cion/decodificacion mirar el manual  de  xdr (man xdr), ahi se nos listan los
+distintos mecanismos para codificar  y  decodificar  las estructuras de datos
+definidas en el estandar del  XDR (las  q comentamos arriba), todas tienen la
+forma:
+
+    xdr_tipo ( *XDR xdrs, argumentos, [])
+    
+Donde tipo especifica el tipo de datos q serializa o deserializa, y donde XDR
+es el handler a una estructura q contendra  la informacion del flujo q se de-
+sea convertir. Los argumentos  varian  para  cada  uno de los distintos tipos
+(int, array, string,...).
+
+Para implementar RPC con esto nos bastara, ya q la creaccion de las estructu-
+ras XDR correra a cargo de las ruinas  RPC,  algo q nos facilita el empleo de
+la codificacion con XDR. No  obstante  mas  adelante  hablo un poco sobre las
+rutinas para crear, manipular y destriur estructuras de XDR.
+
+4.3.- Autentificacion en RPC:
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Vamos a ver los distintos  tipos  de  autentificacion q estan definidos en el
+estandard del ONC RPC de Sun. Los  q  vamos  a comentar son los especificados
+por el RPC de Sun al crear el estandar, pero el programador puede implementar
+otros tipos (incluso otras definiciones  de RPC pueden proporcionar otros ti-
+pos de autentificacion).
+
+Para llevar a cabo la autentificacion,  el cliente manda dos campos de auten-
+tificacion, el credencial y el  verificador . El servidor unicamente responde
+con un solo campo, la verificacion.
+
+
+Los mensages de autentificacion son codificados como tipo opaque a traves del
+lenguaje XDR en la siguiente estructura:
+    
+    struct opaque_auth {
+	auth_flavor flavor;
+	opaque body<400>; };
+
+donde auth_flavor puede ser:
+
+    enum auth_flavor {
+	AUTH_NONE = 0,
+	AUTH_SYS = 1,
+	AUTH_SHORT = 2,
+	AUTH_DES = 3 ---> Añadido en el RFC 1057 (RPC vers. 2)
+	};
+
+    AUTH_NONE:
+	
+	Que es usada cuando  no  importa  quien sea el cliente que realiza la
+peticion, ya que al servidor no le  interesa  conocer su identidad. Cuando no
+se desee establecer  autentificacion  en  la  aplicacion  q usamos debemos de 
+incluir este tipo. Este tipo es obligado,  y todas las aplicaciones sobre RCP
+lo deben incluir.
+	
+    AUTH_SYS:
+	
+	Usado cuando se desea indentificar al  cliente al igual q lo haria en
+un sistema Unix, para ello se utiliza este tipo de autentificacion q codifica
+sobre un tipo de datos opaque la estructura:
+	
+	struct authsys_parms {
+	    unsigned int stamp; ---> Un identificados aleatorio generado
+                                     por la maquina cliente.
+				     
+	    string machinename<255>; ---> Nombre de la maquina.
+	    
+	    unsigned int uid; ---> uid con el q nos autentificamos.
+	    
+	    unsigned int gid; ---> gid con el q nos autentificamos.
+	    
+	    unsigned int gids<16>; ---> array q incluye el gid de los grupos
+	                                en los q se incluye.
+	    }
+	    
+	Este debe de ir acompañado de forma obligatoria por el tipo anterior
+(AUTH_NONE) en el campo del verificador.
+	
+    AUTH_SHORT:
+    
+	La respuesta q puede recibir  el  cliente  por  parte del servidor es
+AUHT_NONE o AUTH_SHORT. Si sucede  el ultimo caso, el servidor codifica en un
+tipo opaque una cadena de autentificacion q le sera pasada al cliente, y este
+debera de utilizar esta nueva credencial AUTH_SYS en lugar de la originaria q
+creo en un principio. El servidor  mantiene un mapeo de asociacion de creden-
+ciales AUTH_SYS originales con  las respectivas q el envio en cada caso. Esta
+cache puede ser borrada si esto  sucede, al identificarse un cliente recibira
+un error de autentificaciond el  tipo  AUTH_REJECTEDCRED. Entonces el cliente
+debera de utilizar la cadena  AUTH_SYS  del  principio  y repetir el proceso,
+para de esta forma volver a recibir una credencial valida.
+	
+    AUTH_DES:
+	
+	La autentificacion a  traves  de  DES  (Data Encription Standard) es
+usado para solucionar los problemas q se prensentan al realizar una autenti-
+ficacion sobre AUTH_SYS. Las  autentificaciones sobre AUTH_SYS presentan los
+siguientes problemas:
+	
+	    -> Da por supuesto que la  máquina cliente esta bajo un sistema
+	       operativo UNIX (vimos q  se  asignaban uid, gid y gids, algo
+	       comun en sistemas UNIX).
+	    
+	    -> Los nombres de maquina se pasaban como cadenas de texto sim-
+	       ples q referenciaban  a  cada  maquina, pero  esto puede ser
+	       confuso ya q lo unico q se  pasaba era el nombre de maquina,
+	       con lo q hay q suponer  q  los nombres de maquina son unicos
+	       (cosa q puede valer en una LAN, pero no en internet).
+	     
+	    -> Como vimos en el campo de verificador del cliente se mandaba
+	       AUTH_NONE, por lo q no existia  verificador alguno para este
+	       metodo.
+	     
+	Pues DES pretende cubrir estas limitaciones, veamos como lo hace:
+	
+	    -> Con respecto a los nombres de maquina y usuario, la autenti-
+	       ficacion a traves de DES va a  identificar en la cadena q se
+	       pasa al servidor un nombre q asegure ser unico, para ello el 
+	       identificador sera de esta forma:
+	     
+	    	    sistema.usuario@dominio
+		    
+por ejemplo un usuario  con  gid  500  en  un  sistema UNIX perteneciente al
+dominio risco.es seria:
+	     
+	    	    unix.500@risco.es
+		    
+de esta forma es posible q exista otro usuario 500 en risco.es en otro
+sistema como por ejemplo
+
+	     vms:
+	     
+	    	    vms.500@risco.es
+		    
+	    -> Esta autentificacion  va  a  enviar  tambien  un  campo con el
+	       verificador q sera un  "timestamp", un sello q dependera de la
+	       hora. El servidor  decodificara  este  timestamp y si coincide
+	       con su hora,  entonces  lo  validara.  Para lograr encriptarlo
+	       debera entonces el cliente conocer la llave con la q el servi-
+	       dor espera q sea codificado. A  esta llave se le llama Conver-
+	       stion Key, y consiste  en  una  DES key (64 bits)q el servidor
+	       genera y pasa  encriptada  al  servidor en su primera llamada.
+	       Para encriptar esta llave se usa un metodo de llave publica en
+	       la primera transaccion  (metodo Diffe-Hellman con una llave de
+	       192 bits). Por lo  tanto  las  dos  maquinas deben de tener la
+	       misma nocion del tiempo, esto lo  pueden hacer o bien a traves
+	       de NTP (Network Time Protocol)  o  por  una simple peticion de
+	       tiempo (a traves de RPC).
+	     
+	     
+El servidor por cada timestamp q reciba (q no se el primero) comprueba:
+	     
+		    -> que sea mas alto q el anterior (para el mismo cliente)
+		    
+		    -> q no haya expirado. Expira cuando el servidor determina
+		       q su tiempo es mayor q  la  suma del tiempo del cliente
+		       mas lo q se llama ventana  de  cliente. Esta ventana de
+		       cliente es un  numero  q  el  cliente  pasa al servidor
+		       (encriptado tb) en su primera transaccion.
+		     
+		    	Tiempo Servidor < Tiempo Cliente + Ventana de Cliente
+			
+Lo anterior es realizado en los mensages sucesivos al primero, en el primero
+el servidor lo q hace es:
+	    
+		-> antes de nada chequea q no este expirado el timestamp.
+		
+		-> otro chequeo q consiste  en  q  el cliente envie un dato q
+		   debera de ser igual a  la  ventana de cliente - 1. Esto es
+		   por q si solo se  realizase  el  primer  chequeo seria muy
+		   facil enviar datos de forma  aleatoria  y obtener exito (a
+		   este dato se le llama verificador de ventana).
+		   
+		-> si tienen exito estas comprobaciones, entonces el servidor
+		   le envia al cliente un veridicador, q consiste en el time-
+		   stamp q le envio el cliente -  1  segundo (codificado) y q
+		   el cliente debe de comprobar  para asegurarse la legitimi-
+		   dad de la conexion.
+		 
+	    Una vez echo esto la  primera  transaccion,  el servidor envia al
+cliente un numero llamado nickname q almacenara como indice a ese determinado
+cliente en una tabla. Este numero debera de usarlo el cliente en las siguien-
+tes comunicacion q realize con el servidor. El cliente puede recibir el error
+RPC_AUTHERROR, lo q puede significar q sus relojes se volvieron a desincroni-
+zar (con lo q tendrian q resincronizarlos) o si estan sincronizados q el ser-
+vidor agoto el espacio en la tabla  donde  asocia el nickname con el cliente.
+Si esto ocurre hay q repetir el proceso para q el servidor le asigne un nuevo
+numero de nickname.
+	    
+	  Por lo tanto distinguimos entre el primer mensage y los siguientes:
+	    
+		enum authdes_namekind {
+		    ADN_FULLNAME = 0,
+		    ADN_NICKNAME = 1
+		    };
+		    
+	    En el primer caso  (para  el  primer  mensage) se manda el nombre
+completo como comente antes, y en las siguientes transaciones entre cliente y
+servidor se mandara solamente  el  nickname  q le sea otorgado al cliente por
+parte del servidor en la  primera  transaccion.  Segun  si es el primer o los
+siguientes mensages quedara asi:
+	    
+		enum authdes_cred switch (authdes_namekind adc_namekind) {
+		    case ADN_FULLNAME:
+			authdes_fullname adc_fullname;
+		    case ADN_NICKNAME:
+			int adc_nickname;
+			};
+			
+Aqui vemos q se manda  una  estructura  llamada  authdes_fullname q contendra
+toda la informacion de la primera transaccion:
+	    
+		struct authdes_fullname {
+		    string name<MAXNETNAMELEN>; --> el nombre de maquina,
+		                                    MAXNETNAMELEN esta 
+						    definido como 255; 
+						    
+		    des_block key; --> La llave de conversacion para
+		                       encriptar, definido como un tipo:
+					typedef opaque des_block[8];
+					
+		    opaque window[4]; --> ventana de cliente
+		};
+		
+	    Esto ira acompañado del tiempo  transcurrido desde la medianoche
+del 1 de marzo de 1970 en otra estructura:
+	    
+		struct timestamp {
+		    unsigned int seconds; --> Segundos.
+		    unsigned int useconds; --> Microsegundos.
+		    }
+	    
+	    Estos datos forman el credencial.
+	    
+El campo de verficador sera  distinto  para el cliente y para el servidor, el
+cliente mandara en la primera transaccion esta estructura de datos:
+	    
+		struct {
+		    adv_timestamp; ----> ocupa des_block;
+		    adc_fullname.window; ---> ocupa medio tipo des_block;
+		    adv_winverf; ------> ocupa otro medio tipo des_bolck;
+		    }
+		
+usando CBC (Cypher Block Chainning Mode) para codificarla. En las siguientes
+transacciones con el servidor se manda esta otra:
+	    
+		struct authdes_verf_clnt {
+		    des_block adv_timestamp;
+		    opaque adv_winverf[4];
+		    };
+	
+estos datos van codificados usando codificacion ECB (Electronic Code Book).
+	    
+El servidor devuelve el timestamp q le mando el cliente menos 1. Ademas de la
+siguiente estructura q contiene  el  nickname a usar en la siguientes transa-
+cciones:
+	    
+		struct authdes_verf_svr {
+		    des_block adv_timeverf;
+		    int adv_nickname;
+		    };
+		    
+		
+4.4.- Los mensages del RPC:
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Cada mensage q se realiza en  RPC  es  codificado en una structura q contiene
+una union discriminante (como las vistas  anteriormente en los tipos de datos
+XDR):
+
+    struct rcp_msg {
+	unsigned int xid;
+	union switch (msg_type mtype) {
+	    case CALL:
+		call_body cbody;
+	    case REPLY:
+		reply_body rbody;
+	    }body;
+	};
+	
+donde xid es  un  identificador  de  mensage  usado  unicamente para mantener
+cooncordancia en caso de reenvio  de  respuestas a mensages. Y donde mtype es
+un entero del tipo:
+    
+    enum msg_type {
+	CALL = 0,
+	REPLY = 1
+	};
+	
+En el switch tendremos o cbody  (cuerpo  de la llamda) o rbody (mensage de la
+respuesta). Estos campos formaran el cuerpo del mensage q sera distinto si es
+una peticion y si es una respuesta:
+    
+    ->Cuerpo de mensage de peticion (struct call_body):
+	
+	struct call_body {
+	    unsigned int rpcvers; ---> ha de ser 2, ya q es la version actual
+	                               del protocolo RPC.
+				       
+	    unsigned int vers; ---> version del programa
+
+	    unsigned int proc; ---> numero del proceso en el programa
+	    
+	    unsigned int prog; ---> numero de programa
+	    
+	    opaque auth cred; ---> mensage de autentificacion con el
+	                           credencia
+				   
+	    opaque auth verf; ---> mensage de autentificacion con la
+	                           verificacion
+				   
+	    [..............] ----> aqui van los parametros especificos del
+	                           proceso q vayas a pasar.
+	    };
+    
+    -> Cuerpo de respuesta de peticion (union reply_body):
+	
+Este campo esta formado por union discriminante donde el discriminante es el
+estado de la respuesta. Esta union queda asi:
+	
+	union reply_body switch (reply_stat stat) {
+	    case MSG_ACCEPTED:
+		accepted_reply areply;
+	    case MSG_DENIED:
+		rejected_reply rreply;
+		}reply;
+		
+Aqui vemos se definira un tipo accepted_reply o rejected_reply segun el valor
+de stat. Este int indica el estado de la respuesta y esta asi definido:
+	
+	enum reply_stat {
+	    MSG_ACCEPTED = 0,
+	    MSG_DENIED = 1
+	    };
+	
+como se ve este  int  indicara  el  servidor  tiene  q  enviar una estructura
+accepted_reply (en caso de aceptar  la peticion), q contendra  los resultados
+peticionados por el  cliente  o  si  durante  la ejecucion de la peticion por
+parte del servidor hubo algun error, informacion de este error:
+	
+	    -> struct accepted_reply q{
+		    opaque auth_verf;
+		    union switch (accepted_stat stat) {
+			case SUCCESS: --->Solo en caso de EXITO.
+			    opaque results[0];
+			    [....
+			    .....
+			    ....]
+			case PROG_MISMATCH: --> Si el error es dado por q el
+			                        programa no existe o no esta
+						disponible.
+			    struct {
+				unsigned int low; --> En estos campos devuel-
+						      ve l valor ms alto y el
+						      mas bajo d las unsigned
+						      int high; versiones del
+						      programa  remoto sopor-
+						      tado por  el  servidor.
+				} mismatch_info;
+			default: --> Para cualquier otro caso q no sean los
+			             otros dos.
+			    void;
+			 } reply_data;
+		 };
+		
+como vemos esta estructura contiene  un campo para la verificacion q es envi-
+ada al cliente, y una union q vendra discriminada por e valor de stat q es un
+int dado por la enum accepted_stat, q puede valer:
+		    
+		enum accepted_stat {
+		    SUCCESS = 0, --> La resolucion de la llamada se llevo con
+		                     exito.
+		    
+		    PROG_UNAVAIL = 1, --> Error al determinar el numero de
+		                          programa.
+		    
+		    PROG_MISMATCH = 2, --> Error en la version del programa.
+		    
+		    PROC_UNAVAIL = 3, --> Error en el proceso pedido del
+		                          programa.
+		    
+		    GARBAGE_ARGS =4, --> Error al decodificar los parametros
+		                         pasados por el cliente.
+		    };
+		    
+De esta forma se  devolvera  en  caso  de  exito  (SUCCESS) los resultados q 
+interesan al cliente, en caso  de  q no se encuentre la version del programa
+solicitado (PROG_MISMATCH) se  devolvera  la  version mas alta y la mas baja
+soportadas por el servidor para el programa solicitado. Y para cualquiera de
+los otros casos no se devuelve nada (void).
+		
+	   -> hemos visto q sucede y q  envia  el  servidor  en caso de q la
+	      respuesta sea aceptada, ahora vamos a ver el otro caso posible 
+	      (recordar union  reply_body),  el  caso  de  q  el mensage sea
+	      denegado. Entonces vimos q el cuerpo de respuesta contendra un
+	      tipo de dato llamado  rejected_reply,  vamos  a  ver como esta
+	      definido ese dato:
+	    
+		union rejected_reply switch (reject_stat stat) {
+		    case RPC_MISMATCH:
+			struct {
+			    unsigned int low;
+			    unsigned int high;
+			    } mismatch_info;
+		    case AUTH_ERROR:
+			auth_stat stat;
+		};
+		
+Vemos q el valor discriminante para realizar el envio del mensage de respues-
+ta con la informacion de por q no se  acepto la peticion es reject_stat stat.
+Este valor indica el estado del rechazo de la peticion y puede ser:
+		
+		enum reject_stat {
+		    RPC_MISMATCH = 0, -->Sucede cuando el  numero  de version
+		                         para el protocolo  es != 2, recorde-
+					 mos q siempre tiene q valer 2, es la
+					 version actual del protocolo
+					 
+		    AUTH_ERROR = 1 --> Error por problemas de autentificacion
+		    };
+		
+En caso de q reject_stat valaga PRC_MISTACH  se devolvera el valor mas alto y
+el mas bajo de las versiones del protocolo RPC soportadas por el servidor. En
+caso de q el error sea AUTH_ERROR, entonces  se devolvera un int indicando el
+problema exacto, q puede ser:
+		
+		enum auth_stat {
+		    AUTH_BADCRED = 1, --> Credenciales erroneos.
+		    
+		    AUTH_REJECTEDCRED = 2, --> Indica  q  el  cliente  debe
+		                               realizar de nuevo el proceso
+					       de autentificacion.
+					       
+		    AUTH_BADVERF = 3, --> Verificacion erronea.
+		    
+		    AUTH_REJECTEDVERF = 4, --> La  verificacion   expiro,  el
+		                               cliente debe realizar de nuevo
+					       el proceso de auth.
+					       
+		    AUTH_TOOWEAK = 5, --> Se rechazo por razones de seguridad.
+		    };
+		    
+En el funcionamiento del protocolo RPC vemos lo importante q son los tipos de
+datos union (uniones discriminantes) a la hora de formar mensages para enviar
+con la informacion solicitada.
+
+
+Pasemos ahora a ver q funciones tenemos para desarrollar apolicaciones q usen
+RPC: 
+
+4.-Rutinas q nos brinda la libreria estandar C para implementar RPC:
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Como dije antes vamos a ver q podemos usar diferentes niveles de rutinas para
+implementar nuestro codigo. Cada una de estas rutinas la vamos a situar en un
+nivel de mayor a menor. Con lo q  las  rutinas  de  mayor nivel seran las mas
+transparentes al usuario y las mas genericas, por  lo tanto las menos optimi-
+zadas a lo q queremos. Por otro  lado  las  rutinas  de menor nivel nos seran
+utiles cuando queramos hacer nuestro  codigo  mas  eficiente y mas adecuado a
+nuestro caso concreto. Yo voi a englobar las funciones  en 3 niveles (por ahi
+he visto q se dividen en mas,  pero  creo  q  con  estos 3 niveles se agrupan 
+bien).
+
+Veamos q niveles tenemos:
+
+El fichero de cabecera a incluir es <sys/rpc.h>
+
+4.1- Nivel simplificado (simplified level):
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~	
+Este es el nivel mas sencillo que  unicamente nos permite especificar el tipo
+de transporte q usaremos, no nos  permite  por  lo  tanto controlar demasiado
+nuestro codigo:
+	
+        callrpc(host, prognum, versnum, procnum, inproc, in, outproc, out)
+	   char *host;
+           u_long prognum, versnum, procnum;
+           char *in, *out;   
+	   xdrproc_t inproc, outproc;
+	    
+Esta rutina llama a un procedimiento  remoto  q este registrado como prognum,
+versnum,procnum (recordais como se identifica un proceso, pues ahora vemos su
+utilidad). El proceso ha de estar  en  ma maquina especificada en host. En in 
+es donde ponemos los argumentos q  le pasamos a el proceso y en out donde nos
+dejara la respuesta  el  stub  del  servidor  (logicamente son direcciones de
+memoria). Inproc y outproc son usados  para codificar y decodificar los argu-
+mentos y los  resultados  respectivamente.  Esta  funcion  usa UDP/IP para la
+comunicacion y no permite especificar restricciones de ningun tipo. Esta fun-
+cion nos devuelve en caso de error  el  numero  de error en un entero en enum
+clnt_stat.
+								 	
+	registerrpc(prognum, versnum, procnum, procname, inproc, outproc)
+           u_long prognum, versnum, procnum;
+	   char *(*procname) () ;
+           xdrproc_t inproc, outproc;
+	   
+Esta rutina registra el procedimiento apuntado por prognum, versnum y procnum
+Cuando llege una peticion para este  procedimiento se llama a procname con un 
+puntero a los argumentos q le pasemos. Procname debera de devolver un puntero
+a sus resultados (un puntero a datos estaticos) Inproc y outproc se usan para
+codificar y decodificar como en la funcion anterior. Esta funcion tb usa UDP/
+IP sin restricciones.
+
+        clnt_broadcast(prognum, versnum, procnum, inproc, in, outproc, out, eachresult)
+	   u_long prognum, versnum, procnum;
+           char *in, *out;
+           xdrproc_t inproc, outproc;
+	   resultproc_t eachresult;
+	   
+    Esta rutina es similar a callrpc, solo q esta se basa en la difusion para
+    realizar la llamada. Por  cada  respuesta  hara  una llamada a la funcion
+    eachresult() q esta definida asi:
+
+		eachresult(out, addr)
+		     char *out;
+                     struct sockaddr_in *addr;
+		     
+Donde out es el out q  recibe  clnt_broadcast  y  addr  es la direccion de la
+maquina q respondio a la peticion.  Eachresult() se queda esperando respuesta
+hastaq reciba alguna respuesta de alguna maquina.
+
+	Control de errores:
+
+	void clnt_perrno(stat)
+	    enum clnt_stat stat;
+	    
+Muestra el mesage de error generado al intentar hacer una llamada a un proce-
+dimiento remoto. El valor q se le pasa es l clnt_stat generado por rpccall().
+		
+		
+4.2- Nivel alto (TOP LEVEL):
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Aqui todabia es bastante simple  las  llamadas  a  los procedimientos. Solo q
+ahora hemos de crear un handle  (manejador??)  para el cliente antes de hacer
+la llamada, y un handler para el servidor antes de aceptar la peticion.
+
+
+	 CLIENT * clnt_create(host, prog, vers, proto)
+	   char *host;
+	   u_long prog, vers;
+	   char *proto;
+	   
+Esta funcion crea el handler (puntero a tipo CLIENT) donde host es la maquina
+del servidor remoto  donde  esta  el  procedimiento.  prog y vers indican que
+porgrama y q version espera la peticion  (como  vemos  ahora no se especifica
+aqui el procnum, ya q cada handler se crea por programa no por procedimiento,
+con clnt_call() especificaremos  q  procedimiento  de  ese  programa queremos 
+peticionar). Por ultimo proto  especifica  el protocolo a utilizar (ha de ser
+tpc o udp). En el caso de  usar  UDP  debemos  de  controlar el tamaño de los
+datos q se codifican (ya q solo soporta  tamaños  de 8kb). Con clnt_control()
+podemos controlar la informacion del handler cliente. 
+
+	 bool_t clnt_control(cl, req, info)
+	      CLIENT *cl;
+	      char *info;
+							  
+Como dijimos antes,  esta  macro  (es  una  macro  no una funcion) sirve para
+controlar mas a fondo  nuestro  handler  del  cliente. Cl es el cliente q nos
+interesa controlar, req es la accion q queremos hacer sobre el handler e info
+es un puntero a la informacion sobre ese habdler.
+
+	    Req puede ser:
+    	    
+	    CLSET_TIMEOUT	struct timeval --> establecera el plazo de
+	                                           tiempo total.
+						   
+	    CLGET_TIMEOUT	struct timeval --> Obtiene al plazo de tiempo
+	                                           total.
+						   
+	    CLGET_SERVER_ADDR	struct sockaddr_in --> Obtiene la direccion
+	                                               del servidor.
+						       
+	    CLSET_RETRY_TIMEOUT	struct timeval --> Establece el plazo para
+	                                           reintento.
+						   
+	    CLGET_RETRY_TIMEOUT struct timeval --> Obtiene el plazo de 
+	                                           reintento.
+	    
+Estas dos ultimas solo valen para protocolo UDP, y definen el tiempo q espera
+el servidor desde q  recive  una  peticion  hasta  q responde. Hay q tener en
+cuenta q si modificamos el plazo de tiempo total con CLSET_TIMEOUT, cualquier
+valor q le pasemos despues en la macro clnt_call, sera ignorado.
+	    
+
+	clnt_destroy(clnt)
+	         CLIENT *clnt;
+		 
+Esta macro lo unico que hace es liberar el handler del cliente, destruyendolo
+y liberando las estructuras de datos.
+				
+	 clnt_freeres(clnt, outproc, out)
+	     CLIENT *clnt;
+	     xdrproc_t outproc;
+	     char *out;
+	     
+Esta macro libera los datos  reserados  cuando  tras  hacer una llamada a RPC
+descodificamos algun dato, le pasamos  el  handler  del cliente, la direccion
+donde estan los datos decofificados  y  la  rutina  q decodifica estos datos.
+	     
+	      
+	 svc_register(xprt, prognum, versnum, dispatch, protocol)
+    	    SVCXPRT *xprt;
+	    u_long prognum, versnum;
+	    void (*dispatch) ();
+	    u_long protocol;
+	    
+Esta rutina nos va a permitir  asociar  prognum  y  versnum con el dispatch ( 
+despachador). SVCXPRT sera  como  identifiquemos a  este handler de servidor.
+Protocol  definira  el  protocolo  a  usar,  puede  valer  0,  IPPROTO_UDP  o 
+IPPROTO_TCP. SI vale 0 el servicio no es registrado en el portmaper.
+
+La funcion dispatch es la  q  usaremos  para despachar las peticiones a ese (
+prognum,versum) segun le procnum(numero de procedimiento) q requiramos. Tiene
+esta definicion:
+
+		 dispatch(request, xprt)
+                     struct svc_req *request;
+                     SVCXPRT *xprt;  
+		
+Es decir recibe la peticion y el handler del servicio.									  
+	
+	 svc_destroy(xprt)
+	         SVCXPRT * xprt;
+
+Macro que acaba con el handler  del  servicio  (pasado como xptr). Libera los
+datos asociados.
+
+	 svc_freeargs(xprt, inproc, in)
+		SVCXPRT *xprt;
+		xdrproc_t inproc;
+		char *in;
+
+Similar a clnt_freeargs() pero en  el  lado del servicio, es decir libero los
+datos resercados en le  lado  del  servidor  asociados a el servicio xprt. La 
+decodificacion se hace a  traves  de  una  llamada a svc_getargs() (mas abajo
+vemos esta funcion).
+
+	 void  svc_unregister(prognum, versnum)
+		 u_long prognum, versnum;
+		 
+Con esta rutina eliminamos  el  registro  que  hicimos del servicio (prognum, 
+versnum). Liberando asi el puerto que  estaba  a este servicio asignado y las
+rutinas q esperaban la peticion de procedimientos para ese servicio.
+						
+	
+	 enum clnt_stat clnt_call(clnt, procnum, inproc, in, outproc, out, tout)
+	     CLIENT *clnt;
+	     u_long procnum;
+	     char *in,*out;
+	     xdrproc_t inproc, outproc;
+	     struct timeval tout;
+
+Esta macro llama al procedimiento  remoto  que especifiquemos en procnum, que
+estara asociado al prognum,versnum  al  que  se asociara clnt. In y out es la
+direccion de los argumentos y de  los  resultados devueltos. Inproc y outproc
+seran como codifiquemos y decofiquemos  los datos pasados y recibidos. Y tout
+es el plazo de tiempo permitido para  que los resultados lleguen (recordar lo
+comentado para  clnt_control()).  Los  estados  de  error son incluidos en el
+handler de cliente para poder ser  tratados despues mediante las funciones de
+error que se ecplican mas adelante.
+
+
+	Control de errores en este nivel:
+
+	void clnt_geterr(clnt, errp)
+	    CLIENT *clnt;
+	    struct rpc_err *errp;
+
+Funcion q pasa el valor de error q se almacena en el handler cliente clnt a
+una estructura rpc_err.			
+	    				 
+	void clnt_pcreateerror(s)
+	    char *s;
+
+Esta funcion saca por pantalla el error generado al intentar crear un hanlder
+cliente, mostrando la  cadena  apuntada  por  s  seguida  de dos puntos. Esta
+funcion debe ser llamada despues de intentar la creacion d un handler cliente
+para q muestre el error en caso de fallo. (Se puede usar con las funciones de
+creacion de handlers del sigiuente nivel y q son explicadas mas abajo).
+
+	clnt_perror(clnt, s)
+	    CLIENT *clnt;
+	    char *s;
+
+Muestra el  mensage  de  error  realizado  al  llamar  a  un procediiento con
+clnt_call() q no tuvo exito, acompañada la salida de la cadena apuntada por s
+mas dos puntos. El estado de error se obtiene dl manejador clnt y lo crea (el
+estado de error) la llamada al clnt_call().
+
+	char * clnt_spcreateerror
+	    char *s;
+	    
+Esta funcion es usada para obeter informacion del error generado al hacer una
+llamada a una funcion q cree un handler. Debe ser llamada despues del intento
+de creacion del handler. La diferencia  q tiene con clnt_pcreateerror(), es q
+esta funcion no saca nada por  pantalla,  sino  que escribe la cadenas con la
+descripcion de error (hay q fijarse q el puntero char * q devuelve es a datos
+estaticos, con  lo  que  sera  sobreescrito  en  cada  llamada  y  perderemos
+la descripcion del estado de error anterior).	    
+
+	char * clnt_sperror(rpch, s)
+	    CLIENT *rpch;
+	    char *s;
+	    
+Obtiene una decripcion de los  mismos  errores que clnt_perror() solo q no lo
+muestra por pantalla sino q devuelve un puntero a una cadena (ocurre lo mismo
+que con clnt_spcreateerror(),  se  sobreescribe  con  cada llamada la zona de
+memoria).
+							 
+
+		
+4.3 - Nivel Bajo (BOTTON LEVEL).
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+	En este nivel vamos a ver funciones que  nos permiten controlar mas a
+fondo el protocolo en si, puediendo crear  los handler del servidor para cada
+protocolo y especificando los buffer que usaremos, etc... Vamos con ellas:
+	
+Primero echaremos una ojeada  a  las  rutinas  y macros q nos seriviran en el
+lado del cliente:
+
+	 CLIENT * clntraw_create(prognum, versnum)
+             u_long prognum, versnum;
+
+Esta rutina nos sirve para crear un handler d cliente "simulado". Esto quiere
+decir q en vez de usarse una red  como  medio de transporte para los datos se
+usara un buffer residente en el  area  de  memoria del cliente, con lo que el
+servicio debera de  ecuchar  tambien  en  el  area de memoria del cliente (lo
+creamos con svcraw_create()). Es decir  deben compartir la memoria para poder
+tener acceso a esos buffers. Esto que  no  parece tener mucha utilidad se usa
+para realizar estadiscas sobre todo y ver el rendimiento de la aplicacion.
+
+	 CLIENT * clnttcp_create(addr, prognum, versnum, sockp, sendsz, recvsz)
+             struct sockaddr_in *addr;
+	     u_long prognum, versnum;
+	     int *sockp;
+	     u_int sendsz, recvsz;
+	     
+Esta rutina nos permite crar un handler para cliente q fucnione sobre TPC/IP.
+El handler se crea para le  programa  referenciado  por [prognum,versnum]. En
+addr le indicamos la maquina  donde  esta  el  servicio  para el q creamos el
+handler,  tambien  podemos  indicarle   el   puerto  en  esa  estructura,  en
+addr->sin_port, si no le indicamos el  puerto, es decir lo dejamos a cero, se
+usara el puerto real asociado para ese servicio que sera obtenido a partir de
+una consulta al servicio portmap (luego vemos q rutinas tememos para realizar
+estas consultas). El siguiente parametro sockp nos permite indicarle q socket
+usar para la conexion, si lo dejamos a  RPC_ANYSOCK se creara un nuevo socket
+y sera  asignado  a  sockp.  Por  ultimo  como  usamod  TPC/IP  para  nuestra
+comunicacion podemos decirle el  tamaño  de los buffers de envio y recepcion,
+asignandole el valor a sendsz  y  recsz.  Si los dejamos a cero se usaran los 
+valores por defecto.
+
+	 CLIENT * clntudp_create(addr, prognum, versnum, wait, sockp)
+             struct sockaddr_in *addr;
+             u_long prognum, versnum;
+             struct timeval wait;
+             int *sockp;
+	     
+Rutina q nos permite crear un handle  para  cliente funcionando sobre UDP/IP.
+Al igual q en la anterior le indicamos la direccion de la maquina dnde espera
+el servicio en addr, podiendo ademas  especificarle el puerto en el q escucha
+el servicio (adrr->sin_port), si este  vale  0 se hara una consulta a portmap
+para conocer el puerto real sobre el q  escucha. Con el par [prognum,versnum]
+asociamos el handler a ese programa  concreto.  Sockp igual q para el handler
+sobre TPC/IP especifica el socket a  utilizar  para  la comunicacion (si vale
+RPC_ANYSOCK se creara uno nuevo q sera  asociado a sockp). La diferencia aqui
+es q al no usarse TCP no tenemos buffers  para el envio y la recepcion, en su
+lugar podemos especificar el intervalo de envio de peticion hasta q se reciba
+una respuesta, lo hacemos asignandoselo  a wait, o hasta q expire el plazo de
+tiempo para la llamada,  que  es  especificado  al  realizar  la  llamada con
+clnt_call(). Tambien podemos  modificarlo  con  la macro clnt_control(), como
+dije antes al explicarla.
+	     
+Si empleamos el uso de datagramas UDP tenemos q tener en cuenta la limitacion
+de este protocolo al  no  ser  orientado  a  conexion.  Debemos  por lo tanto
+controlar de esta forma el tamaño de los datos q enviamos o recibimos en cada
+mensage RPC ya q estamos limitados a 8kb por mensage.
+	     
+	     
+	CLIENT * clntudp_bufcreate(addr, prognum, versnum, wait, sockp, sendsize, recosize)
+             struct sockaddr_in *addr;
+	     u_long prognum, versnum;
+	     struct timeval wait;
+	     int *sockp;
+             unsigned int sendsize;
+             unsigned int recosize;
+	     
+Esta funcion es similar a la  anterior  con  la  diferencia  de q nos permite
+expecificar el tamaño maximo del  paquete  que  sera usado para enviar y para
+recibir, especificandolo en sendsize y recosize.
+	     
+El resto de los parametros funciona igual que en la llamada anterior: maquina
+donde espera el servicio ( y puerto  donde  escucha ), par [prognum,versnum],
+tiempo de espera para los reintentos y socket a usar.
+	     
+Para implementar la parte servidora tenemos estas funciones:
+	     
+	     
+	 SVCXPRT * svcraw_create()
+	 
+Esta es la parte del  servicio  usada  para  crear  simulacion  de RPC cuando
+cliente y servidor residen en el mismo area de memoria (recordais el clntraw_
+create() ???). Pues bien, con  esta  funcion creariamos un handler "simulado"
+para poder usarlo con el handler creado  con clntraw_create(). Logicamente la
+utilidad de esto como ya comente antes,es solo para pruebas y diagnostico del
+protocolo y de la aplicacion.
+
+	 SVCXPRT * svctcp_create(sock, send_buf_size, recv_buf_size)
+             int sock;
+	     u_int send_buf_size, recv_buf_size;
+	     
+Con esta rutina creamos tb un  handler  de  servicio  sobre  TCP/IP, donde le
+indicamos el socket a usar con sock, que al igual q en el lado del cliente si
+toma valor RPC_ANYSOCKET  creara  uno  nuevo.  Si  no se asocia un conector (
+socket) el socket creado es  asignado  a  xprt->xp_sopck  (xprt es el handler
+devuelto por la funcion) y el  puerto  es  indicado en xprt->xp_port. Tambien 
+podemos definir los buffers  de  envio y recibo q en el caso de tomar valor 0
+son puestos por defecto. 
+	     	     
+	 SVCXPRT * svcfd_create(fd, sendsize, recvsize)
+	     int fd;
+	     u_int sendsize;
+	     u_int recvsize;
+	     
+Funcion q nos permite crear un handler  para  un  servicio asignadoler a este
+cualquie descriptor de fichero abierto por medio de f (se suelen usar sockets
+sobre TPC creados antes). Nos  permite  tambien especificar el tamaaño de los
+buffers de envio y recibo q como  en  las  demas funciones si se dejan a 0 se
+asignan valores por defecto.
+		     
+	SVCXPRT * svcudp_bufcreate(sock, sendsize, recosize)
+	    int sock;
+	    unsigned int sendsize, recosize;
+	    
+Esta rutina nos permite crear un handler  para servicio funcionando sobre UDP
+y como ya deberiais de  imaginar  los  parametros  definen el socket a usar ( 
+exactamente con los mismos valores que en funciones anteriores) y los tamaños
+maximos para los datagramas de  envio  y  recibo. Recordad que el puerto y el
+socket quedan asignados en  la  estructura  del handler devuelto: myhandler->
+xp_sock y myhandler->xp_port,  donde  myhandler  es  el valor devuelto por la
+funcion.
+	    
+	svc_getargs(xprt, inproc, in)
+	    SVCXPRT *xprt;
+	    xdrproc_t inproc;
+	    char *in;
+	    
+Esta funcion es usada para decodificar  el  contenido de los argumentos q son
+pasados al servicio por el cliente  que requiere el proceso. Los argumentos q
+recibe son: xprt, q es  el handler  del  servicio  que posee el procecimiento
+registrado, inproc, q es el procedimiento  q se encargara de hacer la decodi-
+ficacion de los datos cofificados en XDR e in, q  es la zona de memoria donde
+almacenaremos los datos pasados una decodificados.
+
+	struct sockaddr_in * svc_getcaller(xprt)
+	     SVCXPRT *xprt;
+	     
+Esta funcion puede ser usada para obtener la direccion de red del cliente que
+esta realizando la peticion del porcedimiento al servicio asociado al handler
+xprt q se le pasa. 
+
+	svc_getreqset(rdfds)
+	    fd_set *rdfds;
+	    
+Esta rutina nos muestra la capacidad d control q podemos llegar a tener sobre
+el protocolo RPC. Si en nuestra aplicacion sobre RPC decidimos no implementar
+la funcion svc_run(), que es la q genera el  bucle que quedara a la espera de
+peticiones por parte de clientes a los servicios registrados en el portmaper.
+Con esta funcion se nos permite implementar nuestra propia rutina de procesa-
+miento d peticiones. Usando esta funcion junto con la rutina select() seremos
+capaces de hacer una funcion propia que realize lo mismo q el svc_run() q nos
+brinda RPC. La rutina select() es usada para seguir la pista a descriptores d
+fichero q nos interesen para realizar  operaciones de entrada/salida en ellos
+(y para controlar execpciones q se registren  en ellos tambien). Select() nos
+permite saber si los descriptores  de  fichero  que le indicamos estan listos
+para realizar la operacion que queremos  hacer  sobre ellos (escribir, leer o
+controlar una excepcion). Por  lo  tanto  el  procedimiento a seguir seria el
+siguiente: primero  realizar  el  select()  sobre  el  descriptor  de fichero
+asociado al socket por el q  nos  comunicamos con el cliente (para esto antes
+hay q definir un tipo fd_set  y  usar  las  macros FD_ZERO() y FD_SET() entre
+otras, para mas informacion ver el man  select) pasandosele como argumento en
+el conjunto d descriptores para lectura. Cuando select() nos diga q el socket
+esta listo para leer de el es cuando  debemos ejecutar esta rutina, a la q le
+pasamos la mascara de bits  asociada  con  FD_SET()  a el socket (o sockets).
+Svc_run() hace algo parecido a esto, solo que de manera transparente.
+	
+	 svc_getreq(rdfds)
+	    int rdfds;
+	    
+Esta rutina esta en desuso ya que es una  version obsoleta de la anterior que
+estaba limitada a 32 descriptores. Esta rutina es la usada por svc_run() para
+llamar al procedimiento asociado una  peticion. La limitacion es debida q usa
+un int para desginar la mascara q usa select, con lo q limita el espacio para
+numerar los descriptores a 32 (6 bits).
+
+	 svc_sendreply(xprt, outproc, out)
+	    SVCXPRT *xprt;
+	    xdrproc_t outproc;
+	    char *out;
+	    
+Esta funcion nos permite enviar los resultados al cliente una vez que ha sido
+recibida y ejecutada la peticion  q nos hizo ese cliente. Los argumentos q se
+le pasan son xptr, q es el handler de servicio para el q se hizo la peticion. 
+Outproc q es la rutina encargada de codificar  los datos a XDR para enviarlos
+a traves d la red hacia el cliente y out q sera donde se almacene el resulta-
+do q espera recibir el cliente, y q es generado n el servidor tras la evalua-
+cion de la peticion requerida.
+
+	 svc_run()
+	 
+Esta es la funcion q nos permite generar el bucle q se quedara a la espera de
+peticiones y q usara svc_getreq() para llamar al procedimiento q sea requeri-
+do. Esta funcion hace uso de select(), cuando  select() le indica q un proce-
+dimiento a sido requerido para un  handler  de  cliente esta funcion hace una
+llamada a svc_getreq() para el procedimiento  requerido. Es entones cuando se
+ejecuta la funcion de distpacher q tiene  asociada el servicio q esta unido a
+ese conector.
+
+Antes vimos que algunas funciones  obtenian  informacion  sobre los programas
+registrados (puerto donde escuchan  por  ejmplo),  vamos  a ver q metodos nos
+ofrece RPC para comunicarnos con el portmaper:
+
+	void get_myaddress(addr)
+	    struct sockaddr_in *addr;
+	    
+Esta funcion no se comunica con el portmap,  pero puede resultarnos util para
+conocer la direccion de la maquina.  Com puerto usara el asignado por defecto
+a portmap (111).
+							 
+	u_short pmap_getport(addr, prognum, versnum, protocol)
+	    struct sockaddr_in *addr;
+	    u_long prognum, versnum, protocol;
+	    
+Esta funcion es usada para conocer el puerto en el que escucha un determinado
+programa referido por [prognum,versnum] y q se comunique mediante el protoclo
+protocol (IPPROTO_UDP o IPPROTO_TCP). Addr contiene la direccion d la maquina
+donde escucha portmap, que es con quien se comunica esta funcion para obtener
+el numero de puerto de un programa registrado en el.
+
+	enum clnt_stat pmap_rmtcall(addr, prognum, versnum, procnum, inproc, in, outproc, out, tout, portp)
+	    struct sockaddr_in *addr;
+	    u_long prognum, versnum, procnum;
+	    char *in, *out;
+	    xdrproc_t inproc, outproc;
+	    struct timeval tout;
+	    u_long *portp;
+	    
+El uso de esta  funcion  es  tambien  para  comprobar  el  funcionamiento del
+protocolo, lo que hace  el  cliente  que  ejecuta  esta  rutina es ordenar al
+protmapper que  escucha  en  addr  que  haga  una  llamada  al  procedimiento
+[prognum,versnum,procnum] en nombre del  cliente. Como en las demas funciones
+q relizan la  llamada  desde  el  lado  del  cliente  los parametros inproc y
+outproc definen los procedimientos que codifican y decodifican los argumentos
+pasados y los resultados obtenidos d la llamada. In y out son las direcciones
+donde estan los parametros  a  pasar  (que  coge inproc) y donde se dejan los
+resultados decoficados (por outproc). Tout es el tiempo maximo de espera para
+la conexion. Y portp indica el puerto a usar, si se deja a 0 se 
+	    consulta al portmaper.
+	    
+
+	pmap_set(prognum, versnum, protocol, port)
+	    u_long prognum, versnum, protocol;
+	    u_short port;
+	
+Esto lo q nos permite es  asociar  [prognum,versnum]  a  un  protocolo y a un
+puerto. Esto es lo q se hace al registrar un handler de servicio por medio de
+svc_register().
+
+	pmap_unset(prognum, versnum)
+	    u_long prognum, versnum;
+	    
+Esta funcion desregistra un programa  referenciado  por [prognum.versnum] del
+protocolo y del puerto q lo atiendan. 
+
+	struct pmaplist * pmap_getmaps(addr)
+    	    struct sockaddr_in *addr;
+	    
+Esta funcion nos sirve para comunicarnos con el portmaper q escuche en addr y
+obtener en la structura  pmaplist  la  lista  de  programas registrados en el
+portmaper. Esto es lo q realiza el programa binario rpcinfo.
+
+	 Autentificacion:
+
+Las funciones q nos permiten controlar  la  autentificacion para el protocolo
+RPC son:
+
+	void auth_destroy(auth)
+	    AUTH *auth;
+
+Esta macro es usada par liberar las estructuras  asociadas a auth (handler de
+autentificacion q puede ser creado con las funciones q listo debajo).
+    
+	AUTH * authnone_create()
+
+Esta funcion crea el handler de  autentificacion  auth. El handler creado por
+esta rutina no tiene utilidad, ya  que  pasa  informacion  inservible en cada
+llamada. RPC usa este tipo de autentificacion si no indicamos lo contrario.
+
+	AUTH * authunix_create(host, uid, gid, len, aup_gids)
+	    char *host;
+	    int uid, gid, len, *aup_gids;
+
+Esta otra rutina nos permite crear tb un handler d autentificacion, pero esta
+vez el handler nos sera de utilidad. En el especificaremos el host desde el q
+se autentifica el usuario (es decir  donde  se  creo el handler), el uid y el
+guid a los q pertenece el usuario. Tambien podemos pasarle un arreglo llamado
+aup_gids de longitud len  donde  le  indicamos  a  que otros grupos pertenece
+el usuario. Fijemonos que segun  la  pagina  del  man no se especifica ningun
+control sobre la autenticidad de esos datos, con lo q debe ser el programador
+quien se encarge de esos detalles ;).
+
+	AUTH * authunix_create_default()
+
+Esta funcion hace precisamente lo q nos  interesaba en la anterior, controlar
+los parametros para cada usuario llamando a authunix_create().
+	    
+    Control de errores:
+
+	  char * clnt_sperrno(stat)
+	    enum clnt_stat stat;
+	    
+Esta rutina nos devuelve un puntero a una  cadena q indica el error producido
+al realizar la llamada al RPC. Al usar esta funcion no vmos a obtener ninguna
+salida por la salida d error estandar, esto pued resultar util para programas
+q funcionen en segundo plano como servidor  (o si queremos usar el error para
+cualquier otra cosa q no sea sacarlo  por  stderr).  La cadena en la que deja
+los resultados no es estatica, por lo que no se sonbreescribe con cada llamada.
+
+	void svcerr_decode(xprt)
+    	    SVCXPRT *xprt;
+	    
+Esta rutina es llamada despues de que un intento de decodificar por parte del
+servicio los parametros pasados. 	    
+
+	void svcerr_noproc(xprt)
+	    SVCXPRT *xprt;
+				  
+Esta rutina es llamada cuando el numero  de  proceso requerido por el cliente
+al servicio no existe entre los registrados por ese servicio.
+	    
+	void svcerr_noprog(xprt)
+	    SVCXPRT *xprt;
+	    
+Esta rutina es usada cuando el programa  que es pedido por el cliente no esta
+registrado en el portmaper.
+
+	void svcerr_progvers(xprt)
+	    SVCXPRT *xprt;
+									  
+Parecida a las anteriores solo q ahora es generada cuando el cliente solicito
+una version q no esta registrada en el portmaper.
+	    
+	void svcerr_auth(xprt, why)
+	    SVCXPRT *xprt;
+	    enum auth_stat why;
+
+Esta funcion es llamada  cuando  un  servicio  rechaza realizar la llamada al
+procedimiento requerido debido a un error de autentificacion.	    	    
+
+	void svcerr_systemerr(xprt)
+	    SVCXPRT *xprt;
+
+Esta llamda es realizada cuando  el  servicio  que  presta los procedimientos
+encuentra un error q no esta especificado.
+
+	void svcerr_weakauth(xprt)
+	    SVCXPRT *xprt;
+
+Rutina tambien relacionada con la  autentificacion, en este caso esta funcion
+es llamada cuando el servicio recibe  insuficientes parametros en la autenti-
+ficacion. Esta funcion solamente llama a svcerr_auth() (listada antes) con el 
+parametro AUTH_TOOWEAK.
+	    
+	    
+
+5.- Mas sobre XDR.
+~~~~~~~~~~~~~~~~~~
+
+Hemos visto q con XDR podiamos  codificar  datos  del tipo que nos interesara
+(incluso estructuras mas complejas q  queramos implementar). Aun asi la mayor
+parte del trabajo q hace XDR nos era  transparente (el protocolo RPC lo hacia
+por nosotros). Lo q ahora vamos a ver es  la creaccion de esas estructuras de
+datos sin necesidad d q RPC las implemente por nosotros (esto no es necesario
+para programar RPC, es solo una curiosidad para los q les interese).
+
+Para empezar hemos visto punteros a  estructuras  XDR, q son los handler para
+los datos q queremos codificar o  decodificar, veamos mas detalladamente q es
+esa estructura:
+
+struct XDR
+  {
+    enum xdr_op x_op;           /* operation; fast additional param */
+    struct xdr_ops
+    {
+	bool_t (*x_getlong) (XDR *__xdrs, long *__lp);
+        /* get a long from underlying stream */
+	bool_t (*x_putlong) (XDR *__xdrs, __const long *__lp);
+        /* put a long to " */
+        bool_t (*x_getbytes) (XDR *__xdrs, caddr_t __addr, u_int __len);
+        /* get some bytes from " */
+        bool_t (*x_putbytes) (XDR *__xdrs, __const char *__addr, u_int __len);
+	/* put some bytes to " */
+	u_int (*x_getpostn) (__const XDR *__xdrs);
+	/* returns bytes off from beginning */
+	bool_t (*x_setpostn) (XDR *__xdrs, u_int __pos);
+	/* lets you reposition the stream */
+	int32_t *(*x_inline) (XDR *__xdrs, int __len);
+        /* buf quick ptr to buffered data */
+	void (*x_destroy) (XDR *__xdrs);
+	/* free privates of this xdr_stream */
+	bool_t (*x_getint32) (XDR *__xdrs, int32_t *__ip);
+	/* get a int from underlying stream */
+	bool_t (*x_putint32) (XDR *__xdrs, __const int32_t *__ip);
+	/* put a int to " */
+        }
+    *x_ops;
+    caddr_t x_public;           /* users' data */
+    caddr_t x_private;          /* pointer to private data */
+    caddr_t x_base;             /* private used for position info */
+    int x_handy;                /* extra private word */
+    };
+    
+Bueno veamos esta estructura tan larga y analizemosla por partes:
+ 
+Primero de todo, vemos que tenemos un enum  xdr_op, este enum puede tomar los
+valores:
+		    XDR_DECODE = 1
+	    	    XDR_ENCODE = 0
+    		    XDR_FREE = 2
+Este valor es la accion asociada  a  el  handler  asociado al flujo de datos.
+XDR_DECODE indica que hay que decodificar  de el, XDR_ENCODE indica q hay que
+codificar en el flujo y XDR_FREE como su nombre indica indica q la memoria ha
+de ser liberada una vez q a sido descodificado.
+    
+Despues vemos que tenemos  otra  estructura  bastante  grande dentro, aqui se
+definiran las acciones que estan  asociadas a ese flujo al que referenciamos,
+parecen punteros a funciones, si buscamos en el xdr.h vemos q en realidad son
+macros que sustituiran ese campo por  la  funcion a la que le apuntemos en la
+estructura XDR antes de compilar. De  esto  sacamos  que para cada accion que
+queramos asociar debemos  indicarle  la  funcion  que queremos realizar en la
+estructura y el la sustituira al compilar.
+    
+Despues tenemos 1 puntero que indica los datos del usuario (x_public) y otros
+3 punteros que son usados por  cada  implementacion del protocolo (los puedes
+usar si implementas tu protocolo RPC).
+    
+Esta es la estructura base para codificar  y decodificar datos con XDR, todas
+las rutinas que usamos en RPC utilizan  esta estructura para intercambiar los
+datos.
+
+	};
+
+Bien hasta ahora usabamos funciones que  usaban  flujos de datos XDR que eran
+usados para codificar y decodificar, ahora vamos a crearlos nosotros. Primero
+distinguiremos entre 3 tipos de flujos de datos para XDR:
+
+    Fujos de datos de I/O estandar
+    
+    Flujos de datos de Memoria
+    
+    Flujos de datos de Registro.
+    
+Veamos cada uno de ellos:
+    
+    -> Flujos de datos de I/O estandar:
+    
+Para codificar y decodificar datos de la entrada o la salida estandar tenemos
+una funcion q nos permite inicializar un flujo de datos XDR con la I/O a la q
+le apuntemos, de la q podremos leer o a la q podremos escribir despues:
+    
+	void xdrstdio_create(xdr,file,op)
+	    XDR * xdr;
+	    FILE * file;
+	    enum xdr_op op;
+	    
+A esta funcion le pasaremos la estructura q referencia a nuestro flujo de da-
+tos: xdr (ver struct XDR en <rpc/xdr.h>), la  entrada/salida q usaremos: file
+y una serie d opciones q le pasamos: op, q puede valer XDR_ENCODE, XDR_DECODE
+, XDR_FREE (ver <rpc/xdr.h> para mas informacion).
+    
+    -> Flujos de Memoria:
+    
+Cuando lo q queremos es codificar o  decodificar  flujos XDR de memoria local
+necesitamos inicializar una estructura XDR asociandola a esa zona de memoria,
+para ello tenemos esta funion:
+    
+	void xdrmem_create (xdr,addr,size,op)
+	    XDR * xdr;
+	    char * addr;
+	    u_int size;
+	    xdr_op op;
+	    
+Veamos los parametros, la estructura dondes asociar el fujo: xdr, una zona de
+memoria desde donde se lee o en donde se  escribe: addr, el tamaño de lo q se
+lee o escribe: size (en bytes), y las  opciones: op, q nuevamente puede valer 
+XDR_ENCODE, XDR_DECODE, XDR_FREE.
+    
+Si nos fijamos cuando usamos RPC bajo  UDP/IP  esta es la rutina llamada para
+intercambiar datos n XDR entre el cliente y el servidor (en verdad cada parte
+actua sobre su zona de memoria local como es logico).
+    
+    -> Flujos de registro:
+    
+Cuando usamos TPC/IP para el intercambio de  flujos de datos XDR debemos usar
+este tipo. TPC/IP permite  el  envio  de  datos  de  tamaño  amplio en varios
+fragmentos, cada fragmento contiene parte de la informacion a enviar (o reci-
+bir) por lo q debemos asociar la structura XDR a este tipo para poder asociar
+ese XDR a una secuencia de registros. Este  es el tipo usado cuando implemen-
+tamos RPC sobre TPC.
+    
+	void xdrrec_ceate(xdr,sendsize,recvsize,handle,readit,writeit)
+	    XDR *xdr;
+	    u_int sendsize,recvsize;
+	    char * handle;
+	    int (* readit) (),(* writeit) ();
+	    
+Los parametros son: xdr, la estructura que inicializamos. sendsize y recsize,
+los buffers q se emplearan para el envio y la recepcion a partir d los cuales
+se realiza la operacion de escribir y de leer. Handle, indica donde se situa-
+ran los datos a leer o a escribir (estan  en  forma opaque). Readit y writeit
+son las rutinas que se efectuaran cuando los buffers necesiten ser escritos o
+leidos.
+
+Ademas para controlar los flujos asi creados disponemos de:
+    
+	xdrrec_endofrecord(xdr,sendnow)
+	    XDR * xdr;
+	    bool_t sendnow;
+	    
+Rutina que nos sera util para forzar datos de salida a ser marcados como tipo
+registros y solo podran ser invocados  con  estructuras XDR inicializadas con
+xdrrec_create(). Sendnow dice cuando deben de ser vaciados los datos al flujo
+tcp.
+
+	xdrec_eof(xdr)
+	    XDR *xdr;
+	    
+Nos servira para indicarnos si se ha alcanzado el final del flujo de entrada.
+	
+	xdrrec_skiprecord(xdr)
+	    XDR *xdr;
+	    
+Con esta rutina le indicaremos que salte al  siguiente  registro, tratando el
+resto del registro actual como basura.
+	
+El objetivo de este apartado es para  entender un poco mejor como se almacena
+la informacion de los datos  en  XDR,  no  es  necesario  para desarrollar un
+programa q use RPC, ya q el protocolo lo hara por nosotros.
+	
+        
+6.- Uso de caracteristicas RPC en aplicaciones que no son RPC.
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Aqui voy a hablar de un conjunto de  rutinas  que nos ofrecen la posibilad de
+emplear las caracteristicas del  protocolo  RPC (tales como codificacion XDR,
+autentificacion como la de RPC, envio  de mensages RPC, interactuacion con el
+portmap etc...) para darles un uso en aplicaciones q no sean RPC:
+    
+    xdr_accepted_reply(xdrs, ar)
+	XDR *xdrs;
+	struct accepted_reply *ar;
+
+Esta rutina se puede usar si queremos codificar mensages al estilo q se hace
+en el protocolo RPC.
+
+    xdr_authunix_parms(xdrs, aupp)
+	XDR *xdrs;
+	struct authunix_parms *aupp;
+	
+Crea credenciales Unix.	
+
+    void xdr_callhdr(xdrs, chdr)
+	XDR *xdrs;
+	struct rpc_msg *chdr;
+	
+Genera mensages de cabecera de llamadas RPC.
+
+    xdr_callmsg(xdrs, cmsg)
+	XDR *xdrs;
+	struct rpc_msg *cmsg;
+
+Genera mensages de llamadas RPC.
+
+    xdr_opaque_auth(xdrs, ap)
+	XDR *xdrs;
+	struct opaque_auth *ap;
+
+Genera mensages de informacion de autentificacion.
+
+    xdr_pmap(xdrs, regs)
+	XDR *xdrs;
+	struct pmap *regs;
+
+Describe los parametros del portmap.
+
+    xdr_pmaplist(xdrs, rp)
+	XDR *xdrs;
+	struct pmaplist **rp;
+
+Lista la correspondencia de puertos registradas en el portmapper.
+
+    xdr_rejected_reply(xdrs, rr)
+	XDR *xdrs;
+	struct rejected_reply *rr;
+    xdr_replymsg(xdrs, rmsg)
+        XDR *xdrs;
+	struct rpc_msg *rmsg;
+
+Estas dos rutinas se usan para generar mensages de respuesta RPC.
+    
+     void xprt_register(xprt)
+	SVCXPRT *xprt;
+
+	Para registrar en el portmapper.
+	
+    void xprt_unregister(xprt)
+	SVCXPRT *xprt;
+
+Lo contrario a la anterior,libera la asociacion dl handler con el portmapper.
+	    
+Estas funciones no las tocaremos en  el codigo. Solamente usaremos las imple-
+mentaciones del estandar ONC RPC de Sun.    	  
+	
+7.- Desarrollo de una aplicacion sencilla (Codigo de ejemplo).
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+El codigo de ejemplo saldra en el siguiente numero por falta de tiempo ( -:(
+), de momento comentare los pases q seguiremos para desarrollar el codigo.
+
+Pasos para el desarrollo de aplicaciones con RPC:
+
+    * Definir "los protocolos" que se  situaran  en lo alto de la aplicacion.
+    * Definir que datos se enviaran a el servidor y que datos seran devueltos
+      por este a los clientes (recordemos que es importante que sepan en todo
+      momento q datos se envian	y de q tipo son).
+	
+    * Construir el codigo del cliente,  aqui  tenemos  que generar la funcion
+      main() que sera empleada  por  el  programa  que actue como cliente, en
+      nuestro caso es rinfoc.c. Hay que tener en cuenta el paso anterior para
+      saber q datos tenemos q declarar  para recoger los resultados devueltos
+      por el servidor en cada caso. Tambien debemos de ocuparnos q el cliente
+      se encarge de llamar a los procesos remotos.
+     
+    * Construir cada uno de los procesos que  queremos q el servidor ejecute.
+      Tenemos que tener claro tambien q  parametros nos pasa el cliente, como
+      los usamos y que datos devolvemos  al  cliente.  Si nos fijamos aqui no
+      definimos el main(), ya que este ira  incluido en el stub q generaremos
+      con rpcgen. Por lo tanto unicamente definimos las aciones q el servidor
+      realizara para cada peticion.
+     
+    * Ahora con rcpgen generamos  los  stubs  del  cliente y del servidor. En
+      nuestro caso generaremos unos  generales  y los iremos modificando para
+      ver como funciona y como codificamos con XDR.
+    
+8.- Cierre:
+~~~~~~~~~~~
+Bueno, espero q haya resultado interesante,  y q os haya servido de ayuda. En
+el proximo numero cuando entregemos  el  codigo  se aclararan mucho las cosas
+del funcionamiento del  protocolo. Pero  creo  que  esta introduccion sera de
+utilidad para entender despues el uso de las  funciones y la forma de comuni-
+carse de los stubs con las restantes  partes del codigo (cliente y servidor).
+
+    Aqui os dejo el numero de los RFC's que os pueden resultar interesantes:
+    
+    RFC #1832 -------------------------> XDR: External Data Representation
+                                              Standard
+    RFC #1050 -------------------------> RPC: Remote Procedure Call Protocol
+                                              Specification
+    RFC #1057 -------------------------> RPC: Remote Procedure Call Protocol
+                                              Specification Version 2
+    RFC #831 --------------------------> RPC: Remote Precedure Call Protocol
+                                              Specification Version 2
+					      
+					    (Category: Standard Track)
+				
+				
+__________________________________________________________
+ Marzo 2002
+ por A'Tuin from the Diskworld. (atuin@interlap.com.ar)
+----------------------------------------------------------

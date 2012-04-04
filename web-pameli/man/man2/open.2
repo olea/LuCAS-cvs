@@ -1,0 +1,361 @@
+.\" Hey Emacs! This file is -*- nroff -*- source.
+.\"
+.\" This manpage is Copyright (C) 1992 Drew Eckhardt;
+.\"                               1993 Michael Haardt, Ian Jackson.
+.\"
+.\" Permission is granted to make and distribute verbatim copies of this
+.\" manual provided the copyright notice and this permission notice are
+.\" preserved on all copies.
+.\"
+.\" Permission is granted to copy and distribute modified versions of this
+.\" manual under the conditions for verbatim copying, provided that the
+.\" entire resulting derived work is distributed under the terms of a
+.\" permission notice identical to this one
+.\" 
+.\" Since the Linux kernel and libraries are constantly changing, this
+.\" manual page may be incorrect or out-of-date.  The author(s) assume no
+.\" responsibility for errors or omissions, or for damages resulting from
+.\" the use of the information contained herein.  The author(s) may not
+.\" have taken the same level of care in the production of this manual,
+.\" which is licensed free of charge, as they might when working
+.\" professionally.
+.\" 
+.\" Formatted or processed versions of this manual, if unaccompanied by
+.\" the source, must acknowledge the copyright and authors of this work.
+.\"
+.\" Modified Wed Jul 21 22:42:16 1993 by Rik Faith (faith@cs.unc.edu)
+.\" Modified Sun Aug 21 18:18:14 1994: Michael Haardt's NFS diffs were
+.\"          applied by hand (faith@cs.unc.edu).
+.\" Modified Sat Apr 13 16:25:28 1996 by Andries Brouwer (aeb@cwi.nl)
+.\" Modified Mon May 13 00:53:52 1996: added symbolic constants
+.\"          as sent by Thomas Koenig
+.\" Modified Fri Dec 20 16:06:45 1996 by Michael Haardt: More NFS details
+.\" Translated into Spanish Sat Jan 17 1998 by Gerardo Aburruzaga
+.\" García <gerardo.aburruzaga@uca.es>
+.\" Translation revised 21 April 1998 by Juan Piernas <piernas@dif.um.es>
+.\" Translation revised 17 August 1998 by Juan Piernas <piernas@ditec.um.es>
+.\" Modified 981128 by Joseph S. Myers <jsm28@hermes.cam.ac.uk>
+.\" Modified Fri Feb 19 15:08:34 1999 by Andries Brouwer (aeb@cwi.nl)
+.\" Translation revised Apr 6 1999 by Juan Piernas <piernas@ditec.um.es>
+.\" Modified Thu Jun  3 19:29:06 1999 by Michael Haardt: NFS lock optimisation
+.\" Translation revised Sat Jun 26 1999 by Juan Piernas <piernas@ditec.um.es>
+.\" Translation revised Sat Jan  8 2000 by Juan Piernas <piernas@ditec.um.es>
+.\"
+.TH OPEN 2 "3 junio 1999" "Linux" "Llamadas al Sistema"
+.SH NOMBRE
+open, creat \- abren y posiblemente crean un fichero o dispositivo
+.SH SINOPSIS
+.nf
+.B #include <sys/types.h>
+.B #include <sys/stat.h>
+.B #include <fcntl.h>
+.sp
+.BI "int open(const char *" camino ", int " flags );
+.BI "int open(const char *" camino ", int " flags ", mode_t " modo );
+.BI "int creat(const char *" camino ", mode_t " modo );
+.fi
+.SH DESCRIPCIÓN
+La llamada al sistema
+.B open()
+se utiliza para convertir una ruta en un descriptor de fichero (un pequeño
+entero no negativo que se utiliza en las operaciones de E/S posteriores como
+en
+.BR read ", " write ", etc.)."
+Cuando la llamada tiene éxito, el descriptor de fichero devuelto será el
+descriptor de fichero más pequeño no abierto actualmente para el proceso.
+Esta llamada crea un nuevo fichero abierto, no compartido con ningún otro
+proceso. (Pero pueden aparecer ficheros abiertos compartidos a través de la
+llamada al sistema
+.BR fork (2).)
+El nuevo descriptor de fichero se configura para que permanezca abierto a
+través de funciones exec (vea
+.BR fcntl (2)).
+El apuntador de lectura/escritura del fichero se configura para que apunte
+al principio del fichero.
+.I flags
+es uno de
+.BR O_RDONLY ", " O_WRONLY " u " O_RDWR
+que, respectivamente, piden que la apertura del fichero sea solamente
+para lectura, solamente para escritura, o para lectura y escritura.
+
+.I flags
+puede también ser la combinación, con el operador de bits 
+.RI OR 
+(|), de
+una o más de las siguientes macros: 
+.TP
+.B O_CREAT
+Si el fichero no existe, será creado.
+.TP
+.B O_EXCL
+Cuando se combina con
+.BR O_CREAT ,
+es un error que el fichero ya exista, y
+.B open
+fallará.
+.B O_EXCL
+no funciona en sistemas de ficheros de red NFS, programas que confíen
+en él para efectuar tareas de bloqueo contendrán una condición de
+concurso. La solución para efectuar un bloqueo atómico de fichero
+mediante un fichero de bloqueo es crear un fichero único en el mismo
+sistema de ficheros (por ejemplo, incorporando el nombre del ordenador
+y el PID) y utilizar 
+.BR link (2)
+para hacer un enlace al fichero de bloqueo. Si \fBlink()\fP devuelve 0,
+el bloqueo tiene éxito. En caso contrario, use
+.BR stat (2)
+en el fichero único para comprobar si su número de enlaces se ha
+incrementado a 2, en cuyo caso el bloqueo también tiene éxito.
+.TP
+.B O_NOCTTY
+Si
+.I camino
+se refiere a una terminal \(em vea
+.BR tty (4)
+\(em no se convertirá en la terminal controladora del proceso ni en el
+caso de que el proceso no tenga ninguna.
+.TP
+.B O_TRUNC
+Si el fichero ya existe, será truncado.
+.TP
+.B O_APPEND
+El fichero se abrirá en modo de sólo\-añadir. Antes de cada
+.BR escritura ,
+el apuntador del fichero es posicionado al final del fichero, como se haría
+con
+.BR lseek .
+.B O_APPEND
+puede conducir a ficheros corruptos en sistemas de ficheros NFS si más
+de un proceso añade datos a un fichero a la vez. Esto es así porque
+NFS no admite añadir a un fichero, así que el núcleo del cliente ha de
+simularlo, lo que no puede hacerse sin una condición de concurso.
+.\" race condition = condición de concurso
+.TP
+.BR O_NONBLOCK " u " O_NDELAY
+El fichero se abre en modo no bloqueante. Ni el
+.B open
+ni ninguna operación subsecuente sobre el descriptor de fichero	que es
+devuelto harán que el proceso que hace la llamada espere.
+Para el manejo de FIFOs (tuberías nombradas), vea también
+.BR fifo (4).
+.TP
+.B O_SYNC
+El fichero se abre para E/S síncrona. Cualesquiera operaciones de
+escritura 
+.BR write
+sobre el descriptor de fichero resultante bloquearán el proceso que ha
+efectuado la llamada hasta que los datos hayan sido físicamente
+escritos en el dispositivo subyacente.
+.I Vea no obstante más abajo la sección RESTRICCIONES.
+.TP
+.B O_NOFOLLOW
+Si \fIpathname\fR es un enlace simbólico, entonces la apertura falla. Ésta
+es una extensión de FreeBSD que fue añadida a Linux en la versión 2.1.126.
+Todavía se seguirán los enlaces simbólicos de los componentes anteriores de
+la ruta. Los ficheros cabecera de la versión 2.0.100 y posteriores de glibc
+incluyen una definición de esta opción; \fIlos núcleos anteriores al 2.1.126
+lo ignorarán si se usa\fR.
+.TP
+.B O_DIRECTORY
+Si \fIpathname\fR no es un directorio, hará que la apertura falle. Esta
+opción es específica de Linux y fue añadida en la versión 2.1.126 del núcleo
+para evitar problemas de denegación de servicio al llamar a \fBopendir\fR(3)
+sobre una FIFO o dispositivo de cinta, pero no se debería usar fuera de la
+implementación de \fBopendir\fR.
+.TP
+.B O_LARGEFILE
+En sistemas de 32 bits que soportan el `sistema de ficheros grandes' (Large
+Files System, LFS) permite abrir ficheros cuyos tamaños no pueden ser
+representados en 31 bits. El núcleo de Linux todavía no soporta esto (hasta,
+al menos, el 2.1.130), pero la definición de la opción está ahí y las
+interfaces de LFS en el espacio de usuario están presentes en las versiones
+2.1 de prueba de glibc.
+.PP
+Algunos de estos modificadores opcionales pueden alterarse mediante el
+empleo de
+.B fcntl
+después de que el fichero haya sido abierto.
+
+El argumento
+.I modo
+especifica los permisos a emplear si se crea un nuevo fichero. Es
+modificado por la máscara
+.BR umask
+del proceso de la forma habitual: los permisos del fichero creado son
+.BR "(modo & ~umask)" .
+.PP
+Se proporcionan las siguientes constantes simbólicas para
+.IR modo :
+.TP
+.B S_IRWXU
+00700 el usuario (el propietario del fichero) tiene permisos de
+lectura, escritura y ejecución
+.TP
+.B S_IRUSR (S_IREAD)
+00400 el usuario tiene permiso de lectura
+.TP
+.B S_IWUSR (S_IWRITE)
+00200 el usuario tiene permiso de escritura
+.TP
+.B S_IXUSR (S_IEXEC)
+00100 el usuario tiene permiso de ejecución
+.TP
+.B S_IRWXG
+00070 el grupo tiene permiso de lectura, escritura y ejecución
+.TP
+.B S_IRGRP
+00040 el grupo tiene permiso de lectura
+.TP
+.B S_IWGRP
+00020 el grupo tiene permiso de escritura
+.TP
+.B S_IXGRP
+00010 el grupo tiene permiso de ejecución
+.TP
+.B S_IRWXO
+00007 los otros tienen permiso de lectura, escritura y ejecución
+.TP
+.B S_IROTH
+00004 los otros tienen permiso de lectura
+.TP
+.B S_IWOTH
+00002 los otros tienen permiso de escritura
+.TP
+.B S_IXOTH
+00001 los otros tienen permiso de ejecución
+.PP
+El argumento
+.I modo
+siempre debe especificarse cuando
+.B O_CREAT
+está en
+.IR flags ,
+y si no está, no es tenido en cuenta.
+
+.B creat
+equivale a
+.B open
+con
+.I flags
+igual a
+.BR O_CREAT|O_WRONLY|O_TRUNC .
+.SH "VALOR DEVUELTO"
+.BR open " y " creat
+devuelven el nuevo descriptor de fichero, o \-1 si ha ocurrido un
+error (en cuyo caso, se da un valor apropiado a \fIerrno\fP).
+Observe que
+.B open
+pueden abrir ficheros especiales de dispositivo, pero
+.B creat
+no puede crearlos; emplee
+.BR mknod (2)
+en su lugar.
+.LP
+En sistemas de ficheros NFS con asociación de UIDs habilitada,
+\fBopen\fP puede devolver un descriptor de fichero pero
+p. ej. llamadas a \fBread\fP(2) pueden denegarse con el error \fBEACCES\fP.
+Esto es así porque el cliente hace el \fBopen\fP comprobando los
+permisos, pero la asociación de UID la hace el servidor sobre las
+peticiones de lectura y escritura.
+.SH ERRORES
+.TP
+.B EEXIST
+.I camino
+ya existe y se usaron
+.BR O_CREAT " y " O_EXCL .
+.TP
+.B EISDIR
+.I camino
+se refiere a un directorio y el acceso pedido implicaba escribir.
+.TP
+.B EACCES
+El acceso pedido al fichero no es permitido, o uno de los directorios en
+.IR camino
+no tiene permiso de búsqueda o paso (ejecución), o el fichero todavía no
+existe y el directorio padre no tiene permiso de escritura.
+.TP
+.B ENAMETOOLONG
+.IR camino " era demasiado largo."
+.TP
+.B ENOENT
+Un componente directorio en
+.I camino
+no existe o es un enlace simbólico colgante (que apunta a un fichero
+inexistente). 
+.TP
+.B ENOTDIR
+Un componente de
+.I camino
+empleado como un directorio no es, de hecho, un directorio
+o se ha especificado la opción \fBO_DIRECTORY\fR y
+.I pathname
+no es un directorio.
+.TP
+.B ENXIO
+Se ha seleccionado O_NONBLOCK | O_WRONLY, el fichero indicado es
+una FIFO y ningún proceso tiene el fichero abierto para lectura.
+O el fichero es un fichero especial de dispositivo y no existe el
+dispositivo correspondiente.
+.TP
+.B ENODEV
+.I pathname
+se refiere a un fichero especial de dispositivo y no existe el dispositivo
+correspondiente. (Éste es un fallo del núcleo de Linux. En esta situación se
+debería devolver ENXIO.)
+.TP
+.B EROFS
+.I camino
+se refiere a un fichero de un sistema de ficheros de sólo lectura
+y se ha pedido un acceso de escritura.
+.TP
+.B ETXTBSY
+.I camino
+se refiere a una imagen ejecutable que se está ejecutando ahora mismo
+y se pidió un acceso de escritura.
+.TP
+.B EFAULT
+.IR camino " apunta afuera de su espacio de direcciones accesible."
+.TP
+.B ELOOP
+Se han encontrado demasiados enláces simbólicos al resolver
+.IR camino ,
+o se ha especificado la opción \fBO_NOFOLLOW\fR pero
+.I pathname
+no es un enlace simbólico.
+.TP
+.B ENOSPC
+.I camino
+iba a ser creado pero el dispositivo que lo habría de contener
+no tiene espacio para el nuevo fichero.
+.TP
+.B ENOMEM
+No hay disponible bastante memoria del núcleo.
+.TP
+.B EMFILE
+El proceso ya tiene abiertos todos los ficheros que puede.
+.TP
+.B ENFILE
+Se ha alcanzado el límite del número total de ficheros abiertos en el sistema.
+.SH "CONFORME A"
+SVr4, SVID, POSIX, X/OPEN, BSD 4.3
+.SH RESTRICCIONES
+Hay muchas impropiedades en el protocolo subyacente a NFS, afectando
+entre otros a
+.BR O_SYNC " y a " O_NDELAY .
+POSIX proporciona tres variantes diferentes de E/S síncrona,
+correspondientes a las opciones \fBO_SYNC\fR, \fBO_DSYNC\fR y
+\fBO_RSYNC\fR.  Actualmente (2.1.130) todas ellas son sinónimas en Linux.
+.SH "VÉASE TAMBIÉN"
+.BR read (2),
+.BR write (2),
+.BR fcntl (2),
+.BR close (2),
+.BR link (2),
+.BR mknod (2),
+.BR mount (2),
+.BR stat (2),
+.BR umask (2),
+.BR unlink (2),
+.BR socket (2),
+.BR fopen (3),
+.BR fifo (4)

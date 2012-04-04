@@ -1,0 +1,1000 @@
+\section{Personalización y compilación del núcleo}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Subsección: Introducción %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{Introducción}
+?`Que es el núcleo\footnote{En inglés se lo llama \textbf{kernel}.}?,
+?`que es lo que hace realmente?  El núcleo es el corazón del sistema
+operativo, todo sistema operativo tiene un núcleo, los hay de varias
+formas: monolíticos, modulares, de tiempo real, \emph{microkernel},
+etc. Nuestro Linux (así se llama el núcleo, por eso al sistema
+completo lo llamamos GNU/Linux) puede hallarse de dos formas, modular
+o monolítico, pero por ahora no hay que preocuparse por esto ya que lo
+veremos mas adelante.
+
+Un núcleo (cualquiera) administra los recursos de hardware del equipo,
+algunos lo hacen de una manera chapucera y desordenada, de modo tal
+que se producen los famosos \emph{colgazos} y \emph{pantallas azules
+  de la muerte}, otros (como Linux) lo hacen de manera ordenada, y muy
+eficiente. Un núcleo se encarga de manejar la memoria, los discos, el
+vídeo, el módem, y demás dispositivos físicos, y da acceso al usuario
+para que disponga de estos dispositivos de forma controlada.
+
+La administración de la memoria y el procesador que realiza el núcleo
+Linux permite la ejecución de programas en \emph{pseudo-paralelismo}.
+No es paralelismo puro a menos que el equipo posea varios procesadores
+y cada uno esté ejecutando un programa a la vez. El pseudo-paralelismo
+consiste en dar a cada programa en ejecución\footnote{A los programas
+  en ejecución se los llama procesos, y así es como los llamaremos de
+  aquí en adelante} una porción de tiempo definida en el procesador,
+que normalmente son unos pocos milisegundos, cuando se acaba el tiempo
+asignado de procesador\footnote{En la jerga de los sistemas operativos
+  esto se llama \emph{timeslice}.}, el núcleo pausa el proceso para
+darle prioridad a otro que está esperando su turno. Este intercambio
+de procesos se hace tan rápidamente que no lo notamos, y es por eso
+que parece que el equipo ejecuta muchos procesos a la vez.
+
+Como la mayoría de los sistemas operativos tipo UN*X, Linux es un
+núcleo monolítico\footnote{No es totalmente cierto, como veremos mas
+  adelante}, esto significa que todos los manejadores de dispositivos
+deben estar incluidos dentro del código del núcleo al momento de
+encender el equipo. Esto es a veces poco práctico en el sentido de que
+al necesitar soporte para algún dispositivo nuevo, se debe
+\emph{recompilar} el núcleo agregando el nuevo manejador, proceso que
+toma cierto tiempo y requiere reiniciar el equipo.
+
+Como se dijo anteriormente, el núcleo Linux puede también ser modular,
+esto significa que muchos manejadores pueden estar en archivos
+separados del archivo principal del núcleo, y por lo tanto, pueden ser
+cargados y descargados de memoria dinámicamente, evitando así la
+necesidad de reiniciar el equipo. Esta es la manera preferible de
+compilar los núcleos, pero hay ciertas ocasiones cuando se debe si o
+si compilarlo en forma monolítica.
+
+En esta sección veremos cómo dar soporte a nuevos dispositivos, cómo y
+donde buscar las actualizaciones de los núcleos nuevos, el manejo de
+los módulos del núcleo y la configuración del arrancador
+\comando{LILO}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Subsección: Soporte de hardware %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{Soporte de hardware}
+En un principio, el hardware que el núcleo Linux soportaba se debía
+exclusivamente al arduo trabajo de unos cuantos hackers del núcleo,
+que pasaban incontables horas de trabajo intentando descubrir como una
+pieza de hardware funcionaba (realizando lo que se llama
+\emph{ingeniería inversa}), para luego escribir un manejador para que
+Linux pudiera utilizar ese dispositivo. La mayoría de las empresas
+fabricantes de dispositivos no entregaba la información necesaria a
+los programadores del núcleo, y el soporte para los nuevos
+dispositivos muchas veces se tardaba un tiempo.
+
+Hoy en día, con el aumento de colaboradores en el desarrollo del
+núcleo, y con la creciente cantidad de empresas que se han dado cuenta
+que GNU/Linux vale la pena, el soporte para nuevos dispositivos no se
+hace esperar demasiado, y es por eso que el núcleo Linux soporta:
+
+\begin{itemize}
+\item Tarjetas de vídeo VGA, SVGA, Monocromo, etc.
+\item Controladores de discos IDE, EIDE, MFM, RLL, RAID, SCSI.
+\item Controladores de puertos seriales.
+\item Tarjetas multipuerto.
+\item Adaptadores de red Ethernet, ISDN, Frame Relay, Inalámbricas,
+  X25, SLIP, PPP, ARCnet, TokenRing, FDDI, AX.25, ATM.
+\item Tarjetas de sonido.
+\item Unidades de cinta.
+\item Unidades de CD-ROM.
+\item Unidades grabadoras de CD-R.
+\item Unidades removibles, como por ejemplo Zip, Jaz, Bernoulli y
+  tantas otras.
+\item Mouse serie, PS/2 y otros.
+\item Módems normales, y también algunos \emph{winmódems}.
+\item Impresoras matriciales, de inyección de tinta, y láser.
+\item Plotters.
+\item Cámaras digitales.
+\item Capturadoras de vídeo.
+\item Unidades DVD-ROM.
+\item Puertos y dispositivos USB.
+\end{itemize}
+
+La lista es demasiado grande como para detallarla en este curso, pero
+para tener una idea mucho mas detallada, basta con leer el
+<<Hardware-HOWTO>>, normalmente localizado en
+\comando{/usr/doc/HOWTO}.
+
+También debemos tener en cuenta que no todo el soporte del hardware
+listado es trabajo exclusivo del núcleo Linux. Como ejemplo tenemos el
+caso de las impresoras, en el núcleo no se necesita definir
+explícitamente que clase de impresora se tiene conectada al equipo,
+solamente se necesita activar el soporte para el puerto paralelo
+(siempre y cuando se utilice una impresora de puerto paralelo
+obviamente), y el resto del trabajo lo hará un programa a través del
+núcleo; en el caso del ejemplo, el programa que se encarga de enviar
+datos a la impresora se llama \comando{lpr}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Subsección: Actualización del núcleo %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{Actualización del núcleo}
+?`Por qué la necesidad de actualizar el núcleo? La primer respuesta
+que quizás venga a la mente, es por la mayor cantidad de hardware
+soportado, y seguramente esta respuesta es válida, pero además debemos
+tener en mente, que con cada nueva versión del núcleo, se solucionan
+problemas y fallas que versiones anteriores poseían, y muchas veces
+los núcleos mas avanzados funcionan mas rápido que los de las
+versiones anteriores. Por esto, es muy recomendable actualizar el
+núcleo con cada versión \emph{estable} que salga disponible.
+
+Y ya que nombramos las versiones estables, es hora de explicar como se
+conforma el número de versión de un núcleo, ya que es de suma
+importancia a la hora de elegir el núcleo a actualizar. Cada versión
+del núcleo está formado por 3 números, por ejemplo la última versión
+del núcleo estable hoy en día\footnote{27 de marzo de 2001} es la
+versión 2.4.2.
+
+El primer número (el que se encuentra mas a la izquierda) simboliza el
+<<número mayor de versión>>, éste cambia cada varios años, cada cambio
+de este número simboliza un cambio muy importante en la estructura
+interna del núcleo.
+
+El segundo número simboliza el tipo de núcleo: un número par indica
+una versión estable, un número impar una versión inestable o de
+desarrollo. Normalmente las distribuciones de GNU/Linux instalan por
+defecto una versión estable del núcleo, y es lo recomendable para
+equipos que funcionarán como servidores o en cualquier ambiente de
+trabajo. Los núcleos de desarrollo generalmente poseen mas amplio
+soporte de hardware y funcionalidades nuevas, ya que en el futuro se
+convertirán en núcleos estables con estas nuevas características, pero
+la estabilidad no está garantizada en estos núcleos y no es
+recomendable utilizarlos en máquinas que posean datos importantes o
+que realicen tareas que requieran de un funcionamiento constante.
+Mucha gente utiliza los núcleos de desarrollo, normalmente se utilizan
+en alguna máquina personal, cuando se necesita soporte para un
+dispositivo nuevo, o cuando se está probando el núcleo para reportar
+cualquier tipo de error a los programadores, pero en otros casos, no
+es recomendable usarlos.
+
+El tercer número simboliza el número de revisión del núcleo. Cada
+revisión nueva sale cada pocos meses, a medida que se van corrigiendo
+errores y mejorando la eficiencia.
+
+La tarea de actualización del núcleo comprende varias etapas:
+\begin{enumerate}
+\item Conseguir la última versión estable del núcleo. El sitio
+  <<oficial>> del núcleo Linux es \sitio{http://www.kernel.org}, en
+  este sitio se podrán conseguir tanto las versiones estables como
+  inestables del núcleo, así como también una lista de sitios
+  alternativos (servidores espejo) de donde descargar estos archivos
+  en caso de que el sitio principal esté muy cargado. El tamaño
+  aproximado del paquete del núcleo 2.4.2 es de 20 Mb.
+\item Desempaquetar el núcleo. Generalmente el código fuente del
+  núcleo se debe colocar en el directorio \archivo{/usr/src/linux},
+  pero se debe tener cuidado antes de desempaquetar el nuevo núcleo
+  que no esté el código fuente de un núcleo anterior instalado por la
+  distribución. En caso de existir, es conveniente mover el código del
+  núcleo anterior a otro directorio antes.
+\item Seleccionar las opciones del núcleo y compilarlo. Esto
+  dependiendo de la máquina donde se haga puede demorar un tiempo.
+  Aunque la potencia de los equipos que hoy se consiguen es
+  suficiente, en los días de las PC-AT 386 y 486, uno aprendía a
+  desarrollar la paciencia, ya que una compilación normal podía tomar
+  entre una hora hasta días si el equipo contaba con poca memoria
+  RAM\footnote{Ni hablar de cuando uno se olvidaba de incluir una
+    opción al núcleo y debía recompilar todo, la industria de los
+    calmantes habrá ido en alza en esa época.}.
+\item Instalar el núcleo y sus módulos. Esto implica copiar el archivo
+  del núcleo y los módulos a donde corresponde, y configurar el
+  \comando{LILO}, el programa que cargará el núcleo nuevo cuando se
+  reinicie el equipo.
+\item Reiniciar el equipo y probar el nuevo núcleo. Esta última etapa
+  puede también incluir opcionalmente alguna plegaria a su santo
+  preferido.
+\end{enumerate}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Subsección: Compilación del núcleo %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{Compilación del núcleo}
+Habiendo enumerado los pasos para la actualización del núcleo en el
+sistema, vamos a abocarnos a una de las etapas quizás mas complicadas
+del proceso.
+
+Un detalle muy importante a tener en cuenta a la hora de compilar un
+núcleo, es que se deben tener instalados en el sistema los paquetes de
+desarrollo. El núcleo Linux está programado en casi su totalidad en C,
+por lo tanto se debe tener instalados la biblioteca C de desarrollo y
+el compilador de dicho lenguaje.
+
+Dependiendo de la distribución que se utiliza, el método de
+instalación de los paquetes difiere un poco. Dejando de lado el
+formato de paquetes y la distribución, se debe revisar si los paquetes
+\comando{gcc} y \comando{libc6-dev} se
+encuentran instalados, estos paquetes siempre tienen un nombre similar
+en cualquier distribución.
+
+Existen 3 formas de configurar las opciones y características a
+incluir en el núcleo, una es usando un programa de línea de comandos,
+que línea a línea va preguntando las diferentes opciones, este método
+era el que se utilizaba hace algunos años, los demás métodos son mas
+agradables. El segundo método es mediante el uso de una interfaz de
+texto, pero a pantalla completa, con uso de la biblioteca
+\emph{ncurses}, si se quiere utilizar este método, se deben tener
+instalados en el sistema dicha biblioteca (normalmente se instala por
+defecto), cuyo paquete generalmente se denomina \comando{libncurses}.
+El tercer y último método es mediante el uso de una interfaz gráfica
+en las X; este método utiliza las bibliotecas \emph{Tcl/Tk}, que
+también normalmente se instalan por defecto en el sistema.
+
+El primer método es el que se utilizaba con las primeras versiones del
+núcleo, como se puede observar en la figura
+\ref{fig:CompilandoNucleo-MakeConfig}, no es muy amigable pero a veces
+puede resultar útil cuando no se tiene disponible una interfaz gráfica
+ni las bibliotecas \emph{ncurses}. Estando en el directorio del código
+fuente del núcleo, se ejecuta el siguiente comando:
+
+\begin{verbatim}
+root@maquina:/usr/src/linux# make config
+\end{verbatim}
+
+\figura{Configurando el núcleo con la interfaz de línea de comandos}{CompilandoNucleo-MakeConfig}
+
+Siempre hay que tener en cuenta el usuario que se está utilizando en
+esta tarea, si bien el compilar un núcleo no requiere de utilizar el
+usuario administrador, dependiendo del directorio donde esté alojado
+el árbol de fuentes será o no necesario usar la cuenta \emph{root}.
+Como generalmente el directorio donde se aloja el código fuente del
+núcleo es \archivo{/usr/src}, se necesitará usar la cuenta de
+administrador, a menos que dicho directorio posea permisos especiales
+para algún otro usuario del sistema.
+
+El segundo método mencionado corresponde al uso de la interfaz de
+texto a pantalla completa, como se ve en la figura
+\ref{fig:CompilandoNucleo-MakeMenuConfig}. Este método se usará en el
+resto del curso.
+
+Esto se obtiene ejecutando el siguiente comando:
+
+\begin{verbatim}
+root@maquina:/usr/src/linux# make menuconfig
+\end{verbatim}
+
+\figura{Interfaz de texto a pantalla completa}{CompilandoNucleo-MakeMenuConfig}
+
+El tercer método utiliza una interfaz gráfica en las X (figura
+\ref{fig:CompilandoNucleo-MakeXConfig}). Es el método mas práctico,
+siempre y cuando se disponga de las X, claro está. Por esa razón hemos
+seleccionado el anterior método para las demás figuras, aunque se debe
+saber que los tres métodos poseen los mismos contenidos, solo cambia
+la manera de desplegar la información.
+
+Este tercer método se obtiene ejecutando desde una terminal X lo siguiente:
+
+\begin{verbatim}
+root@maquina:/usr/src/linux# make xconfig
+\end{verbatim}
+
+\figura{Interfaz gráfica para configurar el núcleo}{CompilandoNucleo-MakeXConfig}
+
+Una vez presentados los métodos de configuración del núcleo, nos toca
+seleccionar las opciones y características que el nuevo núcleo
+incluirá. Lo que siempre se recomienda al agregar opciones en el
+núcleo, es que aquellas opciones que tengan la posibilidad de ir como
+módulos, que lo hagan. Con esto, obtendremos un núcleo mas pequeño, y
+los módulos que se han compilado se irán cargando y descargando
+automáticamente, a medida que se necesiten activar ciertas
+funcionalidades, y luego ya no se necesiten. Al tener menos cantidad
+de código en memoria, no sólo se produce un ahorro de RAM (que es
+prácticamente insignificante en estos días ahorrar unos 100k de RAM),
+sino que lo mas importante es el tener menos posibilidades que algo
+falle. El sentido común dice que un núcleo de 400Kb en memoria mas
+200Kb de módulos no cargados tendrá menos posibilidades de falla que el
+mismo núcleo, pero con sus 600Kb completos en memoria.
+
+?`Cómo saber cual función debería ir en módulo y cual en el núcleo? Lo
+que se recomienda es tener en cuenta la necesidad del uso de cada
+funcionalidad del núcleo para realizar esta decisión. Por ejemplo, una
+máquina que posee discos rígidos IDE, los va a necesitar usar en todo
+el tiempo que esté encendido el equipo (salvo raras ocasiones),
+entonces el soporte para discos IDE debería ir en el núcleo y no como
+un módulo, ya que de ir como módulo, estaría siempre cargado. Un
+servidor de red necesitará el manejador de la tarjeta de red siempre
+activo, entonces conviene compilarlo en el núcleo, pero el uso del
+módem de dicho equipo es muy esporádico, en este caso el manejador del
+módem o los puertos serie podría ir como módulos. También hay que
+tener en cuenta algo importante: el núcleo necesita saber como manejar
+un disco rígido para poder iniciar todo el sistema (si el sistema está
+almacenado en un disco rígido, como normalmente ocurre), si se compila
+el soporte de discos rígidos (cualquiera sea el tipo) como módulo, el
+núcleo necesitará poder manejar el disco rígido al iniciar el equipo
+para poder cargar el módulo para poder manejar el disco
+rígido\footnote{La recursión es algo muy interesante, pero en estos
+  casos no aporta nada útil.}, y obviamente este tipo de casos causan
+problemas.
+
+Resumiendo, hay dos casos en los cuales una funcionalidad del núcleo
+no debería ser compilada como núcleo:
+\begin{itemize}
+\item La funcionalidad en cuestión es esencial para el correcto
+  arranque del sistema.
+\item Dicha funcionalidad va a utilizarse en todo momento del
+  funcionamiento del sistema.
+\end{itemize}
+
+Para los demás casos es conveniente compilar como módulo. El sistema
+se encargará de cargar el módulo cuando se necesite, y cuando ya no se
+use, se descargará para liberar memoria.
+
+Cuando se ejecuta el comando \comando{make menuconfig} se presenta una
+serie de secciones donde se agrupan las diferentes capacidades del
+núcleo, esta lista que sigue proporciona una breve explicación de los
+contenidos de cada una de estas secciones\footnote{Se toma la versión
+  2.4.2 del núcleo para las explicaciones, pero se supone que durante
+  toda la serie 2.4.x estas secciones y sus contenidos no cambiarán
+  demasiado}:
+
+\begin{description}
+\item[Code maturity level options] Se presenta una única opción, al
+  activarla, será posible activar aquellas funcionalidades
+  experimentales que tenga el núcleo, generalmente esto no es
+  recomendable cuando se está compilando un núcleo para algún servidor
+  de producción, a menos que se tenga la certeza de que tal o cual
+  opción es estable y funciona bien (o sea imprescindible).
+\item[Loadable module support] Las opciones que se incluyen en esta
+  sección tienen que ver con el manejo de los módulos del núcleo. En
+  algunos casos no será necesario o no se podrá tener módulos,
+  entonces se pueden desactivar. En este método de configuración del
+  núcleo, aquellas opciones del mismo que sea posible compilar como
+  módulo tendrán la casilla de selección a la izquierda de esta forma:
+  \comando{< >}, cuando se llega a alguna opción con este tipo de casilla
+  de selección, oprimiendo \boton{Y} se la selecciona para compilarse
+  dentro del núcleo, si se presiona \boton{M} se la seleccionará para
+  compilarse como un módulo.
+\item[Processor type and features] Dentro de esta sección
+  encontraremos opciones de optimización del núcleo para el tipo de
+  procesador que se posea. Con cada nueva serie de procesadores,
+  características nuevas van siendo disponibles para ciertas
+  funciones, lo que aprovecharlas es interesante para aumentar el
+  desempeño general del sistema. El núcleo Linux soporta también
+  equipos con mas de un procesador, en caso de estar compilando el
+  núcleo para un equipo de este tipo, en esta sección se debe activar
+  la opción \comando{Symmetric multi-processing support} para sacar el
+  máximo provecho.
+\item[General setup] Como su nombre lo indica, esta sección contiene
+  opciones de configuración general del núcleo, entre ellas se
+  encuentran opciones especificando la marca y el modelo del
+  \emph{chipset} de la placa madre del equipo, así como también si el
+  núcleo utilizará el sistema de administración de energía que provee
+  el BIOS, el formato en el cual el núcleo será compilado, si se
+  soportarán dispositivos PCMCIA, etc.
+\item[Memory Technology Devices (MTD)] Esta sección en nueva de los
+  núcleos de la serie 2.4.x, posee una opción para dar soporte a los
+  dispositivos de discos en memoria, para poder manejar sistemas de
+  archivos de estado sólido en dispositivos embebidos. Normalmente
+  esta opción no se utilizará.
+\item[Parallel port support] Dentro de esta sección se encuentra la
+  opción que activa el soporte para el puerto paralelo. Generalmente
+  utilizaremos el puerto paralelo si en la máquina se tendrá alguna
+  impresora de puerto paralelo instalada, alguna unidad de disco Zip,
+  o cualquier otra unidad de disco por puerto paralelo (grabadoras de
+  CD-R, por ejemplo) o en el caso de utilizar un cable paralelo para
+  conectarse con otra máquina. Se debe tener en cuenta que esta opción
+  se refiere solamente al soporte de base para todos aquellos
+  dispositivos que utilicen el puerto paralelo, en otras secciones se
+  debe después confirmar el soporte individual para aquellos
+  dispositivos específicos.
+\item[Plug and Play configuration] Hace unos años se ha impuesto como
+  estándar una norma para periféricos de tal modo que no tengan que
+  ser configurados sus parámetros (IRQs, direcciones de E/S, etc.)
+  manualmente, sino que el sistema lo pueda manejar lo mas
+  convenientemente posible, de esta forma, el sistema operativo podría
+  lidiar con los conflictos y solucionar los problemas que puedan
+  surgir, liberando al usuario de estas tareas que a veces suelen ser
+  complicadas de solucionar. Este estándar se conoce como
+  \emph{Plug\&Play} (o abreviado, PnP), y aunque inicialmente los
+  dispositivos PnP no funcionaban muy bien, hoy en día es mas común
+  ver este tipo de periféricos que los otros. El núcleo Linux tiene
+  soporte para estos dispositivos mediante la opción dentro de esta
+  sección. Además, se cuenta con un paquete de software llamado
+  \comando{isapnptools} que es muy útil para configurar los antiguos
+  dispositivos PnP ISA (normalmente, los módems).
+\item[Block devices] En esta sección se presentan opciones para dar
+  soporte a varios tipos dispositivos de bloques, incluyendo unidades
+  de discos flexibles, discos IDE por puerto paralelo, discos en
+  memoria RAM, y otros mas.
+\item[Multi-device support (RAID and LVM)] Esta sección contiene
+  opciones de configuración que muchas veces se utilizan en equipos
+  servidores. RAID es una norma que sirve para generar arreglos de
+  múltiples discos de manera de obtener redundancia de información y
+  evitar problemas de corrupción de datos en el caso de que algún
+  disco del arreglo tenga una falla. RAID tiene varios modos de
+  funcionamiento, generalmente en los servidores se utilizan placas
+  controladoras de discos RAID (soporte de hardware) que funcionan en
+  forma transparente y el sistema operativo no se da cuenta, sin
+  embargo el núcleo Linux da la posibilidad de poder utiliza discos
+  comunes como discos RAID (soporte por software) teniendo de esta
+  manera un elemento mas de seguridad a bajo costo. LVM es otro método
+  de combinación de discos, pero para la generación de volúmenes o
+  grupos de volúmenes de lógicos, cuyo tamaño puede variar en tiempo
+  de corrida del sistema, sin tener que reiniciar ni parar servicios.
+  LVM no se utiliza para dar redundancia de datos, sino para combinar
+  varios discos (de distintos tipos) y utilizarlos como si fuera un
+  gran disco grande.
+\item[Networking options] En esta sección se encuentran las opciones
+  de soporte base de redes. Se podrán activar los soportes de varios
+  protocolos, con sus opciones específicas, el mas común en estos días
+  es el protocolo \emph{TCP/IP}, uno de los protocolos que se utiliza
+  en Internet. Otra opción bastante novedosa en los núcleos, es la
+  opción QoS (Quality of Service) la cual se utiliza para definir los
+  algoritmos de planificación de paquetes de red, pudiendo partir un
+  enlace en varios sub-canales por decirlo de alguna manera, y de esta
+  forma poder asignar cierto ancho de banda a diferentes clientes.
+  Tener en cuenta que esta sección no se trata acerca de soporte a
+  periféricos de red, sino a protocolos, para tener soporte de una
+  placa de red en especial, se debe activar en otra sección.
+\item[Telephony Support] En esta sección se da soporte a los
+  dispositivos VoIP (Voice over IP), que se utilizan para hablar por
+  teléfono a través de redes de datos, en vez de redes de telefonía.
+  Estos dispositivos cada vez se están viendo con mas frecuencia, quien
+  sabe, en unos años quizás podremos hablar al otro lado del mundo sin
+  tener que pagar altísimos costos.
+\item[ATA/IDE/MFM/RLL support] Aquí se da soporte a los discos IDE,
+  sean discos rígidos, flexibles, CD-ROMs, etc. También hay varias
+  opciones para especificar la marca de controladora de disco que se
+  posee, y otros detalles para mejorar la performance. El núcleo Linux
+  puede manejar sin problemas los nuevos discos con UDMA.
+\item[SCSI support] También existe soporte para los dispositivos SCSI,
+  en esta sección están las opciones para definir los tipos de
+  dispositivos SCSI que se dará soporte, mas otras opciones de
+  control. Un ejemplo común para esta sección es el soporte para las
+  unidades de discos Zip por puerto paralelo, En realidad estas
+  unidades trabajan con la norma SCSI, y es por eso que parte de las
+  opciones que se necesitan para poder hacer funcionar estos
+  periféricos, se encuentran en esta sección.
+\item[IEEE 1394 (FireWire) support] FireWire es una nueva clase de bus
+  de datos, de alta velocidad que normalmente se utiliza para
+  transmitir vídeo. Originariamente en las Macintosh, esta clase de
+  conexiones se las utiliza para conectar una cámara de vídeo al
+  equipo y capturar vídeo sin problemas de lentitud. Actualmente
+  existen placas con puertos FireWire para PCs compatibles con IBM.
+\item[I2O device support] La arquitectura \emph{I2O} se ha pensado
+  para dividir los manejadores de dispositivos I2O en dos partes: una
+  dependiente del sistema operativo y otra no, de manera de que el
+  fabricante del dispositivo en cuestión solamente deba hacer un solo
+  manejador (la parte no dependiente del sistema operativo) y de esta
+  forma poder utilizarlo en cualquier sistema operativo compatible con
+  I2O. El autor\footnote{En realidad, uno de los autores (Lucas Di
+    Pentima)} no conoce actualmente ningún dispositivo de esta clase,
+  seguramente con el tiempo irán siendo mas comunes.
+\item[Network device support] Esta sección engloba a todas las
+  opciones de soporte de interfaces de red, desde ethernet de 10, 100
+  y 1000 Mbps, pasando por SLIP, PPP, PLIP, hasta interfaces WAN,
+  Token Ring y otras. Normalmente se deberán activar las opciones de
+  soporte para placas ethernet e interfaces PPP (si es que se
+  utilizará módem).
+\item[Amateur Radio support] Los aficionados a las comunicaciones
+  radiales no quedan de lado en lo que respecta a soporte en el
+  núcleo. Linux tiene soporte para varios TNCs, o para simular un TNC
+  usando una placa de sonido, de tal forma de poder conectarse con
+  otros equipos mediante el protocolo AX.25.
+\item[IrDA (infrared) support] Esta sección generalmente es para las
+  notebooks, que poseen un puerto infrarrojo. IrDA es un protocolo de
+  transferencia de datos vía infrarrojo que se encuentra normalmente
+  en PDAs (como las Palm) permitiendo así sincronizar los datos de la
+  PDA en una notebook sin necesidad de conectarla con un cable serie o
+  USB.
+\item[ISDN subsystem] ISDN (o RDSI, como se lo llama en España) es un
+  tipo especial de servicios digitales de telefonía. Normalmente se lo
+  utiliza para conectarse a Internet, teniendo una velocidad mucho
+  mayor que conectando se con módem. Actualmente se está dejando de
+  lado ISDN en favor de ADSL, en Argentina por ejemplo, ISDN no se ha
+  visto, por su alto costo.
+\item[Old CD-ROM drivers (not SCSI, not IDE)] En esta sección se da
+  soporte a aquellas unidades de CD-ROMs antiguas que no eran
+  compatibles con las normas IDE ni SCSI. Generalmente eran unidades
+  que había que conectar a placas de sonido, actualmente no se ven
+  esta clase de unidades de CD-ROM.
+\item[Input core support] Las opciones que esta sección provee,
+  permiten la configuración de dispositivos de entrada del tipo USB,
+  tales como teclados, mouses, etc.
+\item[Multimedia devices] Esta sección contiene las opciones
+  necesarias para dar soporte a dispositivos de captura de vídeo y
+  tarjetas de radio.
+\item[File systems] Los sistemas de archivos son los formatos que se
+  le dan a las particiones para poder almacenar archivos, administrar
+  los atributos de cada archivo, etc. Esta sección posee las opciones
+  de soporte de sistemas de archivos tanto nativos de GNU/Linux como
+  de otros sistemas operativos, como por ejemplo FAT32. Es importante
+  tener en cuenta que el soporte para el sistema de archivo que se
+  esté utilizando en el sistema debe estar compilado dentro del núcleo
+  y no como módulo, normalmente este sistema es el \emph{Second
+    extended filesystem} (e2fs). En los últimos núcleos se puede
+  configurar el soporte para un nuevo sistema de archivos nativo de
+  GNU/Linux: el \emph{Reiser filesystem} (reiserfs), el cual es un
+  sistema de archivos jornalizado, que provee ciertas características
+  que lo hacen mas seguro que el e2fs. Además se provee opciones para
+  dar soporte a varios sistemas de archivos de red, que permiten
+  utilizar discos remotos como si fueran locales al equipo, como por
+  ejemplo NFS (generalmente se utiliza en los UN*X), SMB (plataformas
+  Windows) y NCP (volúmenes NetWare).
+\item[Console drivers] Aquí se encuentran las opciones para configurar
+  el tipo de consola que se usará en el sistema. Dependiendo de la
+  tarjeta de vídeo que se posea, se puede configurar para que la
+  consola tenga el típico formato de 80x25 caracteres, o mas
+  resolución. También se puede configurar el núcleo para soportar mas
+  de una placa de vídeo, pudiendo tener dos monitores, uno como
+  consola de texto y otro como consola gráfica.
+\item[Sound] Esta sección contiene las opciones de sonido, pudiendo
+  configurar una gama de tarjetas de sonido bastante amplia.
+\item[USB support] Esta sección provee soporte para distintos
+  dispositivos USB, desde escáneres, dispositivos de almacenamiento de
+  datos, reproductores de MP3, módems, impresoras hasta adaptadores de
+  red.
+\item[Kernel hacking] Esta sección contiene una opción que se utiliza
+  cuando se prueban núcleos en desarrollo, generalmente no se
+  necesitará (ni tampoco será muy seguro) activar esta opción, a menos
+  que se esté colaborando con el desarrollo del núcleo.
+\end{description}
+
+Una vez seleccionadas todas las opciones, se debe salir del sistema de
+configuración del núcleo y salvar los cambios. Las opciones
+seleccionadas del núcleo se guardarán en el un archivo llamado
+\archivo{.config} dentro del árbol de fuentes del núcleo. Esto es
+interesante saberlo para poder copiarlo en algún sitio como respaldo y
+no perder las configuraciones del núcleo si necesitamos alguna vez
+borrar todos los archivos (por cuestión de espacio, por ejemplo).
+
+Una vez que se ha salido del sistema de configuración del núcleo,
+antes de compilar se deben generar las dependencias con el siguiente
+comando:
+
+\begin{verbatim}
+root@maquina:/usr/src/linux# make dep
+\end{verbatim}
+
+Luego se compila el núcleo:
+
+\begin{verbatim}
+root@maquina:/usr/src/linux# make bzImage
+\end{verbatim}
+
+Esto puede tardar algunos minutos, dependiendo de la potencia del
+procesador y la cantidad de memoria RAM del equipo.
+
+La opción \emph{bzImage} (tener en cuenta las mayúsculas) le dice al
+compilador que genere el archivo del núcleo y lo comprima con
+\comando{bzip2}.  Antes se utilizaba la opción \emph{zImage} que
+generaba un núcleo comprimido con \comando{gzip}, pero tenía un límite
+de tamaño que actualmente se ha sobrepasado por la cantidad de
+opciones que posee el núcleo. \comando{bzip2} comprime mejor que
+\comando{gzip}.
+
+Luego de generar el núcleo, se deben generar los módulos, con el comando:
+
+\begin{verbatim}
+root@maquina:/usr/src/linux# make modules
+\end{verbatim}
+
+Esta etapa quizás tome mas tiempo que la anterior, dependiendo de la
+cantidad de opciones que se hayan elegido como módulos.
+
+Una vez finalizado, se deben instalar los módulos de la siguiente
+manera:
+
+\begin{verbatim}
+root@maquina:/usr/src/linux# make modules_install
+\end{verbatim}
+
+Y por último, se debe copiar el archivo del núcleo a algún sitio donde
+estén alojados normalmente los núcleos, como por ejemplo el directorio
+\archivo{/boot}. El archivo del núcleo, suponiendo que el conjunto de
+archivos fuente del núcleo se haya almacenado en el directorio
+\archivo{/usr/src/linux}, se encuentra en
+\archivo{/usr/src/linux/arch/i386/boot/bzImage}.
+
+Como último paso, se debe configurar el \comando{LILO} para poder
+probar el nuevo núcleo, pero esto se verá en la sección
+\ref{subseccion:LILO}.
+
+A modo de información, es conveniente comentar el uso de una utilidad
+bastante práctica. El comando \comando{dmesg} imprime en pantalla los
+diferentes mensajes de inicio que el núcleo muestra cuando se arranca
+el sistema. Esto puede ser muy útil cuando se necesita chequear
+mensajes de error que no se han podido leer bien en el arranque.
+
+%%%%%%%%%%%%%%%%%%%%
+% Subsección: LILO %
+%%%%%%%%%%%%%%%%%%%%
+\subsection{LILO}
+\label{subseccion:LILO}
+
+Al hablar del núcleo es inevitable hablar del cargador de Linux
+o bien conocido como LILO\footnote{LInux LOader: Cargador de Linux} que
+es el encargado de cargar en memoria el núcleo y largarlo a correr.
+
+El núcleo es un archivo mas. Normalmente se encuentra en el disco
+rígido\footnote{Es probable que en otros cursos veamos como arrancar
+  una máquina sin disco rígido a través de la red}. Similar a un
+archivo ejecutable, algún proceso debe ser el encargado de cargarlo y
+luego ejecutarlo. Como todavía no se encuentra nada en memoria, la
+BIOS ejecuta código de un lugar especial en el disco, llamado
+\emph{boot sector}, que contendrá a LILO.
+
+Una de las grandes funciones de LILO es la selección de núcleo a usar.
+Normalmente al compilar diferentes núcleos hay que elegir, por
+ejemplo, entre alguno que tenga soporte para
+\emph{clusters}\footnote{Cluster es una forma de utilizar varias
+  computadoras para que todas calculen al mismo tiempo como si fuera
+  una sola} 
+o para emular \emph{SCSI} con un dispositivo \emph{IDE}\footnote{Es muy
+  común cuando se desea utilizar una grabadora de CD-R}.
+
+También se pueden tener núcleos de otros sistemas operativos (en el
+caso de algún problema serio neurológico) como OS/2, toda la gama de
+Windows, otros UNIX, etc.
+
+El núcleo de Linux acepta parámetros para personalizarlo o en el caso
+de que no pueda auto detectar ciertos dispositivos o recursos. Estos
+parámetros deben darse antes de que se cargue el núcleo en si. Un ejemplo
+sería:
+
+\begin{verbatim}
+LILO: linux mem=256M
+\end{verbatim}
+
+en este caso se saltea la auto detección de cantidad de memoria
+realizada por Linux y se presume que existen 256 MB de memoria.
+
+Una lista más detallada de estos parámetros se encuentra en 
+\archivo{/usr/src/linux/Documentation}. En este directorio está 
+toda la documentación de los desarrolladores de núcleo, separada
+por módulo.
+
+\subsubsection{Configurando LILO}
+
+Toda la configuración de LILO se encuentra en \archivo{/etc/lilo.conf}
+el contenido es similar a algo así: 
+
+\begin{verbatim} 
+boot=/dev/hda
+install=/boot/boot.b
+default=linux
+prompt
+timeout=5
+message=/boot/message
+image=/boot/vmlinuz
+        label=linux
+        root=/dev/hda6
+        append=" hdc=ide-scsi ide1=autotune ide0=autotune"
+other=/dev/hda2
+        label=windows
+        table=/dev/hda
+\end{verbatim}
+
+Por ahora esto puede parecer inentendible pero vamos a analizar linea a linea:
+\begin{verbatim}
+boot=/dev/hda
+\end{verbatim}
+
+Significa que el dispositivo de arranque es
+\archivo{/dev/hda}\footnote{\archivo{/dev/hda} el disco maestro de la
+  controladora IDE primaria}. El \emph{sector de arranque} o
+\emph{boot sector} de ese dispositivo contendrá a LILO cuando inicie
+el equipo.
+
+\begin{verbatim}
+install=/boot/boot.b
+\end{verbatim}
+
+\archivo{/boot/boot.b} es un archivo usado como nuevo sector de
+arranque.
+
+\begin{verbatim}
+default=linux
+prompt
+timeout=5
+\end{verbatim}
+
+Con estas tres opciones se especifica que:
+\begin{description}
+\item[prompt] Pregunte que núcleo hay que utilizar (el caso contrario
+  puede ser que haya uno sólo y no se quiera elegir).
+\item[default] En caso de no poner nada se elija ``linux''.
+\item[timeout] tiempo en segundos a esperar si no se elije nada.
+\end{description}
+
+\begin{verbatim}
+message=/boot/message
+\end{verbatim}
+
+Se muestra un mensaje que es el archivo \archivo{/boot/message} que puede
+contener algo como:
+
+\begin{verbatim}
+Bienvenido a LILO, el selector de SO de arranque!
+
+Elija un sistema operativo de la lista.
+O espere 5 segundos para que arranque el sistema predeterminado.
+\end{verbatim}
+
+Luego vienen las configuraciones de los núcleos en si. En el ejemplo
+existen 2 núcleos, uno de linux y el otro es un \emph{Windows}.
+
+Las dos configuraciones son distintas pero tienen una linea en común.
+Esta es {\tt label}. {\tt label} es el identificador de núcleo para
+LILO, es de suponer que tiene que ser único. Puedo tener varios
+núcleos de linux pero no con {\tt label=linux} en mas de uno de ellos.
+Simplemente habrá que asignarlos de distinta manera como por ejemplo
+{\tt label=linux-2.2.19} y {\tt label=linux-2.4.3}.
+
+Si por un momento repasamos este concepto, nos vamos a dar cuenta que
+{\tt default=linux} hace referencia al núcleo que posee {\tt label=linux}.
+Cuando cambiemos de configuración a {\tt label=linux-nuevo} 
+recordemos cambiar {\tt default} también.
+
+Para correr un sistema no sólo necesitamos el núcleo, sino también
+archivos, que componen el árbol de directorios que surge de la
+\emph{raíz} o \emph{root}.
+
+Por eso,
+\begin{verbatim}
+root=/dev/hda6
+\end{verbatim}
+
+especifica que se va a usar la sexta partición del disco como
+\emph{directorio raíz} o simplemente \emph{raíz}, es decir que, todo lo
+que esté en esa partición va a pasar a ser el directorio \archivo{/}
+donde estarán \archivo{/bin}, \archivo{/etc}, \archivo{/home},
+\archivo{/usr}, \archivo{/lib}, etc.
+
+En este concepto independizamos el núcleo de los archivos que maneja.
+Una vez que está el núcleo corriendo, los archivos se pueden obtener
+de diferentes lugares. Por ejemplo particiones, otros discos, discos
+flexibles, hasta un dispositivo que se encuentra a través de una
+red\footnote{un hipotético \archivo{/dev/red} o comúnmente denominado
+  \archivo{/dev/nfsroot}}.  Casi cualquier archivo/dispositivo puede
+ser {\tt root} siempre que este \emph{formateado} correctamente.
+
+Por ultimo la linea:
+
+\begin{verbatim}
+append=" hdc=ide-scsi ide1=autotune ide0=autotune"
+\end{verbatim}
+
+pasa parámetros al núcleo para ajustar configuraciones, las cuales
+dependerán de cada sistema.
+
+\subsubsection{Instalando LILO}
+
+Una vez que está correctamente configurado (mediante el archivo
+\archivo{/etc/lilo.conf}), es necesario escribir el sector de arranque
+del dispositivo\footnote{Utilizamos la palabra \emph{dispositivo} en
+  vez de \emph{disco} porque puede ser que estemos configurando otra
+  alternativa de arranque.}.  
+
+Un error común es pensar que sólo editando el archivo se guarda la
+configuración, hay que recordar que es un archivo más, incluso se
+puede utilizar otro archivo.
+
+Para grabar hay que ejecutar:
+\begin{verbatim}
+root@maquina:/root# lilo
+Adding linux *
+Adding windows
+root@maquina:/root#
+\end{verbatim}
+
+Y listo. Si es que no surgió ningún problema. 
+
+El asterisco ({\tt *}) indica que  núcleo  se cargará por
+defecto (\emph{default}). En nuestro caso es la entrada que contiene
+{\tt label=linux}.
+
+La tecla \boton{TAB} muestra todas las posibilidades de nucleos a
+cargar. Obviamente muestra el contenido de {\tt label}.
+
+%%%%%%%%%%%%%%%%%%%%%%%
+% Subsección: Módulos %
+%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{Módulos}
+
+Una mejora extraordinaria al núcleo fue la \emph{modularización} del
+mismo. En un principio el núcleo era \emph{monolítico}, es decir, un
+gran archivo que contenía todos los controladores para los
+dispositivos.
+
+Un núcleo monolítico es más eficiente que uno modularizado, en parte
+porque toda referencia se conoce en tiempo de compilación y por otro
+lado el sistema entero está en memoria siempre. Como desventaja tiene
+su gran tamaño, poca flexibilidad de incorporar nuevos controladores y
+no acepta cambios en el código existente.
+
+Los módulos como contrapartida, se pueden cargar y descargar de
+memoria en cualquier momento. Dando la libertad de poder utilizar sólo
+lo necesario. Y si estamos programando un controlador para cualquier
+periférico, compilamos el controlador, lo cargamos a memoria, lo
+probamos y luego se puede sacar de memoria, recompilar y seguir
+probando. Todo esto sin rearrancar el sistema, ni cerrar los programas
+que estamos usando.
+
+\subsubsection{Cómo generar un módulo}
+
+Cuando compilamos el núcleo debemos especificar cuales controladores se
+compilaran como módulos. Esto es muy sencillo, sólo hay que poner la
+letra {\tt M} en el menú. 
+
+\figura{Seleccionando opciones como módulos}{CompilandoNucleo-Modulos}
+
+Siempre que terminamos de configurar la opciones del núcleo hay que
+ejecutar \comando{make dep}.
+
+Ejecutando \comando{make modules} se compilarán todos los módulos que
+sean necesarios. Esto puede tardar desde unos pocos segundos hasta una
+hora, dependiendo del hardware, la configuración (cuantos módulos se
+eligieron) y la versión del núcleo.
+
+Lo único que falta es copiar los módulos recién compilados al lugar
+indicado (el directorio \archivo{/lib/modules/(versión del Núcleo)/}).
+Esto se puede hacer \emph{manualmente} con \comando{cp} o tipear
+\comando{make modules\_install}.
+
+\subsubsection{Mostrando los módulos cargados}
+
+Una vez que tenemos varios módulos en el directorio
+\archivo{/lib/modules/(versión del Núcleo)/}\footnote{Este curso 
+  muestra como generarlos, pero, la mayoría de las distribuciones ya
+  vienen casi todos los módulos compilados}
+podemos listar aquellos que están siendo usados.
+
+El comando \comando{lsmod} muestra los módulos usados. Una salida podría ser:
+
+\begin{verbatim}
+root@maquina:/root# lsmod
+Module                  Size  Used by
+loop                    9600   2  (autoclean)
+lockd                  32208   1  (autoclean)
+sunrpc                 54640   1  (autoclean) [lockd]
+autofs                  9456   2  (autoclean)
+8139too                12064   1  (autoclean)
+via82cxxx_audio         9024   0 
+soundcore               2800   2  [via82cxxx_audio]
+ac97_codec              7088   0  [via82cxxx_audio]
+ip_masq_vdolive         1440   0  (unused)
+ip_masq_cuseeme         1184   0  (unused)
+ip_masq_quake           1456   0  (unused)
+ip_masq_irc             1664   0  (unused)
+ip_masq_raudio          3072   0  (unused)
+ip_masq_ftp             4032   0  (unused)
+nls_cp437               3952   5  (autoclean)
+vfat                    9408   2  (autoclean)
+fat                    30432   2  (autoclean) [vfat]
+supermount             14224   3  (autoclean)
+ide-scsi                7664   0 
+reiserfs              128592   2 
+root@maquina:/root# 
+\end{verbatim}
+
+Como también podría estar vacía. Si es que ningún módulo se cargó o si
+el núcleo es monolítico.
+
+Tomemos el caso del módulo {\tt soundcore}:
+\begin{verbatim}
+soundcore               2800   2  [via82cxxx_audio]
+\end{verbatim}
+
+El tamaño en memoria del módulo es de 2800 bytes. Y el módulo {\tt
+  via82cxxx\_audio} lo está usando. Esto quiere decir que para sacar de
+memoria a {\tt soundcore} primero hay que sacar a {\tt
+  via82cxxx\_audio}. Y viceversa, si necesitamos agregar {\tt
+  via82cxxx\_audio} primero tendremos que agregar {\tt soundcore}.
+
+Podemos darnos cuenta de que existe un árbol de dependencias entre
+módulos. Y en algún lugar debe estar. Bueno así es, es el archivo
+\archivo{/lib/modules/(versión de núcleo)/modules.dep} y es generado
+en la compilación.
+
+\subsubsection{Agregando módulos}
+
+La forma de agregar un módulo es relativamente simple. El comando
+es \comando{insmod} y su sintaxis es:
+
+\begin{verbatim}
+insmod modulo [parametros]
+\end{verbatim}
+
+Siendo {\tt modulo} el nombre del módulo y {\tt parametros} los
+parametros de ese modulo, que configuran al dispositivo
+que controla. La documentación de los parámetros se encuentran en
+\archivo{/usr/src/linux/Documentation}.
+
+El gran inconveniente de \comando{insmod} es que no controla las
+dependencias necesarias, sólo intenta cargar el módulo, si la
+operación no tiene éxito, finaliza su ejecución.
+
+Debido a que es casi imposible tener en mente todo el árbol de
+dependencias, existe una utilidad que realiza comprobaciones. Esta
+utilidad es \comando{modprobe}. \comando{modprobe} utiliza
+\comando{insmod} en el orden correcto y su sintaxis es:
+
+\begin{verbatim}
+modprobe modulo [parametros]
+\end{verbatim}
+
+\subsubsection{Retirando módulos de memoria}
+
+También se pueden retirar módulos de memoria. El comando es
+\comando{rmmod} y es similar al \comando{insmod} en lo que respecta 
+a comprobaciones en el árbol de dependencias.
+
+Un módulo puede estar siendo utilizado por otro módulo, pero
+también puede estar siendo utilizado por un programa de usuario.
+En este caso el usuario va a tener que liberar el dispositivo/recurso
+antes de poder retirar el módulo de memoria. 
+
+
+\subsection{Automatizando un poco mas los módulos}
+
+\subsubsection{Configuraciones en \archivo{/etc/modules.conf}}
+Como estamos operando frente a una máquina trataremos de automatizar
+lo más posible las tareas rutinarias. Se supone que los cambios de
+configuración en el hardware se hacen infrecuentemente. Entonces los 
+parámetros en la carga de módulos es siempre la misma.
+
+La gran mayoría de los módulos auto detectan su configuración, pero en
+ciertas ocasiones hay que parametrizarla.  Una alternativa poco
+elegante sería crear un script que cargue al módulo con los parámetros
+correspondientes. Pero se vuelve engorroso tener un script por módulo.
+
+En reemplazo a eso, los comandos
+\comando{insmod} y \comando{rmmod} utilizan una archivo de configuración:
+\archivo{/etc/modules.conf}.
+
+Este archivo puede contener una línea del estilo
+\begin{verbatim}
+option nombre-modulo opt-1 [opt-2 .. opt-n] 
+\end{verbatim}
+
+Donde {\tt opt-1}, {\tt opt-2}, etc. son las opciones o parámetros del
+módulo. 
+
+Una configuración interesante es la creación de sobrenombre o
+\emph{alias} a los módulos. Sirve para no tener que recordar nombres
+como {\tt via82cxxx\_audio} y en reemplazo usar {\tt placa\_sonido} por
+ejemplo. Su sintaxis es:
+
+\begin{verbatim}
+alias sobre-nombre nombre-modulo
+\end{verbatim}
+
+Algunos scripts de configuración del sistema tienen palabras definidas
+para cargar los módulos correspondientes y que el usuario edite
+\archivo{/etc/modules.conf} y asigne el modulo.
+
+Un ejemplo clásico sería:
+
+\begin{verbatim}
+alias sound sb
+alias eth0 ne2k-pci
+\end{verbatim}
+
+que asigna el seudónimo {\tt sound} a un módulo de \emph{Sound Blaster} y
+{\tt eth0}\footnote{Corresponde a la primera placa de red Ethernet} al
+módulo {\tt ne2k-pci} para la placa de red.
+
+\subsubsection{Auto cargado de módulos}
+
+A medida que se utilizaban los módulos, era conveniente tener una
+utilidad que cargue el o los módulos necesarios para hacer una tarea.
+Esta utilidad está contenida en el núcleo, se llama {\tt kmod} y se configura en
+
+\emph{Loadable Module Suport} $\rightarrow$ 
+\emph{Enable Loadable Module Support} $\rightarrow$ 
+\emph{Kernel Module Loader}.
+
+Con sólo incluir eso, prácticamente no hay que cargar <<a mano>> ni
+ningún módulo.
+
+\input{Administracion/PersonalizandoElKernel-practica}

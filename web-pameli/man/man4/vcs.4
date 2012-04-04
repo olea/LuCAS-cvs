@@ -1,0 +1,110 @@
+.\" Copyright (c) 1995 James R. Van Zandt <jrv@vanzandt.mv.com>
+.\" Sat Feb 18 09:11:07 EST 1995
+.\"
+.\" This is free documentation; you can redistribute it and/or
+.\" modify it under the terms of the GNU General Public License as
+.\" published by the Free Software Foundation; either version 2 of
+.\" the License, or (at your option) any later version.
+.\"
+.\" The GNU General Public License's references to "object code"
+.\" and "executables" are to be interpreted as the output of any
+.\" document formatting or typesetting system, including
+.\" intermediate and printed output.
+.\"
+.\" This manual is distributed in the hope that it will be useful,
+.\" but WITHOUT ANY WARRANTY; without even the implied warranty of
+.\" MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+.\" GNU General Public License for more details.
+.\"
+.\" You should have received a copy of the GNU General Public
+.\" License along with this manual; if not, write to the Free
+.\" Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111,
+.\" USA.
+.\"
+.\" Modified, Sun Feb 26 15:08:05 1995, faith@cs.unc.edu
+.\" "
+.\" Translated Tue Jul 2 1996 by
+.\"   Ignacio Arenaza (Ignacio.Arenaza@studi.epfl.ch)
+.\" Translation revised on Wed May 13 1998 by
+.\" 	Gerardo Aburruzaga García <gerardo.aburruzaga@uca.es>
+.\" Translation revised on Tue Apr 6 1999 by Juan Piernas <piernas@ditec.um.es
+.\"
+.TH VCS 4 "2 Julio 1996" "Linux" "Manual del Programador de Linux"
+.SH NOMBRE
+vcs, vcsa \- memoria de la consola virtual
+.SH DESCRIPCIÓN
+\fB/dev/vcs0\fP es un dispositivo de carácter con número mayor 7 y
+número menor 0, creado normalmente con modo 0644 y propietario
+root.tty. Designa la memoria del terminal de consola virtual
+visualizado en ese momento.
+.LP
+\fB/dev/vcs[1-63]\fP son los dispositivos de carácter para los
+terminales de consola virtual. Tienen el número mayor 7 y el número
+menor de 1 a 63, y se crean normalmente con el modo 0644 y propietario
+root.tty. \fB/dev/vcsa[0-63]\fP son lo mismo, pero incluyendo los
+atributos, y prefijados con cuatro bytes que indican las dimensiones
+de la pantalla y la posición del cursor: \fIlíneas\fP, \fIcolumnas\fP,
+\fIx\fP, \fIy\fP (\fIx\fP = \fIy\fP = 0 en la esquina superior
+izquierda de la pantalla).
+.PP
+Estos dispositivos reemplazan las ioctl de volcado de pantalla de
+\fBconsole\fP(4), de forma que el administrador del sistema pueda
+controlar el acceso a través de los permisos del sistema de ficheros.
+.PP
+Los dispositivos de las ocho primeras consolas virtuales se pueden
+crear con:
+
+.nf
+	for x in 0 1 2 3 4 5 6 7 8; do 
+		mknod -m 644 /dev/vcs$x c 7 $x;
+		mknod -m 644 /dev/vcsa$x c 7 $[$x+128];
+	done
+	chown root:tty /dev/vcs*
+.fi
+
+No se aceptan peticiones de \fBioctl()\fP.
+.SH EJEMPLOS
+Se puede hacer un volcado de pantalla de vt3 conmutando a vt1 y
+tecleando \fIcat /dev/vcs3 >foo\fP. Nótese que la salida no contiene
+caracteres de nueva línea, por lo que puede ser necesario algo de
+procesamiento adicional, como por ejemplo en \fIfold -w 81 /dev/vcs3 |
+lpr\fP o en (horror) \fIsetterm -dump 3 -file /proc/self/fd/1\fP.
+
+El siguiente programa visualiza los atributos de carácter y 
+pantalla que se encuentran en la posición del cursor de la segunda
+consola virtual, y después cambia su color de fondo allí:
+
+.nf
+	#include <unistd.h>
+	#include <stdio.h>
+	#include <fcntl.h>
+
+	int main()
+	{	int fd;
+		struct {char lines, cols, x, y;} scrn;
+		char ch, attrib;
+
+		fd = open("/dev/vcsa2", O_RDWR);
+		(void)read(fd, &scrn, 4);
+		(void)lseek(fd, 4 + 2*(scrn.y*scrn.cols + scrn.x), 0);
+		(void)read(fd, &ch, 1);
+		(void)read(fd, &attrib, 1);
+		(void)printf("c='%c' atrib=0x%02x\\n", ch, attrib);
+		attrib ^= 0x10;
+		(void)lseek(fd, -1, 1);
+		(void)write(fd, &attrib, 1);
+		return 0;
+	}
+.fi
+
+.SH FICHEROS
+/dev/vcs[0-63]
+.br
+/dev/vcsa[0-63]
+.SH AUTOR
+Andries Brouwer <aeb@cwi.nl>
+.SH HISTORIA
+Disponible a partir de la versión 1.1.92 del núcleo de Linux.
+.SH "VÉASE TAMBIÉN"
+.BR console "(4), " tty "(4), " ttys "(4), "
+.BR selection (1).

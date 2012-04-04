@@ -1,0 +1,417 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<HTML
+><HEAD
+><TITLE
+>Conversión de tipos</TITLE
+><META
+NAME="GENERATOR"
+CONTENT="Modular DocBook HTML Stylesheet Version 1.59"><LINK
+REL="HOME"
+TITLE="Manual del usuario de PostgreSQL"
+HREF="user.html"><LINK
+REL="PREVIOUS"
+TITLE="Funciones PostgresIP V4 "
+HREF="x3191.html"><LINK
+REL="NEXT"
+TITLE="Operadores"
+HREF="x3309.html"></HEAD
+><BODY
+CLASS="CHAPTER"
+BGCOLOR="#FFFFFF"
+TEXT="#000000"
+LINK="#0000FF"
+VLINK="#840084"
+ALINK="#0000FF"
+><DIV
+CLASS="NAVHEADER"
+><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TH
+COLSPAN="3"
+ALIGN="center"
+>Manual del usuario de PostgreSQL</TH
+></TR
+><TR
+><TD
+WIDTH="10%"
+ALIGN="left"
+VALIGN="bottom"
+><A
+HREF="x3191.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="80%"
+ALIGN="center"
+VALIGN="bottom"
+></TD
+><TD
+WIDTH="10%"
+ALIGN="right"
+VALIGN="bottom"
+><A
+HREF="x3309.html"
+>Siguiente</A
+></TD
+></TR
+></TABLE
+><HR
+ALIGN="LEFT"
+WIDTH="100%"></DIV
+><DIV
+CLASS="CHAPTER"
+><H1
+><A
+NAME="TYPECONV"
+>Conversión de tipos</A
+></H1
+><P
+>Las consultas<SPAN
+CLASS="ACRONYM"
+>SQL</SPAN
+> pueden, intencionadamente o no, requerir
+mezclar diferentes tipos de datos en una misma expresión.
+<SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> posee grandes facilidades para evaluar
+expresiones que contengan diferentes tipos.</P
+><P
+>En muchos casos un usuario no necesita comprender los detalles del
+mecanismo de conversión de tipos.
+Sin embargo, la conversión implícita realizada por 
+<SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> puede afectar a los resultados
+de una consulta. Estos resultados pueden ser ajustados por un usuario
+o por un programador usando conversión de tipos 
+<I
+CLASS="EMPHASIS"
+>explícita</I
+> </P
+><P
+>Este capitulo es una introducción a los mecanismos y convenciones de 
+conversión de tipos en <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+>.
+Diríjase a las secciones correspondientes en la guía del usuario y en la
+guía del programador para obtener más información sobre tipos de datos
+específicos, funciones y operadores permitidos.</P
+><P
+>La guía del programador tiene más detalles sobre los algoritmos exactos
+usados por la conversión implícita de tipos.</P
+><DIV
+CLASS="SECT1"
+><H1
+CLASS="SECT1"
+><A
+NAME="AEN3246"
+>Conceptos generales</A
+></H1
+><P
+><SPAN
+CLASS="ACRONYM"
+>SQL</SPAN
+> es un lenguaje con una definición de tipos rígida.
+Así, cada dato tiene asociado un tipo de dato que determina como se comporta
+y como se permite usar. <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> tiene un sistema
+de tipos extensible que es mucho más general y flexible que otras 
+implementaciones <SPAN
+CLASS="ACRONYM"
+>RDBMS</SPAN
+>.
+Por lo tanto, la mayoría de las reglas para convertir tipos en 
+<SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> pueden ser regidas por unas normas 
+generales bastante mejores que unas normas heurísticas que permitan a las
+expresiones con tipos distintos mezclados ser significantes, de la misma
+manera sucede con los tipos definidos por el usuario.</P
+><P
+>El analizador de <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> clasifica los
+elementos léxicos en solo cinco categorías fundamentales: enteros, reales, 
+cadenas, nombres y palabras clave. La mayoría de los tipos extendidos son
+convertidos en cadenas en primer lugar. El lenguaje de definición <SPAN
+CLASS="ACRONYM"
+>SQL</SPAN
+> permite especificar nombres de tipo con cadenas. Este mecanismo
+es usado por <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> para indicar al analizador
+el camino correcto. Por ejemplo, la consulta:
+
+
+<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>tgl=&#62; SELECT text 'Origin' AS "Label", point '(0,0)' AS "Value";
+Label |Value
+------+-----
+Origin|(0,0)
+(1 row)</PRE
+></TD
+></TR
+></TABLE
+>
+
+tiene dos cadenas, de tipo <SPAN
+CLASS="TYPE"
+>text</SPAN
+> y de tipo <SPAN
+CLASS="TYPE"
+>point</SPAN
+>.
+Si un tipo no es especificado, entonces el tipo <SPAN
+CLASS="TYPE"
+>unknown</SPAN
+>
+es asignado inicialmente. En posteriores fases se resolverá tal y como se
+describe más adelante.</P
+><P
+>Hay cuatro construcciones fundamentales en <SPAN
+CLASS="ACRONYM"
+>SQL</SPAN
+> las cuales
+ requieren distintas reglas de conversión de tipos en el analizador de
+<SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+>:</P
+><P
+></P
+><DIV
+CLASS="VARIABLELIST"
+><DL
+><DT
+>Operadores</DT
+><DD
+><P
+><SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> permite tanto expresiones con
+operadores de un solo argumento como con operadores de dos
+argumentos.</P
+></DD
+><DT
+>Llamadas a funciones</DT
+><DD
+><P
+>Gran parte del sistema de tipos de <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> está
+construido alrededor de un rico conjunto de funciones. Las llamadas a funciones
+tienen uno o más argumentos los cuales, para cualquier consulta especifica,
+deben ser adaptados a las funciones disponibles en el sistema.</P
+></DD
+><DT
+>Objetivos de consultas</DT
+><DD
+><P
+>Una declaración <SPAN
+CLASS="ACRONYM"
+>SQL</SPAN
+> INSERT pone los resultados de una consulta
+en una tabla. Las expresiones en la consulta debe ser ajustadas, y quizás convertidas, a 
+las columnas del objetivo del INSERT.</P
+></DD
+><DT
+>Consultas UNION</DT
+><DD
+><P
+>Debido a que todos los resultados de una declaración UNION SELECT deben aparecer
+como un único conjunto de columnas, los tipos de cada clausula SELECT deben ser 
+ajustados y convertidos a un conjunto uniforme.</P
+></DD
+></DL
+></DIV
+><P
+>Muchas de las reglas de conversión de tipos generales usan convenciones sencillas
+que están en las tablas del sistema de funciones y operadores de 
+<SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+>. Hay algo de heurística en las reglas de
+conversión para dar un mejor soporte a las convenciones de los tipos nativos
+estándar de <SPAN
+CLASS="ACRONYM"
+>SQL92</SPAN
+> como <SPAN
+CLASS="TYPE"
+>smallint</SPAN
+>, 
+<SPAN
+CLASS="TYPE"
+>integer</SPAN
+>, y <SPAN
+CLASS="TYPE"
+>float</SPAN
+>.</P
+><P
+>El analizador de <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> usa la convención de que
+todas las funciones de conversión de tipo toman un solo argumento como tipo
+de origen y se llaman de la misma manera que el tipo de destino. Se considera 
+que cualquier función que cumpla este criterio es una función de conversión
+valida, y debe ser usada por el analizador de esta manera. Esta simple afirmación
+le da al analizador el poder para explorar las posibilidades de conversión de
+tipo sin dificultad, permitiendo a los tipos definidos por el usuario usar
+las mismas características de manera transparente.</P
+><P
+>El analizador esta provisto de una lógica adicional para permitir ajustarse
+más a la conducta correcta de los tipos estándar <SPAN
+CLASS="ACRONYM"
+>SQL</SPAN
+>. Hay
+cinco categorías de tipos definidas: boolean, string, numeric, geometric y 
+user-defined. Cada categoría, con la excepción de user-defined, tiene un 
+"tipo preferido" el cual es usado para resolver ambigüedades entre los
+candidatos. Cada tipo "user-defined" es su propio "tipo preferido", así las
+expresiones ambiguas (aquellas en las que el analizador tiene varios candidatos)
+con solo un tipo definido por el usuario pueden resolverse con una única solución, mientras
+que las que tienen varios tipos definidos por el usuario serán ambiguas y darán un error.</P
+><P
+>Las expresiones ambiguas que tienen posibles soluciones con solo una categoría de
+tipos son fáciles de resolver, mientras que las expresiones ambiguas con posibles
+soluciones de distintas categorías dan fácilmente un error y preguntan al usuario
+una aclaración.</P
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN3295"
+>Guidelines</A
+></H2
+><P
+>Todas
+ las reglas de conversión de tipos están diseñadas teniendo presentes
+diversos principios:
+
+<P
+></P
+><UL
+COMPACT="COMPACT"
+><LI
+STYLE="list-style-type: disc"
+><P
+>Las conversiones implícitas no deberían tener nunca un resultado sorprendente
+o impredecible.</P
+></LI
+><LI
+STYLE="list-style-type: disc"
+><P
+>Los tipos definidos por el usuario, de los cuales el analizador no tiene conocimiento
+a priori, deben de estar situados en un lugar alto dentro de la jerarquía de tipos.
+Dentro de expresiones con tipos mezclados, los tipos nativos deberían ser convertidos
+siempre a tipos definidos por el usuario (por supuesto, solo si la conversión es
+necesaria).</P
+></LI
+><LI
+STYLE="list-style-type: disc"
+><P
+>Los tipos definidos por el usuario no están relacionados. Por lo general, 
+<SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> no tiene disponible información sobre las relaciones
+entre tipos aparte de la lógica codificada para los tipos predefinidos y las relaciones
+implícitas basadas en las funciones disponibles en en el catálogo.</P
+></LI
+><LI
+STYLE="list-style-type: disc"
+><P
+>No debería haber una carga extra del analizador o del ejecutor si una consulta no necesita
+conversión implícita de tipos. De esta manera, si una consulta esta bien construida y los
+tipos ya están adaptados, entonces la consulta debería realizarse sin consumir tiempo extra
+en el analizador y sin realizar funciones de conversión innecesarias dentro de la consulta.</P
+><P
+>Adicionalmente, si una consulta normalmente requiere una conversión implícita para una función,
+y entonces el usuario define una función explicita con los tipos de los argumentos correctos,
+el analizador debería usar esta nueva función y no realizar nunca más una conversión implícita
+usando la función antigua.</P
+></LI
+></UL
+></P
+></DIV
+></DIV
+></DIV
+><DIV
+CLASS="NAVFOOTER"
+><HR
+ALIGN="LEFT"
+WIDTH="100%"><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+><A
+HREF="x3191.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="user.html"
+>Inicio</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+><A
+HREF="x3309.html"
+>Siguiente</A
+></TD
+></TR
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+>Funciones PostgresIP V4</TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+>&nbsp;</TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+>Operadores</TD
+></TR
+></TABLE
+></DIV
+></BODY
+></HTML
+>

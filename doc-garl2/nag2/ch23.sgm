@@ -1,0 +1,1952 @@
+<!-- $Id: ch23.sgm,v 1.7 2002/09/28 02:41:19 pakojavi2000 Exp $ -->
+<!--
+Nota legal:
+
+   Linux Network Administration Guide, por Olaf Kirch et al.
+
+   La traducción al español se publica bajo la licencia GFDL,
+siendo texto de portada el siguiente:
+
+Linux Network Administrator's Guide
+by Olaf Kirch and Terry Dawson
+Copyright  (c) 1993 Olaf Kirch
+Copyright  (c) 2000 Terry Dawson
+Copyright on O'Reilly printed version (c) 2000 O'Reilly & Associates
+
+y siendo secciones invariantes, la sección de Agradecimientos,
+la sección titulada «La traducción al español», el apéndice C; así
+como esta nota.
+
+Capítulo traducido por: Gabriel Ceravolo (Cosmo@sion.com)
+
+Revisión 1 por Francisco Javier Fernández serrador@arrakis.es
+-->
+<!--
+Glosario:
+"feed": (relat noticias) suministrar, nunca alimentar
+"peer": compañero
+"pair": pares
+
+-->
+<chapter ID="X-087-2-inn"><title>Noticias de Internet</title>
+<para>
+El demonio de noticias de Internet (INN por sus siglas en inglés) es discutiblemente el más popular
+servidor de noticias usado actualmente. INN es extremadamente flexible y es adecuado para 
+sitios  pequeños.<footnote id="X-087-2-FNIN01"><para> Los sitios muy pequeños deberían
+considerar el uso de un programa como <command>leafnode</command>, el cuál es un servidor NNTP con caché.
+leafnode, está disponible en la dirección <systemitem role="url">http://wpxx02.toxi.uni-wuerzburg.de/~krasel/leafnode.html.</systemitem></para></footnote>
+Sin embargo, se adapta muy bien a configuraciones de servidores de noticias más grandes.
+</para>
+
+<para>
+El servidor INN esta compuesto por una serie de componentes, cada uno con su fichero de configuración,
+que serán explicados a su tiempo. La configuración de INN puede ser un poco complicada, pero se 
+describirán cada una de las etapas en este capítulo y se proveerá de suficiente información para darle 
+sentido a los manuales y páginas man de INN, además de ejemplos para todas sus herramientas.
+</para>
+
+<sect1><title>Algunos aspectos internos de INN</title>
+
+<para>
+<INDEXTERM id="innd.command" class=startofrange><PRIMARY>orden innd(INN)</PRIMARY></INDEXTERM>
+El núcleo de INN es el demonio <command>innd</command>. La tarea de <command>innd</command> 
+es manejar todos los artículos entrantes, los almacena y se los pasa a cualquier proveedor 
+de noticias que los requiera. innd se activa cuando se carga el núcleo del sistema y queda 
+trabajando de forma continua en segundo plano. Ejecutándose como demonio se incrementa el 
+rendimiento ya que sólamente cuando se inicia se leerán los ficheros de estado. Dependiendo 
+del volumen del proveedor de noticias, algunos ficheros como por ejemplo <filename>history
+</filename> (que contiene una lista de todos los artículos procesados recientemente) puede 
+estar en el rango que va desde unos pocos megabytes hasta varias decenas.
+</para>
+
+<para>
+Otra característica importante de INN es que sólamente hay una copia de <command>innd</command>
+ejecutándose todo el tiempo. Esto es muy beneficioso a nivel de rendimiento, ya que el demonio puede 
+procesar todos los artículos sin tener que preocuparse por el sincronismo de sus estados internos con 
+otras copias de <command>innd</command> que se encuentran revolviendo la cola del servidor al mismo 
+tiempo. Sin embargo, esta opción afecta el diseño global del sistema de noticias. Debido a ésto, es 
+importante que las noticias entrantes sean procesadas lo más rápidamente, es inaceptable que el 
+servidor esté ocupado en tareas mundanas tales como darle acceso a un cliente de noticias vía NNTP o 
+descomprimir paquetes que lleguen por UUCP. En consecuencia, este tipo de tareas deben ser separadas 
+del servidor principal e implementadas por otros programas.
+<xref linkend="X-087-2-inn.inn.architecture"> intenta ilustrar las relaciones entre <command>innd
+</command>, las otras tareas locales, los servidores y clientes de noticias remotos.
+</para>
+
+<para>
+<indexterm<primary>INN (Noticias de Internet)</primary><secondary>protocolo ihave</secondary></indexterm>
+<indexterm<primary>INN (Noticias de Internet)</primary><secondary>rnews</secondary></indexterm>
+<INDEXTERM><PRIMARY>INN (Noticias de Internet)</PRIMARY><SECONDARY>NNTP y</SECONDARY></INDEXTERM>
+<INDEXTERM><PRIMARY>NNTP (Protocolo de transferencia de noticias)</PRIMARY><SECONDARY>INN (Noticias de Internet) y</SECONDARY></INDEXTERM>
+Hoy día, NNTP es el medio de transporte más común en cuanto a noticias se refiere, y es el único que
+<command>innd</command> soporta directamente.
+Esto significa que <command>innd</command> continuamente está escuchando el puerto 119 (TCP) 
+y acepta las conexiones que utilizan el protocolo &ldquo;ihave&rdquo;.
+</para>
+
+<para>
+Los artículos que llegan por otro tipo de transporte que no sea NNTP son soportados de forma indirecta
+haciendo que otros procesos acepten los artículos y se los reenvíen a <command>innd</command> por NNTP.
+Los paquetes que provienen de un enlace UUCP, por ejemplo, son tradicionalmente manipulados por el programa
+<command>rnews</command>. Este programa descomprime los paquetes si es necesario, y separa cada uno 
+de los artículos; hecho esto, se los ofrece a <command>innd</command> uno por uno.
+</para>
+
+<para>
+Los clientes de noticias, pueden entregar un artículo escrito por un usuario. Como el manejo de 
+estos clientes merece especial atención, volveremos a este tema un poco más tarde.
+</para>
+
+<figure id="X-087-2-inn.inn.architecture">
+<title>Arquitectura de INN (simplificada)</title>
+<mediaobject>
+  <imageobject><imagedata fileref="lag2_2301" format="eps"></imageobject>
+  <imageobject><imagedata fileref="lag2_2301.jpg" format="jpg"></imageobject>
+</mediaobject>
+</figure>
+
+<para>
+Cuando recibe un artículo, <command>innd</command> primero mira el identificador el mensaje (message ID) en el 
+fichero <filename>history</filename>. Los artículos y ocurrencias duplicados, son descartados y 
+opcionalmente registrados en algún fichero de registro. Lo mismo sucede con artículos muy viejos o por 
+ausencia de algún campo requerido, por ejemplo <literal>Subject:</literal>.<footnote><para> 
+Esto es indicado por la cabecera <replaceable>Date:</replaceable>; y el límite es usualmente 
+dos semanas.</para></footnote>Si <command>innd</command> encuentra que el artículo está en orden, 
+busca en el campo <literal>Newsgroups:</literal> para saber a qué grupos de noticias fue remitido.
+Si alguno o todos estos grupos se encuentran en el fichero <filename>active</filename>, el artículo 
+se archiva en el disco. En caso contrario, se archiva en un grupo especial llamado 
+<systemitem role="newsgroup">junk</systemitem> (Basura).
+</para>
+
+<para>
+Los artículos individuales se guardan en <filename>/var/spool/news</filename>, también llamado 
+cola de noticias <emphasis>(news spool)</emphasis>. Cada grupo de noticias tiene su propio directorio,
+en el cuál cada artículo se guarda por separado en un fichero. 
+Los nombres de estos ficheros son números consecutivos, por ejemplo, un artículo publicado en 
+<systemitem role="newsgroup">comp.risks</systemitem> se guardará como  <filename>comp/risks/217</filename>. 
+En el momento de guardarlo, <command>innd</command> busca el directorio donde debería ubicarse, si no se 
+encuentra, lo crea automáticamente.
+</para>
+
+<para>
+<INDEXTERM><PRIMARY>newsfeeds, fichero (INN)</PRIMARY></INDEXTERM>
+Aparte de guardar los artículos localmente, puede reenviarlos a otros servidores. Esto se controla por
+el fichero <filename>newsfeeds</filename> donde están listados todos los servidores de menor jerarquía a los 
+cuáles se les deben pasar los artículos.
+</para>
+
+<para>
+De la misma forma que <command>innd&thinsp;</command> gestiona el proceso de entrada de los mensajes, gestiona 
+en una sola interfaz, los que salen. Él mismo puede gestionar todo el transporte saliente. Sin embargo, necesita 
+varios motores que envíen los artículos a los demás servidores. Todos los recursos para el envío se llaman en 
+forma colectiva &ldquo;canales<footnote><para>channels</para></footnote>&rdquo;. Dependiendo de su propósito, un 
+canal puede tener diferentes atributos que determinen exactamente qué información debe pasarle <command>innd
+</command>.
+</para>
+
+<para>
+<indexterm><primary>orden innxmit(INN)</primary></indexterm>
+Para un suministro NNTP saliente, por ejemplo, <command>innd</command> podría bifurcar el suministro 
+hacia el programa <command>innxmit</command> al comienzo, y por cada artículo pasarle el identificador, 
+el tamaño, y el nombre del fichero hacia su entrada estándar, por otra parte, si se usa UUCP como  
+suministro,<command>innd</command> puede escribir el tamaño del artículo y su nombre en un registro 
+especial, el cuál es la cabecera de un proceso diferente a intervalos regulares en orden de crear los 
+ficheros por lotes y hacer la cola para el subsistema UUCP.
+</para>
+
+<para>
+Además de estos dos ejemplos, existen otros tipos de canales que no son estrictamente para suministros 
+de salida. Éstos son usados, por ejemplo, cuando se desea archivar ciertos grupos de noticias, o 
+cuando se quiere generar información general. Esta información general se crea con la intención de 
+ayudar a los lectores de noticias a seguir el hilo de un tema de manera más eficaz. 
+Los antiguos lectores de noticias tienen que buscar en todos los artículos de forma separada para obtener la 
+información contenida en las cabeceras utilizada para seguir el hilo de los mensajes. Esto impone una pesada 
+carga al servidor, especialmente cuando se usa NNTP; adicionalmente, es muy lento.
+<footnote><para>Hilar 1.000 artículos cuando se conversa con un servidor activo 
+puede tomar fácilmente alrededor de cinco minutos, que sólamente el más dedicado 
+adicto a las noticias de Internet encontraría aceptable.</para></footnote>
+El mecanismo de información general alivia este problema pregrabando las cabeceras que son 
+relevantes en un fichero separado (llamado <filename>.overview</filename>) por cada grupo de noticias.
+Esta información puede ser recogida por los lectores de noticias leyendo directamente desde el directorio 
+donde se encuentra la cola de los mensajes, o usando la instrucción <command>XOVER</command>
+estando conectado vía NNTP. INN tiene al demonio <command>innd</command>
+para suministrar todos los mensajes usando la instrucción <command>overchan</command> la cuál se adosa 
+al demonio a través del canal. Luego veremos este método cuando se discutan las configuraciones de los 
+suministros de noticias.
+
+</para>
+<INDEXTERM startref="innd.command" class=endofrange>
+</sect1>
+
+<sect1><title>INN y los lectores de noticias</title>
+<para>
+<INDEXTERM><PRIMARY>lectores de noticias</PRIMARY><SECONDARY>INN (Noticias de Internet)</SECONDARY></INDEXTERM>
+<INDEXTERM><PRIMARY>INN (Noticias de Internet)</PRIMARY><SECONDARY>lectores de noticias</SECONDARY></INDEXTERM>
+Los lectores de noticias que se ejecutan en la misma máquina junto con el servidor (o que tienen montado el 
+directorio donde se encuentra la cola del servidor de noticias vía NFS) pueden leer los artículos de forma directa. 
+Para remitir un artículo compuesto por un usuario, el lector, invoca al programa <command>inews</command> 
+el cuál agrega cualquier cabecera que esté faltando y se lo envía al demonio vía NNTP.
+</para>
+
+<para>
+<indexterm><primary>orden nnrpd (INN)</primary></indexterm>
+Alternativamente, los lectores pueden acceder al servidor remoto vía NNTP. Este tipo 
+de conexión se gestiona de forma diferente por los proveedores de noticias basados en NNTP, 
+para no dejar colgado el demonio. En el momento que un lector de noticias se conecta al 
+servidor NNTP, <command>innd</command> bifurca la conexión hacia un programa llamado
+<command>nnrpd</command><footnote><para>El nombre aparentemente es una sigla de NetNews Read
+&amp; Post Daemon</para></footnote>, el cual maneja la sesión y libera a 
+<command>innd</command> para que realice tareas más importantes (recibir noticias nuevas, 
+por ejemplo).
+
+
+Usted estará admirado al ver cómo el proceso <command>innd</command> puede distinguir entre un 
+proveedor de noticias entrante y la conexión de un cliente. La respuesta es simple: el protocolo 
+NNTP requiere que el cliente emita la orden <command>mode reader</command><footnote><para>modo lectura</para>
+</footnote>después de conectarse al servidor; cuando esta orden se recibe, el servidor activa 
+el proceso <command>nnrpd</command> y le entrega el control de la conexión, luego retorna a su habitual 
+estado de escucha, esperando conexiones de otros servidores de noticias. Solía haber un lector de noticias 
+basado en DOS que no estaba configurado para hacer esto, y fallaba de forma miserable cuando intentaba 
+comunicarse  con INN, porque <command>innd</command> no reconocía ninguno de las órdenes usadas para leer 
+noticias si no sabía que la conexión era desde un lector de noticias
+</para>
+
+<para>
+Volveremos al tema de cómo los lectores de noticias pueden acceder a INN en el 
+capítulo «Controlando el acceso de los lectores».
+</para>
+
+</sect1>
+
+<sect1><title>Instalación de INN</title>
+<para>
+<INDEXTERM><PRIMARY>INN (Noticias de Internet)</PRIMARY><SECONDARY>instalación</SECONDARY>
+</INDEXTERM><INDEXTERM><PRIMARY>instalación</PRIMARY><SECONDARY>INN (Noticias de Internet)</SECONDARY>
+</INDEXTERM>
+Antes de sumergirse en la configuración de INN, déjeme hablarle acerca de la instalación. 
+Lea esta sección incluso si ya tiene instalado INN de alguno de los distribuidores de GNU/Linux, pues 
+contiene algunas sugerencias sobre seguridad y compatibilidad.
+</para>
+
+<para>
+Algunos distribuidores de GNU/Linux, incluyeron la versión 1.4 de INN por algún tiempo. 
+Desafortunadamente, esta versión contiene dos sutiles errores que comprometen la seguridad del sistema.
+Las versiones más modernas no tienen estos problemas y la mayoría de los distribuidores incluyen 
+versiones precompiladas de INN versión 2 o superiores para GNU/Linux.
+</para>
+
+<para>
+Si Ud. lo desea, puede compilar INN. Puede obtener los ficheros fuentes desde
+<systemitem role="sitename">ftp.isc.org</systemitem> en el directorio
+<filename>/isc/inn/</filename>. Compilar INN requiere que escriba un fichero de 
+configuración con algunos parámetros y datos sobre su sistema operativo que INN 
+necesita para poder compilarse satisfactoriamente.
+</para>
+
+<para>
+Compilar los paquetes por su cuenta es bastante simple; existe un guión llamado
+<command>BUILD</command> que lo guiará a través del proceso. Además los paquetes con el código 
+fuente contienen mucha información de cómo instalar y configurar INN.
+</para>
+
+<para>
+Después de instalar los binarios, se requieren algunos retoques manuales para que INN trabaje en armonía 
+con otras aplicaciones que acceden a <command>rnews</command> o a <command>inews</command>. 
+Por ejemplo, UUCP espera encontrar a <command>rnews</command> en el directorio
+<filename>/usr/bin</filename> o en <filename>/bin</filename>, cuando INN se instala, lo hace por omisión en
+ <filename>/usr/lib/bin</filename> Asegúrese que el directorio <filename>/usr/lib/bin/</filename> esté 
+incluido en ruta de acceso, o que existe un enlace simbólico que apunte hacia las órdenes <command>rnews
+</command> y a <command>inews</command>.
+</para>
+
+</sect1>
+
+<sect1><title>Configuración de INN: Configuración Básica</title>
+<para>
+Uno de los grandes obstáculos con los que se topan los usuarios novatos es que INN requiere que
+algunas configuraciones de red funcionen de forma correcta, incluso en una máquina sin conexión 
+de red. Por tal motivo, es esencial que el núcleo soporte algunos servicios de TCP/IP cuando inicie 
+INN, además se debe tener configurada la interfaz de bucle local explicada 
+en el <xref linkend="X-087-2-iface">.
+</para>
+
+<para>
+Luego, asegúrese que <command>innd</command> se activa en la secuencia de 
+inicialización del sistema. La instalación predeterminada de INN, provee un guión llamado
+<filename>boot</filename> que se encuentra en <filename>/etc/news/</filename>.
+Si su distribución de Linux utiliza el estilo de System V (iniciando a través de
+<command>init</command>) sólamente se necesita crear un enlace simbólico desde 
+<filename>/etc/init.d/inn</filename> que apunte a <filename>/etc/news/boot</filename>. 
+Si <command>init</command> utiliza otros parámetros, asegúrese que
+<filename>/etc/news/boot</filename> se ejecuta por alguno de los guiones
+<filename>rc</filename>. Ya que INN necesita que la red esté funcionando, el guión de 
+inicio se debe encontrar o activar <emphasis>después</emphasis> de que la interfaz de red 
+se haya configurado.
+</para>
+
+</sect1>
+
+<sect1><title>INN: Ficheros de Configuración</title>
+<para>
+<INDEXTERM id="config.files.INN" class=startofrange><PRIMARY>ficheros de configuración</PRIMARY><SECONDARY>INN (Noticias de Internet)</SECONDARY></INDEXTERM>
+<INDEXTERM id="INN.config.files" class=startofrange><PRIMARY>INN (Noticias de Internet)</PRIMARY><SECONDARY>ficheros de configuración</SECONDARY></INDEXTERM>
+Habiendo concluido con estas tareas generales,  puede dirigirse hacia la parte más interesante 
+de INN: Sus ficheros de configuración. Todos ellos residen en <filename>/etc/news</filename>. 
+Algunos cambios se han introducido a partir de la versión 2, la cual es descrita aquí. Si tiene 
+nstalada una versión anterior, este capítulo le puede ser útil en el momento de mejorar su 
+configuración actual. Durante las próximas secciones, se discutirá cada fichero por separado, 
+construyendo la configuración de la Cervecera Virtual como ejemplo.
+</para>
+
+<para>
+Si necesita más información de alguna característica o de algún fichero en especial, puede consultar 
+las páginas del manual; la distribución de INN contiene información de cada fichero por separado.
+</para>
+
+<sect2><title>Parámetros Globales</title>
+<para>
+<INDEXTERM id="INN.global.params" class=startofrange><PRIMARY>INN (Noticias de Internet)</PRIMARY><SECONDARY>parámetros globales</SECONDARY></INDEXTERM>
+INN posee un número de parámetros que son de naturaleza global; estos afectan 
+a todos los grupos de noticias que gestiona.
+</para>
+
+<sect3><title>El fichero inn.conf</title>
+<para>
+<indexterm><primary>fichero inn.conf (INN)</primary></indexterm>
+El fichero principal de configuración de INN es <filename>inn.conf</filename>. 
+Entre otras cosas, éste determina cómo se conoce su computadora en Usenet. La 
+versión 2 de INN posee un número desconcertante de parámetros. Afortunadamente, la mayoría de 
+éstos tienen valores predeterminados, que son razonablemente compatibles para diferentes situaciones. El 
+fichero de ayuda <filename>inn.conf(5)</filename> detalla todos los parámetros, y debería leerlo 
+con cuidado si experimenta algún problema.
+</para>
+
+<para>
+Un ejemplo simple de <filename>inn.conf</filename>:
+
+<screen width=49>
+# Ejemplo de inn.conf para la Cervecera Virtual
+server:          vlager.vbrew.com
+domain:          vbrew.com
+fromhost:        vbrew.com
+pathhost:        news.vbrew.com
+organization:    La cervecería vertual
+mta:             /usr/sbin/sendmail -oi %s
+moderatormailer: %s@uunet.uu.net
+#
+# Rutas de acceso y ficheros de INN.
+#
+pathnews:               /usr/lib/news
+pathbin:                /usr/lib/news/bin
+pathfilter:             /usr/lib/news/bin/filter
+pathcontrol:            /usr/lib/news/bin/control
+pathdb:                 /var/lib/news
+pathetc:                /etc/news
+pathrun:                /var/run/news
+pathlog:                /var/log/news
+pathhttp:               /var/log/news
+pathtmp:                /var/tmp
+pathspool:              /var/spool/news
+patharticles:           /var/spool/news/articles
+pathoverview:           /var/spool/news/overview
+pathoutgoing:           /var/spool/news/outgoing
+pathincoming:           /var/spool/news/incoming
+patharchive:            /var/spool/news/archive
+pathuniover:            /var/spool/news/uniover
+overviewname:           .overview
+</screen>
+</para>
+
+<para>
+La primera línea le dice a <command>rnews</command> y a <command>inews</command> cuál es el servidor al que deben 
+contactar para entregar los artículos. Esta entrada es absolutamente crucial; para pasarle artículos a <command>
+innd</command>, se debe establecer una conexión NNTP con el servidor.
+</para>
+
+<para>
+El campo <systemitem role="keyword">domain</systemitem> (dominio) debe contener la porción de la 
+dirección del servidor que se encuentra completamente calificada. Un par de programas necesitan esta 
+porción del nombre de dominio; si la biblioteca que resuelve los nombres, sólamente retorna nombres no 
+calificados, el nombre dado en el campo <systemitem role="keyword">domain</systemitem> se deriva hacia ella. 
+No es un problema configurar este modo, pero es mejor definir un dominio en <systemitem role="keyword">domain</systemitem>.
+</para>
+
+<para>
+La siguiente línea define el nombre del servidor que <command>inews</command> va a utilizar cuando 
+agregue la línea <replaceable>From:</replaceable> a los artículos publicados por los usuarios locales. Muchos 
+lectores de noticias utilizan el campo <replaceable>From:</replaceable> cuando se compone un mensaje 
+de respuesta para el autor de un artículo. Si omite este campo, por domisión será completado  
+con el nombre de dominio entero. Ésta es siempre la mejor opción. Puede, por ejemplo, tener 
+noticias y mensajes gestionados por diferentes servidores. En este caso,  deberá dar el nombre del 
+servidor de correo después de la declaración <systemitem role="keyword">fromhost</systemitem>.
+</para>
+
+<para>
+<systemitem role="keyword">pathhost</systemitem>, define el nombre del servidor que INN agregará a la 
+cabecera <literal>Path:</literal> cuando quiera recibir un artículo. En la mayoría de los casos,  querrá 
+utilizar el nombre del dominio de su servidor de noticias; si éste es el caso, puede omitir esta línea ya que 
+por omisión se utiliza este nombre. Ocasionalmente, puede utilizar el nombre genérico, como por ejemplo
+<emphasis role="bold">news.vbrew.com</emphasis>,para dar servicio a un dominio grande. Haciendo esto,
+se puede mover el sistema de noticias fácilmente hacia un servidor diferente, cuando se requiera.
+</para>
+
+<para>
+La siguiente línea contiene la clave <systemitem role="keyword">organization</systemitem>.
+Esta declaración le permite saber a <command>inews</command> qué texto debe introducir en el campo
+<literal>Organization:</literal> de los artículos publicados por los usuarios locales. Formalmente, 
+éste es el lugar donde debe ir una descripción de su organización, o el nombre extendido de la misma. 
+Si no desea ser tan formal, está muy de moda, que las organizaciones con un poco de humor 
+lo expresen aquí.
+</para>
+
+<para>
+El campo <systemitem role="keyword">mta</systemitem> es obligatorio y especifica la ruta 
+de acceso y el nombre del agente de transporte de correo, usado para enviarle mensajes 
+al moderador. <literal>%s</literal> se reemplaza por la dirección de correo del moderador.
+</para>
+
+<para>
+<?troff .hw feminism>
+La línea que contiene la entrada <systemitem role="keyword">moderatormailer</systemitem> define la 
+dirección predeterminada que se utiliza cuando un usuario intenta dejar un mensaje en un grupo de noticias 
+que se encuentra moderado. Las direcciones de los moderadores de cada grupo usualmente son 
+guardadas en un fichero separado, pero toma mucho tiempo seguirle los pasos a todos ellos. 
+La entrada <systemitem role="keyword">moderatormailer</systemitem> es, por consiguiente, consultada 
+como último recurso. Si ésta está definida, <command>inews</command> reemplazará la cadena <literal>%s</literal> 
+con el (sigilosamente transformado) nombre del grupo de noticias y enviará el artículo entero a esa dirección. 
+Por ejemplo, si se desea publicar en <systemitem role="newsgroup">soc.&thinsp;feminism</systemitem>, el artículo 
+será enviado a <systemitem role="email">soc-feminism@uunet.uu.net</systemitem>, pasándole la configuración 
+citada. En UUNET, se debe encontrar el alias del correo, instalado para cada una de las direcciones dependientes, 
+que serán automáticamente utilizadas para reenviar todos los mensajes al moderador apropiado.
+</para>
+
+<para>
+Finalmente, cada una de las entradas restantes, especifica la ubicación de algún componente o fichero 
+perteneciente a INN. Si instaló INN desde los paquetes, estas ubicaciones han sido creadas por usted. 
+Por el contrario, si se decidió a compilar el sistema, debe asegurarse que estas entradas reflejen las ubicaciones 
+donde se encuentra INN.
+</para>
+</sect3>
+<INDEXTERM startref="INN.global.params" class=endofrange>
+</sect2>
+
+<sect2><title>Configuración de los Grupos de Noticias</title>
+<para>
+<INDEXTERM id="config.newsgroups" class=startofrange><PRIMARY>configuración</PRIMARY><SECONDARY>grupos de noticias</SECONDARY></INDEXTERM>
+<INDEXTERM id="newsgroups.config" class=startofrange><PRIMARY>grupos de noticias</PRIMARY><SECONDARY>configuración</SECONDARY></INDEXTERM>
+<INDEXTERM id="INN.config.newsgroups" class=startofrange><PRIMARY>INN (Noticias de Internet)</PRIMARY><SECONDARY>configuraci</SECONDARY><TERTIARY>grupos de noticias</TERTIARY></INDEXTERM>
+El administrador del sistema de noticias es capaz de controlar qué usuarios tienen acceso a los 
+grupos. INN provee dos ficheros de configuración, los cuales dejan al administrador decidir cuáles son los 
+grupos de noticias a los cuáles se les da soporte, y además proveen una descripción de cada uno de ellos.
+</para>
+
+<sect3><title>Los ficheros active y newsgroups</title>
+<para>
+<indexterm><primary>active, fichero (INN)</primary></indexterm>
+<indexterm><primary>newsgroups, fichero (INN)</primary></indexterm>
+Los ficheros <filename>active</filename> y <filename>newsgroups</filename> se usan para 
+guardar y describir los grupos de noticias alojados en el servidor. En ellos se encuentran 
+los grupos de noticias en los que se tiene interés en publicar y recibir artículos, y además, algo 
+de información administrativa. Estos ficheros se pueden encontrar en el 
+directorio <filename>/var/lib/news/</filename>.
+</para>
+
+<para>
+El fichero <filename>active</filename> determina a qué grupos de noticias se le da soporte. 
+Su sintaxis es lineal. Cada línea del fichero <filename>active</filename> contiene cuatro campos delimitados 
+por un espacio en blanco:
+
+<screen>
+name himark lomark flags
+</screen>
+</para>
+
+<para>
+El campo <replaceable>name</replaceable> es el nombre del grupo. 
+El campo <replaceable>himark</replaceable> es el mayor número que se ha 
+usado para un artículo en ese grupo. <replaceable>lomark</replaceable> 
+es usado para guardar el número más bajo de un mensaje activo. Para ilustrar 
+como trabaja esto, considere el siguiente escenario como ejemplo. Imagine que ha creado un 
+grupo;  <replaceable>himark</replaceable> y <replaceable>lowmark</replaceable> se encuentran en 0 por que no 
+hay artículos. Luego se publican 5 artículos, que se numeran del 1 al 5. <replaceable>himark</replaceable> 
+ahora estará en 5, el número del artículo más alto, y <replaceable>lowmark</replaceable> será puesto en 1, el 
+número mas bajo. Si el artículo 5 es cancelado, no habrá ningún cambio; <replaceable>himark</replaceable> 
+permanecerá sin cambios para asegurarse de que ese numero de artículo no sea usado nuevamente y
+<replaceable>lowmark</replaceable> seguirá en 1, el número de artículo más bajo. Ahora, si se cancela 
+el artículo 1, <replaceable>himark</replaceable>
+permanecerá sin cambios, pero <replaceable>lowmark</replaceable> será igual a 2, ya que 1 no está más en uso. 
+Si luego se publica un artículo nuevo, se le asignará el número 6, lo que pondrá a
+<replaceable>himark</replaceable> en 6. El artículo 5 ha estado en uso, así que no se usará su número por 
+más que haya sido borrado. <replaceable>lowmark</replaceable> permanece en 2. Este mecanismo le permite 
+encontrar un artículo fácilmente, ya que poseen números únicos y calcular de forma aproximada cuántos artículos 
+activos hay en el grupo haciendo:
+<replaceable>himark</replaceable>&ndash;<replaceable>lowmark</replaceable>.
+</para>
+
+<para>
+El campo flag, debe contener alguno de estos parámetros:
+
+<variablelist>
+<varlistentry><term>y</term>
+<listitem><para>
+Permite la publicación de forma directa en el servidor. 
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term>n</term>
+<listitem><para>
+Publicar directamente en el servidor no está permitido. Esto previene que los lectores de 
+noticias publiquen de forma directa los artículos en el servidor. Los artículos nuevos, 
+deben venir de otros servidores de noticias.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term>m</term>
+<listitem><para>
+El grupo está moderado. Cualquier artículo publicado en este grupo es desviado hacia la 
+dirección del moderador, para su aprobación antes de ser publicado. La mayoría de los grupos, 
+no están moderados.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term>j</term>
+<listitem><para>
+Los artículos en estos grupos no son almacenados, sólamente son pasados a otro servidor. 
+Esto causa que el servidor de noticias acepte los artículos, pero todo lo que hace es reenviarlos al 
+siguiente servidor que se encuentra más alto en la cadena de flujo. Esto no permite que los artículos 
+estén disponibles para lectura por parte de los usuarios de ese servidor.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term>x</term>
+<listitem><para>
+Este grupo de noticias no acepta artículos. La única forma de que los artículos sean recibidos 
+por este servidor, es que provengan de otro servidor de noticias. Los lectores de noticias, 
+no podrán acceder para publicar artículos.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term>=<replaceable>foo.bar</replaceable></term>
+<listitem><para>
+Los artículos son guardados en el servidor local con el nombre de grupo «foo.bar».
+</para></listitem>
+</varlistentry>
+</variablelist>
+
+En nuestro ejemplo de configuración, tenemos una pequeña cantidad de grupos de noticias, así que 
+el fichero <filename>/var/lib/news/active</filename> se verá de este modo:
+
+<screen width=52>
+control 0000000000 0000000001 y
+junk 0000000000 0000000001 y
+rec.crafts.brewing 0000000000 0000000001 y
+rec.crafts.brewing.ales 0000000000 0000000001 y
+rec.crafts.brewing.badtaste 0000000000 0000000001 y
+rec.crafts.brewing.brandy 0000000000 0000000001 y
+rec.crafts.brewing.champagne 0000000000 0000000001 y
+rec.crafts.brewing.private 0000000000 0000000001 y
+</screen>
+
+Los números asignados a <replaceable>himark</replaceable> y a <replaceable>lomark</replaceable> 
+son aquellos que va a usar cuando cree sus propios grupos de noticias.
+Estos dos números se ven un poco diferentes en grupos de noticias que han estado activos durante 
+algún tiempo.
+</para>
+
+<para>
+El fichero <filename>newsgroups</filename> no es muy sofisticado. Sólamente provee una breve 
+descripción (de una sola línea) de los grupos de noticias. Algunos lectores son capaces de leer 
+este fichero y presentarle la información al usuario para ayudarlo a decidir si quiere suscribirse al 
+grupo descrito.
+</para>
+
+<para>
+El formato del fichero <filename>newsgroups</filename> es el siguiente:
+
+<screen>
+name description
+</screen>
+
+El campo <replaceable>name</replaceable> es el nombre del grupo de noticias, y el campo
+<replaceable>description</replaceable> la descripción del mismo.
+</para>
+
+<para>
+Para el ejemplo de la Cervecera Virtual, si deseamos poner una descripción a los grupos, cree un 
+fichero  <filename>newsgroups</filename> con el siguiente formato:
+
+<screen width=70>
+rec.crafts.brewing.ales          Elaboración casera de cerveza negra y rubia
+rec.crafts.brewing.badtaste      Elaboración casera de cerveza adulterada
+rec.crafts.brewing.brandy        Elaboración casera de brandy 
+rec.crafts.brewing.champagne     Elaboración casera de Champagne
+rec.crafts.brewing.private       Grupo local de la Cervecera Virtual 
+</screen>
+</para>
+</sect3>
+<INDEXTERM startref="config.newsgroups" class=endofrange>
+<INDEXTERM startref="newsgroups.config" class=endofrange>
+<INDEXTERM startref="INN.config.newsgroups" class=endofrange>
+</sect2>
+
+<sect2><title>Configurando los Proveedores de Noticias</title>
+<para>
+<INDEXTERM id="config.newsfeeds" class=startofrange><PRIMARY>configuración</PRIMARY><SECONDARY>proveedores de noticias</SECONDARY></INDEXTERM>
+<INDEXTERM id="newsfeeds.config" class=startofrange><PRIMARY>proveedores de noticias, configuración</PRIMARY></INDEXTERM>
+<INDEXTERM id="INN.config.newsfeeds" class=startofrange><PRIMARY>INN (Noticias de Internet)</PRIMARY><SECONDARY>configuración</SECONDARY><TERTIARY>proveedores de noticias</TERTIARY></INDEXTERM>
+INN le da al administrador la habilidad de controlar qué grupos son reenviados y de qué 
+forma, a otros servidores de noticias. El método mas usado, utiliza NNTP (visto 
+anteriormente) como transporte, pero pueden utilizarse otros como UUCP.
+</para>
+
+<sect3><title>El fichero newsfeeds</title>
+<para>
+<INDEXTERM id="newsfeeds.file" class=startofrange><PRIMARY>newsfeeds (INN), fichero</PRIMARY></INDEXTERM>
+En el fichero <filename>newsfeeds</filename> se encuentran determinados los artículos que serán 
+enviados. Normalmente se encuentra en el directorio <filename>/etc/news/</filename>.
+</para>
+
+<para>
+El formato de <filename>newsfeeds</filename> puede parecer un poco complicado al principio. 
+Aquí será descrito de forma esquemática. Las páginas man de
+<filename>newsfeeds(5)</filename> explican cómo implementarlo. El formato es el siguiente:
+
+<screen>
+# formato del fichero newsfeed
+site:pattern:flags:param
+site2:pattern2\
+	:flags2:param2
+</screen>
+
+Cada proveedor de noticias se  describe en una sola línea, puede utilizarse 
+más de una usando el carácter \ para denotar continuidad. El carácter :  
+delimita los campos en cada línea y el carácter # es utilizado para poner 
+comentarios.
+</para>
+
+<para>
+El campo <replaceable>site</replaceable> nombra el sitio con el cual ese alimentador 
+se relaciona. El nombre del sitio puede ser codificado de la forma que uno quiera y 
+no tiene que ser el nombre del dominio del sitio. Este nombre se usará posteriormente 
+y se referirá a una entrada en una tabla que proporciona el nombre del servidor 
+al programa <command>innxmit</command> que transmite los artículos a 
+través de NNTP hacia el servidor remoto. Puede tener múltiples entradas para cada 
+sitio; cada entrada será tratada individualmente.
+</para>
+
+<para>
+El campo <replaceable>pattern</replaceable> especifica qué grupos son enviados a ese servidor. 
+Por omisión, son enviados todos los grupos. Si es lo que usted desea, sólamente deje este campo 
+en blanco. Este campo es usualmente una lista de expresiones que corresponden a un patrón de 
+búsqueda, delimitado por comas. El carácter * equivale a cualquier carácter, incluyendo al 
+cero. El carácter . (punto) no tiene ningún significado especial, el carácter ! (usado al comienzo 
+de una expresión) realiza la operación lógica NOT, y el carácter @ al comienzo del nombre de 
+un grupo significa que no se envíen o reenvíe ningún articulo publicado en el grupo. Esta lista, es 
+leída y analizada gramaticalmente de izquierda a derecha, así que asegúrese de introducir las reglas 
+específicas al principio. Un ejemplo del patrón:
+</para>
+
+<screen>
+rec.crafts.brewing*,!rec.crafts.brewing.poison,@rec.crafts.brewing.private
+</screen>
+<para>
+En el ejemplo, se desea enviar todos los grupos pertenecientes a la jerarquía 
+<emphasis>rec.crafts.brewing</emphasis> <emphasis>excepto</emphasis> el grupo
+<emphasis>rec.crafts.brewing.poison</emphasis>. 
+Tampoco se enviarán o recibirán artículos para el grupo <emphasis>rec.crafts.brewing.private
+</emphasis> el cual, sólamente está disponible para los usuarios que utilizan el servidor 
+local. Si, en el ejemplo, invierte los dos primeros patrones de búsqueda, el primero de ellos 
+será ignorado por el segundo, y los mensajes del grupo <emphasis>rec.crafts.brewing.poison</emphasis> 
+serán enviados. Lo mismo pasa con el primer y último de ellos; Siempre se deben introducir primero los 
+parámetros más específicos, para que los menos específicos introducidos después de éestos, sean efectivos.
+</para>
+
+<para>
+El campo <replaceable>flags</replaceable> controla y restringe los artículos que van al proveedor 
+de noticias. Este campo (<replaceable>flags</replaceable>) se encuentra delimitado por comas y 
+contiene una lista de cualquiera de las órdenes que se encuentran en la siguiente lista:
+</para>
+
+<variablelist>
+<varlistentry><term>&lt;<replaceable>size</replaceable></term>
+<listitem><para>
+El tamaño del artículo debe ser menor que lo expresado, en bytes.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><literal>A</literal><replaceable>items</replaceable></term>
+<listitem><para>
+Los artículos serán verificados. <replaceable>items</replaceable> puede ser uno o más de
+<literal>d</literal> (deberá contener cabecera de distribución) o
+<literal>p</literal> (no se verificará el destino en la cabecera path).
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><literal>B</literal><replaceable>high</replaceable>/<replaceable>low</replaceable></term>
+<listitem><para>
+Define el tamaño del búffer antes de escribirlo en la salida.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><literal>H</literal>[<replaceable>count</replaceable>]</term>
+<listitem<para>
+El artículo deberá tener por lo menos <replaceable>count</replaceable> saltos; por omisión es 1.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><literal>I</literal><replaceable>size</replaceable></term>
+<listitem><para>
+Tamaño del búffer interno (para el fichero de salida).
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><literal>M</literal><replaceable>pattern</replaceable></term>
+<listitem><para>
+Sólo los grupos moderados pueden hacer uso del patrón.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><literal>N</literal><replaceable>pattern</replaceable></term>
+<listitem><para>
+Sólo los grupos sin moderar pueden hacer uso del patrón.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><literal>S</literal><replaceable>size</replaceable></term>
+<listitem><para>
+Iniciar la cola de mensajes si el tamaño especificado en bytes es alcanzado.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><literal>T</literal><replaceable>type</replaceable></term>
+<listitem><para>
+Tipo de alimentación con el proveedor: <literal>f</literal> (fichero), <literal>m</literal> (canalizar; el campo
+<replaceable>param</replaceable> contiene el nombre al cual serán suministrados los artículos), 
+<literal>p</literal> (tubería (pipe) que apunta a un programa), <literal>c</literal>
+(envía al canal de stdin los parámetros en <replaceable>param</replaceable>), y <literal>x</literal> (parecido al 
+parámetro c  pero manejando los comandos de stdin).
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><literal>W</literal><replaceable>items</replaceable></term>
+<listitem<para>
+Que se escribirá: <literal>b</literal> (el tamaño del artículo en bytes), <literal>f</literal>
+(la ruta de acceso completa), <literal>g</literal> (el primer grupo de noticias), <literal>m</literal>
+(el identificador de artículo), <literal>n</literal> (la ruta de acceso relativa), <literal>s</literal> (origen del artículo), 
+<literal>t</literal> (antigüedad), <literal>*</literal>
+(nombre del canal alimentador o todos los lugares donde llegará el artículo),
+<literal>N</literal> (cabecera del grupo de noticias), <literal>D</literal> (cabecera de distribución), 
+<literal>H</literal> (todas las cabeceras), <literal>O</literal> (datos de información general), 
+y <literal>R</literal> (datos de réplica).
+</para></listitem>
+</varlistentry>
+</variablelist>
+
+<para>
+El campo <literal>param</literal> tiene una codificación especial que es dependiente del tipo 
+de suministro. En las configuraciones más comunes es donde se especificará el nombre del 
+fichero de salida donde escribirá el suministro de salida. En otras configuraciones, puede 
+dejarlo fuera. También, dependiendo de la configuración, puede tener otro significado. 
+Si desea que realice algo inusual, el las páginas man de <filename>newsfeeds(5)</filename> 
+le explicarán el uso de <literal>param</literal> con algunos detalles.
+</para>
+
+<para>
+Existe un nombre especial que debe ser codificado como <literal>ME</literal>
+y debe ser la primera línea en el fichero. Esta entrada sirve para controlar las 
+configuraciones preeterminadas para los suministros de noticias. 
+Si la entrada <literal>ME</literal> tiene una lista de distribución asociada con ella, 
+esta lista será anexada con cada una de las otras entradas antes de que se envíen. Ésto 
+le permite a Ud., por ejemplo, declarar cuales grupos de noticias serán automáticamente 
+suministrados, o bloqueados de suministro, sin tener que repetir el patrón para cada entrada.
+</para>
+
+<para>
+Se mencionó anteriormente que es posible el uso de suministros especiales para generar 
+hilos de mensajes, haciendo más fácil el trabajo de los lectores de noticias. Esto es posible 
+mediante la instrucción <command>overchan</command> que es parte del paquete INN. 
+Para hacer esto, se debe crear un suministro especial llamado
+<literal>overview</literal> que será el que pase los artículos al programa
+<command>overchan</command> para luego ser procesados como información general.
+</para>
+
+<para>
+El servidor de noticias mostrado como ejemplo, provee un solo suministro, que se dirige hacia la Universidad
+Groucho Marx y recibe los artículos de todos los grupos excepto de <emphasis>control</emphasis> y de
+<emphasis>junk</emphasis>, el grupo <emphasis>rec.crafts.brewing.private</emphasis> queda para uso 
+local sólamente, y el grupo <emphasis>rec.crafts.brewing.poison</emphasis>
+que no queremos que la gente de la Cervecera pueda publicar.
+</para>
+
+<para>
+Se utiliza el comando <command>nntpsend</command> para el transporte de noticias 
+vía NNTP hacia <systemitem role=sitename>news.groucho.edu</systemitem>. <command>nntpsend</command> 
+requiere el uso del método del fichero para la entrega, además de la ruta de acceso completa y 
+el identificador de cada artículo. Cabe destacar que el campo <replaceable>param</replaceable> 
+ha sido configurado con el nombre del fichero de salida. Volveremos al tema del comando <command>nntpsend</command> 
+en un momento. El resultado del suministro de noticias es el siguiente:
+
+<screen width=74>
+# fichero /etc/news/newsfeeds para la Cervecería Virtual
+#
+# Envía todos los grupos por defecto, excepto control y junk
+ME:!control,!junk::
+#
+# Genera ingormacion general para cualquier lector que se utilice.
+overview::Tc,WO:/usr/lib/news/bin/overchan
+#
+# Alimenta a Groucho Marx University con todo, excepto el grupo privado
+# y cualquier artículo publicado en rec.crafts.brewing.poison.
+gmarxu:!rec.crafts.brewing.poison,@rec.crafts.brewing.private:\
+	Tf,Wnm:news.groucho.edu
+#
+</screen>
+
+</para>
+<INDEXTERM startref="newsfeeds.file" class=endofrange>
+</sect3>
+
+<sect3><title>El fichero nntpsend.ctl </title>
+<para>
+<indexterm><primary>fichero nntpsend.ctl (INN)</primary></indexterm>
+<INDEXTERM><PRIMARY>comando innxmit (INN)</PRIMARY></INDEXTERM>
+El programa <command>nntpsend</command> maneja la transmisión de los artículos 
+usando NNTP como protocolo invocando al comando <command>innxmit</command>. 
+Hemos hecho un vistazo de <command>nntpsend</command> anteriormente, pero él también 
+dispone de un fichero de configuración para flexibilizar a nuestros suministros de noticias.
+</para>
+
+<para>
+<command>nntpsend</command> espera encontrar ficheros de guiones para los grupos 
+que suministra. La ruta que el comando necesita para encontrar los guiones, sigue el siguiente patrón
+<filename>/var/spool/news/out.going/<replaceable>sitename</replaceable></filename>. <command>innd</command>
+crea esos guiones cuando actúa como entrada en
+<filename>newsfeeds</filename>, como ya hemos visto anteriormente. Se especifica el nombre 
+del sitio como nombre de fichero en el campo <replaceable>param</replaceable> y eso satisface los 
+requerimientos de la entrada al comando <command>nntpsend</command>.
+</para>
+
+<para>
+El programa <command>nntpsend</command> tiene un fichero de configuración llamado
+<filename>nntpsend.ctl</filename> que generalmente es guardado en el directorio 
+<filename>/etc/news/</filename>.
+</para>
+
+<para>
+El fichero <filename>nntpsend.ctl</filename> le permite asociar un nombre de dominio completo,
+ algunas restricciones acerca del tamaño de los suministros, y un número de parámetros acerca de 
+las transmisiones de un sitio en particular. El nombre del sitio significa excepcionalmente un 
+suministro lógico de los artículos. El formato general es el siguiente:
+
+<screen>
+sitename:fqdn:max_size:[args]
+</screen>
+</para>
+
+<para>La siguiente lista describe los elementos de este formato:</para>
+
+<variablelist>
+<varlistentry><term><replaceable>sitename</replaceable></term>
+<listitem><para>
+El nombre del sitio escrito en el fichero <filename>newsfeeds</filename>.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><replaceable>fqdn</replaceable></term>
+<listitem><para>
+El nombre de dominio completo del servidor de noticias que será suministrado con los artículos.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><replaceable>max_size</replaceable></term>
+<listitem><para>
+El máximo volumen de artículos a suplir en una sola transferencia.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><replaceable>args</replaceable></term>
+<listitem><para>
+Argumentos adicionales que serán pasados el comando <command>innxmit</command>.
+</para></listitem>
+</varlistentry>
+</variablelist>
+
+<para>
+Nuestro ejemplo de configuración requiere un fichero <filename>nntpsend.ctl</filename> muy sencillo. 
+Sólo existe un suministro de noticias. Se restringe el tamaño máximo de tráfico a 2 MB y se pasa como 
+argumento a <command>innxmit</command> un tiempo de espera de 3 minutos (180 segundos). 
+Si se posee un sitio más grande, simplemente se pueden crear nuevas entradas por cada suministro, 
+que en tal caso se verán muy parecidas a ésta:
+
+<screen>
+# /etc/news/nntpsend.ctl
+#
+gmarxu:news.groucho.edu:2m:-t 180
+#
+</screen>
+
+</para>
+</sect3>
+<INDEXTERM startref="config.newsfeeds" class=endofrange>
+<INDEXTERM startref="newsfeeds.config" class=endofrange>
+<INDEXTERM startref="INN.config.newsfeeds" class=endofrange>
+</sect2>
+
+<sect2><title>Controlando el acceso de los Lectores de Noticias</title>
+<para>
+<INDEXTERM id="newsreaders.control.access" class=startofrange><PRIMARY>lectores de noticias</PRIMARY><SECONDARY>controlando acceso</SECONDARY></INDEXTERM>
+<INDEXTERM id="INN.control.nwsrder.access" class=startofrange><PRIMARY>INN (Noticias de Internet)</PRIMARY><SECONDARY>lectores de noticias</SECONDARY><TERTIARY>controlando acceso</TERTIARY></INDEXTERM>
+No hace mucho tiempo, era muy común que las organizaciones dieran acceso público a sus servidores de 
+noticias. Hoy día es muy difícil encontrar acceso público a algún servidor; la mayoría de las organizaciones, 
+controlan cuidadosamente quién tiene acceso a sus servidores, típicamente conceden acceso sólamente a los 
+usuarios de su red. INN provee ficheros de configuración para controlar esos accesos.
+</para>
+
+<sect3><title>El fichero incoming.conf</title>
+<para>
+<INDEXTERM id="incoming.conf.file" class=startofrange><PRIMARY>incoming.conf (INN) fichero</PRIMARY></INDEXTERM>
+<INDEXTERM id="etc.news.incoming.conf" class=startofrange><PRIMARY SORTAS="etc/news/incoming.conf file"> /etc/news/incoming.conf (INN), fichero</PRIMARY></INDEXTERM>
+Se mencionó en la introducción a INN que su eficiencia consiste en separar el mecanismo de 
+suministro del mecanismo de lectura de noticias. El fichero <filename>/etc/news/incoming.conf</filename> 
+es donde se especifica qué servidores van a proveerle de noticias usando el protocolo NNTP, 
+además de algunos parámetros de control y cómo serán suministrados los artículos. Cualquier servidor que no 
+se encuentre en la lista, no será gestionado por el demonio <command>innd</command> 
+en cambio, podrá gestionarse con el demonio <command>nnrpd</command>.
+</para>
+
+<para>
+La sintaxis del fichero <filename>/etc/news/incoming.conf</filename> es bastante simple, pero toma 
+algún tiempo acostumbrarse a ella. Tres tipos de entradas están disponibles. 
+Pares de clave/valor, para claves específicas con su valor respectivo; compañeros (peers), 
+que especifican el nombre de los servidores que tienen permitido enviar artículos usando NNTP; y 
+los grupos (groups) , que es la manera de aplicar los pares (pairs) de clave/valor a los 
+grupos (groups) de compañeros . Los pares clave/valor tienen tres tipos diferentes de ámbitos. 
+Global, el cual abarca a cualquier par definido en el fichero. Grupos de pares, que son aplicadas 
+sólamente a un grupo determinado. Pares que son aplicadas a un solo compañero. Las definiciones 
+específicas anulan a las definiciones más amplias: por consiguiente, las definiciones de compañeros (peers) anulan 
+a las de grupos (groups), que a su vez anulan a las globales.
+</para>
+
+<para>
+Las llaves (<literal>{}</literal>) se usan para delimitar el inicio y fin de un grupo (<literal>group</literal>)
+y las especificaciones de los compañeros (<literal>peer</literal>). El carácter # se usa como comentario. Los pares (<literal>pairs</literal>) 
+clave/valor se separan por dos puntos (:) y aparecen de una a una en diferentes líneas.
+</para>
+
+<para>
+Existe un número de claves  diferentes. Las más comunes y útiles son:
+
+<variablelist>
+<varlistentry><term>hostname</term>
+<listitem><para>
+Esta clave, separada por comas, especifica una lista de los nombres o direcciones IP de los servidores 
+compañeros (peers) que están autorizados a enviar artículos. Si esta clave no se pone, se usará como 
+nombre del servidor de la estiqueta del compañero (peer).
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term>streaming</term>
+<listitem><para>
+Esta clave determina si el servidor puede enviar flujos de órdenes. El valor es booleano, que por omisión está 
+establecido a verdadero (<literal>true</literal>).
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term>max-connections</term>
+<listitem><para>
+Aquí se especifica el número máximo de conexiones que puede aceptar el grupo de compañeros (peers). 
+Si el valor es cero, son ilimitadas (también se puede especificar usando <literal>none</literal>).
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term>password</term>
+<listitem><para>
+Puede especificar una contraseña que será usada por el compañero (peer) si éste está autorizado a 
+transferir noticias. Por omisión no se requiere el uso de contraseñas.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term>patterns</term>
+<listitem><para>
+Esta clave especifica qué grupos de noticias serán aceptados del compañero (peer) asociado. 
+Este campo es codificado precisamente con las mismas reglas que se usan en el fichero <filename>newsfeeds</filename>.
+</para></listitem>
+</varlistentry>
+
+</variablelist>
+
+</para>
+
+<para>
+En el ejemplo de la Cervecera existe un solo servidor que espera suplirnos de noticias: el servidor de la 
+Universidad Groucho Marx. No se requiere una contraseña, pero nos aseguraremos de que no introduzca 
+ningún artículo a nuestro grupo privado desde el exterior. El fichero <filename>hosts.nntp</filename> se muestra así:
+
+
+<screen width=45>
+# Cervecera virtual, fichero incoming.conf
+
+# Parámetros globales
+streaming:       true
+max-connections: 5
+
+# Permitir la publicación de artículos por NNTP de un cliente local.
+peer ME {
+    hostname: "localhost, 127.0.0.1"
+}
+
+# Permitirle a Groucho el acceso a todos los grupos excepto al privado.
+peer groucho {
+    hostname: news.groucho.edu
+    patterns: !rec.crafts.brewing.private
+}
+</screen>
+
+</para>
+<INDEXTERM startref="incoming.conf.file" class=endofrange>
+<INDEXTERM startref="etc.news.incoming.conf" class=endofrange>
+</sect3>
+
+<sect3><title>El fichero nnrp.access</title>
+<para>
+<indexterm><primary>nnrp.access (INN), fichero</primary></indexterm>
+<INDEXTERM><PRIMARY>nnrpd (INN) orden</PRIMARY></INDEXTERM>
+Se mencionó anteriormente, que los lectores de noticias, y los servidores que no estén en la lista del fichero
+<filename>hosts.nntp</filename>, para conectarse al servidor de INN se gestionan por el programa
+ <command>nnrpd</command>. Este programa utiliza el fichero <filename>/etc/news/nnrp.access</filename> 
+para determinar quién está autorizado a acceder al servidor de noticias, y qué tipo de permisos tiene.
+</para>
+
+<para>
+El fichero <filename>nnrp.access</filename> contiene una estructura similar a la vista en la configuración 
+anterior. Está compuesto por un conjunto de patrones usados para encontrar equivalencias con nombres o 
+direcciones IP de los servidores, y algunos campos que determinan qué tipos de permisos se les conceden. 
+Cada entrada debe aparecer en una sola línea; y los campos, separados por dos puntos. La última entrada de 
+este fichero, debe coincidir con el nombre del servidor que va a ser usado; así que nuevamente, deben introducirse 
+los patrones generales primero, seguidos de los más específicos. Los cinco campos deben ser introducidos en el 
+orden en que aparecen en la siguiente lista:
+
+<variablelist>
+<varlistentry><term>Hostname o dirección IP</term>
+<listitem><para>
+Este campo, está sujeto a las reglas sobre identidades que establece <filename>wildmat(3)</filename>, 
+y describe los nombres o direcciones IP de los servidores.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term>Permissions</term>
+<listitem><para>
+Aquí se determinan los permisos que tendrá el servidor. Existen dos permisos: <literal>R</literal> le otorga permisos de sólo lectura y 
+<literal>P</literal> permisos de publicación.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term>Username</term>
+<listitem><para>
+Este campo es opcional y le permite a especificar el nombre de usuario del cliente NNTP que deberá 
+autenticarse en el servidor antes de publicar algún artículo. Puede dejarse en  blanco. 
+No se pedirá autenticación alguna para leer artículos.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term>Password</term>
+<listitem><para>
+También es opcional, y es la contraseña  que acompaña al campo anterior (<replaceable>username</replaceable>).
+Dejándolo en blanco, no se pedirá ninguna contraseña para publicar artículos
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term>Newsgroups</term>
+<listitem><para>
+Este campo especifica un patrón de cuáles son los grupos a los que el cliente tiene permitido el acceso. Este patrón sigue 
+las mismas reglas usadas en el fichero <filename>newsfeeds</filename> La opción predetermnada, es no acceder a ninguno, 
+así que normalmente debería existir algún patrón configurado aquí.
+</para></listitem>
+</varlistentry>
+</variablelist>
+
+</para>
+
+<para>
+En el ejemplo de la Cervecera Virtual, dejamos que cualquier cliente vía NNTP en el dominio de la 
+cervecera, pueda leer y publicar en cualquier grupo de noticias. Además se da acceso a cualquier cliente 
+por NNTP (fuera del dominio) sólamente para leer cualquier grupo de noticias excepto el grupo 
+privado. Nuestro ejemplo del fichero <filename>nnrp.access</filename> se ve de esta forma:
+
+<screen width=78>
+# Cervecera Virtual - fichero nnrp.access
+# Se permite la lectura pública de todos los grupos excepto el privado.
+*:R:::*,!rec.crafts.brewing.private
+
+# Cualquier servidor que pertenezca al dominio de la Cervecera  
+# Virtual, puede publicar y leer los artículos de cualquier grupo.
+*.vbrew.com:RP::*
+</screen>
+</para>
+</sect3>
+<INDEXTERM startref="newsreaders.control.access" class=endofrange>
+<INDEXTERM startref="INN.control.nwsrder.access" class=endofrange>
+</sect2>
+
+<sect2><title>Caducidad de Artículos</title>
+<para>
+<INDEXTERM><PRIMARY>noticias (red)</PRIMARY><SECONDARY>artículos</SECONDARY><TERTIARY>caducidad</TERTIARY></INDEXTERM>
+<INDEXTERM><PRIMARY>artículos (noticias)</PRIMARY><SECONDARY>caducidad</SECONDARY></INDEXTERM>
+<INDEXTERM><PRIMARY>INN (Noticias de Internet)</PRIMARY><SECONDARY>caducidad de artículos de noticias</SECONDARY></INDEXTERM>
+Cuando los artículos se reciben en el servidor, se guardan en el disco. Estos artículos deben estar disponibles un 
+cierto período de tiempo para que su uso sea eficaz, de modo que los grandes servidores de noticias, consumen mucho 
+espacio en disco manteniéndolos. Para asegurarse de que espacio en disco se usa de forma efectiva,  puede optar por 
+eliminar automáticamente algunos artículos después de un período de tiempo. Este proceso se llama <command>expiración 
+de artículos</command>. Naturalmente, INN proporciona una manera automática para caducar los artículos.
+</para>
+
+<sect3><title>El fichero expire.ctl</title>
+<para>
+<indexterm><primary>expire.ctl (INN), fichero</primary></indexterm>
+El servidor INN utiliza un programa llamado <command>expire</command> para eliminar los 
+artículos caducos. Este programa, utiliza un fichero llamado <filename>/etc/news/expire.ctl</filename> 
+donde se encuentran las reglas que van a dirigir la eliminación de los artículos.
+</para>
+
+<para>
+La sintaxis del fichero <filename>/etc/news/expire.ctl</filename> es 
+medianamente simple. Como la mayoría de los ficheros de configuración, las líneas en blanco 
+y las que comienzan con el símbolo #, son ignoradas. La idea general, es que especifique una regla por línea. 
+Cada una de estas reglas definen como se ejecutarán la tareas de expiración en los grupos que concuerden con 
+el patrón suministrado. La sintaxis de una regla se ve de esta forma:
+
+<screen width=34>
+<replaceable>patrón</replaceable>:<replaceable>opciones_moderados</replaceable>:<replaceable>mantener</replaceable>:<replaceable>omisión</replaceable>:<replaceable>purgar</replaceable>
+</screen>
+</para>
+
+<para>
+La siguiente lista describe cada campo:
+
+<variablelist>
+<varlistentry><term>patrón</term>
+<listitem><para>
+Este campo está delimitado por comas, y contiene una lista de los nombres o patrones de búsqueda para 
+los grupos de noticias. La rutina <filename>wildmat</filename>&thinsp;(3) 
+se usa para buscar con los patrones dados. La última regla que coincida con el nombre de un grupo es 
+la única que va a ser aplicada, o sea que si desea aplicar patrones con comodines (*), se deben 
+encontrar al principio del fichero.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term>opciones_moderados</term>
+<listitem><para>
+Este parámetro describe cómo se aplica una regla a un grupo moderado. Puede usarse 
+una <literal>M</literal> que asigne esa regla sólamente a los grupos moderados, una
+<literal>U</literal> para los grupos que no están moderados, o una  <literal>A</literal> 
+la cuál significa que se ignore el estado de moderado y se aplique la regla a todos los 
+grupos de noticias.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term>mantener</term>
+<listitem><para>
+El siguiente campo, le permite especificar el tiempo mínimo que debe mantenerse guardado  un artículo que contenga la cabecera de 
+expiración. La unidad de tiempo es días, y este valor se  guarda como una variable de punto flotante, así que puede especificar 
+valores como <literal>7.5</literal> para siete días y medio. También puede especificar <literal>never</literal> si desea que los 
+artículos se queden en el servidor para siempre.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term>omisión</term>
+<listitem><para>
+El campo más importante, el cual le permite  especificar el tiempo que un artículo sin cabecera 
+de expiración permanece en el grupo. La mayoría de los artículos no tienen cabecera de expiración (
+<literal>expires</literal>). Este campo se codificado de la misma forma que el campo <literal>mantener</literal>, 
+donde <literal>never</literal> significa que los artículos sin la cabecera no expiran nunca
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term>purgar</term>
+<listitem><para>
+Este campo le permite especificar el tiempo máximo que un artículo con cabecera de 
+expiración será guardado después de que expire. La codificación de este campo es la misma que 
+para el campo <literal>mantener</literal>.
+</para></listitem>
+</varlistentry>
+</variablelist>
+</para>
+
+<para>
+Para la cervecera, nuestros requerimientos son simples. Serán guardados todos los 
+artículos en todos los grupos 14 días por omisión, y entre 7 y 21 días los artículos que tengan 
+cabecera de expiración (<literal>Expires</literal>).
+El grupo <emphasis>rec.crafts.brewing.private</emphasis> es interno, así 
+que se prestará atención para que ningún artículo del mismo expire:
+
+<screen width=69>
+# fichero expire.ctl file de la Cervecera Virtual
+
+# Los artículos expiran en 14 días por omisión, 
+# entre 7 y 21 días los que contengan cabecera Expires:
+*:A:7:14:21
+
+# Este es un grupo especial donde los artículos nunca expiran.
+rec.crafts.brewing.private:A:never:never:never
+</screen>
+
+</para>
+
+<para>
+Existe una entrada especial que debe estar en el fichero <filename>/etc/news/expires.ctl</filename>.
+Debe tener una línea en el fichero exactamente como se muestra a continuación:
+
+<screen>
+/remember/:<replaceable>días</replaceable>
+</screen>
+
+Esta entrada le permite especificar el número mínimo de días que un artículo será recordado en el fichero 
+de historial, sin tomar en cuenta de que el mismo haya expirado o no. Esto puede ser útil si uno de los sitios 
+que le proveen de noticias es de uso poco frecuente o si tiene el hábito de enviarle artículos viejos o los 
+mismos cada vez que accede a él. Introduciendo el campo <replaceable>/remember/</replaceable>
+ayudará a prevenir que el servidor del cual se provee, vuelva a enviarle los mismo artículos incluso 
+cuando éstos ya hayan caducado en su servidor local. Su servidor podrá recordar si un artículo 
+ya ha sido recibido, <?troff .ne 10> y rechazará cualquier intento 
+remoto de reenvío. Es importante recordar que esta configuración no surte 
+efecto en todos los artículos; sólamente afecta a aquellos que se encuentran guardados en el historial.
+.
+</para>
+
+</sect3>
+
+</sect2>
+
+<sect2><title>Gestión de los Mensajes de Control</title>
+<para>
+<INDEXTERM id="INN.control.msgs" class=startofrange><PRIMARY>INN (Noticias de Internet)</PRIMARY><SECONDARY>mensajes control, gestión</SECONDARY></INDEXTERM>
+Igualmente que con C News, INN puede procesar mensajes de control de forma automática. INN proporciona un mecanismo de configuración muy potente 
+para controlar qué acción se toma para uno de los mensajes de control y un mecanismo de control de acceso puede iniciar acciones 
+contra algún grupo de noticias.
+</para>
+
+<sect3><title>El fichero control.ctl</title>
+<para>
+<indexterm><primary>control.ctl (INN), fichero</primary></indexterm>
+La estructura del fichero <filename>control.ctl</filename> es bastante simple. Su 
+sintaxis es muy parecida a otros ficheros de configuración que posee INN. Las 
+líneas que comienzan con <literal>#</literal> (comentarios) son ignoradas, para 
+continuar con una línea, se usa <literal>/</literal>, y los campos se  delimitan 
+con dos puntos <literal>:</literal>.
+</para>
+
+<para>
+Cuando se recibe un mensaje de control, se verifica con cada regla hasta el final. La 
+última regla en el fichero que coincida con un mensaje es la que será usada, de modo que se deben 
+poner primero las reglas genéricas y luego las más especificas al final del fichero. La sintaxis 
+general es la siguiente:
+</para>
+
+<para>
+<screen width=30>
+<replaceable>mensaje</replaceable>:<replaceable>desde</replaceable>:<replaceable>grupo_noticias</replaceable>:<replaceable>acción</replaceable>
+</screen>
+</para>
+
+<para>
+El significado de cada uno de los campos es el siguiente:
+
+<variablelist>
+<varlistentry><term>mensaje</term>
+<listitem><para>
+Este es el nombre del mensaje de control. Los mensajes de control típicos se describen después.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term>desde</term>
+<listitem><para>
+Éste es un patrón de búsqueda al estilo del intérprete de órdenes para buscar a la persona que envía 
+el mensaje. La dirección de correo se convierte a minúsculas antes de la comparación. </para></listitem>
+</varlistentry>
+
+<varlistentry><term>grupos_noticias</term>
+<listitem><para>
+Si el mensaje de control es <literal>newgroup</literal> o
+<literal>rmgroup</literal>, este campo es un patrón de búsqueda al estilo línea de órdenes para crear o eliminar grupos.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term>acción</term>
+<listitem><para>
+Este campo especifica qué acción se debe tomar para cualquier mensaje que coincida 
+con la regla. Existen muchas acciones que se pueden tomar; éstas se describen en la siguiente lista.
+</para></listitem>
+</varlistentry>
+</variablelist>
+</para>
+
+<para>
+El campo <replaceable>mensaje</replaceable> de cada línea puede contener uno de estos valores:
+</para>
+
+<variablelist id="X-087-2-chin.contmess">
+<varlistentry><term>checkgroups</term>
+<listitem><para>
+Este mensaje envía una petición al administrador de noticias para que re-sincronice la 
+base de datos de los grupos de noticias con la lista adjuntada en el mensaje.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term>newgroup</term>
+<listitem><para>
+Este mensaje envía una petición para la creación de un nuevo grupo. El cuerpo 
+del mensaje de control debe contener una descripción corta del propósito de la creación de un nuevo grupo.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term>rmgroup</term>
+<listitem><para>
+Petición de eliminar a un grupo.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term>sendsys</term>
+<listitem><para>
+<indexterm><primary>RFC-1036</primary></indexterm>
+Este mensaje envía una petición para que el fichero <filename>sys</filename> del servidor 
+de noticias sea transmitido por correo al creador del mensaje de control. En el documento RFC-1036 se 
+describe que éste es un requisito de los miembros de Usenet  que este fichero esté disponible públicamente 
+ya que se usado para que el mapa de Usenet esté actualizado.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term>version</term>
+<listitem><para>
+
+Este mensaje envía una petición para que el nombre y la versión del software utilizado por el servidor de 
+noticias le retornen al creador del mensaje de control.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term>all</term>
+<listitem><para>
+Este es un código especial que compara cualquier mensaje de control.
+</para></listitem>
+</varlistentry>
+</variablelist>
+
+<para>
+El campo <replaceable>mensaje</replaceable> debe contener alguna de las siguientes acciones:
+</para>
+
+<variablelist id="X-087-2-chin.contacts">
+<varlistentry><term>doit</term>
+<listitem><para>
+El comando requerido es ejecutado. En muchos casos, se envía un mensaje al 
+administrador comunicándole qué acción ha temido lugar.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term>doit=<replaceable>fichero</replaceable></term>
+<listitem><para>
+Esta acción es similar a <literal>doit</literal> excepto que crea un mensaje en el (<emphasis>fichero</emphasis>)
+de registro. Si el nombre del fichero especificado es <emphasis>mail</emphasis>, la entrada de registro se 
+envía por correo. Si la cadena especificada es nula, el mensaje de registro se escribe en <filename>/dev/null</filename> 
+lo que equivale a una acción descalificada (<literal>doit</literal>). 
+Si el nombre del (<emphasis>fichero</emphasis>) comienza con el carácter / , el nombre se toma como un nombre de 
+fichero absoluto; por el contrario, si no se especifica, será trasladado a <filename>/var/log/news/file.log</filename>.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term>doifarg</term>
+<listitem><para>
+La orden  requerida se ejecuta si contiene algún argumento. Si no 
+contiene ningún argumento, el mensaje de control se ignora.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term>drop</term>
+<listitem><para>
+El mensaje solicitado se ignora.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term>log</term>
+<listitem><para>
+Se envía a la salida un mensaje de registr <literal>stderr</literal> del proceso
+<command>innd</command>. Ésto generalmente está dirigido al fichero
+<filename>/var/log/news/errlog</filename>.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term>log=<replaceable>file</replaceable></term>
+<listitem><para>
+Es igual a la acción <literal>log</literal> excepto que el fichero de registro está especificado 
+como un par de reglas dadas de la acción <literal>doit</literal>=<replaceable>fichero</replaceable>.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term>mail</term>
+<listitem><para>
+Se envía un correo  al administrador de noticias conteniendo un pedido de 
+detalle de un comando. Ninguna otra acción toma lugar.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term>verify-*</term>
+<listitem><para>
+<indexterm><primary>PGP, Pretty Good Privacy</primary></indexterm>
+<indexterm><primary>GPG</primary></indexterm>
+Si una acción comienza con la cadena &ldquo;<literal>verify-</literal>&rdquo;, 
+el mensaje de control es autenticado usando PGP (o GPG).
+<footnote><para>
+PGP y GPG son herramientas diseñadas para autenticar o encriptar mensajes utilizando 
+técnicas de clave pública. GPG es la versión GNU de PGP. GPG puede encontrarse 
+en <systemitem role="url">http://www.gnupg.org/</systemitem>, y PGP en 
+<systemitem role="url">http://www.pgp.com/</systemitem>.
+</para>
+</footnote>
+</para></listitem>
+</varlistentry>
+</variablelist>
+
+<para>
+A continuación se muestra el fichero <filename>control.ctl</filename> en 
+la práctica. Esto es un ejemplo ilustrativo del fichero, bastante limitado:
+</para>
+
+<screen width=80>
+## Ejemplo de /etc/news/control.ctl
+##
+## Cuidado: No se debe utilizar este fichero, es suministrado 
+## sólamente con propósitos ilustrativos.
+
+##	Manejo de mensajes de control
+all:*:*:mail
+checkgroups:*:*:mail
+ihave:*:*:drop
+sendme:*:*:drop
+sendsys:*:*:log=sendsys
+senduuname:*:*:log=senduuname
+version:*:*:log=version
+newgroup:*:*:mail
+rmgroup:*:*:mail
+
+##  Manejo de mensajes de control para las ocho jerarquías más importantes
+##  COMP, HUMANITIES, MISC, NEWS, REC, SCI, SOC, TALK
+checkgroups:*:comp.*|humanities.*|misc.*|news.*|rec.*|sci.*|soc.*|talk.*:drop
+newgroup:*:comp.*|humanities.*|misc.*|news.*|rec.*|sci.*|soc.*|talk.*:drop
+rmgroup:*:comp.*|humanities.*|misc.*|news.*|rec.*|sci.*|soc.*|talk.*:drop
+checkgroups:group-admin@isc.org:*:verify-news.announce.newgroups
+newgroup:group-admin@isc.org:comp.*|misc.*|news.*:verify-news.announce.newgroups
+newgroup:group-admin@isc.org:rec.*|sci.*|soc.*:verify-news.announce.newgroups
+newgroup:group-admin@isc.org:talk.*|humanities.*:verify-news.announce.newgroups
+rmgroup:group-admin@isc.org:comp.*|misc.*|news.*:verify-news.announce.newgroups
+rmgroup:group-admin@isc.org:rec.*|sci.*|soc.*:verify-news.announce.newgroups
+rmgroup:group-admin@isc.org:talk.*|humanities.*:verify-news.announce.newgroups
+
+## GNU ( Free Software Foundation )
+newgroup:gnu@prep.ai.mit.edu:gnu.*:doit
+newgroup:news@*ai.mit.edu:gnu.*:doit
+rmgroup:gnu@prep.ai.mit.edu:gnu.*:doit
+rmgroup:news@*ai.mit.edu:gnu.*:doit
+
+## LINUX (Suministro para news.lameter.com)
+checkgroups:christoph@lameter.com:linux.*:doit
+newgroup:christoph@lameter.com:linux.*:doit
+rmgroup:christoph@lameter.com:linux.*:doit
+</screen>
+
+</sect3>
+<INDEXTERM startref="INN.control.msgs" class=endofrange>
+</sect2>
+<INDEXTERM startref="config.files.INN" class=endofrange>
+<INDEXTERM startref="INN.config.files" class=endofrange>
+</sect1>
+
+<sect1><title>Activación de INN</title>
+<para>
+<INDEXTERM><PRIMARY>INN (Noticias de Internet)</PRIMARY><SECONDARY>ejecución</SECONDARY></INDEXTERM>
+<INDEXTERM><PRIMARY>inn paquetes fuente</PRIMARY></INDEXTERM>
+Los paquetes con los fuentes de <command>inn</command> proporcionan un guión adecuado para que
+<command>inn</command> se active cuando se inicia el sistema. Este guión se llama comúnmente
+<filename>/usr/lib/news/bin/rc.news</filename>. El guión lee los argumentos que provienen de otro 
+guión usualmente llamado <filename>/usr/lib/news/innshellvars</filename>, el cuál contiene las 
+definiciones de los nombres de ficheros y rutas de búsqueda que <command>inn</command> usará para 
+localizar los componentes que necesita. Generalmente, es buena idea ejecutar <command>inn</command> 
+con permisos que no sean del root, como por ejemplo bajo el usuario <literal>news</literal>.
+</para>
+
+<para>
+Para asegurarse de que <command>inn</command> se activa al inicio del sistema, se debe virificar que
+<filename>/usr/lib/news/innshellvars</filename> esté configurado correctamente y que llame al guión
+<filename>/usr/lib/news/bin/rc.news</filename> para que se ejecute al inicio.
+</para>
+
+<para>
+Adicionalmente, existen algunas tareas administrativas que deben realizarse de forma periódica. 
+Estas tareas son usualmente ejecutadas por el programa <command>cron</command>. La mejor forma de 
+hacer esto, es añadir las instrucciones apropiados al fichero <filename>/etc/crontab</filename> o incluso mejor, 
+crear un fichero adecuado en el directorio <filename>/etc/cron.d</filename>, si su distribución proporciona uno. 
+Un ejemplo de esto, se muestra de la siguiente forma:
+
+<screen width=67>
+# Ejemplo de /etc/cron.d/inn , utilizado en Debian.
+#
+SHELL=/bin/sh
+PATH=/usr/lib/news/bin:/sbin:/bin:/usr/sbin:/usr/bin
+
+# Expire noticias antiguas y le de un vistazo a las entradas
+# en la noche, generar informes.
+
+15 0 * * *      news    news.daily expireover lowmark delayrm
+
+# cada hora, ejecutar rnews -U. Esto no es sólamente para sitios 
+# UUCP, también se procesarán los artículos en espera puestos
+# aquí por in.nnrpd en caso de que innd no pueda aceptar
+# ningún artículo.
+
+10 * * * *      news    rnews -U
+</screen>
+</para>
+
+<para>
+Estas órdenes aseguran que las noticias antiguas expiren cada día, y que los artículos en 
+espera se procesen cada hora. Fíjese que estas instrucciones son ejecutadas con los permisos 
+del usuario <literal>news</literal>.
+</para>
+
+</sect1>
+
+<sect1><title>Uso de INN: El programa ctlinnd</title>
+<para>
+<INDEXTERM id="ctlinnd.command" class=startofrange><PRIMARY>ctlinnd (INN), orden</PRIMARY></INDEXTERM>
+<INDEXTERM id="INN.managing" class=startofrange><PRIMARY>INN (Noticias de Internet)</PRIMARY><SECONDARY>uso</SECONDARY></INDEXTERM>
+El servidor de noticias INN acude a una programa para manejar las tareas cotidianas. El 
+programa <command>ctlinnd</command> puede usarse para manipular los grupos de noticias, 
+y los suministros de estos; además, puede cambiar a diferentes estados el  servidor de noticias.
+</para>
+<?troff .Nd 10>
+<para>
+Puede obtener un sumario del la sintaxis del programa <command>ctlinnd</command> usando:
+
+<screen>
+<emphasis role="bold"># ctlinnd -h</emphasis>
+</screen>
+</para>
+
+<para>
+Se cubrirán algunos de los usos más importantes de <command>ctlinnd</command> aquí; puede 
+consultar las páginas man para más detalles.
+</para>
+
+<sect2><title>Añadir un Grupo Nuevo</title>
+
+<para>
+Utilice la siguiente sintaxis para agregar un grupo nuevo:
+</para>
+
+<para>
+<screen width=35>
+ctlinnd newgroup <replaceable>grupo</replaceable> <replaceable>resto</replaceable> <replaceable>creador</replaceable>
+</screen>
+</para>
+
+<para>
+Los argumentos son:
+</para>
+
+<variablelist>
+<varlistentry><term><replaceable>grupo</replaceable></term>
+<listitem><para>
+El nombre del grupo que desea crear.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><replaceable>resto</replaceable></term>
+<listitem><para>
+Este argumento debe ser codificado en la misma forma que el campo
+<replaceable>flags</replaceable> en el fichero <filename>active</filename>.
+Por omisión <literal>y</literal> no es proporcionado.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><replaceable>creador</replaceable></term>
+<listitem><para>
+El nombre de la persona que crea el grupo. Enciérrelo entre comillas si existe algún espacio en el nombre.
+</para></listitem>
+</varlistentry>
+</variablelist>
+
+</sect2>
+
+<sect2><title>Cambiar un Grupo</title>
+<para>
+Utilice la siguiente sintaxis para cambiar las propiedades de un grupo:
+</para>
+
+<para>
+<screen width=30>
+ctlinnd changegroup <replaceable>grupo</replaceable> <replaceable>resto</replaceable>
+</screen>
+</para>
+
+<para>
+Los argumentos son:
+</para>
+
+<variablelist>
+<varlistentry><term><replaceable>grupo</replaceable></term>
+<listitem><para>
+El nombre del grupo que desea cambiar.
+</para></listitem>
+</varlistentry>
+
+<varlistentry><term><replaceable>resto</replaceable></term>
+<listitem><para>
+Este argumento debe ser codificado de la misma forma que el campo <replaceable>opciones</replaceable> en el fichero <filename>active</filename>.
+</para></listitem>
+</varlistentry>
+</variablelist>
+
+<para>
+Este comando es útil a la hora de cambiar los atributos de moderación de un grupo.
+</para>
+</sect2>
+
+<sect2><title>Eliminar un Groupo</title>
+<para>
+Utilice la siguiente sintaxis para eliminar un grupo:
+</para>
+
+<para>
+<screen>
+ctlinnd rmgroup <replaceable>grupo</replaceable>
+</screen>
+</para>
+<?troff .Nd 10><?troff .wcon_off>
+<para>
+El argumento es:
+</para>
+
+<variablelist>
+<varlistentry><term><replaceable>grupo</replaceable></term>
+<listitem><para>
+El nombre del grupo a eliminar.
+</para></listitem>
+</varlistentry>
+</variablelist>
+
+<para>
+Este comando elimina al grupo especificado del fichero <filename>active</filename>. 
+No tiene ningún efecto sobre la cola de mensajes de noticias. Todos los artículos que 
+se encuentren en la cola, expirarán de la manera acostumbrada, pero no se 
+aceptará ningún artículo nuevo.
+</para>
+</sect2>
+
+<sect2><title>Renumerar un Grupo</title>
+<para>
+Utilice la siguiente sintaxis para renumerar un grupo:
+</para>
+
+<para>
+<screen>
+ctlinnd renumber <replaceable>grupo</replaceable>
+</screen>
+</para>
+<?troff .Nd 10>
+<para>
+El argumento es:
+</para>
+
+<variablelist>
+<varlistentry><term><replaceable>grupo</replaceable></term>
+<listitem><para>
+El nombre del grupo a renumerar. Si el argumento <command>grupo</command> 
+es una cadena vacía (sin argumento), todos los grupos volverán a numerarse.
+</para></listitem>
+</varlistentry>
+</variablelist>
+
+<para>
+Esta instrucción actualiza la marca de agua en los grupos especificados.
+</para>
+</sect2>
+
+<sect2><title>Permitir / Denegar el acceso de los Lectores de Noticias</title>
+<para>
+Utilice la siguiente sintaxis para permitir o denegar el acceso de los lectores de noticias:
+</para>
+
+<para>
+<screen>
+ctlinnd readers <replaceable>flag</replaceable> <replaceable>texto</replaceable>
+</screen>
+</para>
+
+<para>
+Los argumentos son:
+</para>
+
+<variablelist>
+<varlistentry><term><replaceable>flag</replaceable></term>
+<listitem><para>
+Especificando <literal>n</literal> causa que cualquier intento de acceder al 
+servidor sea denegado, por el contrario, si se especifica <literal>y</literal> se concederá acceso al mismo.
+</para></listitem>
+</varlistentry>
+<varlistentry><term><replaceable>texto</replaceable></term>
+<listitem><para>
+El texto introducido en <emphasis>texto</emphasis>, les da a los lectores de noticias que intentan acceder, una explicación 
+de por qué el servidor rechaza las conexiones. Cuando el servidor vuelve a conceder 
+el acceso, este campo debe estar en blanco o con el mismo texto que se ingresó al desactivarlo.
+</para>
+
+<para>
+Este comando no controla a los proveedores de noticias, sólamente controla las conexiones de los lectores.
+</para>
+</listitem>
+</varlistentry>
+</variablelist>
+</sect2>
+
+<sect2><title>Rechazar las conexiones de los proveedores</title>
+<para>
+Utilice la siguiente sintaxis para rechazar las conexiones de los proveedores:
+</para>
+
+<screen>
+ctlinnd reject <replaceable>razón</replaceable>
+</screen>
+
+<?troff. Nd 10>
+<para>
+El argumento es:
+</para>
+
+<variablelist>
+<varlistentry><term><replaceable>razón</replaceable></term>
+<listitem><para>
+El texto introducido debe explicar por qué <command>innd</command> rechaza las conexiones 
+de los proveedores de noticias.
+</para></listitem>
+</varlistentry>
+</variablelist>
+
+<para>
+Este comando no afecta las conexiones manejadas por
+<command>nnrpd</command> ;sólamente afecta aquellas conexiones que <command>innd</command> 
+maneja directamente, como por ejemplo, los proveedores de noticias remotos.
+</para>
+</sect2>
+
+<sect2><title>Permitir el acceso a los proveedores</title>
+<para>
+Utilice la siguiente sintaxis para permitir el acceso de los proveedores de noticias:
+</para>
+
+<para>
+<screen>
+ctlinnd allow <replaceable>razón</replaceable>
+</screen>
+</para>
+
+<para>
+El argumento es:
+</para>
+
+<variablelist>
+<varlistentry><term><replaceable>razón</replaceable></term>
+<listitem><para>
+El texto ingresado debe ser el mismo que se ingreso para el comando
+<command>reject</command> , o una cadena en blanco.
+</para></listitem>
+</varlistentry>
+</variablelist>
+
+<para>
+Este comando revierte la situación creada por <command>reject</command>.
+</para>
+</sect2>
+
+<sect2><title>Desactivar el servidor de noticias</title>
+<para>
+La siguiente sintaxis desactiva el servidor de noticias:
+</para>
+
+<para>
+<screen>
+ctlinnd throttle <replaceable>reason</replaceable>
+</screen>
+</para>
+
+<para>
+El argumento es:
+</para>
+
+<variablelist>
+<varlistentry><term><replaceable>reason</replaceable></term>
+<listitem><para>
+La razón por la cual se desactiva el servidor.
+</para></listitem>
+</varlistentry>
+</variablelist>
+
+<para>
+Este comando es equivalente a 
+<literal>newsreaders no</literal> y a <literal>reject</literal>, 
+es útil cuando se deben realizar tareas de emergencia en la base de datos de noticias. 
+Esto le asegura que nada intente actualizarse mientras se encuentra trabajando en el servidor.
+</para>
+</sect2>
+
+<sect2><title>Reinicio del servidor</title>
+<para>
+La siguiente sintaxis reinicia el servidor de noticias:
+</para>
+
+<para>
+<screen>
+ctlinnd go <replaceable>razón</replaceable>
+</screen>
+</para>
+
+<para>
+El argumento es:
+</para>
+
+<variablelist>
+<varlistentry><term><replaceable>razón</replaceable></term>
+<listitem><para>
+La misma razón que se dio para desactivarlo. Si este campo está vacío, el servidor 
+se activará incondicionalmente. Si una razón es dada, sólamente las funciones donde concuerde la 
+razón dada, se activarán en el servidor.
+</para></listitem>
+</varlistentry>
+</variablelist>
+
+<para>
+Este comando es utilizado para iniciar el servidor después de que un comando
+<command>throttle</command>, <command>pause</command>, o
+<command>reject</command> es ejecutado.
+</para>
+</sect2>
+
+<sect2><title>Mostrar el estado de un proveedor de noticias</title>
+<para>
+Utilice la siguiente sintaxis para mostrar el estado de un proveedor:
+</para>
+
+<para>
+<screen>
+ctlinnd feedinfo <replaceable>site</replaceable>
+</screen>
+</para>
+
+<para>
+El argumento es:
+</para>
+
+<variablelist>
+<varlistentry><term><replaceable>site</replaceable></term>
+<listitem><para>
+El nombre del sitio (tomado del fichero <filename>newsfeeds</filename>) por cada 
+uno de los proveedores que se desea ver el estado en que se encuentran.
+</para></listitem>
+</varlistentry>
+</variablelist>
+</sect2>
+
+<sect2><title>Baja de un proveedor</title>
+<para>
+La siguiente sintaxis es utilizada para dar de baja a un proveedor:
+</para>
+
+<para>
+<screen>
+ctlinnd drop <replaceable>sitio</replaceable>
+</screen>
+</para>
+
+<para>
+El argumento es:
+</para>
+
+<variablelist>
+<varlistentry><term><replaceable>sitio</replaceable></term>
+<listitem><para>
+El nombre del sitio (tomado del fichero <filename>newsfeeds</filename>) que 
+desea darse de baja. Si el campo está en blanco, todos los proveedores activos serán dados de baja.
+</para></listitem>
+</varlistentry>
+</variablelist>
+
+<para>
+Darle de baja a un proveedor, detiene cualquier suministro activo, pero éste no es un 
+cambio permanente. Este comando es útil si se desean modificar algunos valores para el proveedor 
+y éste se encuentra activo en el momento.
+</para>
+</sect2>
+
+<sect2><title>Activar un proveedor</title>
+<para>
+Utilice la siguiente sintaxis para activar un proveedor:
+</para>
+
+<para>
+<screen>
+ctlinnd begin <replaceable>site</replaceable>
+</screen>
+</para>
+
+<para>
+El argumento es:
+</para>
+
+<variablelist>
+<varlistentry><term><replaceable>site</replaceable></term>
+<listitem><para>
+El nombre del sitio que se encuentra en el fichero <filename>newsfeeds</filename> el 
+cuál será activado. Si el proveedor se encuentra activo, el comando 
+<command>drop</command> es ejecutado primero de forma automática.
+</para></listitem>
+</varlistentry>
+</variablelist>
+
+<para>
+Este comando causa que el servidor vuelva a leer el fichero <filename>newsfeeds</filename>, 
+localizando la entrada ingresada y comenzar el suministro de noticias usando los detalles encontrados. 
+Puede utilizarse este comando para probar el funcionamiento de un proveedor nuevo o si realizó 
+alguna modificación en alguna entrada del fichero <filename>newsfeeds</filename>.
+</para>
+</sect2>
+
+<sect2><title>Cancelar un artículo</title>
+<para>
+La siguiente sintaxis es utilizada para cancelar un artículo:
+</para>
+
+<para>
+<screen>
+ctlinnd cancel <replaceable>Message-Id</replaceable>
+</screen>
+</para>
+
+<para>
+El argumento es:
+</para>
+
+<variablelist>
+<varlistentry><term><replaceable>Message-ID</Replaceable></term>
+<listitem><para>
+El identificador del artículo.
+</para></listitem>
+</varlistentry>
+</variablelist>
+
+<para>
+El comando elimina al mensaje especificado del servidor. Esto no genera un mensaje que advierta la operación.
+</para>
+
+</sect2>
+<INDEXTERM startref="ctlinnd.command" class=endofrange>
+<INDEXTERM startref="INN.managing" class=endofrange>
+</sect1>
+</chapter>
+
+<!--FIN R1 20020909-->

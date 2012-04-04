@@ -1,0 +1,659 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<HTML
+><HEAD
+><TITLE
+>Extendiendo SQL: Funciones</TITLE
+><META
+NAME="GENERATOR"
+CONTENT="Modular DocBook HTML Stylesheet Version 1.59"><LINK
+REL="HOME"
+TITLE="Guia del Programador de PostgreSQL"
+HREF="programmer.html"><LINK
+REL="PREVIOUS"
+TITLE="Acerca de los Sistema de Catalogo de
+Postgres"
+HREF="x294.html"><LINK
+REL="NEXT"
+TITLE="Funciones de Lenguaje Procedural"
+HREF="x440.html"></HEAD
+><BODY
+CLASS="CHAPTER"
+BGCOLOR="#FFFFFF"
+TEXT="#000000"
+LINK="#0000FF"
+VLINK="#840084"
+ALINK="#0000FF"
+><DIV
+CLASS="NAVHEADER"
+><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TH
+COLSPAN="3"
+ALIGN="center"
+>Guia del Programador de PostgreSQL</TH
+></TR
+><TR
+><TD
+WIDTH="10%"
+ALIGN="left"
+VALIGN="bottom"
+><A
+HREF="x294.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="80%"
+ALIGN="center"
+VALIGN="bottom"
+></TD
+><TD
+WIDTH="10%"
+ALIGN="right"
+VALIGN="bottom"
+><A
+HREF="x440.html"
+>Siguiente</A
+></TD
+></TR
+></TABLE
+><HR
+ALIGN="LEFT"
+WIDTH="100%"></DIV
+><DIV
+CLASS="CHAPTER"
+><H1
+><A
+NAME="XFUNC"
+>Extendiendo <SPAN
+CLASS="ACRONYM"
+>SQL</SPAN
+>: Funciones</A
+></H1
+><P
+>   Parte de definir un tipo nuevo es la
+   definición de funciones que describen su comportamiento.
+   Como consecuencia, mientras que es posible definir una nueva
+   función sin definir un tipo nuevo, lo contrario no es cierto.
+   Por ello describimos como añadir nuevas funciones para 
+   <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+> antes de describir cómo 
+   añadir nuevos tipos.
+  </P
+><P
+>   <SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+>  <SPAN
+CLASS="ACRONYM"
+>SQL</SPAN
+>  
+   proporciona  tres tipos de funciones:
+
+   <P
+></P
+><UL
+><LI
+><P
+>      funciones de lenguaje de consultas 
+      (funciones escritas en <SPAN
+CLASS="ACRONYM"
+>SQL</SPAN
+>)
+     </P
+></LI
+><LI
+><P
+>      funciones de lenguaje procedural (funciones escritas en, por ejemplo, PLTCL o PLSQL)
+     </P
+></LI
+><LI
+><P
+>      funciones de lenguaje de programación (funciones escritas en un lenguaje de programación compilado tales como <SPAN
+CLASS="ACRONYM"
+>C</SPAN
+>)
+     </P
+></LI
+></UL
+>
+
+   Cada clase
+   de función puede tomar un tipo base, un tipo compuesto
+   o alguna combinación como argumentos (parámetros). Además,
+   cada clase de funcón puede devolver un tipo base o
+   un tipo compuesto. Es más fácil definir funciones <SPAN
+CLASS="ACRONYM"
+>SQL</SPAN
+>,
+   así que empezaremos con ellas. Los ejemplos en esta sección
+   se puede encontrar también en <TT
+CLASS="FILENAME"
+>funcs.sql</TT
+>
+   y <TT
+CLASS="FILENAME"
+>funcs.c</TT
+>.   
+  </P
+><DIV
+CLASS="SECT1"
+><H1
+CLASS="SECT1"
+><A
+NAME="AEN384"
+>Funciones de Lenguaje de Consultas (<SPAN
+CLASS="ACRONYM"
+>SQL</SPAN
+>)</A
+></H1
+><P
+>    Las funciones SQL ejecutan una lista arbitraria de consultas SQL, devolviendo
+    los resultados de la última consulta de la lista. Las funciones SQL en general
+    devuelven conjuntos. Si su tipo de retorno no se especifica como un
+    <TT
+CLASS="LITERAL"
+>setof</TT
+>,
+    entonces un elemento arbitrario del resultado de la última consulta será devuelto. </P
+><P
+>    El cuerpo de una función SQL que sigue a AS
+    debería ser una lista de consultas separadas por caracteres espacio en blanco y
+    entre paréntesis dentro de comillas simples. Notar que las comillas simples usadas en
+    las consultas se deben escribir como símbolos de escape, precediéndolas con dos barras invertidas. 
+   </P
+><P
+>    Los argumentos de la función SQL se pueden referenciar en las consultas usando
+    una sintaxis $n: $1 se refiere al primer argumento, $2 al segundo, y así sucesivamente. Si un argumento es complejo, entonces una notación <I
+CLASS="FIRSTTERM"
+>dot</I
+> (por ejemplo "$1.emp") se puede
+    usar para acceder a las propiedades o atributos del argumento o para llamar a funciones.
+   </P
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN392"
+>Ejemplos</A
+></H2
+><P
+>     Para ilustrar una función SQL sencilla, considere lo siguiente,
+     que se podría usar para cargar en una cuenta bancaria:
+
+     <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>create function TP1 (int4, float8) returns int4
+    as 'update BANK set balance = BANK.balance - $2
+        where BANK.acctountno = $1
+        select(x = 1)'
+    language 'sql';
+     </PRE
+></TD
+></TR
+></TABLE
+>
+
+     Un usuario podría ejecutar esta función para cargar $100.00 en la cuenta 17 de
+     la siguiente forma:
+   
+
+     <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>select (x = TP1( 17,100.0));
+     </PRE
+></TD
+></TR
+></TABLE
+>
+    </P
+><P
+>     El más interesante ejemplo siguiente toma una argumento sencillo de tipo
+     EMP, y devuelve resultados múltiples:
+
+     <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>select function hobbies (EMP) returns set of HOBBIES
+    as 'select (HOBBIES.all) from HOBBIES
+        where $1.name = HOBBIES.person'
+    language 'sql';
+     </PRE
+></TD
+></TR
+></TABLE
+>
+    </P
+></DIV
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN399"
+>Funciones <SPAN
+CLASS="ACRONYM"
+>SQL</SPAN
+> sobre Tipos Base</A
+></H2
+><P
+>     La función SQL más simple posible no tiene argumentos y 
+     sencillamente devuelve un tipo base, tal como <TT
+CLASS="LITERAL"
+>int4</TT
+>:
+     
+     <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    CREATE FUNCTION one() RETURNS int4
+     AS 'SELECT 1 as RESULT' LANGUAGE 'sql';
+
+    SELECT one() AS answer;
+
+         +-------+
+         |answer |
+         +-------+
+         |1      |
+         +-------+
+     </PRE
+></TD
+></TR
+></TABLE
+>
+    </P
+><P
+>     Notar que definimos una lista objetivo para la función
+     (con el nombre RESULT), pero la lista objetivo de la
+     consulta que llamó a la función sobreescribió la lista
+     objetivo de la función. Por esto, el resultado se etiqueta answer
+     en vez de one.
+    </P
+><P
+>     Es casi tan fácil definir funciones <SPAN
+CLASS="ACRONYM"
+>SQL</SPAN
+>
+     que tomen tipos base como argumentos. En el ejemplo de abajo, note
+     cómo nos referimos a los argumentos dentro de la función como $1
+     y $2:
+
+     <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    CREATE FUNCTION add_em(int4, int4) RETURNS int4
+     AS 'SELECT $1 + $2;' LANGUAGE 'sql';
+
+    SELECT add_em(1, 2) AS answer;
+
+         +-------+
+         |answer |
+         +-------+
+         |3      |
+         +-------+
+     </PRE
+></TD
+></TR
+></TABLE
+>
+    </P
+></DIV
+><DIV
+CLASS="SECT2"
+><H2
+CLASS="SECT2"
+><A
+NAME="AEN409"
+>Funciones <SPAN
+CLASS="ACRONYM"
+>SQL</SPAN
+> sobre Tipos Compuestos</A
+></H2
+><P
+>     Al especificar funciones con argumentos de tipos compuestos
+     (tales como EMP), debemos no solo especificar qué
+     argumento queremos (como hicimos más arriba con $1 y $2) sino
+     también los atributos de ese argumento. Por ejemplo,
+     observe la función double_salary que procesa cual sería 
+     su salario si se doblase:
+
+     <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    CREATE FUNCTION double_salary(EMP) RETURNS int4
+     AS 'SELECT $1.salary * 2 AS salary;' LANGUAGE 'sql';
+
+    SELECT name, double_salary(EMP) AS dream
+     FROM EMP
+     WHERE EMP.cubicle ~= '(2,1)'::point;
+     
+
+         +-----+-------+
+         |name | dream |
+         +-----+-------+
+         |Sam  | 2400  |
+         +-----+-------+
+     </PRE
+></TD
+></TR
+></TABLE
+>
+    </P
+><P
+>     Note el uso de la sintaxis $1.salary.
+     Antes de adentrarnos en el tema de las funciones que
+     devuelven tipos compuestos, debemos presentar primero la
+     notación de la función para proyectar atributos. La forma sencilla
+     de explicar esto es que podemos normalmente usar la
+     notación atributo(clase) y clase.atributo indistintamente:
+
+     <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    --
+    -- esto es lo mismo que:
+    --  SELECT EMP.name AS youngster FROM EMP WHERE EMP.age &#60; 30
+    --
+    SELECT name(EMP) AS youngster
+     FROM EMP
+     WHERE age(EMP) &#60; 30;
+
+         +----------+
+         |youngster |
+         +----------+
+         |Sam       |
+         +----------+
+     </PRE
+></TD
+></TR
+></TABLE
+>
+    </P
+><P
+>     Como veremos, sin embargo, no siempre es este el caso.
+     Esta notación de función es importante cuando queremos usar
+     una función que devuelva una única instancia. Hacemos esto
+     embebiendo la instancia completa dentro de la función,
+     atributo por atributo. Esto es un ejemplo de una función
+     que devuelve una única instancia EMP:
+
+     <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    CREATE FUNCTION new_emp() RETURNS EMP
+     AS 'SELECT \'None\'::text AS name,
+      1000 AS salary,
+      25 AS age,
+       \'(2,2)\'::point AS cubicle'
+      LANGUAGE 'sql';
+     </PRE
+></TD
+></TR
+></TABLE
+>
+    </P
+><P
+>     En este caso hemos especificado cada uno de los atributos
+     con un valor constante, pero cualquier computación o expresión
+     se podría haber sustituido por estas constantes.
+     Definir una función como esta puede ser delicado. Algunos de
+     las deficiencias más importantes son los siguientes:
+
+     <P
+></P
+><UL
+><LI
+><P
+>        La orden de la lista objetivo debe ser exactamente la misma que
+        aquella en la que los atributos aparezcan en la orden 
+        CREATE TABLE (o cuando ejecute una consulta .*).
+       </P
+></LI
+><LI
+><P
+>        Se debe encasillar las expresiones (usando ::) muy cuidadosamente
+        o verá el siguiente error:
+
+	<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="90%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>	 <TT
+CLASS="COMPUTEROUTPUT"
+>WARN::function declared to return type EMP does not retrieve (EMP.*)
+	 </TT
+>
+	</PRE
+></TD
+></TR
+></TABLE
+>
+       </P
+></LI
+><LI
+><P
+>        Al llamar a una función que devuelva una instancia, no
+        podemos obtener la instancia completa. Debemos o bien 
+        proyectar un atributo fuera de la instancia o bien pasar la
+        instancia completa a otra función.
+
+	<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="90%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    SELECT name(new_emp()) AS nobody;
+
+            +-------+
+            |nobody |
+            +-------+
+            |None   |
+            +-------+
+	</PRE
+></TD
+></TR
+></TABLE
+>
+       </P
+></LI
+><LI
+><P
+>        La razón por la que, en general, debemos usar la sintaxis de
+        función para proyectar los atributos de los valores de retorno
+        de la función es que el parser no comprende la otra sintaxis (dot)
+        para la proyección cuando se combina con llamadas a funciones.
+
+	<TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="90%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>            SELECT new_emp().name AS nobody;
+            WARN:parser: syntax error at or near "."
+	</PRE
+></TD
+></TR
+></TABLE
+>
+       </P
+></LI
+></UL
+>
+    </P
+><P
+>     Cualquier colección de ordenes en el lenguaje de consulta
+     <SPAN
+CLASS="ACRONYM"
+>SQL</SPAN
+> se pueden empaquetar juntas y se pueden
+     definir como una función.
+     Las ordenes pueden incluir updates (es decir, consultas <B
+CLASS="COMMAND"
+>INSERT</B
+>, <B
+CLASS="COMMAND"
+>UPDATE</B
+>, y
+     <B
+CLASS="COMMAND"
+>DELETE</B
+>) así como
+     <B
+CLASS="COMMAND"
+>SELECT</B
+>. Sin embargo, la orden final debe ser un
+     <B
+CLASS="COMMAND"
+>SELECT</B
+> que devuelva lo que se especifique como el
+     tipo de retorno de la función.
+
+     <TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>    CREATE FUNCTION clean_EMP () RETURNS int4
+     AS 'DELETE FROM EMP WHERE EMP.salary &#60;= 0;
+    SELECT 1 AS ignore_this'
+     LANGUAGE 'sql';
+
+    SELECT clean_EMP();
+
+         +--+
+         |x |
+         +--+
+         |1 |
+         +--+
+         
+     </PRE
+></TD
+></TR
+></TABLE
+>
+    </P
+></DIV
+></DIV
+></DIV
+><DIV
+CLASS="NAVFOOTER"
+><HR
+ALIGN="LEFT"
+WIDTH="100%"><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+><A
+HREF="x294.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="programmer.html"
+>Inicio</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+><A
+HREF="x440.html"
+>Siguiente</A
+></TD
+></TR
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+>Acerca de los Sistema de Catalogo de
+<SPAN
+CLASS="PRODUCTNAME"
+>Postgres</SPAN
+></TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+>&nbsp;</TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+>Funciones de Lenguaje Procedural</TD
+></TR
+></TABLE
+></DIV
+></BODY
+></HTML
+>

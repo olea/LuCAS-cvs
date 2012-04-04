@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="iso-8859-1"?>
+<!DOCTYPE chapter PUBLIC "-//OASIS//DTD DocBook XML V4.1.2//EN"
+"http://www.oasis-open.org/docbook/xml/4.1.2/docbookx.dtd">
+<chapter lang="es">
+	<title>Ataques remotos</title>
+
+<sect1>
+	<title>Escaneos de puertos</title>
+
+	<para>
+Una de las primeras actividades que un potencial (o no tan potencial) atacante realizará contra su objetivo será sin duda un escaneo de puertos, un portscan; esto le permitirá obtener en primer lugar información básica acerca de qué servicios estamos ofreciendo en nuestras máquinas y, adicionalmente, otros detalles de nuestro entorno como qué sistema operativo tenemos instalados en cada host o ciertas características de la arquitectura de nuestra red. Analizando qué puertos están abiertos en un sistema, el atacante puede buscar agujeros en cada uno de los servicios ofrecidos: cada puerto abierto en una máquina es una potencial puerta de entrada a la misma.
+	</para>
+
+	<para>
+Comprobar el estado de un determinado puerto es a priori una tarea muy sencilla; incluso es posible llevarla a cabo desde la línea de órdenes, usando una herramienta tan genérica como <emphasis>telnet</emphasis>. Por ejemplo, imaginemos que queremos conocer el estado del puerto 5000 en la máquina cuya dirección IP es 192.168.0.10; si el telnet a dicho puerto ofrece una respuesta, entonces está abierto y escuchando peticiones:
+	</para>
+
+	<screen>
+anita:~$ telnet 192.168.0.10 5000 
+Trying 192.168.0.10...
+Connected to 192.168.0.10.
+Escape character is '^]'.
+^D
+Connection closed by foreign host.
+anita:~$
+	</screen>
+
+<para>
+Si por el contrario el puerto está abierto pero en él no hay ningún demonio atendiendo peticiones, la respuesta será similar a la siguiente:
+	</para>
+
+	<screen>
+anita:~$ telnet 192.168.0.10 5000
+Trying 192.168.0.10...
+telnet: Unable to connect to remote host: Connection refused
+anita:~$
+	</screen>
+
+	<para>
+Por último, si el puerto está protegido por un cortafuegos, lo más probable<footnote><para> Es posible, dependiendo de la configuración y del tipo de nuestro cortafuegos, que obtengamos otro tipo de respuesta, generalmente un `Connection refused'.</para></footnote>es que no obtengamos respuesta alguna; el telnet lanzado se quedará intentando la conexión hasta que se produzca un timeout o hasta que lo paremos manualmente:
+	</para>
+
+	<screen>
+anita:~$ telnet 192.168.0.10 5000
+Trying 192.168.0.10...
+^D
+anita:~$
+</screen>	
+
+	<para>
+Por lo general, nadie en su sano juicio usaría <emphasis>telnet</emphasis> para realizar un escaneo de puertos masivo contra un sistema o contra toda una red; existen herramientas como <emphasis>strobe</emphasis> o <emphasis>nmap</emphasis> (la más conocida) que pueden realizar esta tarea de una forma más o menos cómoda y automatizable. Evidentemente, ninguno de estos programas se dedica a lanzar <emphasis>telnets</emphasis> contra los puertos de un sistema: los escaneadores de puertos actuales implementan diferentes técnicas que permiten desde detectar desde la versión del sistema operativo usado en la máquina atacada hasta pasar inadvertidos ante diferentes sistemas de detección de intrusos.
+	</para>
+
+	<para>
+Existen diferentes aproximaciones para clasificar los escaneos de puertos, tanto en función de las técnicas seguidas en el ataque como en función de a qué sistemas o puertos concretos va dirigido. Por ejemplo, se habla de un escaneo <emphasis>horizontal</emphasis> cuando el atacante busca la disponibilidad de determinado servicio en diferentes máquinas de una red; por ejemplo, si el pirata dispone de un <emphasis>exploit</emphasis> que aprovecha un fallo en la implementación de <emphasis>sendmail</emphasis>, es normal que trate de averiguar qué máquinas aceptan peticiones SMTP en un determinado segmento para posteriormente atacar a dichos sistemas. Si por contra el pirata sólo escanea puertos de una máquina, se denomina al ataque escaneo <emphasis>vertical</emphasis>, y suele denotar el interés del atacante en ese <emphasis>host</emphasis> concreto; si comprueba todos los puertos del sistema al escaneo se le denomina <emphasis>vanilla</emphasis>, mientras que si sólo lo hace contra determinados puertos o rangos, se le denomina <emphasis>strobe</emphasis> (en referencia al programa del mismo nombre). Si nos basamos en las técnicas utilizadas, podemos dividir los escaneos en tres grandes familias: <emphasis>open</emphasis>, <emphasis>half-open</emphasis> y <emphasis>stealth</emphasis>; vamos a hablar con más detalle de cada una de ellas y de los diferentes tipos escaneos que las forman. 
+	</para>
+
+	<para>
+Los escaneos open se basan en el establecimiento de una conexión <emphasis>TCP</emphasis> completa mediante el conocido como protocolo de acuerdo de tres vías o <emphasis>three-way handshake</emphasis> <footnote><para>Raymond S. Tomlinson.  Selecting Sequence Numbers.
+In <citetitle>Proceedings of SIGCOMM/SIGOPS Interprocess Communication Workshop</citetitle>, pages 11-23. ACM, 1975.</para></footnote>, por lo que son muy sencillos de detectar y detener. Utilizan la llamada <emphasis>connect()</emphasis>, siendo lo más similar - guardado las distancias - al ejemplo del <emphasis>telnet</emphasis> que hemos visto antes: el escaneador intenta establecer una conexión con un puerto concreto del <emphasis>host</emphasis> atacado, y en función de la respuesta obtenida conoce su estado: una técnica rápida, sencilla, fiable y que no necesita de ningún privilegio especial en la máquina atacante. 
+	</para>
+
+	<para>
+La segunda técnica que hemos comentado es la de los escaneos <emphasis>half-open</emphasis>; en este caso, el pirata finaliza la conexión antes de que se complete el protocolo de acuerdo de tres vías, lo que de entrada dificulta - aunque no mucho - la detección del ataque por parte de algunos detectores de intrusos muy simples (casi todos los actuales son capaces de detectarlos). Dentro de esta técncia se encuentra el <emphasis>SYN Scanning</emphasis>: cuando el origen - atacante - recibe del destino - máquina escaneada - los <emphasis>bits SYN+ACK</emphasis>, envía un <emphasis>bit RST</emphasis> (no es necesaria una nueva trama, ya que este <emphasis>bit</emphasis> se envía automáticamente a nivel de núcleo) en lugar del ACK correspondiente a un <emphasis>three-way handshake</emphasis> completo. Los escaneos SYN son fácilmente detectables y pueden ser bloqueados en cualquier cortafuegos; existe una variable de esta técnica denominada dumb scanning ([Det01]) en la que entra en juego una tercera máquina denominada `tonta' (por el poco tráfico que emite y recibe), algo que puede ayudar al pirata a camuflar su origen real. Sin embargo, el dumb scanning es más complicado que el SYN scanning, por lo que se utiliza mucho menos en la vida real. 
+	</para>
+	<para>
+Finalmente, existe otra modelo de escaneo denominado <emphasis>stealth scanning</emphasis>. En diciembre de 1995 Christopher Klaus proporcionó las pautas de ciertas técnicas de escaneo que permitían al atacante eludir la acción de los sistemas de detección de intrusos de la época <footnote><para>Christopher Klaus.Stealth Scanning - Bypassing Firewalls and SATAN Detectors, Diciembre 1995.
+Internet Security Systems, Inc.</para></footnote> y a las que bautizó como <emphasis>stealth scanning</emphasis>; actualmente el significado del término ha cambiado, ya que lo que Klaus presentó se denomina hoy en día <emphasis>half-open scanning</emphasis>, y por <emphasis>stealth scanning</emphasis> se conoce a una familia de técnicas de escaneo que cumplen alguna de las siguientes condiciones:<footnote><para>También se utiliza el término <emphasis>stealth</emphasis> para referirse únicamente a los escaneos NULL, que como veremos después son aquellos con todos los <emphasis>flags</emphasis> de la trama reseteados</para></footnote>
+	</para>
+
+<itemizedlist mark='opencircle'>
+	<listitem>
+		<para>
+Eludir cortafuegos o listas de control de acceso.
+		</para></listitem>
+	<listitem><para>
+No ser registradas por sistemas de detección de intrusos, ni orientados a red ni en el propio host escaneado.
+	</para></listitem>
+	<listitem><para>
+Simular tráfico normal y real para no levantar sospechas ante un analizador de red.
+	</para></listitem>
+</itemizedlist>
+	<para>
+Una de las técnicas que encontramos dentro de la familia de los escaneos <emphasis>stealth</emphasis> es la conocida como <emphasis>SYN+ACK.</emphasis> La idea es muy simple, y consiste en una violación del <emphasis>three-way handshake</emphasis>: el atacante, en lugar de enviar en primer lugar una trama <emphasis>SYN,</emphasis> envía <emphasis>SYN+ACK</emphasis>. Si el puerto está abierto simplemente se ignora, y si está cerrado sabe que no ha recibido previamente un paquete <emphasis>SYN</emphasis>, por lo que lo considera un error y envía una trama <emphasis>RST</emphasis> para finalizar la conexión.
+	</para>
+	<para>
+Los escaneos basados en este método se usan poco en la actualidad, debido al elevado número de falsos positivos que pueden generar: sólo debemos pensar en los múltiples motivos - aparte de un puerto abierto - que pueden existir para que un sistema no responda ante una petición <emphasis>SYN+ACK</emphasis>: desde listas de control de accesos en los routers o cortafuegos hasta simples <emphasis>timeouts</emphasis>.
+	</para>
+	<para>
+Otra técnica dentro de los escaneos <emphasis>stealth</emphasis> es el <emphasis>FIN scanning</emphasis><footnote><para>Uriel Maimon.Port Scanning without the <emphasis>SYN flag</emphasis>.<citetitle>Phrack Magazine</citetitle>, 7(49), 1996.</para></footnote>: en este caso, el atacante envía a su objetivo una trama con el bit FIN activo, ante lo que este responde con un RST si el puerto está cerrado, o simplemente no responde en caso de estar abierto; como en el caso de los escaneos SYN+ACK este método puede proporcionar muchos falsos positivos, por lo que tampoco se utiliza mucho hoy en día. 
+	</para>
+    </sect1>
+</chapter>

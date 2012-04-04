@@ -1,0 +1,447 @@
+<!-- $Header: /home/cvs/lucas/doc-postgresql-es/v7/src/sgml/backup.sgml,v 1.2 2001/07/30 23:05:07 emaldonadog Exp $ -->
+<chapter id="backup">
+ <title>Copia de Seguridad y Recuperación</title>
+
+ <para>
+  Como cualquier cosa que contenga datos valiosos, se debe realizar
+  una copia de seguridad (un backup) de las bases <productname>Postgres</> 
+  regularmente. Aunque el procesamiento es basicamente sencillo, es 
+  importante tener un conocimiento básico de las técnicas y asunciones que
+  subyacen en su funcionamiento.
+ </para>
+
+ <para>
+  Hay dos aproximaciones fundamentalmente diferentes para respaldar datos
+  de <productname>Postgres</>: 
+  <itemizedlist>
+   <listitem><para><acronym>SQL</> dump</para></listitem>
+   <listitem><para>Copia de seguridad del Sistema de Ficheros</para></listitem>
+  </itemizedlist>
+ </para>
+
+ <sect1 id="backup-dump">
+  <title><acronym>SQL</> Dump</title>
+
+  <para>
+   La idea en la que se basa este método es generar un fichero de texto
+   con los comandos SQL que, cuando se ejecuten en el servidor, crearán de 
+   nuevo la base de datos en el mismo estado en el que estaba en el momento
+   de generarlo.
+   <productname>Postgres</> proporciona el programa de utilidad 
+   <application>pg_dump</>  para este propósito. El uso básico de este comando es:
+<synopsis>
+pg_dump <replaceable class="parameter">dbname</replaceable> &gt; <replaceable class="parameter">outfile</replaceable>
+</synopsis>
+   Como se puede ver, <application>pg_dump</> escribe su resultado en
+   la salida estandar. Veremos más tarde que esto mismo puede ser utilizado.
+  </para>
+
+  <para>
+   <application>pg_dump</> es una aplicación cliente de <productname>Postgres</>
+   normal (aunque sea uno particularmente ingenioso). Esto hace que pueda usted realizar
+   su procedimiento de copia de seguridad desde cualquier ordenador remoto que tenga
+   acceso la base de datos. Pero recuerde que <application>pg_dump</> no
+   trabaja con permisos especiales. En particular, deberá usted tener acceso
+   a todas las tablas de las que quiera usted sacar una copia, lo que en la 
+   práctica se traducirá en que deberá usted ser el superusuario.
+  </para>
+
+  <para>
+   Para especificar con qué servidor de base de datos debe contactar 
+   <application>pg_dump</>, utilice las opciones de línea de comando
+   <option>-h <replaceable>host</></> y <option>-p <replaceable>port</></>. 
+   El host de defecto es el host local o aquel que especifique su variable
+   de entorno <envar>PGHOST</envar>. De un modo similar, el pruerto de 
+   defecto se indica por la variable de entorno <envar>PGPORT</envar>, o
+   en su defecto, por el puerto comilado como defecto. (Convenientemente,
+   el servidor tendrá normalmente el mismo valor de defecto compilado).
+  </para>
+
+  <para>
+   Como cualquier otra aplicación cliente de <productname>Postgres</>,
+   <application>pg_dump</> se conectará por defecto con la base de
+   datos con un nombre de usuario que es igual que el nombre del usuario
+   Unix actual. Para sobreescribirlo, bien utilice la opción <option>-u</option>
+   para forzar que el servidor de la base pregunte expresamente el nombre del 
+   usuario, o bien fije la variable de entorno <envar>PGUSER</envar>.
+   Recuerde que las conexiones de <application>pg_dump</> son sometidas 
+   a los mismos mecanismos de autenticación que los clientes (como se
+   describe en <xref linkend="client-authentication">).
+  </para>
+
+  <para>
+   Los volcados creados por <application>pg_dump</> son internamente consistentes,
+   es decir, las actualizaciones realizadas en la base de datos mientras se ejecuta
+   <application>pg_dump</> no estarán en el volcado. <application>pg_dump</> no bloquea
+   otras operaciones en la base de datos mientras está trabajando. (Las excepciones
+   son aquellas operaciones que necesitan realizarse con un bloqueo exclusivo, como 
+   <command>VACUUM</command>.)
+  </para>
+
+  <important>
+   <para>
+    Cuando su esquema de base de datos utilice OID,s (para cuestiones como llaves externas)
+    deberá instruir a <application>pg_dump</> para volcar los OID,s también. Para ello
+    utilice la opción de línea de comando <option>-o</option>.
+   </para>
+  </important>
+
+  <sect2 id="backup-dump-restore">
+   <title>Restaurando el volcado</title>
+
+   <para>
+    Los ficheros de texto creados por <application>pg_dump</> son adecuados para que 
+    los lea el programa <application>psql</application>. El formato general del 
+    comando para restaurar un volcado es:
+<synopsis>
+psql <replaceable class="parameter">dbname</replaceable> &lt; <replaceable class="parameter">infile</replaceable>
+</synopsis>
+    donde <replaceable class="parameter">infile</replaceable> es el mismo que 
+    utilizó usted como <replaceable class="parameter">outfile</replaceable>
+    para el comando pg_dump. Este comando no creará laa base de datos <replaceable
+    class="parameter">dbname</replaceable>, sino que deberá usted crearla a partir de 
+    template0 antes de ejecutar <application>psql</> (por ejemplo, con userinput>createdb -t template0
+    <replaceable class="parameter">dbname</></userinput>).
+    <application>psql</> soporta opciones similares a <application>pg_dump</> 
+    para controlar la situación del servidor de base de datos y los nombres de usuario.
+    Vea su página de referencia para obtener más información.
+   </para>
+
+   <para>
+    Si los objetos de la base de datos original tenían propietarios diferentes,
+    el volcado instruirá a <application>psql</> para que se conecte con cada
+    uno de los diferentes usuarios afectados, de modo ordenado, y creará 
+    entonces los objetos relevantes. Con este se conserva el esquema de propietarios
+    original. Esto también exige, sin embargo, que todos estos usuarios deban
+    existir previamente en la nueva base, y además que usted esté autorizado para
+    conectarse con cada uno de estos usuarios. Esto podría obligar a relajar
+    temporalmente los parámetros de autenticación de clientes.
+   </para>
+
+   <para>
+    La capacidad de <application>pg_dump</> y <application>psql</> de leer y 
+    escribir en pipes hace también posible que puedan volcar un directorio de
+    base de datos de un servidor en otro, por ejemplo
+    <informalexample>
+<programlisting>
+pg_dump -h <replaceable>host1</> <replaceable>dbname</> | psql -h <replaceable>host2</> <replaceable>dbname</>
+</programlisting>
+    </informalexample>
+   </para>
+
+
+  <important>
+   <para>
+        Los volcados producidos por pg_dump son relativos a template0. Esto
+    hace que cualquier lenguaje, procedimiento, etc. añadido a template1 también 
+    serán volcados por <application>pg_dump</>. Como resultado, cuando se restaure,
+    si está usted utilizando una template1 personalizada, deberá crear la base 
+    de datos a partir de template0, como en el ejemplo anterior.
+   </para>
+  </important>
+
+  </sect2>
+
+  <sect2 id="backup-dump-all">
+   <title>Utilizando <command>pg_dumpall</></title>
+
+   <para>
+    Los mecanismo anterior es incomodo e inapropiado cuando se está copiando
+    un grupo de bases de datos (database cluster) entero. Por esta razón se 
+    proporciona el programa <application>pg_dumpall</>. 
+    <application>pg_dumpall</> copia cada base de datos en un cluster dado, 
+    y asegura que el estado global de datos tales como usuarios y grupos 
+    se conserve. La secuencia de llamada para <application>pg_dumpall</> 
+    es simplemente
+<synopsis>
+pg_dumpall &gt; <replaceable>outfile</>
+</synopsis>
+    Los ficheros resultantes se pueden recuperar con <application>psql</> como
+    se describió antes, pero en este caso es definitivamente necesario que 
+    tenga usted acceso como superusuario, pues es lo que se necesita para
+    restaurar la información de usuarios y grupos.
+   </para>
+
+   <para>
+    <application>pg_dumpall</application> tiene un pequeño fallo: No está
+    preparado para autenticarse interactivamente con cada base de datos que 
+    vuelca. Si está usted utilizando autenticación con palabras de paso, necesitará 
+    fijarlo en la variable de entorno <envar>PGPASSWORD</envar> para comunicar
+    esa palabra de paso a las llamadas subyacentes a <application>pg_dump</>. 
+    Aún más severamente: si tiene usted palabras de paso diferentes en las diferentes
+    bases de datos, <application>pg_dumpall</> fallará. Puede usted elegir 
+    entre utilizar un mecanismo de autenticación diferente para los procesos
+    de copias de seguridad, o bien ajustar el guión del interprete de órdenes (shell script)
+    <filename>pg_dumpall</filename> a sus necesidades.
+   </para>
+  </sect2>
+
+  <sect2 id="backup-dump-large">
+   <title>Grandes Bases de Datos</title>
+
+   <note>
+    <title>Reconocimiento</title>
+    <para>
+     Escrito originalmente por Hannu Krosing
+     (<email>hannu@trust.ee</email>) on 1999-06-19
+    </para>
+   </note>
+
+   <para>
+    Puesto que <productname>Postgres</productname> permite tablas mayores
+    que el máximo tamaño de fichero de su sistam, esto puede ser problemático
+    para realizar el volcado de la tabla en un fichero, ya que el fichero
+    resultante será seguramente mayor que el tamaño máximo permitido en su
+    sistema. Puesto que <application>pg_dump</> escribe en la salida estándar,
+    puede usted utilizar herramientas *nix estándar para resolver este problema.
+   </para>
+
+   <formalpara>
+    <title>Utilizar volcados comprimidos.</title>
+    <para>
+     Utilice su programa de compresión favorito, por ejemplo
+     <application>gzip</application>.
+
+<programlisting>
+pg_dump <replaceable class="parameter">dbname</replaceable> | gzip &gt; <replaceable class="parameter">filename</replaceable>.gz
+</programlisting>
+
+     Recargue con
+
+<programlisting>
+createdb <replaceable class="parameter">dbname</replaceable>
+gunzip -c <replaceable class="parameter">filename</replaceable>.gz | psql <replaceable class="parameter">dbname</replaceable>
+</programlisting>
+
+     o
+
+<programlisting>
+cat <replaceable class="parameter">filename</replaceable>.gz | gunzip | psql <replaceable class="parameter">dbname</replaceable>
+</programlisting>
+    </para>
+   </formalpara>
+
+   <formalpara>
+    <title>Use <application>split</>.</title>
+    <para>
+     Esto le permite partir la salida en piezas de un tamaño aceptable
+     por el sistema de ficheros subyacente. Por ejemplo, para hacer trozos
+     de 1 Mbyte:
+
+     <informalexample>
+<programlisting>
+pg_dump <replaceable class="parameter">dbname</replaceable> | split -b 1m - <replaceable class="parameter">filename</replaceable>
+</programlisting>
+     </informalexample>
+
+     Y restaurela con
+
+     <informalexample>
+<programlisting>
+createdb <replaceable class="parameter">dbname</replaceable>
+cat <replaceable class="parameter">filename</replaceable>.* | psql <replaceable class="parameter">dbname</replaceable>
+</programlisting>
+     </informalexample>
+    </para>
+   </formalpara>
+
+   <formalpara>
+    <title>Utilice el formato de volcado personalizado (V7.1).</title>
+    <para>
+     Si se ha construido PostgreSQL en un sistema con la librería de compresión
+     zlib instalada, el formato de volcado personalizado comprimirá los datos conforme
+     los escribe en el fichero de salida. Para grandes bases de datos, esto producirá
+     un tamaño del fichero de volcado similar al de utilizar gzip, pero tiene la 
+     ventaja añadida de que las tablas podrán ser restauradas selectivamente. El
+     siguiente comando vuelca una base de datos utilizando el formato de volcado
+     personalizado:
+
+     <informalexample>
+<programlisting>
+pg_dump -Fc <replaceable class="parameter">dbname</replaceable> > <replaceable class="parameter">filename</replaceable>
+</programlisting>
+     </informalexample>
+
+     Vea las páginas de referencia de <application>pg_dump</> y <application>pg_restore</>
+     para conseguir más detalles.
+
+    </para>
+   </formalpara>
+
+  </sect2>
+
+  <sect2 id="backup-dump-caveats">
+   <title>Caveats</title>
+
+   <para>
+    <application>pg_dump</> (y por implicación
+    <application>pg_dumpall</>) tiene unas pocas limitaciones que proceden
+    de la dificultad de reconstruir cierta información de los catálogos del
+    sistema.
+   </para>
+
+   <para>
+    Específicamente, el orden en el que <application>pg_dump</> escribe los
+    objetos no es muy sofisticado. Esto puede ocasionar problemas 
+    por ejemplo cuando se utilizan funciones como valores de defecto
+    de columnas. La única respuesta es reordenar manualmente el volcado.
+    Si creó usted dependencias circulares en su esquema, tendrá entonces más
+    trabajo que hacer.
+   </para>
+
+   <para>
+    Por razones de compatibilidad con versiones anteriores, <application>pg_dump</>
+    no vuelca objetos grandes por defecto. Para volcar objetos grandes, deberá 
+    utilizar bien el volcado personalizado, bien el formato de salida TAR, y utilizar
+    la opción -B en <application>pg_dump</>. Diríjase a las páginas de referencia para
+    conseguir más detalles. El directorio <filename>contrib/pg_dumplo</> del 
+    árbol fuente de <productname>Postgres</> también contiene un programa
+    que puede volcar objetos grandes.
+   </para>
+
+   <para>
+    Por favor, familiaricese usted mismo con la página de referencia
+    <citerefentry><refentrytitle>pg_dump</></>.
+   </para>
+  </sect2>
+ </sect1>
+
+ <sect1 id="backup-file">
+  <title>Copia de seguridad del sistema de ficheros.</title>
+
+  <para>
+   Una estrategia de copia de seguridad alternativa es copiar directamente 
+   los ficheros que utiliza <productname>Postgres</> para almacenar los datos 
+   en la base de datos. En <xref linkend="creating-cluster"> está explicado 
+   donde se localizan estos ficheros, pero probablemente ya los haya encontrado
+   si está interesado en este método. Puede usted utilizar el método de su elección
+   para hacer copas de seguridad de sistemas de ficheros habituales, por ejemplo
+   <informalexample>
+<programlisting>
+tar -cf backup.tar /usr/local/pgsql/data
+</programlisting>
+   </informalexample>
+  </para>
+
+  <para>
+   Sin embargo hay dos restricciones que hacen a este método poco práctico, 
+   o al menos inferior a <application>pg_dump</>:
+
+   <orderedlist>
+    <listitem>
+     <para>
+      El servidor de base de datos <emphasis>debe</> estar parado para conseguir
+      copias utilizables. Medidas intermedias como inhabilitar todas las conexiones
+      no trabajarán porque siempre queda algo en los buffers. Por esta razón,
+      tampoco es aconsejable copiar sistemas de ficheros que exigen soportar 
+      <quote>imágenes (snapshots) consistentes</quote>. Se puede encontrar información
+      sobre la parada del servidor en <xref linkend="postmaster-shutdown">.
+     </para>
+
+     <para>
+      Ni que decir tiene que tendrá usted que volver a parar el servidor antes
+      de restaurar los datos.
+     </para>
+    </listitem>
+
+    <listitem>
+     <para>
+      Si ha investigado usted en los detalles del trazado del sistema de ficheros,
+      puede que se encuentre tentado de realizar una copia y una restauración sólo de
+      ciertas tablas individuales, o sólo de ciertas bases de datos, a partir de sus
+      respectivos ficheros o directorios. Esto <emphasis>no</> trabajará, porque la
+      información contenida en esos ficheros sólo incluye la mitad de la verdad. 
+      La otra mitad se encuentra en el fichero <filename>pg_log</>, que contiene 
+      el estado de finalización de todas las transacciones. Un fichero de tabla
+      sólo es utilizable con esta información. Por supuesto, es también imposible
+      restaurar sólo una tabla y el fichero <filename>pg_log</filename> asociado, 
+      porque esto dejaría inutilizable todas las demás tablas en el grupo de bases 
+      de datos.
+     </para>
+    </listitem>
+   </orderedlist>
+  </para>
+
+  <para>
+   Nótese también que una copia de seguridad del sistema de ficheros no será 
+   necesariamente más pequeño que un volcado SQL. Al contrario, la mayoría de las
+   veces será más grande. (<application>pg_dump</applicacion> no necesita volcar el 
+   contenido de los índices, por ejemplo, sino sólo el comando para recrearlos).
+   them.)
+  </para>
+
+ </sect1>
+
+ <sect1 id="migration">
+  <title>Migración entre versiones.</title>
+
+  <para>
+   Como regla general, el formato de almacenamiento interno de los datos está
+   sujeto a cambios entre versiones de <productname>Postgres</>. Esto no se
+   aplica a diferentes <quote>niveles de parches</quote>, en los que los 
+   formatos de almacenamiento son compatibles. Por ejemplo, las versiones
+   6.5.3, 7.0.1 y 7.1 no son compatibles, mientras que 7.0.2 y 7.0.1 sí lo son.
+   Cuando se está actualizando usted entre versiones compatibles, simplemente 
+   reutiliza el área de datos del disco con los nuevos ejecutables. Por el 
+   contrario, necesitará usted <quote>respaldar (backup)</> sus datos y 
+   <quote>restaurarlos</> en el nuevo servidor, utiliando <application>pg_dump</>.
+   (Hay chequeos sobre la marcha que previenen de hacer las cosas de modo equivocado,
+   de modo que no se puedan confundir estos dos pasos). El procedimiento de 
+   instalación preciso no es tema de esta sección, encontrará estos detalles en
+   <citetitle>Instrucciones de Instalación</citetitle> (<citetitle>Installation
+   Instructions</citetitle>).
+  </para>
+
+  <para>
+   Se puede conseguir una última alternativa instalando el nuevo servidor en 
+   un directorio diferente, y correr ambos, nuevo y viejo servidor, en paralelo
+   sobre puertos diferentes. En ese momento, podría usted utilizar algo como
+<informalexample>
+<programlisting>
+pg_dumpall -p 5432 | psql -d template1 -p 6543
+</programlisting>
+</informalexample>
+   para transferir sus datos, o utilizar un fichero intermedio si lo desea.
+   A continuación, podría usted parar el viejo servidor, y arrancar el nuevo en
+   el puerto en el que estaba corriendo el viejo. Debería usted asegurarse de que
+   la base de datos no se ha actualizado tras realizar el <application>pg_dumpall</>,
+   pués de lo contrario, obviamente perdería usted datos. Vea <xref
+   linkend="client-authentication"> para conseguir información sobre cómo
+   prohibir el acceso a los usuarios. En la práctica, probáblemente quiera usted
+   probar sus aplicaciones cliente contra el nuevo servidor, antes de cambiarlos.
+  </para>
+
+  <para>
+   Si no puede, o no quiere, correr dos servidores en paralelo, puede usted
+   hacer el paso del volcado antes de instalar la nueva versión, parar el servidor,
+   mover la instalación anterior a otro directorio, instalar la nueva versión, 
+   arrancar el nuevo servidor y restaurar ahora los datos. Por ejemplo:
+<informalexample>
+<programlisting>
+pg_dumpall > backup
+kill -INT `cat /usr/local/pgsql/postmaster.pid`
+mv /usr/local/pgsql /usr/local/pgsql.old
+cd /usr/src/postgresql-7.1
+gmake install
+initdb -D /usr/local/pgsql/data
+postmaster -D /usr/local/pgsql/data
+psql < backup
+</programlisting>
+</informalexample>
+   Diríjase a <xref linkend="runtime"> para informarse sobre los mecanismos para
+   parar y arrancar el servidor y otros detalles. Las instrucciones de instalación
+   le avisarán de los puntos estratégicos en los que realizar estos pasos.
+  </para>
+
+  <note>
+   <para>
+    Cuando usted <quote>mueve la instalación anterior a otro directorio</>, está ya 
+    no será perfectamente utilizable. Algunas partes de la instalación contienen
+    información sobre el lugar donde se encuentran otras partes. Esto habitualmente
+    no es un gran problema, pero si planea usted utilizar dos instalaciones en paralelo,
+    debería asignarles directorios de instalación diferentes en el momento de la
+    construcción.
+   </para>
+  </note>
+ </sect1>
+</chapter>

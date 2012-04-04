@@ -1,0 +1,384 @@
+.\" Hey Emacs! This file is -*- nroff -*- source.
+.\"
+.\" This manpage is copyright (C) 1992 Drew Eckhardt,
+.\"                 copyright (C) 1995 Michael Shields.
+.\"
+.\" Permission is granted to make and distribute verbatim copies of this
+.\" manual provided the copyright notice and this permission notice are
+.\" preserved on all copies.
+.\"
+.\" Permission is granted to copy and distribute modified versions of this
+.\" manual under the conditions for verbatim copying, provided that the
+.\" entire resulting derived work is distributed under the terms of a
+.\" permission notice identical to this one
+.\" 
+.\" Since the Linux kernel and libraries are constantly changing, this
+.\" manual page may be incorrect or out-of-date.  The author(s) assume no
+.\" responsibility for errors or omissions, or for damages resulting from
+.\" the use of the information contained herein.  The author(s) may not
+.\" have taken the same level of care in the production of this manual,
+.\" which is licensed free of charge, as they might when working
+.\" professionally.
+.\" 
+.\" Formatted or processed versions of this manual, if unaccompanied by
+.\" the source, must acknowledge the copyright and authors of this work.
+.\"
+.\" Modified Mon Oct 21 23:05:29 EDT 1996 by Eric S. Raymond <esr@thyrsus.com>
+.\" Modified Thu Feb 24 01:41:09 CET 2000 by aeb
+.\" Modified Thu Feb  9 22:32:09 CET 2001 by bert hubert <ahu@ds9a.nl>, aeb
+.\" Modified Mon Nov 11 14:35:00 PST 2002 by Ben Woodard <ben@zork.net>
+.\" Sun Feb 11 14:07:00 MET 1996  Martin Schulze  <joey@linux.de>
+.\"	* layout slightly modified
+.\"
+.\" Modified Mon Oct 21 23:05:29 EDT 1996 by Eric S. Raymond <esr@thyrsus.com>
+.\" Translated into Spanish Fri 23 Jan 1998 by Gerardo Aburruzaga
+.\" García <gerardo.aburruzaga@uca.es>
+.\" Revisado por Miguel Pérez Ibars <mpi79470@alu.um.es> el 29-septiembre-2004
+.\"
+.TH SELECT 2 "9 febrero 2001" "Linux 2.4" "Manual del Programador de Linux"
+.SH NOMBRE
+select, pselect, FD_CLR, FD_ISSET, FD_SET, FD_ZERO \- multiplexación de E/S síncrona
+.\"synchronous I/O multiplexing
+.SH SINOPSIS
+/* Según POSIX 1003.1-2001 */
+.br
+.B #include <sys/select.h>
+.sp
+/* Según estándares anteriores */
+.br
+.B #include <sys/time.h>
+.br
+.B #include <sys/types.h>
+.br
+.B #include <unistd.h>
+.sp
+\fBint select(int \fIn\fB, fd_set *\fIreadfds\fB,
+fd_set *\fIwritefds\fB, fd_set *\fIexceptfds\fB,
+struct timeval *\fItimeout\fB);
+.sp
+\fBint pselect(int \fIn\fB, fd_set *\fIreadfds\fB,
+fd_set *\fIwritefds\fB, fd_set *\fIexceptfds\fB,
+const struct timespec *\fItimeout\fB, const sigset_t *\fIsigmask\fB);
+.sp
+.BI "FD_CLR(int " fd ", fd_set *" set );
+.br
+.BI "FD_ISSET(int " fd ", fd_set *" set );
+.br
+.BI "FD_SET(int " fd ", fd_set *" set );
+.br
+.BI "FD_ZERO(fd_set *" set );
+.fi
+.SH DESCRIPCIÓN
+Las funciones
+.B select
+y
+.B pselect
+esperan a que un número de descriptores de fichero cambien de estado.
+.PP
+Su función es idéntica, con tres diferencias:
+.TP
+(i)
+La función
+.B select
+usa un plazo de espera (timeout)  que es de tipo
+.I struct timeval
+(con segundos y microsegundos), mientras
+.B pselect
+usa el tipo
+.I struct timespec
+(con segundos y nanosegundos).
+.TP
+(ii)
+La función
+.B select
+puede actualizar el parámetro
+.I timeout
+para indicar el tiempo sobrante. La función
+.B pselect
+no modifica este parámetro.
+.TP
+(iii)
+La función
+.B select
+no tiene parámetro
+.I sigmask
+, y se comporta como
+.B pselect
+llamada con el argumento
+.IR sigmask 
+a NULL.
+.PP
+Se miran tres conjuntos independientes de descriptores. Aquéllos
+listados en
+.I readfds
+serán observados para ver si hay caracteres que llegan a estar
+disponibles para lectura (más concretamente,  para ver si una operación de lectura
+no se bloqueará - en particular, un descriptor de fichero está también preparado
+en fin-de-fichero),
+aquéllos en
+.I writefds
+serán observados para ver si una operación de escritura no se bloqueará, y aquéllos en
+.I exceptfds
+serán observados para ver si ocurren excepciones. En caso de éxito,
+los conjuntos se modifican en marcha para indicar qué descriptores
+cambiaron realmente su estado.
+.PP
+Se proporcionan cuatro macros para manipular los conjuntos.
+.B FD_ZERO
+limpiará un conjunto.
+.B FD_SET
+y
+.B FD_CLR
+añaden o borran un descriptor dado a o de un conjunto.
+.B FD_ISSET
+mira a ver si un descriptor es parte del conjunto; esto es útil
+después de que
+.B select
+regrese.
+.PP
+.I n
+es el descriptor con el número más alto en cualquiera de los tres
+conjuntos, más 1.
+.PP
+.I timeout
+es un límite superior de la cantidad de tiempo transcurrida antes de que
+.B select
+regrese. Puede ser cero, causando que
+.B select
+regrese inmediatamente. Si
+.I timeout
+es NULL (no hay tiempo de espera),
+.B select
+puede bloquear indefinidamente.
+.PP
+.I sigmask
+es un puntero a una máscara de señales (vea
+.BR sigprocmask (2));
+si es distinto de NULL, 
+.B pselect
+reemplaza en primer lugar la máscara de señales actual por aquella
+a la que apunta
+.IR sigmask ,
+luego hace la funcion `select',  y por último restablece la máscara de
+señales original de nuevo.
+.PP
+La idea de
+.B pselect
+es que si alguien quiere esperar un evento, bien una señal
+o cualquier otra cosa sobre un descriptor de fichero, se necesita una comprobación 
+atómica para evitar condiciones de carrera.  (Suponga que el manejador de
+señales fija una opción global y regresa. Después una comprobación de
+esta opción seguida de una llamada a
+.BR select ()
+podría colgarse indefinidamente si la señal llegó justo después de la 
+comprobación pero justo antes de la llamada. Por otra parte,
+.B pselect
+le permite bloquear señales en primer lugar, manejar las señales que
+hayan llegado,  y después llamar a
+.BR pselect ()
+con la máscara
+.IR sigmask 
+deseada,
+evitando la condición de carrera.)
+Puesto que en la actualidad Linux no cuenta con una llamada al sistema
+.IR pselect ()
+, la rutina actual de glibc2 todavía tiene este defecto.
+.SS "El plazo de espera o timeout"
+Las estructuras de tiempo involucradas están definidas en
+.I <sys/time.h>
+y tienen el siguiente aspecto
+
+.RS
+.nf
+struct timeval { 
+    long    tv_sec;         /* segundos */
+    long    tv_usec;        /* microsegundos */
+};
+.fi
+.RE
+
+and
+
+.RS
+.nf
+struct timespec {
+    long    tv_sec;         /* segundo */
+    long    tv_nsec;        /* nanosegundos */
+};
+.fi
+.RE
+
+(Sin embargo,  lea más abajo sobre las versiones de POSIX 1003.1-2001.)
+.PP
+Hay algún código por ahí que llama a
+.B select
+con los tres conjuntos vacíos,
+.I n
+cero, y un
+.I timeout
+distinto de cero como una forma transportable y curiosa de dormir con
+una precisión por debajo del segundo.
+.PP
+En Linux,
+.I timeout
+se modifica para reflejar la cantidad de tiempo no dormido; la mayoría
+de otras implementaciones no hacen esto. Esto produce problemas cuando
+el código de Linux que lee
+.I timeout
+se transporta a otros sistemas operativos, y cuando se transporta a
+Linux código que reutiliza una struct timeval para varias
+.BR select s
+en un bucle sin reinicializarla. Considere que
+.I timeout
+está indefinido después de que
+.B select
+regrese.
+.\" .PP - it is rumoured that:
+.\" On BSD, when a timeout occurs, the file descriptor bits are not changed.
+.\" - it is certainly true that:
+.\" Linux follows SUSv2 and sets the bit masks to zero upon a timeout.
+.SH VALOR DEVUELTO
+En caso de éxito,
+.B select 
+y
+.B pselect
+devuelven el número de descriptores contenidos en los conjuntos de
+descriptores, que puede ser cero si el tiempo de espera expira antes
+de que ocurra algo interesante.
+En caso de error, se devuelve \-1, y se pone un valor apropiado en 
+.IR errno ;
+los conjuntos y
+.I timeout
+estarán indefinidos, así que no
+confíe en sus contenidos tras un error.
+.SH ERRORES
+.TP
+.B EBADF
+Se ha dado un descriptor de fichero inválido en uno de los conjuntos.
+.TP
+.B EINTR 
+Se ha capturado una señal no bloqueante.
+.TP
+.B EINVAL 
+.I n
+es negativo o el valor contenido en
+.I timeout
+no es válido.
+.TP
+.B ENOMEM
+.B select
+no ha sido capaz de reservar memoria para las tablas internas.
+.SH EJEMPLO
+.nf
+#include <stdio.h>
+#include <sys/time.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+int
+main(void) {
+    fd_set rfds;
+    struct timeval tv;
+    int valret;
+
+    /* Mirar stdin (df 0) para ver si tiene entrada */
+    FD_ZERO(&rfds);
+    FD_SET(0, &rfds);
+    /* Esperar hasta 5 s */
+    tv.tv_sec = 5;
+    tv.tv_usec = 0;
+
+    valret = select(1, &rfds, NULL, NULL, &tv);
+    /* ¡No confiar ahora en el valor de tv! */
+
+    if (valret)
+        printf("Los datos ya están disponibles.\\n");
+        /* FD_ISSET(0, &rfds) será verdadero */
+    else
+        printf("Ningún dato en 5 segundos.\\n");
+
+    return 0;
+}
+.fi
+.SH CONFORME A
+4.4BSD (la función
+.B select
+apareció por primera vez en 4.2BSD). Generalmente es transportable a o
+desde sistemas no-BSD que admitan clones de la capa de zócalos de BSD
+(incluyendo variantes System V). Sin embargo, observe que la variante
+System V normalmente pone la variable de espera antes de salir, pero
+la variante BSD no.
+.PP
+La función
+.B pselect
+está definida en IEEE Std 1003.1g-2000 (POSIX.1g), y parte de
+POSIX 1003.1-2001.
+Se encuentra en glibc2.1 y posteriores.
+Glibc2.0 posee una función con este nombre, que sin embargo no acepta un parámetro
+.I sigmask.
+.SH OBSERVACIONES
+fd_set es un buffer de tamaño fijo. Ejecutar FD_CLR o FD_SET con un valor de
+.I fd
+que sea negativo o igual o mayor que FD_SETSIZE tendrá
+un comportamiento indefinido.  Además, POSIX requiere que
+.I fd
+sea un descriptor de fichero válido.
+
+En lo que se refiere a los tipos involucrados, lo habitual es que
+los dos campos de una estructura timeval sean de tipo long
+(como se muestra abajo), y la estructura esté definida en
+.IR <sys/time.h> .
+La postura de POSIX 1003.1-2001 es
+
+.RS
+.nf
+struct timeval {
+    time_t         tv_sec;     /* segundos */
+    suseconds_t    tv_usec;    /* microsegundos */
+};
+.fi
+.RE
+
+donde la estructura está definida en
+.I <sys/select.h>
+y los tipos de datos time_t y suseconds_t están definidos en
+.IR <sys/types.h> .
+.LP
+En lo que se refiere a prototipos, lo habitual es incluir
+el fichero de cabecera
+.I <time.h>
+para
+.BR select .
+La postura de POSIX 1003.1-2001 es incluir el fichero
+.I <sys/select.h>
+para
+.B select
+y
+.BR pselect .
+Libc4 y libc5 no poseen una cabecera
+.I <sys/select.h>
+; bajo glibc 2.0 y posteriores esta cabecera sí existe.
+Bajo glibc 2.0, proporciona incondicionalemente el prototipo incorrecto para
+.BR pselect ,
+bajo glibc 2.1-2.2.1 proporciona
+.B pselect
+cuando
+.B _GNU_SOURCE
+está definido, bajo glibc 2.2.2-2.2.4 lo proporciona cuando
+.B _XOPEN_SOURCE
+está definido y tiene un valor de 600 o mayor.
+Sin duda, desde POSIX 1003.1-2001, debería dar el prototipo por defecto.
+.SH "VÉASE TAMBIÉN"
+Para un tutorial detallado con ejemplos, vea
+.BR select_tut (2).
+.LP
+
+Para una mera descripción, vea
+.BR accept (2),
+.BR connect (2),
+.BR poll (2),
+.BR read (2),
+.BR recv (2),
+.BR send (2),
+.BR sigprocmask (2),
+.BR write (2)

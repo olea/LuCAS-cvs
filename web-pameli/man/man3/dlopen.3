@@ -1,0 +1,209 @@
+.\" -*- nroff -*-
+.\" Copyright 1995 Yggdrasil Computing, Incorporated.
+.\" written by Adam J. Richter (adam@yggdrasil.com),
+.\" with typesetting help from Daniel Quinlan (quinlan@yggdrasil.com).
+.\"
+.\" This is free documentation; you can redistribute it and/or
+.\" modify it under the terms of the GNU General Public License as
+.\" published by the Free Software Foundation; either version 2 of
+.\" the License, or (at your option) any later version.
+.\"
+.\" The GNU General Public License's references to "object code"
+.\" and "executables" are to be interpreted as the output of any
+.\" document formatting or typesetting system, including
+.\" intermediate and printed output.
+.\"
+.\" This manual is distributed in the hope that it will be useful,
+.\" but WITHOUT ANY WARRANTY; without even the implied warranty of
+.\" MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+.\" GNU General Public License for more details.
+.\"
+.\" You should have received a copy of the GNU General Public
+.\" License along with this manual; if not, write to the Free
+.\" Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139,
+.\" USA.
+.\" Translated May 4 1998
+.\"
+.TH DLOPEN 3 "16 Mayo 1995" "Linux" "Manual del Programador de Linux"
+.SH NOMBRE
+dlclose, dlerror, dlopen, dlsym \- Interfaz de programación con el cargador
+de enlaces dinámicos.
+.SH SINOPSIS
+.B #include <dlfcn.h>
+.sp
+.BI "void *dlopen (const char *" "nomfich" ", int " indicador ");
+.br
+.BI "const char *dlerror(void);"
+.br
+.BI "void *dlsym(void *"manejador ", char *"símbolo ");
+.br
+.BI "int dlclose (void *"manejador ");
+.sp
+Símbolos especiales:
+.BR "_init" ", " "_fini" ". "
+.SH DESCRIPCIÓN
+.B dlopen
+carga una biblioteca dinámica desde el fichero nombrado por la cadena que
+termina con el valor nulo
+.I nomfich
+y devuelve un "manejador" opaco para la biblioteca dinámica.
+Si
+.I nomfich
+no es un camino absoluto (esto es, no comienza con "/"), entonces el fichero
+se busca en los siguientes lugares:
+.RS
+.PP
+Una lista de directorios separados por dos puntos en la variable de entorno
+de usuario \fBLD_LIBRARY\fP.
+.PP
+La lista de bibliotecas especificada en \fI/etc/ld.so.cache\fP.
+.PP
+\fI/usr/lib\fP, seguida de \fI/lib\fP.
+.RE
+.PP
+Si
+.I nomfich
+es un apuntador nulo (NULL), entonces el manejador devuelto corresponde al
+programa principal.
+.PP
+Las referencias externas en la biblioteca se resuelven usando las bibliotecas en
+la lista de dependencias de la misma, y cualquier otra biblioteca abierta 
+previamenta con el indicador 
+.BR RTLD_GLOBAL .
+Si el ejecutable fue enlazado con el indicador "-rdynamic", entonces los 
+símbolos globales en dicho ejecutable también se usarán para resolver referencias
+en una bibliotaca cargada dinámicamente.
+.PP
+.I indicador
+debe ser o bien
+.BR RTLD_LAZY ,
+significando que resuelva los símbolos no definidos según se vaya ejecutando 
+código de la biblioteca dinámica, o bien
+.BR RTLD_NOW ,
+significando que deben resolverse todos los símbolos sin definir antes de que
+.B dlopen
+vuelva, y que falle si esto no se puede hacer.
+Opcionalmente, puede aplicarse la operación "o" entre
+.B RTLD_GLOBAL
+e
+.IR indicador,
+en cuyo caso los símbolos externos definidos en la biblioteca estarán 
+disponibles a otras bibliotecas cargadas posteriormente.
+.PP
+Si la biblioteca exporta una rutina llamada
+.BR _init ,
+entonces ese código se ejecuta antes de que dlopen vuelva.
+Si la misma biblioteca se caga dos veces con
+.BR dlopen() ,
+se devuelve el mismo manejador de fichero. La biblioteca dl mantiene 
+contadores de los enlaces para manejadores dinámicos de fichero, así que una 
+biblioteca dinámica no se desaloja hasta que
+.B dlclose
+ha sido llamado sobre ella tantas veces como
+.B dlopen
+se ha realizado en ella.
+.PP
+Si
+.B dlopen
+falla por alguna razón, devuelve el valor nulo NULL.
+Puede obtenerse una cadena legible describiendo el error más reciente ocurrido
+desde cualquiera de las rutinas dl (dlopen, dlsym o dlclose) mediante
+.BR dlerror() .
+.B dlerror
+devuelve NULL si no han ocurrido errores desde la iniciación o desde que se 
+llamó la última vez. (Llamando a 
+.B dlerror()
+dos veces consecutivas, siempre se obtendrá el NULL procedente de la segunda 
+llamada).
+
+.B dlsym
+toma un "manejador" de una biblioteca dinámica devuelto por dlopen y el nombre
+del símbolo terminado en nulo, devolviendo la dirección donde ese símbolo está
+cargado. Si no se encuentra el símbolo,
+.B dlsym
+devuelve NULL; de todas formas, el modo correcto de comprobar un error de
+.B dlsym
+es guardar el resultado de
+.B dlerror
+en una variable, y entonces revisar si el valor guardado no es nulo.
+Esto es así porque el valor del símbolo realmente podría ser nulo.
+También es necesario guardar los resultados de
+.B dlerror
+en una variable porque si se llama otra vez a
+.B dlerror
+devolverá nulo.
+.PP
+.B dlclose
+decrementa el contador de referencias al manejador de la biblioteca dinámica
+.IR manejador .
+Si el contador de referencias llega a cero y ninguna otra biblioteca cargada
+usa símbolos en ella, entonces se descarga la bilbioteca dinámica. Si la 
+biblioteca dinámica exporta una rutina llamada
+.BR _fini ,
+entonces esa rutina se llama justo antes de que la biblioteca se descargue.
+.SH EJEMPLOS
+.B Cargar la bibloteca matemática, e imprimir el coseno de 2.0:
+.RS
+.nf
+.if t .ft CW
+#include <dlfcn.h>
+
+int main(int argc, char **argv) {
+    void *manejador = dlopen ("/lib/libm.so", RTLD_LAZY);
+    double (*cosine)(double) = dlsym(manejador, "cos");
+    printf ("%f\\n", (*cosine)(2.0));
+    dlclose(manejador);
+}
+.if t .ft P
+.fi
+.PP
+Si este programa estuviera en un fichero llamado "cucu.c", se construiría el 
+programa con el comando siguiente:
+.RS
+.LP
+gcc -rdynamic -o cucu cucu.c -ldl
+.RE
+.RE
+.LP
+.B Hacer lo mismo, pero comprobando los errores a cada paso:
+.RS
+.nf
+.if t .ft CW
+#include <stdio.h>
+#include <dlfcn.h>
+
+int main(int argc, char **argv) {
+    void *manejador;
+    double (*cosine)(double);
+    char *error;
+
+    manejador = dlopen ("/lib/libm.so", RTLD_LAZY);
+    if (!manejador) {
+        fputs (dlerror(), stderr);
+        exit(1);
+    }
+
+    cosine = dlsym(manejador, "cos");
+    if ((error = dlerror()) != NULL)  {
+        fputs(error, stderr);
+        exit(1);
+    }
+
+    printf ("%f\\n", (*cosine)(2.0));
+    dlclose(manejador);
+}
+.if t .ft P
+.fi
+.RE
+.SH RECONOCIMIENTOS
+La interfaz estándar dlopen proviene de Solaris.
+La implementación Linux de dlopen en principio fue escrita por 
+Eric Youngdale con ayuda de Mitch D'Souza, David Engel,
+Hongjiu Lu, Andreas Schwab y otros.
+La página de manual la escribió Adam Richter.
+.SH "VÉASE TAMBIÉN"
+.BR ld(1) ,
+.BR ld.so(8) ,
+.BR ldconfig(8) ,
+.BR ldd(1) ,
+.BR ld.so.info .

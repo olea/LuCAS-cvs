@@ -1,0 +1,204 @@
+.\" Hey Emacs! This file is -*- nroff -*- source.
+.\"
+.\" Copyright (c) 1992 Drew Eckhardt (drew@cs.colorado.edu), March 28, 1992
+.\"
+.\" Permission is granted to make and distribute verbatim copies of this
+.\" manual provided the copyright notice and this permission notice are
+.\" preserved on all copies.
+.\"
+.\" Permission is granted to copy and distribute modified versions of this
+.\" manual under the conditions for verbatim copying, provided that the
+.\" entire resulting derived work is distributed under the terms of a
+.\" permission notice identical to this one
+.\" 
+.\" Since the Linux kernel and libraries are constantly changing, this
+.\" manual page may be incorrect or out-of-date.  The author(s) assume no
+.\" responsibility for errors or omissions, or for damages resulting from
+.\" the use of the information contained herein.  The author(s) may not
+.\" have taken the same level of care in the production of this manual,
+.\" which is licensed free of charge, as they might when working
+.\" professionally.
+.\" 
+.\" Formatted or processed versions of this manual, if unaccompanied by
+.\" the source, must acknowledge the copyright and authors of this work.
+.\"
+.\" Modified by Michael Haardt (michael@moria.de)
+.\" Modified Fri Jul 23 21:26:27 1993 by Rik Faith (faith@cs.unc.edu)
+.\" Modified 21 Aug 1994 by Michael Chastain (mec@shell.portal.com):
+.\"   Fixed necessary '#include' lines.
+.\" Modified 15 Apr 1995 by Michael Chastain (mec@shell.portal.com):
+.\"   Added reference to adjtimex.
+.\" Removed some nonsense lines pointed out by Urs Thuermann,
+.\"    (urs@isnogud.escape.de), aeb, 950722.
+.\" Modified 14 Jan 1997 by Austin Donnelly (and1000@debian.org):
+.\"   Added return values section, and bit on EFAULT
+.\" Added clarification on timezone, aeb, 971210.
+.\" Translated 15 Dec 1997 by Gerardo Aburruzaga Gª <gerardo.aburruzaga@uca.es>
+.\" Translation revised Tue Aug 18 1998 by Juan Piernas <piernas@ditec.um.es>
+.\"
+.TH GETTIMEOFDAY 2 "10 diciembre 1997" "Linux 2.0.32" "Manual del Programador de Linux"
+.SH NOMBRE
+gettimeofday, settimeofday \- pone u obtiene la hora
+.SH SINOPSIS
+.B #include <sys/time.h>
+.br
+.B #include <unistd.h>
+.sp
+.BI "int gettimeofday(struct timeval *" tv ", struct timezone *" tz );
+.br
+.BI "int settimeofday(const struct timeval *" tv
+.BI ", const struct timezone *" tz );
+.SH DESCRIPCIÓN
+.B gettimeofday
+y
+.B settimeofday
+pueden poner tanto la hora como una zona horaria.
+.I tv
+es una estructura
+.BR timeval ,
+tal como se especifica en /usr/include/sys/time.h:
+.sp
+.nf
+struct timeval {
+.in +8
+long    tv_sec;         /* segundos */
+long    tv_usec;        /* microsegundos */
+.in -8
+};
+.fi
+.PP
+.sp
+y 
+.I tz
+es una estructura 
+.B timezone 
+:
+.sp
+.nf
+struct timezone {
+.in +8
+int   tz_minuteswest; /* minutos al O de Greenwich */
+int   tz_dsttime;     /* tipo de correción horaria invierno/verano */
+.in -8
+};
+.fi
+.PP
+El uso de la estructura timezone es obsoleto; el campo
+.I tz_dsttime
+nunca ha sido utilizado en Linux - no lo ha sido y nunca será soportado por
+libc o glibc. Todas y cada una de las ocurrencias de este campo en el fuente
+del núcleo (distintas de la declaración) son un fallo. Por tanto, lo
+siguiente es puramente de interés histórico.
+
+El campo
+.I tz_dsttime
+contiene una constante simbólica (los valores se dan más abajo) que indica
+en qué parte del año la `correción horaria invierno/verano' (Daylight Saving
+Time, DST, también conocida como `horario de ahorro energético') está en vigor.
+(Nota: su valor es constante a lo largo del año - no indica si DST está o no
+en vigor, sólo selecciona un algoritmo).
+Los algoritmos de corrección horaria invierno/verano se definen como sigue:
+.PP
+.ta 14
+\fB DST_NONE\fP       /* no hay */
+.br
+\fB DST_USA\fP        /* estilo EE.UU. */
+.br
+\fB DST_AUST\fP       /* estilo australiano */
+.br
+\fB DST_WET\fP        /* como en Europa Occidental */
+.br
+\fB DST_MET\fP        /* como en Europa Central */
+.br
+\fB DST_EET\fP        /* como en Europa del Este */
+.br
+\fB DST_CAN\fP        /* Canadá */
+.br
+\fB DST_GB\fP         /* Gran Bretaña e Irlanda */
+.br
+\fB DST_RUM\fP        /* Rumanía */
+.br
+\fB DST_TUR\fP        /* Turquía */
+.br
+\fB DST_AUSTALT\fP    /* est. australiano con cambio en 1986 */
+.PP
+Naturalmente, resultó ser que el periodo en el que la corrección horaria
+invierno/verano está en vigor no se podía dar mediante un simple algoritmo,
+uno por país: de hecho, este periodo se determina por decisiones políticas
+impredecibles. Por tanto, este método de representación de las zonas
+horarias se ha abandonado. Bajo Linux, en una llamada a
+.B settimeofday
+el campo
+.I tz_dsttime
+debe ser cero.
+.PP
+Bajo Linux hay algunas semánticas de `Warp clock' peculariares asociadas a
+la llamada al sistema
+.B settimeofday
+si en la primera llamada de todas (después del arranque) que tenga un
+argumento
+.I tz
+no NULL, el argumento
+.I tv
+es NULL y el campo
+.I tz_minuteswest
+es no cero. En tal caso, se asume que el reloj CMOS está en el horario local
+y que tiene que ser incrementado en esta cantidad para obtener el horario
+del sistema UTC. No cabe duda que usar esta característica es una mala idea.
+.PP
+Para operar sobre la estructura timeval se definen las siguientes macros:
+.br
+.nf
+#define timerisset(tvp)\\
+.ti +8
+((tvp)->tv_sec || (tvp)->tv_usec)
+#define timercmp(tvp, uvp, cmp)\\
+.in +8
+((tvp)->tv_sec cmp (uvp)->tv_sec ||\\
+(tvp)->tv_sec == (uvp)->tv_sec &&\\
+(tvp)->tv_usec cmp (uvp)->tv_usec)
+.in -8
+#define timerclear(tvp)\\
+.ti +8
+((tvp)->tv_sec = (tvp)->tv_usec = 0)
+.fi
+.PP
+Si 
+.I tv
+o
+.I tz
+es nulo, la estructura correspondiente no se ajusta ni se devuelve.
+.PP
+Solamente el super-usuario puede emplear
+.BR settimeofday .
+.SH "VALOR DEVUELTO"
+.B gettimeofday
+y
+.B settimeofday
+devuelven 0 en caso de éxito ó -1 si ocurre un fallo (en cuyo caso
+.I errno
+toma un valor apropiado).
+.SH ERRORES
+.TP
+.B EPERM 
+Alguien que no es el super-usuario ha llamado a
+.B settimeofday
+.
+.TP
+.B EINVAL
+La zona horaria (o algo más) es inválida.
+.TP
+.B EFAULT
+Uno de  
+.I tv
+o
+.I tz
+apuntaba afuera de su espacio de direcciones accesible. 
+.SH "CONFORME A"
+SVr4, BSD 4.3
+.SH "VÉASE TAMBIÉN"
+.BR date (1),
+.BR adjtimex (2),
+.BR time (2),
+.BR ctime (3),
+.BR ftime (3)

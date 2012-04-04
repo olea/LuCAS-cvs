@@ -1,0 +1,224 @@
+.\" Copyright 1993 Giorgio Ciucci (giorgio@crcc.it)
+.\"
+.\" Permission is granted to make and distribute verbatim copies of this
+.\" manual provided the copyright notice and this permission notice are
+.\" preserved on all copies.
+.\"
+.\" Permission is granted to copy and distribute modified versions of this
+.\" manual under the conditions for verbatim copying, provided that the
+.\" entire resulting derived work is distributed under the terms of a
+.\" permission notice identical to this one.
+.\" 
+.\" Since the Linux kernel and libraries are constantly changing, this
+.\" manual page may be incorrect or out-of-date.  The author(s) assume no
+.\" responsibility for errors or omissions, or for damages resulting from
+.\" the use of the information contained herein.  The author(s) may not
+.\" have taken the same level of care in the production of this manual,
+.\" which is licensed free of charge, as they might when working
+.\" professionally.
+.\" 
+.\" Formatted or processed versions of this manual, if unaccompanied by
+.\" the source, must acknowledge the copyright and authors of this work.
+.\"
+.\" Modified Tue Oct 22 08:11:14 EDT 1996 by Eric S. Raymond <esr@thyrsus.com>
+.\" Modified Sun Feb 18 01:59:29 2001 by Andries E. Brouwer <aeb@cwi.nl>
+.\" Modified, 27 May 2004, Michael Kerrisk <mtk-manpages@gmx.net>
+.\"     Added notes on CAP_IPC_OWNER requirement
+.\" Modified, 17 Jun 2004, Michael Kerrisk <mtk-manpages@gmx.net>
+.\"     Added notes on CAP_SYS_ADMIN requirement for IPC_SET and IPC_RMID
+.\" Modified, 11 Nov 2004, Michael Kerrisk <mtk-manpages@gmx.net>
+.\"	Language and formatting clean-ups
+.\"	Added msqid_ds and ipc_perm structure definitions
+.\"
+.TH MSGCTL 2 2004-11-10 "Linux 2.6.9" "Linux Programmer's Manual"
+.SH NAME
+msgctl \- message control operations
+.SH SYNOPSIS
+.nf
+.B
+#include <sys/types.h>
+.B
+#include <sys/ipc.h>
+.B
+#include <sys/msg.h>
+.fi
+.sp
+.BI "int msgctl(int " msqid ,
+.BI "int " cmd ,
+.BI "struct msqid_ds *" buf );
+.SH DESCRIPTION
+.BR msgctl ()
+performs the control operation specified by
+.I cmd
+on the message queue with identifier
+.IR msqid .
+.PP
+The
+.I msqid_ds
+data structure is defined in <sys/msg.h> as follows:
+.nf
+.in +4n
+
+struct msqid_ds {
+    struct ipc_perm msg_perm;     /* Ownership and permissions
+    time_t          msg_stime;    /* Time of last msgsnd() */
+    time_t          msg_rtime;    /* Time of last msgrcv() */
+    time_t          msg_ctime;    /* Time of last change */
+    unsigned long   __msg_cbytes; /* Current number of bytes in 
+                                     queue (non-standard) */
+    msgqnum_t       msg_qnum;     /* Current number of messages 
+                                     in queue */
+    msglen_t        msg_qbytes;   /* Maximum number of bytes 
+                                     allowed in queue */
+    pid_t           msg_lspid;    /* PID of last msgsnd() */
+    pid_t           msg_lrpid;    /* PID of last msgrcv() */
+
+};
+.in -4n
+.fi
+.PP
+The
+.I ipc_perm
+structure is defined in <sys/ipc.h> as follows
+(the highlighted fields are settable using
+.BR IPC_SET ):
+.PP
+.nf
+.in +4n
+struct ipc_perm {
+    key_t key;            /* Key supplied to msgget() */
+    uid_t \fBuid\fP;            /* Effective UID of owner */
+    gid_t \fBgid\fP;            /* Effective GID of owner */
+    uid_t cuid;           /* Effective UID of creator */
+    gid_t cgid;           /* Effective GID of creator */
+    unsigned short \fBmode\fP;  /* Permissions */
+    unsigned short seq;   /* Sequence number */
+};
+.in -4n
+.fi
+.PP
+Valid values for
+.I cmd
+are:
+.TP
+.B IPC_STAT
+Copy information from the kernel data structure associated with
+.I msqid
+into the
+.I msqid_ds
+structure pointed to by
+.IR buf .
+The caller must have read permission on the message queue.
+.TP
+.B IPC_SET
+Write the values of some members of the
+.I msqid_ds
+structure pointed to by
+.I buf
+to the kernel data structure associated with this message queue,
+updating also its
+.I msg_ctime
+member.
+The following members of the structure are updated: 
+.IR msg_qbytes ,
+.IR msg_perm.uid ,
+.IR msg_perm.gid ,
+and (the least significant 9 bits of)
+.IR msg_perm.mode .
+The effective UID of the calling process must match the owner
+.RI ( msg_perm.uid )
+or creator 
+.RI ( msg_perm.cuid )
+of the message queue, or the caller must be privileged.
+Appropriate privilege (Linux: the
+.B CAP_IPC_RESOURCE
+capability) is required to raise the
+.I msg_qbytes
+value beyond the system parameter
+.BR MSGMNB .
+.TP
+.B IPC_RMID
+Immediately remove the message queue,
+awakening all waiting reader and writer processes (with an error
+return and
+.I errno
+set to
+.BR EIDRM ).
+The calling process must have appropriate privileges
+or its effective user\-ID must be either that of the creator or owner
+of the message queue.
+.SH "RETURN VALUE"
+On success, the return value will be 0
+otherwise \-1
+with
+.I errno
+indicating the error.
+.SH ERRORS
+On failure,
+.I errno
+is set to one of the following:
+.TP 11
+.B EACCES
+The argument
+.I cmd
+is equal to
+.B IPC_STAT
+or
+.BR MSG_STAT ,
+but the calling process does not have read permission on the message queue
+.IR msqid ,
+and does not have the
+.B CAP_IPC_OWNER
+capability.
+.TP
+.B EFAULT
+The argument
+.I cmd
+has the value
+.B IPC_SET
+or
+.BR IPC_STAT ,
+but the address pointed to by
+.I buf
+isn't accessible.
+.TP
+.B EIDRM
+The message queue was removed.
+.TP
+.B EINVAL
+Invalid value for
+.I cmd
+or
+.IR msqid .
+.TP
+.B EPERM
+The argument
+.I cmd
+has the value
+.B IPC_SET
+or
+.BR IPC_RMID ,
+but the effective user ID of the calling process is not the creator
+(as found in
+.IR msg_perm.cuid )
+or the owner
+(as found in
+.IR msg_perm.uid )
+of the message queue,
+and the process is not privileged (Linux: it does not have the
+.B CAP_SYS_ADMIN
+capability).
+.SH NOTES
+Various fields in the \fIstruct msqid_ds\fP were shorts under Linux 2.2
+and have become longs under Linux 2.4. To take advantage of this,
+a recompilation under glibc-2.1.91 or later should suffice.
+(The kernel distinguishes old and new calls by an IPC_64 flag in
+.IR cmd .)
+.SH "CONFORMING TO"
+SVr4, SVID.  SVID does not document the EIDRM error condition.
+.SH "SEE ALSO"
+.BR msgget (2),
+.BR msgrcv (2),
+.BR msgsnd (2),
+.BR ipc (5),
+.BR capabilities (7)

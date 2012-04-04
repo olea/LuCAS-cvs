@@ -1,0 +1,379 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<HTML
+><HEAD
+><TITLE
+>Programa de Ejemplo</TITLE
+><META
+NAME="GENERATOR"
+CONTENT="Modular DocBook HTML Stylesheet Version 1.59"><LINK
+REL="HOME"
+TITLE="PostgreSQL"
+HREF="postgres.html"><LINK
+REL="UP"
+TITLE="Objetos Grandes"
+HREF="largeobjects.html"><LINK
+REL="PREVIOUS"
+TITLE="Accediendo a Objetos Grandes desde LIBPQ"
+HREF="x19856.html"><LINK
+REL="NEXT"
+TITLE="CCVS API Functions"
+HREF="ref.ccvs.html"></HEAD
+><BODY
+CLASS="SECT1"
+BGCOLOR="#FFFFFF"
+TEXT="#000000"
+LINK="#0000FF"
+VLINK="#840084"
+ALINK="#0000FF"
+><DIV
+CLASS="NAVHEADER"
+><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TH
+COLSPAN="3"
+ALIGN="center"
+>PostgreSQL</TH
+></TR
+><TR
+><TD
+WIDTH="10%"
+ALIGN="left"
+VALIGN="bottom"
+><A
+HREF="x19856.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="80%"
+ALIGN="center"
+VALIGN="bottom"
+>Objetos Grandes</TD
+><TD
+WIDTH="10%"
+ALIGN="right"
+VALIGN="bottom"
+><A
+HREF="ref.ccvs.html"
+>Siguiente</A
+></TD
+></TR
+></TABLE
+><HR
+ALIGN="LEFT"
+WIDTH="100%"></DIV
+><DIV
+CLASS="SECT1"
+><H1
+CLASS="SECT1"
+><A
+NAME="AEN19860"
+>Programa de Ejemplo</A
+></H1
+><P
+><TABLE
+BORDER="0"
+BGCOLOR="#E0E0E0"
+WIDTH="100%"
+><TR
+><TD
+><PRE
+CLASS="PROGRAMLISTING"
+>/*--------------------------------------------------------------
+          *
+          * testlo.c--
+          *    prueba utilizando objetos grandes con libpq
+          *
+          * Copyright (c) 1994, Regents of the University of California
+          *
+          *
+          * IDENTIFICATION
+          *    /usr/local/devel/pglite/cvs/src/doc/manual.me,v 1.16 1995/09/01 23:55:00 jolly Exp
+          *
+          *--------------------------------------------------------------
+          */
+         #include &#60;stdio.h&#62;
+         #include "libpq-fe.h"
+         #include "libpq/libpq-fs.h"
+
+         #define BUFSIZE          1024
+
+         /*
+          * importFile *    importar el archivo "filename" en la base de datos como el objeto grande "lobjOid"
+          *
+          */
+         Oid importFile(PGconn *conn, char *filename)
+         {
+             Oid lobjId;
+             int lobj_fd;
+             char buf[BUFSIZE];
+             int nbytes, tmp;
+             int fd;
+
+             /*
+              * abrir el archivo a leer
+              */
+             fd = open(filename, O_RDONLY, 0666);
+             if (fd &#60; 0)  {   /* error */
+              fprintf(stderr, "no se pudo abrir el archivo unix %s\n", filename);
+             }
+
+             /*
+              * crear el objeto grande
+              */
+             lobjId = lo_creat(conn, INV_READ|INV_WRITE);
+             if (lobjId == 0) {
+              fprintf(stderr, "no se pudo crear el objeto grande\n");
+             }
+
+             lobj_fd = lo_open(conn, lobjId, INV_WRITE);
+             /*
+              * Leer desde el archivo Unix y escribir al archivo invertido
+              */
+             while ((nbytes = read(fd, buf, BUFSIZE)) &#62; 0) {
+              tmp = lo_write(conn, lobj_fd, buf, nbytes);
+              if (tmp &#60; nbytes) {
+                  fprintf(stderr, "error al escribir el objeto grande\n");
+              }
+             }
+
+             (void) close(fd);
+             (void) lo_close(conn, lobj_fd);
+
+             return lobjId;
+         }
+
+         void pickout(PGconn *conn, Oid lobjId, int start, int len)
+         {
+             int lobj_fd;
+             char* buf;
+             int nbytes;
+             int nread;
+
+             lobj_fd = lo_open(conn, lobjId, INV_READ);
+             if (lobj_fd &#60; 0) {
+              fprintf(stderr,"no se pudo abrir el objeto grande %d\n",
+                   lobjId);
+             }
+
+             lo_lseek(conn, lobj_fd, start, SEEK_SET);
+             buf = malloc(len+1);
+
+             nread = 0;
+             while (len - nread &#62; 0) {
+              nbytes = lo_read(conn, lobj_fd, buf, len - nread);
+              buf[nbytes] = ' ';
+              fprintf(stderr,"&#62;&#62;&#62; %s", buf);
+              nread += nbytes;
+             }
+             fprintf(stderr,"\n");
+             lo_close(conn, lobj_fd);
+         }
+
+         void overwrite(PGconn *conn, Oid lobjId, int start, int len)
+         {
+             int lobj_fd;
+             char* buf;
+             int nbytes;
+             int nwritten;
+             int i;
+
+             lobj_fd = lo_open(conn, lobjId, INV_READ);
+             if (lobj_fd &#60; 0) {
+              fprintf(stderr,"no se pudo abrir el objeto grande %d\n",
+                   lobjId);
+             }
+
+             lo_lseek(conn, lobj_fd, start, SEEK_SET);
+             buf = malloc(len+1);
+
+             for (i=0;i&#60;len;i++)
+              buf[i] = 'X';
+             buf[i] = ' ';
+
+             nwritten = 0;
+             while (len - nwritten &#62; 0) {
+              nbytes = lo_write(conn, lobj_fd, buf + nwritten, len - nwritten);
+              nwritten += nbytes;
+             }
+             fprintf(stderr,"\n");
+             lo_close(conn, lobj_fd);
+         }
+
+         /*
+          * exportFile *    exportar el objeto grande "lobjOid" al archivo "filename"
+          *
+          */
+         void exportFile(PGconn *conn, Oid lobjId, char *filename)
+         {
+             int lobj_fd;
+             char buf[BUFSIZE];
+             int nbytes, tmp;
+             int fd;
+
+             /*
+              * create an inversion "object"
+              */
+             lobj_fd = lo_open(conn, lobjId, INV_READ);
+             if (lobj_fd &#60; 0) {
+              fprintf(stderr,"no se pudo abrir el objeto grande %d\n",
+                   lobjId);
+             }
+
+             /*
+              * open the file to be written to
+              */
+             fd = open(filename, O_CREAT|O_WRONLY, 0666);
+             if (fd &#60; 0)  {   /* error */
+              fprintf(stderr, "no se pudo abrir el archivo unix %s\n",
+                   filename);
+             }
+
+             /*
+              * leer desde el archivo invertido y escribir al archivo Unix
+              */
+             while ((nbytes = lo_read(conn, lobj_fd, buf, BUFSIZE)) &#62; 0) {
+              tmp = write(fd, buf, nbytes);
+                 if (tmp &#60; nbytes) {
+                  fprintf(stderr,"error al escribir %s\n",
+                       filename);
+              }
+             }
+
+             (void) lo_close(conn, lobj_fd);
+             (void) close(fd);
+
+             return;
+         }
+
+         void
+         exit_nicely(PGconn* conn)
+         {
+           PQfinish(conn);
+           exit(1);
+         }
+
+         int
+         main(int argc, char **argv)
+         {
+             char *in_filename, *out_filename;
+             char *database;
+             Oid lobjOid;
+             PGconn *conn;
+             PGresult *res;
+
+             if (argc != 4) {
+              fprintf(stderr, "Utilización: %s database_name in_filename out_filename\n",
+                   argv[0]);
+              exit(1);
+             }
+
+             database = argv[1];
+             in_filename = argv[2];
+             out_filename = argv[3];
+
+             /*
+              * set up the connection
+              */
+             conn = PQsetdb(NULL, NULL, NULL, NULL, database);
+
+             /* check to see that the backend connection was successfully made */
+             if (PQstatus(conn) == CONNECTION_BAD) {
+              fprintf(stderr,"Falló la conexión con la base de datos '%s'.\n", database);
+              fprintf(stderr,"%s",PQerrorMessage(conn));
+              exit_nicely(conn);
+             }
+
+             res = PQexec(conn, "begin");
+             PQclear(res);
+
+             printf("importando archivo %s\n", in_filename);
+         /*  lobjOid = importFile(conn, in_filename); */
+             lobjOid = lo_import(conn, in_filename);
+         /*
+             printf("como objeto grande %d.\n", lobjOid);
+
+             printf("extrayendo los bytes 1000-2000 del objeto grande\n");
+             pickout(conn, lobjOid, 1000, 1000);
+
+             printf("sobreescribiendo los bytes 1000-2000 del objeto grande con X's\n");
+             overwrite(conn, lobjOid, 1000, 1000);
+         */
+
+             printf("exportando el objeto grande al archivo %s\n", out_filename);
+         /*    exportFile(conn, lobjOid, out_filename); */
+             lo_export(conn, lobjOid,out_filename);
+
+             res = PQexec(conn, "end");
+             PQclear(res);
+             PQfinish(conn);
+             exit(0);
+         }</PRE
+></TD
+></TR
+></TABLE
+></P
+></DIV
+><DIV
+CLASS="NAVFOOTER"
+><HR
+ALIGN="LEFT"
+WIDTH="100%"><TABLE
+WIDTH="100%"
+BORDER="0"
+CELLPADDING="0"
+CELLSPACING="0"
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+><A
+HREF="x19856.html"
+>Anterior</A
+></TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="postgres.html"
+>Inicio</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+><A
+HREF="ref.ccvs.html"
+>Siguiente</A
+></TD
+></TR
+><TR
+><TD
+WIDTH="33%"
+ALIGN="left"
+VALIGN="top"
+>Accediendo a Objetos Grandes desde LIBPQ</TD
+><TD
+WIDTH="34%"
+ALIGN="center"
+VALIGN="top"
+><A
+HREF="largeobjects.html"
+>Subir</A
+></TD
+><TD
+WIDTH="33%"
+ALIGN="right"
+VALIGN="top"
+>CCVS API Functions</TD
+></TR
+></TABLE
+></DIV
+></BODY
+></HTML
+>

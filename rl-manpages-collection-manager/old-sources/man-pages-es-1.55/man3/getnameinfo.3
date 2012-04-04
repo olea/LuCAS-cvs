@@ -1,0 +1,207 @@
+.\" This page is in the public domain.
+.\" Almost all details are from RFC 2553.
+.\"
+.TH getnameinfo 3 "11 diciembre 2000" "Linux Man Page" "Manual del Programador de UNIX"
+.SH NOMBRE
+getnameinfo \- traducción dirección-a-nombre de forma independiente del protocolo
+.SH SINOPSIS
+.nf
+.B #include <sys/socket.h>
+.B #include <netdb.h>
+.sp
+.BI "int getnameinfo(const struct sockaddr *" "sa" ", socklen_t " "salen" ,
+.BI "                char *" "host" ", size_t " "hostlen" ,
+.BI "                char *" "serv" ", size_t " "servlen" ", int " "flags" );
+.fi
+.SH DESCRIPCIÓN
+La función
+.BR getnameinfo (3)
+se define para la traducción dirección-a-nombrenodo de manera independiente del protocolo.
+Combina la funcionalidad de
+.BR gethostbyaddr (3)
+y
+.BR getservbyport (3)
+y es la inversa de
+.BR getaddrinfo (3).
+El argumento
+.I sa
+es un puntero a una estructura genérica de dirección de socket
+(de tipo
+.I sockaddr_in
+o
+.IR sockaddr_in6 )
+de tamaño
+.IR salen
+que contiene la dirección IP y número de puerto de entrada.
+Los argumentos
+.I host
+y
+.I serv
+son punteros a buffers (de tamaño
+.I hostlen
+y
+.I servlen
+respectivamente) que se utilizan para almacenar los valores devueltos.
+
+El invocador puede especificar que no se solicita ningún nombre
+de host (o nombre de servicio) pasando como argumento
+.I host
+(o
+.IR serv )
+el valor NULL o asignando cero
+al parámetro
+.I hostlen
+(o
+.IR servlen ).
+Sin embargo, al menos uno de los dos, nombre de host o nombre
+de servicio, debe ser solicitado.
+
+El argumento
+.I flags
+modifica el comportamiento de
+.BR getnameinfo (3)
+como sigue:
+.TP
+.B NI_NOFQDN
+Si se activa, devuelve solamente la parte del nombre de host correspondiente al FQDN
+para hosts locales.
+.TP
+.B NI_NUMERICHOST
+Si se activa, se devuelve la forma numérica del nombre de host.
+.\" For example, by calling
+.\" .I inet_ntop()
+.\" instead of
+.\" .IR gethostbyaddr() .
+(Si no se activa, devolverá igualmente este valor en el caso en que
+el nombre de nodo no pueda ser buscado.)
+.TP
+.B NI_NOMBREREQD
+Si se activa, se devuelve un error cuando el nombre de host no puede ser buscado.
+.TP
+.B NI_NUMERICSERV
+Si se activa, la dirección del servicio se devuelve en formato numérico,
+por ejemplo por su número de puerto.
+.TP
+.B NI_DGRAM
+Si se activa, el servicio está basado en datagrama (UDP) en vez de 
+en stream (TCP). Se necesita para los pocos puertos (512-514)
+que tienen servicios diferentes para UDP y TCP.
+.SH "VALOR DEVUELTO"
+Cuando tiene éxito se devuelve 0, y los nombres de nodo y de servicio, si se solicita,
+son rellenados con cadenas terminadas en NUL, posiblemente truncadas
+para ajustarse al tamaño especificado de los buffers.
+En caso de error se devuelve un valor distinto de cero, y
+se modifica
+.I errno
+apropiadamente.
+.SH ERRORES
+.TP
+.B EAI_AGAIN
+El nombre no pudo resolverse en ese instante. Pruebe de nuevo más tarde.
+.TP
+.B EAI_BADFLAGS
+El parámetro
+.I flags
+tiene un valor inválido.
+.TP
+.B EAI_FAIL
+Ocurrió un error no recuperable.
+.TP
+.B EAI_FAMILY
+La familia de direcciones no fue reconocida,
+o la longitud de la dirección es inválida para la familia especificada.
+.TP
+.B EAI_MEMORY
+Memoria insuficiente.
+.TP
+.B EAI_NONOMBRE
+El nombre no se resuelve para los parámetros pasados.
+Se especificó la opción NI_NOMBREREQD y el nombre de host 
+no pudo ser localizado, o ni el nombre de host ni el nombre
+de servicio fueron solicitados.
+.TP
+.B EAI_SYSTEM
+Ocurrió un error de sistema. El código de error puede encontrarse en
+.IR errno .
+.SH FICHEROS
+/etc/hosts
+.br
+/etc/nsswitch.conf
+.br
+/etc/resolv.conf
+.SH NOTA
+Con el objetivo de ayudar al programador a elegir tamaños razonables
+para los buffers suministrados,
+.I <netdb.h>
+define las constantes
+.RS
+.nf
+# define NI_MAXHOST      1025
+.br
+# define NI_MAXSERV      32
+.fi
+.RE
+La primera es la constante MAXDNOMBRE en versiones recientes del fichero
+de cabecera
+.I <arpa/nameser.h>
+en BIND. La última es una suposición basada en los servicios listados
+en el actual RFC de Numeros Asignados.
+.SH EJEMPLOS
+El código siguiente trata de obtener el nombre de host y el nombre de servicio
+en formato numérico, para una dirección de socket dada. Observe que no hay una referencia
+explícita a una familia de direcciones particular.
+
+.RS
+.nf
+  struct sockaddr *sa;    /* entrada */
+  char hbuf[NI_MAXHOST], sbuf[NI_MAXSERV];
+
+  if (getnameinfo(sa, sa->sa_len, hbuf, sizeof(hbuf), sbuf,
+      sizeof(sbuf), NI_NUMERICHOST | NI_NUMERICSERV) == 0)
+          printf("host=%s, serv=%s\en", hbuf, sbuf);
+.fi
+.RE
+
+La siguiente versión comprueba si la dirección de socket
+tiene una correspondencia inversa.
+
+.RS
+.fi
+  struct sockaddr *sa;    /* entrada */
+  char hbuf[NI_MAXHOST];
+
+  if (getnameinfo(sa, sa->sa_len, hbuf, sizeof(hbuf),
+      NULL, 0, NI_NOMBREREQD))
+         printf("could not resolve hostname");
+  else
+         printf("host=%s\en", hbuf);
+.fi
+.RE
+.SH "CONFORME A"
+RFC 2553. (Véase también XNS, apartado 5.2.)
+.SH "VÉASE TAMBIÉN"
+.BR getaddrinfo (3),
+.BR gethostbyaddr (3),
+.BR getservbyname (3),
+.BR getservbyport (3),
+.BR inet_ntop (3),
+.BR socket (3),
+.BR hosts (5),
+.BR services (5),
+.BR hostname (7),
+.BR named (8)
+.LP
+R. Gilligan, S. Thomson, J. Bound y W. Stevens,
+.IR "Basic Socket Interface Extensions for IPv6" ,
+RFC 2553, Marzo de 1999.
+.LP
+Tatsuya Jinmei y Atsushi Onoe,
+.IR "An Extension of Format for IPv6 Scoped Addresses" ,
+internet draft, work in progress.
+ftp://ftp.ietf.org/internet-drafts/draft-ietf-ipngwg-scopedaddr-format-02.txt
+.LP
+Craig Metz,
+.IR "Protocol Independence Using the Sockets API" ,
+Proceedings of the freenix track:
+2000 USENIX annual technical conference, June 2000.
+http://www.usenix.org/publications/library/proceedings/usenix2000/freenix/metzprotocol.html

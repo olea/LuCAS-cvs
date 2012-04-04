@@ -1,0 +1,263 @@
+.\" From Henry Spencer's regex package (as found in the apache
+.\" distribution). The package carries the following copyright:
+.\"
+.\"  Copyright 1992, 1993, 1994 Henry Spencer.  All rights reserved.
+.\"  This software is not subject to any license of the American Telephone
+.\"  and Telegraph Company or of the Regents of the University of California.
+.\"  
+.\"  Permission is granted to anyone to use this software for any purpose
+.\"  on any computer system, and to alter it and redistribute it, subject
+.\"  to the following restrictions:
+.\"  
+.\"  1. The author is not responsible for the consequences of use of this
+.\"     software, no matter how awful, even if they arise from flaws in it.
+.\"  
+.\"  2. The origin of this software must not be misrepresented, either by
+.\"     explicit claim or by omission.  Since few users ever read sources,
+.\"     credits must appear in the documentation.
+.\"  
+.\"  3. Altered versions must be plainly marked as such, and must not be
+.\"     misrepresented as being the original software.  Since few users
+.\"     ever read sources, credits must appear in the documentation.
+.\"  
+.\"  4. This notice may not be removed or altered.
+.\" 
+.\" In order to comply with `credits must appear in the documentation'
+.\" I added an AUTHOR paragraph below - aeb.
+.\"
+.\" Translated 23 Jul 1998 by Juan José López Mellado (laveneno@hotmail.com)
+.\"
+.TH REGEX 7 "7 febrero 1994"
+.SH NOMBRE
+regex \- expresiones regulares POSIX 1003.2
+.SH DESCRIPCIÓN
+Las expresiones regulares (``ER''s), tal y como se definen en POSIX 1003.2,
+tienen dos formas:
+ERs modernas (tal y como
+.IR egrep ;
+llama a estas ERs ``extendidas'' de 1003.2)
+y ERs obsoletas (las que usa
+.IR ed ;
+son ERs ``básicas'' de 1003.2).
+
+Las ERs obsoletas existen como tales por mantener la compatibilidad para
+algunos viejos programas; y serán discutidas al final.
+
+1003.2 deja abiertos algunos aspectos de la sintaxis y semántica de 
+las ER;
+`(dg' es una de las decisiones tomadas al respecto de estos
+temas que puede no ser portable con otras implementaciones de 
+la 1003.2.
+.PP
+Una ER (moderna) es una \(dg o más de una\(dg \fIrama\fR no vacía,
+separadas por `|'.
+Acepta cualquier cosa que se corresponda con una de las ramas.
+.PP
+Una rama es una \(dg o más de una \fIpieza\fR, concatenadas.
+Acepta algo que corresponda con la primera, seguida por algo que
+corresponda con la segunda, etc.
+.PP
+Una pieza es un \fIátomo\fR posiblemente seguido por un solo
+\(dg `*', `+', `?', o por un \fIlímite\fR.
+Un átomo seguido por `*' ajusta con una secuencia de 0 o más átomos.
+Un átomo seguido por `+' ajusta con una secuencia de 1 o más átomos.
+Un átomo seguido por `?'  ajusta con una secuencia de 0 o 1 átomo.
+.PP
+Un \fIlímite\fR es un `{' seguido por un entero decimal sin signo,
+posiblemente seguido por una `,' posiblemente seguida por otro
+entero decimal sin signo, y todo acabado por un `}'.
+Los enteros deben encontrarse entre 0 y RE_DUP_MAX (255\(dg)
+inclusive, y si hay dos de ellos, el primero no podrá ser mayor
+que el segundo.
+Un átomo seguido por un límite conteniendo un solo entero \fIi\fR
+y sin coma ajusta con una secuencia de exactamente \fIi\fR
+átomos.
+Un átomo seguido por un límite conteniendo un entero \fIi\fR
+y una coma ajusta con una secuencia de \fIi\fR o más átomos.
+Un átomo seguido por un límite conteniendo dos enteros \fIi\fR
+y \fIj\fR ajusta con una secuencia de entre \fIi\fR y \fIj\fR
+átomos (ambos inclusive).
+.PP
+Un átomo es una expresión regular dentro de `()' (ajustándose
+con una aparición de la expresión regular),
+un conjunto vacío de `()' (ajustando con una cadena vacía)\(dg,
+una \fIexpresión con corchetes\fR (ver abajo), `.'
+(ajustándose con un solo carácter), `^' (ajustando con la cadena
+vacía al principio de una linea), `$' (ajustando con la cadena 
+vacía al final de una linea), un `\e' seguido por uno de los
+caracteres `^.[$()|*+?{\e' (ajustando con ese carácter tenido
+como un carácter normal), un `\e' seguido por otro carácter\(dg
+(ajustando con ese carácter tenido como un carácter ordinario,
+como si el `\e' no estuviera presente\(dg), o un solo carácter
+sin ningún otro significado adicional (ajustando con ese
+carácter).
+Un `{' seguido por un carácter diferente de un dígito es un
+carácter ordinario, no el principio de un límite.\(dg
+Es ilegal terminar una ER con `\e'.
+.PP
+Una \fIexpresión con corchetes\fR es una lista de caracteres entre
+unos `[]'. Normalmente ajusta con solo uno de los caracteres de la
+lista (pero vea más adelante).
+Si la lista comienza por `^', ajusta con un solo carácter (pero vea
+más adelante) que \fIno\fR pertenezca al resto de la lista.
+Si hay en la lista dos caracteres separados por `-', es una abreviación
+de un \fIrango\fR completo de caracteres entre dos (inclusive) en la 
+secuencia, por ejemplo `[0-9]' en ASCII ajusta con cualquier dígito decimal.
+Es ilegal\(dg que dos rangos compartan un carácter, por ejemplo `a-c-e'.
+
+Los rangos son muy dependientes de la secuencia de especificación y los
+programas portables deberían evitar utilizarlos.
+.PP
+Para incluir un literal `]' en la lista, debe aparecer el primero
+en la misma (siguiendo a un posible `^').
+Para incluir un literal `\-', debe aparecer el primero o el
+último en la lista, o ser el segundo carácter de un rango.
+
+Para usar un literal `\-' como el primer carácter de un rango,
+debe rodearse entre `[.' y `.]' para hacerlo un elemento a tratar
+(vea más abajo).
+Con la excepción de estas y algunas combinaciones que usan `[' (vea los
+siguientes párrafos), todos los otros caracteres especiales, incluyendo
+`\e', pierden su significado especial dentro de una expresión entre
+corchetes.
+.PP
+Dentro de una expresión entre corchetes, un elemento a tratar (un
+carácter, una secuencia de más de un carácter que se interpreta como
+si fuera un solo carácter, o un nombre de secuencia de definición
+incluido entre `[.' y `.]' se entiende
+como la secuencia de caracteres de ese elemento.
+La secuencia es un elemento aislado de la lista contenida en la
+expresión con corchetes. Una expresión con corchetes que contenga
+un elemento de más de un carácter puede ajustar por más de un carácter,
+por ejemplo si la secuencia incluye un elemento `ch', entonces la
+ER `[[.ch.]]*c' ajusta con los primeros cinco caracteres de `chchcc'.
+.PP
+Dentro de una expresión con corchetes, un elemento englobado entre
+`[=' y `=]' es una clase de equivalencia, comprendiendo las secuencias
+de caracteres de todos los elementos equivalentes a ese otro, incluyéndose
+a él mismo. (Si no hay ningún otro elemento equivalente, el tratamiento
+es como si los delimitadores hubieran sido `[.' y `.]'.)
+Por ejemplo, si o y \o'o^' son miembros de una clase de equivalencia,
+entonces, entonces `[[=o=]]', `[[=\o'o^'=]]', y `[o\o'o^']' son todos
+sinónimos.
+Una clase de equivalencia no\(dg puede formar parte de un rango.
+.PP
+Dentro de una expresión con corchetes, el nombre de una \fIclase de
+caracteres\fR englobado entre `[:' y `:]' se interpreta como la lista
+de todos los caracteres que pertenecen a esa clase.
+Los nombre de clase de caracteres estándar son:
+.PP
+.RS
+.nf
+.ta 3c 6c 9c
+alnum	digit	punct
+alpha	graph	space
+blank	lower	upper
+cntrl	print	xdigit
+.fi
+.RE
+.PP
+Están compuestos por las clases de caracteres definidos en
+.IR ctype (3).
+Localmente podrán proveerse de otras.
+Una clase de caracteres no puede formar parte de un rango.
+.PP
+Hay dos casos especiales\(dg de expresiones con corchetes:
+las expresiones con corchetes `[[:<:]]' y `[[:>:]]' ajustan con
+la cadena vacía del principio y final de una palabra, 
+respectivamente.
+Una palabra se define como una secuencia de caracteres de
+palabra que no se encuentra ni precedida ni seguida por
+caracteres de palabra.
+Un carácter de palabra es un carácter de la clase
+.I alnum
+(tal y como se define en
+.IR ctype (3))
+o un carácter de subrayado.
+Esta es una extensión, compatible pero no especificada por POSIX 1003.2,
+y debe ser usada con cuidado en aquel software que deba ser portable
+a otros sistemas.
+.PP
+En el caso en que una ER puede ajustar con más de una subcadena de la cadena
+dada, la ER se ajusta con aquella que comience antes en la cadena dada.
+Si la ER puede ajustar con varias subcadenas que comienzan en el mismo punto,
+se ajusta con la más larga.
+Las subexpresiones también ajustan con las subcadenas más largas posibles,
+sujetas a la restricción de que el ajuste global sea el más largo posible,
+con subexpresiones que empiecen antes en la ER con mayor prioridad que
+aquellas que comiencen después.
+
+Nótese que las subexpresiones de nivel más alto tienen prioridad respecto a sus
+subexpresiones componentes de nivel inferior.
+.PP
+Las longitudes de los ajustes son medidas en caracteres, no en elementos.
+Una cadena vacía se considera más larga que cualquier otro ajuste.
+Por ejemplo,
+`bb*' se ajusta con los tres caracteres del centro de `abbbc',
+`(wee|week)(knights|nights)' se ajusta con los diez caracteres de
+`weeknights' , cuando `(.*).*' se intenta ajustar con `abc' la subexpresión
+se ajusta con los tres caracteres, y cuando `(a*)*' se intenta ajustar con
+`bc' tanto la ER como la subexpresión entre paréntesis se ajustan a la
+cadena vacía.
+.PP
+Si se ha especificado un ajuste no dependiente de las mayúsculas, el efecto
+es como si todas las distinciones entre mayúsculas y minúsculas hubieran
+desaparecido del alfabeto.
+Cuando un término del alfabeto existe tanto en mayúsculas como en minúsculas
+aparece como un carácter ordinario fuera de una expresión con corchetes, se
+transforma en una expresión con corchetes conteniendo los dos casos, por
+ejemplo, `x' se convierte en `[xX]'.
+Cuando aparece dentro de una expresión con corchetes, todos los casos
+posibles son añadidos a la expresión con corchetes, de tal manera que
+(por ejemplo) `[x]' se convierte en `[xX]' y `[^x]' se convierte en
+`[^xX]'.
+.PP
+No se impone ningún límite en particular en la longitud de las ERs\(dg.
+Los programas que deban ser portables no deben emplear ERs más largas
+de 256 bytes, ya que una implementación puede rechazar el aceptar
+estas ERs y seguir cumpliendo POSIX.
+.PP
+Las expresiones regulares obsoletas (``basic'') difieren en varios
+aspectos.  `|', `+', y `?' son caracteres ordinarios y no existe el equivalente
+para sus funcionalidades.
+Los delimitadores para los límites son `\e{' y `\e}', con `{' y `}' como
+caracteres ordinarios. Los paréntesis para subexpresiones anidadas son
+`\e(' y `\e)', siendo `(' y `)' caracteres ordinarios.
+`^' es un carácter ordinario excepto en el principio de la ER o\(dg al
+principio de una subexpresión con paréntesis, `$' es un carácter ordinario
+excepto al final de la ER o\(dg al final de una subexpresión con
+paréntesis, y `*' es un carácter ordinario si aparece al principio de la
+ER o al principio de una subexpresión con paréntesis (después de un posible
+`^' inicial).
+Finalmente, existe un nuevo tipo de átomo, la \fIreferencia hacia atrás\fB:
+`\e' seguido por un dígito decimal mayor que cero \fId\fR ajusta con la misma
+secuencia de caracteres ajustada por la subexpresión con paréntesis
+\fId\fR-ésima (numerando las subexpresiones por las posiciones de sus
+paréntesis de apertura, y de izquierda a derecha), de tal manera que
+(por ejemplo) `\e([bc]\e)\e1' ajusta con `bb' o `cc' pero no con `bc'.
+.SH VÉASE TAMBIÉN
+regex(3)
+.PP
+POSIX 1003.2, sección 2.8 (Regular Expression Notation).
+.SH FALLOS
+Tener dos tipos de ERs es molesto.
+.PP
+La especificación actual de 1003.2 dice que un `)' es un carácter ordinario
+en ausencia de un `(' sin ajustar; este fue un resultado no intencionado
+de un error de redacción, y es probable que sea modificado.
+Evite usarlo.
+.PP
+Las referencias hacia atrás son una espantosa `chapuza', añadiendo bastantes
+problemas para una implementación eficiente.
+También hay cosas vagamente definidas (¿ `a\e(\e(b\e)*\e2\e)*d' ajusta con
+`abbbd'?). Evite usarlo.
+.PP
+La especificación 1003.2 sobre el ajuste independiente de mayúsculas es
+muy vaga. La definición ``mayúsculas o minúsculas implican al otro''
+.BR "" "(" "N. del T."
+``one case implies all cases'') dada arriba es un consenso entre todos los
+implementadores como la buena interpretación.
+.PP
+La sintaxis para límites de palabras es increíblemente desagradable.
+.SH AUTOR
+Esta página ha sido obtenida del paquete regex de Henry Spencer.

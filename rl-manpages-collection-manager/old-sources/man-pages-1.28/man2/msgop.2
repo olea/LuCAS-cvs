@@ -1,0 +1,382 @@
+.\" Copyright 1993 Giorgio Ciucci <giorgio@crcc.it>
+.\"
+.\" Permission is granted to make and distribute verbatim copies of this
+.\" manual provided the copyright notice and this permission notice are
+.\" preserved on all copies.
+.\"
+.\" Permission is granted to copy and distribute modified versions of this
+.\" manual under the conditions for verbatim copying, provided that the
+.\" entire resulting derived work is distributed under the terms of a
+.\" permission notice identical to this one
+.\" 
+.\" Since the Linux kernel and libraries are constantly changing, this
+.\" manual page may be incorrect or out-of-date.  The author(s) assume no
+.\" responsibility for errors or omissions, or for damages resulting from
+.\" the use of the information contained herein.  The author(s) may not
+.\" have taken the same level of care in the production of this manual,
+.\" which is licensed free of charge, as they might when working
+.\" professionally.
+.\" 
+.\" Formatted or processed versions of this manual, if unaccompanied by
+.\" the source, must acknowledge the copyright and authors of this work.
+.\"
+.\" Modified Tue Oct 22 16:40:11 1996 by Eric S. Raymond <esr@thyrsus.com>
+.TH MSGOP 2 "November 1, 1993" "Linux 0.99.13" "Linux Programmer's Manual" 
+.SH NAME
+msgop \- message operations
+.SH SYNOPSIS
+.nf
+.B
+# include <sys/types.h>
+.br
+.B
+# include <sys/ipc.h>
+.br
+.B
+# include <sys/msg.h>
+.fi
+.sp
+.BI "int msgsnd ( int " msqid ,
+.BI "struct msgbuf *" msgp ,
+.BI "int " msgsz ,
+.BI "int " msgflg " )"
+.sp
+.BI "int msgrcv ( int " msqid ,
+.BI "struct msgbuf *" msgp ,
+.BI "int " msgsz ,
+.BI  "long " msgtyp ,
+.BI "int " msgflg " )"
+.SH DESCRIPTION
+To send or receive a message, the calling process allocates a structure
+that looks like the following
+.sp
+.B
+	struct msgbuf {
+.br
+.B
+		long	mtype;	
+/* message type, must be > 0 */
+.br
+.B
+		char	mtext[1];	
+/* message data */
+.br
+.B
+	};
+.sp
+but with an array
+.B mtext
+of size
+.IR msgsz ,
+a non-negative integer value.
+The structure member
+.B mtype
+must have a strictly positive integer value that can be
+used by the receiving process for message selection
+(see the section about
+.BR msgrcv ).
+.PP
+The calling process must have write access permissions to send
+and read access permissions to receive a message on the queue.
+.PP
+The
+.B msgsnd
+system call enqueue a copy of the message pointed to by the
+.I msgp
+argument
+on the message queue whose identifier is specified by the value
+of the
+.I msqid
+argument.
+.PP
+The argument
+.I msgflg
+specifies the system call behaviour if enqueuing the new message
+will require more than
+.B msg_qbytes
+in the queue.
+Asserting
+.B IPC_NOWAIT
+the message will not be sent and the system call fails returning with
+.B errno
+set to
+.BR EAGAIN .
+Otherwise the process is suspended until the condition for the
+suspension no longer exists (in which case the message is sent and the
+system call succeeds),
+or the queue is removed (in which case the system call fails
+with
+.B errno
+set to
+.BR EIDRM ),
+or the process receives a signal that has to be
+caught (in which case the system call fails
+with
+.B errno
+set to
+.BR EINTR ).
+.PP
+Upon successful completion the message queue data structure is updated
+as follows:
+.IP
+.B msg_lspid
+is set to the process-\ID of the calling process.
+.IP
+.B msg_qnum
+is incremented by 1.
+.IP
+.B msg_stime
+is set to the current time.
+.PP
+The system call
+.B msgrcv
+reads a message from the message queue specified by
+.I msqid
+into the
+.B msgbuf
+pointed to by the
+.I msgp
+argument removing from the queue, on success, the read message.
+.PP
+The argument
+.I msgsz
+specifies the maximum size in bytes for the member
+.B mtext
+of the structure pointed to by the
+.I msgp
+argument.
+If the message text has length greater than
+.IR msgsz ,
+then if the
+.I msgflg
+argument asserts
+.BR MSG_NOERROR ,
+the message text will be truncated (and the truncated part will be
+lost), otherwise the message isn't removed from the queue and
+the system call fails returning with
+.B errno
+set to
+.BR E2BIG .
+.PP
+The argument
+.I msgtyp
+specifies the type of message requested as follows:
+.IP
+If
+.I msgtyp
+is
+.BR 0 ,
+then the message on the queue's front is read.
+.IP
+If
+.I msgtyp
+is greater than
+.BR 0 ,
+then the first message on the queue of type
+.I msgtyp
+is read if
+.B MSG_EXCEPT
+isn't asserted by the
+.I msgflg
+argument, otherwise
+the first message on the queue of type not equal to
+.I msgtyp
+will be read.
+.IP
+If
+.I msgtyp
+is less than
+.BR 0 ,
+then the first message on the queue with the lowest type less than or
+equal to the absolute value of
+.I msgtyp
+will be read.
+.PP
+The
+.I msgflg
+argument asserts none, one or more (or\-ing them) among the following
+flags:
+.IP
+.B IPC_NOWAIT
+For immediate return if no message of the requested type is on the queue.
+The system call fails with errno set to
+.BR ENOMSG .
+.IP
+.B MSG_EXCEPT
+Used with
+.I msgtyp
+greater than
+.B 0
+to read the first message on the queue with message type that differs
+from
+.IR msgtyp .
+.IP
+.B MSG_NOERROR
+To truncate the message text if longer than
+.I msgsz
+bytes.
+.PP
+If no message of the requested type is available and
+.B IPC_NOWAIT
+isn't asserted in
+.IR msgflg ,
+the calling process is blocked until one of the following conditions occurs:
+.IP
+A message of the desired type is placed on the queue.
+.IP
+The message queue is removed from the system.
+In such a case the system call fails with
+.B errno
+set to
+.BR EIDRM .
+.IP
+The calling process receives a signal that has to be caught.
+In such a case the system call fails with
+.B errno
+set to
+.BR EINTR .
+.PP
+Upon successful completion the message queue data structure is updated
+as follows:
+.IP
+.B msg_lrpid
+is set to the process-\ID of the calling process.
+.IP
+.B msg_qnum
+is decremented by 1.
+.IP
+.B msg_rtime
+is set to the current time.
+.SH "RETURN VALUE"
+On a failure both functions return
+.B \-1
+with
+.B errno
+indicating the error,
+otherwise
+.B msgsnd
+returns
+.B 0
+and
+.B msgrvc
+returns the number of bytes actually copied into the
+.B mtext
+array.
+.SH ERRORS
+When
+.B msgsnd
+fails, at return
+.B errno
+will be set to one among the following values:
+.TP 11
+.B EAGAIN
+The message can't be sent due to the
+.B msg_qbytes
+limit for the queue and
+.B IPC_NOWAIT
+was asserted in
+.IR mgsflg .
+.TP
+.B EACCES
+The calling process has no write access permissions on the message queue.
+.TP
+.B EFAULT
+The address pointed to by
+.I msgp
+isn't accessible.
+.TP
+.B EIDRM
+The message queue was removed.
+.TP
+.B EINTR
+Sleeping on a full message queue condition, the process received a signal
+that had to be caught.
+.TP
+.B EINVAL
+Invalid
+.I msqid
+value, or nonpositive
+.I mtype
+value, or
+invalid
+.I msgsz
+value (less than 0 or greater than the system value
+.BR MSGMAX ).
+.TP
+.B ENOMEM
+The system has not enough memory to make a copy of the supplied
+.BR msgbuf .
+.PP
+When
+.B msgrcv
+fails, at return
+.B errno
+will be set to one among the following values:
+.TP 11
+.B E2BIG
+The message text length is greater than
+.I msgsz
+and
+.B MSG_NOERROR
+isn't asserted in
+.IR msgflg .
+.TP
+.B EACCES
+The calling process has no read access permissions on the message queue.
+.TP
+.B EFAULT
+The address pointed to by
+.I msgp
+isn't accessible.
+.TP
+.B EIDRM
+While the process was sleeping to receive a message,
+the message queue was removed.
+.TP
+.B EINTR
+While the process was sleeping to receive a message,
+the process received a signal that had to be caught.
+.TP
+.B EINVAL
+Illegal
+.I msgqid
+value, or
+.I msgsz
+less than
+.BR 0 .
+.TP
+.B ENOMSG
+.B IPC_NOWAIT
+was asserted in
+.I msgflg
+and no message of the requested type existed on the message queue.
+.SH NOTES
+The followings are system limits affecting a
+.B msgsnd
+system call:
+.TP 11
+.B MSGMAX
+Maximum size for a message text: the implementation set this value to
+4080 bytes.
+.TP
+.B MSGMNB
+Default maximum size in bytes of a message queue: policy dependent.
+The super\-user can increase the size of a message queue beyond
+.B MSGMNB
+by a
+.B msgctl
+system call.
+.PP
+The implementation has no intrinsic limits for the system wide maximum
+number of message headers
+.RB ( MSGTQL )
+and for the system wide maximum size in bytes of the message pool
+.RB ( MSGPOOL ).
+.SH "CONFORMING TO"
+SVr4, SVID.
+.SH "SEE ALSO"
+.BR ipc (5),
+.BR msgctl (2),
+.BR msgget (2),
+.BR msgrcv (2),
+.BR msgsnd (2)

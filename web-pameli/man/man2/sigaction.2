@@ -1,0 +1,441 @@
+'\" t
+.\" Copyright (c) 1994,1995 Mike Battersby <mib@deakin.edu.au>
+.\" based on work by faith@cs.unc.edu
+.\"
+.\" Permission is granted to make and distribute verbatim copies of this
+.\" manual provided the copyright notice and this permission notice are
+.\" preserved on all copies.
+.\"
+.\" Permission is granted to copy and distribute modified versions of this
+.\" manual under the conditions for verbatim copying, provided that the
+.\" entire resulting derived work is distributed under the terms of a
+.\" permission notice identical to this one
+.\" 
+.\" Since the Linux kernel and libraries are constantly changing, this
+.\" manual page may be incorrect or out-of-date.  The author(s) assume no
+.\" responsibility for errors or omissions, or for damages resulting from
+.\" the use of the information contained herein.  The author(s) may not
+.\" have taken the same level of care in the production of this manual,
+.\" which is licensed free of charge, as they might when working
+.\" professionally.
+.\" 
+.\" Formatted or processed versions of this manual, if unaccompanied by
+.\" the source, must acknowledge the copyright and authors of this work.
+.\"
+.\" Modified, aeb, 960424
+.\" Modified Fri Jan 31 17:31:20 1997 by Eric S. Raymond <esr@thyrsus.com>
+.\" Modified Thu Nov 26 02:12:45 1998 by aeb - add SIGCHLD stuff.
+.\" Modified Sat May  8 17:40:19 1999 by Matthew Wilcox - add POSIX.1b signals
+.\"
+.\" Translated into Spanish Thu Jan 29 1998 by Gerardo Aburruzaga
+.\" García <gerardo.aburruzaga@uca.es>
+.\" Translation revised Wed Dec 30 1998 by Juan Piernas <piernas@ditec.um.es>
+.\" Translation revised Sun Jun 27 1999 by Juan Piernas <piernas@ditec.um.es>
+.\" Translation revised Sun Apr 16 2000 by Juan Piernas <piernas@ditec.um.es>
+.\"
+.TH SIGACTION 2 "8 mayo 1999" "Linux 2.2" "Manual del Programador de Linux"
+.SH NOMBRE
+sigaction, sigprocmask, sigpending, sigsuspend \- funciones POSIX de
+manejo de señales
+.SH SINOPSIS
+.B #include <signal.h>
+.sp 2
+.BI "int sigaction(int " signum ", const struct sigaction *" act ","
+.BI "struct sigaction *" oldact );
+.sp
+.BI "int sigprocmask(int " how ", const sigset_t *" set ", "
+.BI "sigset_t *" oldset );
+.sp
+.BI "int sigpending(sigset_t *" set );
+.sp
+.BI "int sigsuspend(const sigset_t *" mask );
+.SH DESCRIPCIÓN
+La llamad al sistema
+.B sigaction
+se emplea para cambiar la acción tomada por un proceso cuando recibe
+una determinada señal.
+.PP
+.I signum
+especifica la señal y puede ser cualquiera válida salvo
+.B SIGKILL
+o
+.BR SIGSTOP .
+.PP
+Si
+.I act
+no es nulo, la nueva acción para la señal
+.I signum
+se instala como
+.IR act .
+Si
+.I oldact
+no es nulo, la acción anterior se guarda en
+.IR oldact .
+.PP
+La estructura
+.B sigaction
+se define como
+.sp
+.RS
+.nf
+struct sigaction {
+    void (*sa_handler)(int);
+    void (*sa_sigaction)(int, siginfo_t *, void *);
+    sigset_t sa_mask;
+    int sa_flags;
+    void (*sa_restorer)(void);
+}
+.fi
+.RE
+.PP
+El elemento
+.I sa_restorer
+está obsoleto y no debería utilizarse. POSIX no especifica un elemento
+.IR sa_restorer .
+.PP
+.I sa_handler
+especifica la acción que se va a asociar con
+.I signum
+y puede ser
+.B SIG_DFL
+para la acción predeterminada,
+.B SIG_IGN
+para no tener en cuenta la señal, o un puntero a una función
+manejadora para la señal.
+.PP
+.I sa_mask
+da una máscara de señales que deberían bloquearse durante la ejecución
+del manejador de señal. Además, la señal que lance el manejador será
+bloqueada, a menos que se activen las opciones
+.B SA_NODEFER
+o
+.BR SA_NOMASK .
+.PP
+.I sa_flags
+especifica un conjunto de opciones que modifican el comportamiento del
+proceso de manejo de señal. Se forma por la aplicación del operador de
+bits OR a cero o más de las siguientes constantes:
+.RS
+.TP
+.B SA_NOCLDSTOP
+Si
+.I signum
+es
+.BR SIGCHLD ", "
+no se reciba notificación cuando los procesos hijos se paren (esto es,
+cuando los procesos hijos reciban una de las señales
+.BR SIGSTOP ", " SIGTSTP ", " SIGTTIN
+o
+.BR SIGTTOU ")."
+.TP
+.BR SA_ONESHOT " o " SA_RESETHAND
+Restáurese la acción para la señal al estado predeterminado una vez
+que el manejador de señal haya sido llamado. (Esto es el
+comportamiento predeterminado de la llamada al sistema
+.BR signal (2).)
+.TP
+.B SA_RESTART
+Proporciona un comportamiento compatible con la semántica de señales
+de BSD haciendo re-ejecutables algunas llamadas al sistema entre señales.
+.TP
+.BR SA_NOMASK " o " SA_NODEFER
+No se impida que se reciba la señal desde su propio manejador.
+.TP
+.B SA_SIGINFO
+El manejador de señal toma 3 argumentos, no uno. En este caso, se debe
+configurar
+.I sa_sigaction
+en lugar de
+.IR sa_handler .
+(El campo sa_sigaction fue añadido en la versión 2.1.86 de Linux.)
+.RE
+.PP
+El parámetro
+.I siginfo_t
+para
+.I sa_sigaction
+es una estructura con los siguientes elementos
+.sp
+.RS
+.nf
+.ta 4 13 24
+siginfo_t {
+	int	si_signo;	/* Número de señal */
+	int	si_errno;	/* Un valor errno */
+	int	si_code;	/* Código de señal */
+	pid_t	si_pid;	/* ID del proceso emisor */
+	uid_t	si_uid;	/* ID del usuario real del proceso emisor */
+	int	si_status;	/* Valor de salida o señal */
+	clock_t	si_utime;	/* Tiempo de usuario consumido */
+	clock_t	si_stime;	/* Tiempo de sistema consumido */
+	sigval_t	si_value;	/* Valor de señal */
+	int	si_int;	/* señal POSIX.1b */
+	void *	si_ptr;	/* señal POSIX.1b */
+	void *	si_addr;	/* Dirección de memoria que ha producido el fallo */
+	int	si_band;	/* Evento de conjunto */
+	int	si_fd;	/* Descriptor de fichero */
+}
+.fi
+.RE
+.IR si_signo ", " si_errno " y " si_code
+están definidos para todas las señales.
+.BR kill (2),
+las señales POSIX.1b y SIGCHLD rellenan
+.IR si_pid " y " si_uid .
+.BR
+SIGCHLD también rellena
+.IR si_status ", " si_utime " y " si_stime .
+.IR si_int " y " si_ptr
+son especificados por el emisor de la señal POSIX.1b.
+.\" See
+.\" .BR sigqueue (2)
+.\" for more details.
+ SIGILL, SIGFPE, SIGSEGV y SIGBUS rellenan
+.I si_addr
+con la dirección del fallo.
+SIGPOLL rellena
+.IR si_band " y " si_fd .
+
+.I si_code
+indica por qué se ha enviado la señal. Es un valor, no una máscara de bits.
+Los valores que son posibles para cualquier señal se listan en la siguiente
+tabla:
+.TS
+tab(:) allbox;
+c s
+l l.
+\fIsi_code\fR
+Valor:Origen de la señal
+SI_USER:kill, sigsend o raise
+SI_KERNEL:El núcleo
+SI_QUEUE:sigqueue
+SI_TIMER:el cronómetro ha vencido
+SI_MESGQ:ha cambiado el estado de mesq
+SI_ASYNCIO:ha terminado una E/S asíncrona
+SI_SIGIO:SIGIO encolada
+.TE
+
+.TS
+tab(:) allbox;
+c s
+l l.
+SIGILL
+ILL_ILLOPC:código de operación ilegal
+ILL_ILLOPN:operando ilegal
+ILL_ILLADR:modo de direccionamiento ilegal
+ILL_ILLTRP:trampa ilegal
+ILL_PRVOPC:código de operación privilegiada
+ILL_PRVREG:registro privilegiado
+ILL_COPROC:error del coprocesador
+ILL_BADSTK:error de la pila interna
+.TE
+
+.TS
+tab(:) allbox;
+c s
+l l.
+SIGFPE
+FPE_INTDIV:entero dividido por cero
+FPE_INTOVF:desbordamiento de entero
+FPE_FLTDIV:punto flotante dividido por cero
+FPE_FLTOVF:desbordamiento de punto flotante
+FPE_FLTUND:desbordamiento de punto flotante por defecto
+FPE_FLTRES:resultado de punto flotante inexacto
+FPE_FLTINV:operación de punto flotante inválida
+FPE_FLTSUB:subscript fuera de rango
+.TE
+
+.TS
+tab(:) allbox;
+c s
+l l.
+SIGSEGV
+SEGV_MAPERR:dirección no asociada a un objeto
+SEGV_ACCERR:permisos inválidos para un objeto presente en memoria
+.TE
+
+.TS
+tab(:) allbox;
+c s
+l l.
+SIGBUS
+BUS_ADRALN:alineamiento de dirección inválido
+BUS_ADRERR:dirección física inexistente
+BUS_OBJERR:error hardware específico del objeto
+.TE
+
+.TS
+tab(:) allbox;
+c s
+l l.
+SIGTRAP
+TRAP_BRKPT:punto de parada de un proceso
+TRAP_TRACE:trampa de seguimiento paso a paso de un proceso
+.TE
+
+.TS
+tab(:) allbox;
+c s
+l l.
+SIGCHLD
+CLD_EXITED:ha terminado un hijo
+CLD_KILLED:se ha matado a un hijo
+CLD_DUMPED:un hijo ha terminado anormalmente
+CLD_TRAPPED:un hijo con seguimiento paso a paso ha sido detenido
+CLD_STOPPED:ha parado un hijo
+CLD_CONTINUED:un hijo parado ha continuado
+.TE
+
+.TS
+tab(:) allbox;
+c s
+l l.
+SIGPOLL
+POLL_IN:datos de entrada disponibles
+POLL_OUT:buffers de salida disponibles
+POLL_MSG:mensaje de entrada disponible
+POLL_ERR:error de E/S
+POLL_PRI:entrada de alta prioridad disponible
+POLL_HUP:dispositivo desconectado
+.TE
+
+.PP
+La llamada
+.B sigprocmask
+se emplea para cambiar la lista de señales bloqueadas actualmente. El
+comportamiento de la llamada depende del valor de
+.IR how ,
+como sigue:
+.RS
+.TP
+.B SIG_BLOCK
+El conjunto de señales bloqueadas es la unión del conjunto actual y el
+argumento
+.IR set .
+.TP
+.B SIG_UNBLOCK
+Las señales en
+.I set
+se quitan del conjunto actual de señales bloqueadas. Es legal intentar
+el desbloqueo de una señal que no está bloqueada.
+.TP
+.B SIG_SETMASK
+El conjunto de señales bloqueadas se pone según el argumento
+.IR set .
+.RE
+.PP
+Si
+.I oldset
+no es nulo, el valor anterior de la máscara de señal se guarda en
+.IR oldset .
+.PP
+La llamada
+.B sigpending
+permite el examen de señales pendientes (las que han sido producidas
+mientras estaban bloqueadas). La máscara de señal de las señales
+pendientes se guarda en
+.IR set .
+.PP
+La llamada
+.B sigsuspend
+reemplaza temporalmente la máscara de señal para el proceso con la
+dada por
+.I mask
+y luego suspende el proceso hasta que se recibe una señal.
+
+.SH "VALOR DEVUELTO"
+.BR sigaction ,
+.BR sigprocmask ,
+.B sigpending
+y
+.B sigsuspend
+devuelven 0 en caso de éxito y \-1 en caso de error.
+
+.SH ERRORES
+.TP
+.B EINVAL
+Se ha especificado una señal inválida. Esto también se genera si se
+hace un intento de cambiar la acción para
+.BR SIGKILL " o " SIGSTOP ", "
+que no pueden ser capturadas.
+.TP
+.B EFAULT
+.IR act ", " oldact ", " set 
+u 
+.I oldset
+apuntan a una zona de memoria que no forma parte válida del espacio de
+direcciones del proceso.
+.TP
+.B EINTR
+La llamada al sistema ha sido interrumpida.
+
+.SH OBSERVACIONES
+No es posible bloquear
+.BR SIGKILL " ni " SIGSTOP
+con una llamada a sigprocmask.  Los intentos de hacerlo no serán
+tenidos en cuenta, silenciosamente.
+.PP
+De acuerdo con POSIX, el comportamiento de un proceso está indefinido
+después de que no haga caso de una señal SIGFPE, SIGILL o SIGSEGV que
+no haya sido generada por las funciones \fIkill()\fP o \fIraise()\fP.
+La división entera por cero da un resultado indefinido.
+En algunas arquitecturas generará una señal SIGFPE.
+(También, el dividir el entero más negativo por \-1 puede generar una señal
+SIGFPE.)
+No hacer caso de esta señal puede llevar a un bucle infinito.
+.PP
+POSIX (B.3.3.1.3) anula el establecimiento de SIG_IGN como acción para SIGCHLD.
+Los comportamientos de BSD y SYSV difieren, provocando el fallo en
+Linux de aquellos programas BSD que asignan SIG_IGN como acción para SIGCHLD.
+.PP
+La especificación POSIX sólo define
+.BR SA_NOCLDSTOP .
+El empleo de otros valores en
+.I sa_flags
+no es transportable.
+.PP
+La opción
+.B SA_RESETHAND
+es compatible con la de SVr4 del mismo nombre.
+.PP
+La opción
+.B SA_NODEFER
+es compatible con la de SVr4 del mismo nombre bajo los núcleos
+1.3.9 y posteriores. En núcleos más viejos la implementación de Linux 
+permitía la recepción de cualquier señal, no sólo la que estábamos
+instalando (sustituyendo así efectivament cualquier valor de
+.IR sa_mask ).
+.PP
+Los nombres
+.BR SA_RESETHAND " y " SA_NODEFER
+para compatibilidad con SVr4 están presentes solamente en las
+versiones de la biblioteca 3.0.9 y mayores.
+.PP
+La opción
+.BR SA_SIGINFO
+viene especificada por POSIX.1b. El soporte para ella se añadió en la
+versión 2.2 de Linux.
+.PP
+.B sigaction
+puede llamarse con un segundo argumento nulo para saber el manejador
+de señal en curso. También puede emplearse para comprobar si una señal
+dada es válida para la máquina donde se está, llamándola con el
+segundo y el tercer argumento nulos.
+.PP
+Vea
+.BR sigsetops (3)
+para detalles sobre manipulación de conjuntos de señales.
+.SH "CONFORME A"
+POSIX, SVr4.  SVr4 no documenta la condición EINTR.
+
+.SH "VÉASE TAMBIÉN"
+.BR kill (1),
+.BR kill (2),
+.BR killpg (2),
+.BR pause (2),
+.BR raise (3),
+.BR siginterrupt (3),
+.BR signal (2),
+.BR signal (7),
+.BR sigsetops (3),
+.BR sigvec (2) 

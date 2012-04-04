@@ -1,0 +1,234 @@
+Usando el disco RAM como dispositivo de bloques en Linux.
+---------------------------------------------------------
+
+Contenidos:
+
+
+	1) Resumen.
+	2) Parámetros de línea de comando para el núcleo.
+	3) Usando "rdev -r" con los nuevos núcleos.
+	4) Un ejemplo de creación de un disco RAM comprimido.
+
+
+1) Resumen
+----------
+
+  A partir del núcleo 1.3.48, el controlador de discos RAM sufrió cambios 
+sustanciales.
+
+  Las versiones anteriores cogían un trozo de memoria al arrancar el 
+sistema antes de entregarle el resto al núcleo. Por ello, había que 
+especificar un parámetro de tamaño mediante "ramdisk=1440" o 
+"rdev -r /dev/fd0 1440" para que el controlador supiera cuanta memoria 
+tenía que reservar.
+
+  Ahora el disco RAM crece dinámicamente a medida que se necesita más 
+espacio. Lo hace usando RAM del caché de buffers. El controlador marca 
+los buffers que está usando con una nueva bandera "BH_Protected"  para 
+que el núcleo no intente reutilizarlos más tarde. Esto significa que 
+el antiguo parámetro de tamaño ya no se usa, que existen parámetros de 
+línea nuevos, y comandos de línea nuevos, y que el comportamiento de los 
+comandos "rdev" o "ramsize" (normalmente enlazado simbólicamente a 
+"rdev") ha cambiado.
+
+  Además, el nuevo controlador de discos RAM aguanta un máximo de 16 
+discos sin que haga falta tocarlo, y puede ser reconfigurado en rd.c 
+para aguantar hasta 256 discos RAM. Para usar soporte de discos RAM 
+múltiples con su sistema, ejecute ´mknod /dev/ramX b 1 X´ y después use 
+chmod (para cambiar los permisos) a su gusto. El dispositivo por defecto 
+/dev/ram(disk), tiene 1 de número menor, así que empiece a partir de 
+ram2 en adelante.
+
+  El antiguo "ramdisk=<tamaño_de_ram>" ha sido reemplazado por 
+"ramdisk_size=<tamaño_de_ram>" para hacerlo más claro. El 
+"ramdisk=<tamaño_de_ram>" original se ha dejado por razones de 
+compatibilidad, pero probablemente desaparecerá en los núcleos 2.1.x.
+
+  El nuevo disco RAM también tiene la habilidad de cargar imágenes 
+comprimidas de discos RAM, permitiendo meter más programas en una 
+instalación media o en un disco de rescate.
+
+Notas: Puede tener en su sistema "/dev/ram", "/dev/ramdisk" o ambos. 
+Son equivalentes desde el punto de vista de este documento. Además, el 
+disco RAM es ahora una opción de configuración del núcleo. Cuando ejecute 
+"make config", asegúrese de que activa el soporte para discos RAM en el 
+núcleo con el que tiene pensado usar el disco RAM.
+
+
+2) Parámetros de línea de comandos para el núcleo.
+--------------------------------------------------
+
+	ramdisk_start=NNN
+	=================
+
+  Para permitir que una imagen del núcleo resida en un disquete junto con 
+una imagen comprimida de un disco RAM, se añadió el comando 
+"ramdisk_start=<offset>". El núcleo no puede incluirse en la imagen 
+comprimida del sistema de ficheros del disco RAM, porque necesita estar 
+almacenado a partir del bloque cero para que el BIOS pueda cargar el 
+sector de arranque y entonces el núcleo pueda introducirse en memoria y 
+funcionar.
+
+Nota: Si está usando una imagen sin comprimir de un disco RAM, entonces 
+el núcleo puede ser parte de la imagen que se está cargando en el disco 
+RAM, y entonces el disquete puede ser arrancado con LILO, o los dos pueden 
+estar separados de la misma forma que para las imágenes comprimidas. 
+
+  Si está usando una instalación de dos discos (núcleo en el nº1, imagen 
+del disco RAM en el nº2) entonces el disco RAM empezaría en el bloque cero, 
+y se usaría un desplazamiento (offset) cero. Como este es el valor por 
+defecto, no necesitaría realmente usar este comando.
+
+  Si, por el contrario, tiene una "zImage" de unas 350 kB, y una 
+"imagen_fs.gz" de, digamos, 1 MB, y las quiere poner en el mismo disco, 
+entonces usaría el desplazamiento (offset). Si escribió la "imagen_fs.gz" 
+a 400 kB del inicio del disquete, debería usar "ramdisk_start=400".
+
+
+	load_ramdisk=N
+	==============
+
+  Este parámetro de dice al núcleo si ha de intentar cargar una imagen de 
+disco RAM o no. Especificando "load_ramdisk=1" le dice al núcleo que 
+introduzca el contenido de un disquete en el disco RAM. El valor por 
+defecto es cero, lo que quiere decir que el núcleo no debería intentar 
+cargar un disco RAM.
+
+
+	prompt_ramdisk=N
+	================
+
+  Este parámetro le dice al núcleo si ha de hacer una pausa para pedir que se 
+inserte el disquete que contiene la imagen del disco RAM. En una 
+configuración de un sólo disquete de arranque, la imagen para el disco RAM 
+está en el mismo disco que el núcleo que acaba de cargarse (iniciarse), y 
+por tanto no se necesita una pausa. En este caso uno puede usar 
+"prompt_ramdisk=0". En una configuración de dos disquetes, necesitará una 
+oportunidad para cambiar de disco, y por tanto se puede usar 
+"prompt_ramdisk=1". Como este es el valor por defecto, realmente no es 
+necesario especificarlo.
+
+
+	ramdisk_size=N
+	==============
+
+  Este parámetro le dice al controlador de disco RAM que prepare discos de 
+N kB de tamaño. Por defecto N vale 4096 (4 MB).
+
+3) Usando "rdev -r" con los nuevos núcleos.
+-------------------------------------------
+
+  El uso de la palabra (dos bytes) que "rdev -r" coloca en la imagen del 
+núcleo ha cambiado. Los 11 bits menores (0 -> 10) especifican el 
+desplazamiento (en bloques de 1 k) de hasta 2 MB (2^11) sobre dónde 
+encontrar el disco RAM (este solía ser el campo de tamaño). El bit 14 
+indica que hay que cargar un disco RAM, y el bit 15 indica si hay que 
+hacer una pausa y pedir confirmación antes de cargar el disco RAM. Ya 
+que el disco RAM crece dinámicamente a medida que se escriben datos en 
+él, ya no se necesita un campo de tamaño. Los bits 11, 12 y 13 
+actualmente no se usan y pueden ser perfectamente todos cero. Toda esta 
+información no es ningún secreto, como puede verse:
+
+./arch/i386/kernel/setup.c:#define RAMDISK_IMAGE_START_MASK     0x07FF
+./arch/i386/kernel/setup.c:#define RAMDISK_PROMPT_FLAG          0x8000
+./arch/i386/kernel/setup.c:#define RAMDISK_LOAD_FLAG            0x4000
+
+  Considere una instalación típica de dos disquetes, donde el núcleo irá 
+en el primer disco, y donde ya ha puesto una imagen de un disco RAM en 
+el segundo disco.
+
+  Así que querrá poner a cero desde el bit 0 hasta el bit 13, lo que 
+significa que su disco RAM empieza con un desplazamiento de 0 kB 
+desde el comienzo del disquete.
+La línea de comandos equivalente es: "ramdisk_start=0".
+
+  También quiere el bit 14 puesto a uno, lo que indicará que se va a 
+cargar un disco RAM.
+La línea de comandos equivalente es: "load_ramdisk=1"
+
+  El bit 15 lo quiere puesto a uno, indicando que quiere una secuencia 
+pausa/confirmación para tener posibilidad de intercambiar los discos.
+La línea de comandos equivalente es: "prompt_ramdisk=1"
+
+  Poniendo todo junto da 2^15 + 2^14 + 0 = 49152 como palabra para rdev.
+Así que para crear el primer disco del conjunto, usted haría:
+
+	/usr/src/linux# cat arch/i386/boot/zImage > /dev/fd0
+	/usr/src/linux# rdev /dev/fd0 /dev/fd0
+	/usr/src/linux# rdev -r /dev/fd0 49152
+
+  Si hace un disco de arranque que tenga LILO, entonces para lo anterior 
+usaría:
+	append = "ramdisk_start=0 load_ramdisk=1 prompt_ramdisk=1"
+
+  Ya que por defecto start=0, y por defecto prompt=1, podría usar:
+	append = "load_ramdisk=1"
+
+
+4) Un ejemplo de creación de un disco RAM comprimido.
+-----------------------------------------------------
+
+  Para crear una imagen de un disco RAM, necesitará un dispositivo de bloques 
+de sobra donde construirla. Éste puede ser el dispositivo de discos RAM, o 
+una partición de disco no usada (como una partición de intercambio (swap) 
+sin montar). Para este ejemplo, usaremos el dispositivo de discos RAM, 
+"/dev/ram".
+
+Nota: Esta técnica no debería usarse en una máquina con menos de 8 MB de 
+RAM. Si está usando una partición de disco adicional en vez de /dev/ram, 
+entonces no hace falta aplicar esta restricción.
+
+a) Decida el tamaño de disco RAM que quiere. Digamos 2 MB por ejemplo. 
+   Créelo escribiendo en el dispositivo de disco RAM (Este paso actualmente 
+   no es necesario, pero puedes serlo en el futuro). Es inteligente poner 
+   a cero toda el área (esp. para discos) para conseguir la máxima 
+   compresión posible por los bloques no usados de la imagen que está a 
+   punto de crear.
+
+	dd if=/dev/zero of=/dev/ram bs=1k count=2048
+
+b) Cree un sistema de ficheros en él. Pongamos ext2fs para este ejemplo.
+
+	mke2fs -vm0 /dev/ram 2048
+
+c) Móntelo, copie los ficheros que quiere (p.ej.: /etc/* /dev/* ...) y 
+   desmóntelo de nuevo.
+
+d) Comprima el contenido del disco RAM. El nivel de compresión será 
+   aproximadamente el 50% del espacio usado por los ficheros. Los 
+   espacios no usados en el disco RAM se comprimirán hasta no ocupar 
+   apenas sitio.
+
+	dd if=/dev/ram bs=1k count=2048 | gzip -v9 > /tmp/ram_image.gz
+
+e) Ponga el núcleo en el disquete.
+
+	dd if=zImage of=/dev/fd0 bs=1k
+
+f) Ponga la imagen del disco RAM en el disquete, detrás del núcleo. 
+   Use un desplazamiento que sea ligeramente mayor que el núcleo, para 
+   que pueda poner otro núcleo (posiblemente más grande) en otra ocasión 
+   en el mismo disquete sin pisar la imagen del disco RAM. Un 
+   desplazamiento de 400 kB para núcleos de unas 350 kB parece razonable. 
+   Asegúrese que desplazamiento+tamaño de ram_image.gz no sea más grande 
+   que el espacio total en su disquete (habitualmente 1440 kB).
+
+	dd if=/tmp/ram_image.gz of=/dev/fd0 bs=1k seek=400
+
+g) Use "rdev" para ajustar el dispositivo de arranque, la posición del 
+   disco RAM, la bandera de pausa para cambiar los discos, etc. Para 
+   prompt_ramdisk=1, load_ramdisk=1, ramdisk_start=400, uno debería tener 
+   2^15 + 2^14 + 400 = 49552.
+
+	rdev /dev/fd0 /dev/fd0
+	rdev -r /dev/fd0 49552
+
+  Eso es todo. Ahora tiene un disquete de arranque y otro con un 
+sistema de ficheros en un disco RAM comprimido. Algunos usuarios pueden 
+preferir combinar los pasos (d) y (f) con una canalización (pipe).
+
+--------------------------------------------------------------------------
+						Paul Gortmaker 12/95	
+
+Traducción: David Martínez Moreno <ender@rediris.es>      13 Sept 1999
+Este trabajo es parte del Proyecto NuLies (http://nulies.hispalinux.es/)

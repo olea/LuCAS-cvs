@@ -1,0 +1,424 @@
+<?xml version="1.0" encoding="iso-8859-1" ?>
+<!DOCTYPE article PUBLIC "-//OASIS//DTD DocBook V4.1.2//EN"
+"http://www.oasis-open.org/docbook/xml/4.1.2/docbookx.dtd">
+
+<article>
+
+<articleinfo>
+
+<title>Gravis ULTRASOUND Plug n' Play Mini-Como </title>
+
+<author>
+<firstname>J. F. Mammet, <ulink
+url="mailto:mammet@diva.univ-mlv.fr"
+>mammet@diva.univ-mlv.fr</ulink
+>
+
+Traducido por Iñaki Martínez Díez, <ulink
+url="mailto:imd@redestb.es"
+>imd@redestb.es</ulink
+></firstname>
+</author>
+
+<pubdate>Versión 0.01, 27 de Marzo de 1996</pubdate>
+
+<abstract>
+
+<para>
+Particularidades de configuración de la Gravis ULTRASOUND Plug n' Play bajo
+Linux.
+</para>
+
+</abstract>
+
+</articleinfo>
+
+<sect1>
+<title>Introducción</title>
+
+<para>
+Como fan de las tarjetas de sonido Gravis desde hace mucho tiempo, me
+alegré mucho cuando finalmente Gravis sacó algo nuevo. Había planeado
+comprar la nueva Ultrasound desde hacía tiempo, y la compré con un mega de
+RAM tan pronto estuvo disponible aquí en Francia.
+</para>
+
+<para>
+La instalé, y qué sorpresa, mi BIOS <emphasis remap="it">plug and play</emphasis> la detectó, e incluso
+windows95 (lo siento, bromas estúpidas sobre marketing95 hoy no). Así que pensé
+que la tarjeta funcionaría en cualquier sitio ...
+</para>
+
+<para>
+Entonces arranqué Linux, no tuve problemas, la tarjeta fue detectada como una
+<literal remap="tt">GUS rev 3.4</literal>, lo cual me pareció estar bien, pero no lo estaba ...
+</para>
+
+<para>
+Algún tiempo después probé <emphasis remap="it">Quake</emphasis>, y no sonaba. Entonces leí el manual del
+juego, y ví que Quake estaba usando algún DMA no estándar que la <emphasis remap="it">GUS</emphasis> no 
+podía proporcionar ...
+</para>
+
+<para>
+Pensé que no era bueno para mi, tener tan buena tarjeta y no tener sonido en
+tan genial juego (la versión dos necesita la emulación de sound blaster, y
+yo incluso prefiero sin sonido que eso).
+</para>
+
+<para>
+Así que, ¿Ahora qué? ¿debería esperar hasta Mayo para un driver de GUS PnP?
+¿Debería comprar una sound blaster (buag)? ¿Que ocurrirá en el próximo
+episodio de Expediente X?
+</para>
+
+</sect1>
+
+<sect1>
+<title>¿GUS MAX?</title>
+
+<para>
+Entonces volví al dos, y jugué un poco con el programa <literal remap="tt">iwinit</literal>, miré
+lo que el programa decía cuando usaba el modo <emphasis remap="it">verbose</emphasis> y vi algo como 
+<literal remap="tt">CODEC dirección 32c</literal> ...
+</para>
+
+<para>
+¿Qué? ¿La GUS PnP tiene un <literal remap="tt">Codec CS4231/CS1848</literal> como la <emphasis remap="it">GUS MAX</emphasis>?
+</para>
+
+<para>
+Entonces miré en mis cintas de backup buscando los drivers de Gravis viejos,
+tomé el <literal remap="tt">ultrinit 2.31</literal> de ellos y tecleé:
+</para>
+
+<para>
+
+<screen>
+set ultrasnd=220,6,5,5,5
+set ultra16=32c,0,0,1,0
+set ultradir=c:\ultrapnp
+ultrinit
+</screen>
+
+</para>
+
+<para>
+y descubrí que: ¡¡¡ Ultrasound MAX detectada !!!
+</para>
+
+<para>
+¡Genial!, pensé entonces, sólo tengo que poner esto antes de cargar Linux y
+tendré soporte GUS MAX, y ¡¡finalmente conseguiré que el j****o <emphasis remap="it">Quake</emphasis> 
+funcione con sonido!!
+</para>
+
+<para>
+No fue tan fácil <literal remap="tt">8(</literal>
+</para>
+
+</sect1>
+
+<sect1>
+<title>Investigación del Driver</title>
+
+<para>
+No soy un buen programador, pero se suficiente C para observar los fuentes de un
+driver y ver qué pasa (especialmente cuando está bien comentado).
+</para>
+
+<para>
+Miré el fichero <literal remap="tt">gus_card.c</literal>, pero no encontré nada interesante.
+Entonces miré en <literal remap="tt">gus_wave.c</literal>, y ví esto:
+</para>
+
+<para>
+
+<screen>
+  * Value 255 means pre-3.7 which don't have mixer.
+  * Values 5 thru 9 mean v3.7 which has a ICS2101 mixer.
+  * 10 and above is GUS MAX which has the CS4231 codec/mixer.
+</screen>
+
+</para>
+
+<para>
+que significa:
+</para>
+
+<para>
+
+<screen>
+  * el Valor 255 se refiere a pre-3.7 la cual no tiene mixer.
+  * los Valores 5 a 9 se refiere a v3.7 los cuales tienen un mixer ICS2101.
+  * 10 y superior es GUS MAX la cual tiene el codec/mixer CS4231.
+</screen>
+
+</para>
+
+<para>
+¡Genial!, solo tengo que forzar el valor a 10, y funcionará ...
+¡No!
+</para>
+
+<para>
+haciendo esto haría que el kernel pensase que se tiene una GUS MAX, pero ¡no
+reconocerá el chip Codec!
+</para>
+
+<para>
+Por lo que tenía que forzar la detección del Codec también ...
+</para>
+
+<para>
+No fue tan fácil encontrar qué hacer, pero finalmente descubrí una posisbilidad:
+En el fichero <literal remap="tt"> gus_wave.c</literal>, había una línea:
+</para>
+
+<para>
+
+<screen>
+if (ad1848_detect (gus_base + 0x10c, NULL, hw_config-&#62;osp))
+</screen>
+
+</para>
+
+<para>
+lo que significaba que el kernel estaba intentando auto-detectar el chip
+AD1848, pensé que no lo podría detectar con la GUS PnP, y ¡estaba en lo
+cierto! Simplemente cambié la línea a:
+</para>
+
+<para>
+
+<screen>
+if (!(ad1848_detect (gus_base + 0x10c, NULL, hw_config-&#62;osp)))
+</screen>
+
+</para>
+
+<para>
+recompilé el kernel, y ¡¡¡hey, Quake funcionó de maravilla!!!
+</para>
+
+<para>
+Por cierto hay una etiqueta <literal remap="tt">gus_pnp_flag</literal> en <literal remap="tt">gus_card.c</literal>,
+pero no he notado ninguna diferencia con ella activada o desactivada <literal remap="tt">8(</literal>
+(quizás hice algo mal)
+</para>
+
+</sect1>
+
+<sect1>
+<title>¿Qué debería hacer exactamente?</title>
+
+<para>
+No olvidar que esto no funcionaría si no hay RAM en la GUS ...
+</para>
+
+<para>
+Primero de todo no usar <literal remap="tt">LILO</literal> nunca más, ya que es necesario inicializar la
+GUS PnP antes de ejecutar Linux ... (hacer un <literal remap="tt">fdisk /mbr</literal> bajo dos, 
+ver otros COMOs para más detalles en esto).
+</para>
+
+<para>
+En el <literal remap="tt">autoexec.bat</literal>, poner:
+</para>
+
+<para>
+
+<screen>
+set interwave=c:\ultrapnp\iw.ini
+c:\ultrapnp\iwinit
+set ultrasnd=220,6,5,5,5 (o cualquiera que se quiera o necesite)
+set ultra16=32c,0,0,1,0
+set ultradir=c:\ultrapnp
+c:\ultrapnp\ultrinit
+</screen>
+
+</para>
+
+<para>
+Se puede encontrar ultrinit en el fichero <literal remap="tt">gus00045.zip</literal>, en
+cualquier <emphasis remap="it">site</emphasis> de Gravis ...
+</para>
+
+<para>
+Bajo Linux, abrir el fichero <literal remap="tt">gus_wave.c</literal>, en
+<literal remap="tt">/usr/src/linux/drivers/sound</literal> (o en cualquier otro sitio).
+Buscar la línea:
+</para>
+
+<para>
+
+<screen>
+if (val == 255 || val &#60; 5) (line 3049 in 3.5b7)
+</screen>
+
+</para>
+
+<para>
+y una línea antes, añadir:
+</para>
+
+<para>
+
+<screen>
+val=10;
+</screen>
+
+</para>
+
+<para>
+Entonces buscar la línea:
+
+<screen>
+if (ad1848_detect (gus_base + 0x10c, NULL, hw_config-&#62;osp)) (line 3085)
+</screen>
+
+</para>
+
+<para>
+y cambiarla a:
+</para>
+
+<para>
+
+<screen>
+if (!(ad1848_detect (gus_base + 0x10c, NULL, hw_config-&#62;osp)))
+</screen>
+
+</para>
+
+<para>
+recompilar el kernel con soporte de GUS y GUS MAX. 
+
+Mi configuración es:
+</para>
+
+<para>
+
+<screen>
+BASE = 220
+IRQ = 5
+DMA1 = 6
+DMA2 = 5
+DMABUF = 65536
+</screen>
+
+</para>
+
+<para>
+¡¡¡Disfruta del sonido!!!
+</para>
+
+</sect1>
+
+<sect1>
+<title>Créditos</title>
+
+<para>
+Yo usé el kernel <literal remap="tt">1.3.75</literal> para modificar, pero debería funcionar en cualquier
+<literal remap="tt">1.3.70</literal> y superior (por favor escribirme si hay algún problema)
+</para>
+
+<para>
+Este mini-COMO esta escrito por:
+</para>
+
+<para>
+
+<itemizedlist>
+<listitem>
+
+<para>
+e-mail : <literal remap="tt"><ulink
+url="mailto:mammet@diva.univ-mlv.fr"
+>mammet@diva.univ-mlv.fr</ulink
+></literal>
+</para>
+</listitem>
+<listitem>
+
+<para>
+www    : <literal remap="tt"><ulink
+url="http://diva.univ-mlv.fr/&#732;mammet/"
+>http://diva.univ-mlv.fr/&#732;mammet/</ulink
+></literal>
+</para>
+</listitem>
+
+</itemizedlist>
+
+</para>
+
+<para>
+Se puede conseguir la última versión de este documento de mi página <emphasis remap="it">WEB</emphasis> en 
+
+<literal remap="tt"><ulink
+url="http://diva.univ-mlv.fr/&#732;mammet/linux.html"
+>http://diva.univ-mlv.fr/&#732;mammet/linux.html</ulink
+></literal> 
+(pronto disponible)
+</para>
+
+<para>
+No asumo ninguna responsabilidad si se pierden informaciones o cualquier
+error que pudiese ocurrir (incluso fastidiar win95).
+</para>
+
+<para>
+Si se encuentra algún error tipográfico (o incluso errores técnicos <literal remap="tt">8-p</literal>),
+escribirme libremente, soy sólo un pobre francés perdido en un mundo
+anglosajón, intentando hablar el idioma de forma comprensible.
+</para>
+
+</sect1>
+
+<sect1 id="Grupos">
+<title>Anexo: El INSFLUG </title>
+
+<para>
+El <emphasis>INSFLUG</emphasis> forma parte del grupo internacional 
+<emphasis remap="it">Linux Documentation Project</emphasis>, 
+encargándose de las traducciones al castellano de los Howtos (Comos),
+así como la producción de documentos originales en aquellos casos
+en los que no existe análogo en inglés.
+</para>
+
+<para>
+En el <emphasis remap="bf">INSFLUG</emphasis> se orienta preferentemente a la traducción de documentos
+breves, como los <emphasis>COMOs</emphasis> y <emphasis>PUFs</emphasis> (<emphasis remap="bf">P</emphasis>reguntas de
+<emphasis remap="bf">U</emphasis>so <emphasis remap="bf">F</emphasis>recuente, las <emphasis remap="it">FAQs</emphasis>. <literal remap="tt">:)</literal> ), etc.
+</para>
+
+<para>
+Diríjase a la sede del INSFLUG para más información al respecto.
+</para>
+
+<para>
+En la sede del INSFLUG encontrará siempre las <emphasis remap="bf">últimas</emphasis> versiones 
+de las traducciones:  <literal remap="tt"><ulink
+url="http://www.insflug.org"
+>www.insflug.org</ulink
+></literal>. Asegúrese de comprobar cuál es la última versión 
+disponible en el Insflug antes de bajar un documento de un servidor réplica.
+</para>
+
+<para>
+Se proporciona también una lista de los servidores
+réplica (<emphasis remap="it">mirror</emphasis>) del Insflug más cercanos a Vd.,  
+e información relativa a otros recursos en castellano.
+</para>
+
+<para>
+Francisco José Montilla, <literal remap="tt"><ulink
+url="mailto:pacopepe@insflug.org"
+>pacopepe@insflug.org</ulink
+></literal>.
+</para>
+
+</sect1>
+
+</article>
